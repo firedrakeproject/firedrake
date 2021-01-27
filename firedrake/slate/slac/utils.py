@@ -383,68 +383,36 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
     tsfc_knl_list = []
     tensor2temps = OrderedDict()
     coeffs = builder.collect_coefficients(builder.expression.coefficients())
-    filtered_expr = []
-    is_call = lambda e: isinstance(e, sl.Action) or isinstance(e, sl.Solve)
-    print(slate_loopy)
-    from gem.node import post_traversal
-    filtered_expr = [e for e in list(post_traversal([builder.expression], reverse=True)) if is_call(e)]
+    # invert dict
+    import pymbolic.primitives as pym
+    pyms = [pyms if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
+    pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     for c, insn in enumerate(slate_loopy.instructions):
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
 
-                # node should not depend on number because loopy instructions are a priori not rigorously ordered
-                # we need to match the node with the temporary variables in the action call
-                # FIXME we should do this nicer be keeping track of information upfront
-                def find_node(filtered_expr):
-                    for node in filtered_expr:
-                        if isinstance(node, sl.Action):
-                            child1, child2 = node.children
-                        else:
-                            child1, child2 = node.children
-                            child1, = child1.children
-                        variable0 = [v for v,t in var2terminal.items() if t == child1]
-                        variable1 = [v for v,t in var2terminal.items() if t == child2]
-                        if variable0 and not variable1:
-                            name = insn.expression.parameters[1].subscript.aggregate.name
-                            shape = child2.shape
-                            import gem
-                            var2terminal[gem.Variable(name, shape)] = child2
-                        if variable1:
-                            variable1 = [variable1[-1]]
-                        checks = [insn.expression.parameters[i].subscript.aggregate.name == v.name 
-                                  for i, v in enumerate(itertools.chain(variable0, variable1))]
-                        if all(checks):
-                            return node, var2terminal, None
-                        elif checks[0] == True and checks[1] == False:
-                            name = insn.expression.parameters[1].subscript.aggregate.name
-                            shape = child2.shape
-                            child2.name = name
-                            import gem
-                            var2terminal[gem.Variable(name, shape)] = child2
-                            return node, var2terminal, name
-
-                node, var2terminal, name = find_node(filtered_expr)
-                if isinstance(node, sl.Action):
-                    if name:
-                        terminal = node.update_action()
-                    else:
-                        terminal = node.action()
-                    coeffs.update(builder.collect_coefficients([node.ufl_coefficient]))
-                else:
-                    #FIXME for now we still assemble T1 for the non matrix-free solve
-                    terminal = node.children[0].children[0]
-
-                action_lhs_name = insn.assignee_name
-                #FIXME maybe we can avoid this gemified one
-                gemified = Variable(action_lhs_name, node.shape)
+                # the name of the lhs can change due to inlining,
+                # the indirections do only partially contain the right information
+                lhs = insn.assignees[0].subscript.aggregate
+                inlined_name = lhs.name
+                # we need to cut down the new name of the lhs matf_<old_name>
+                # and retrieve information about the slate node from the indirection
+                # with the cut down name
+                lhs.name = lhs.name[5:] if lhs.name.startswith("matf") else lhs.name
+                slate_node = var2terminal[Variable(lhs.name, pym2gem[lhs].shape)]
+                # rest of the code works with the inlined Variable
+                lhs.name = inlined_name
+                gem_node = Variable(lhs.name, pym2gem[lhs].shape)
+                terminal = slate_node.action()
+                coeffs.update(builder.collect_coefficients([slate_node.ufl_coefficient]))
 
                 # FIXME have a better way of updating the builder bag with coeffs
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
                 builder.bag = SlateWrapperBag(coeffs, "_"+str(c))
                 builder.bag.call_name_generator("_"+str(c))
 
-                inits, tensor2temp = builder.initialise_terminals({gemified: terminal}, builder.bag.coefficients)            
+                inits, tensor2temp = builder.initialise_terminals({gem_node: terminal}, builder.bag.coefficients)            
                 tensor2temps.update(tensor2temp)
 
                 # temporaries that are filled with calls, which get inlined later,
@@ -452,8 +420,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                 insns.append(*inits)
 
                 # drop all terminals that are initialised now and terminals which are the coefficient in an action
-                keys = [k for k,v in var2terminal.items() if v == node.children[1]]
-                var2terminal.pop(gem_temp)
+                keys = [k for k,v in var2terminal.items() if v == slate_node.children[1]]
+                var2terminal.pop(gem_node)
                 if keys:
                     var2terminal.pop(keys[0])
                 
@@ -461,7 +429,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
                 tsfc_knl_list.append(*tsfc_knls)
 
-                if isinstance(node, sl.Action):
+                if isinstance(slate_node, sl.Action):
                     # substitute action call with the generated tsfc call for that action
                     # but keep the lhs so that the following instructions still act on the right temporaries
                     insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
