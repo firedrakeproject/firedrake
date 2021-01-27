@@ -317,7 +317,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="terminals_first", slate_expr = None):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strategy="terminals_first", slate_expr = None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     
     if isinstance(slate_loopy, lp.program.Program):
@@ -326,7 +326,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, strategy="termin
     if strategy == "terminals_first":
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
     elif strategy == "when_needed":
-        tensor2temp, tsfc_kernels, insns, builder = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr)
+        tensor2temp, tsfc_kernels, insns, builder = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym)
 
     # FIXME for some reason the temporaries in the tsfc kernels don't have a shape
     all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
@@ -378,7 +378,7 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym):
     insns = []
     tsfc_knl_list = []
     tensor2temps = OrderedDict()
