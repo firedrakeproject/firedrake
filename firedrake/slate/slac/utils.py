@@ -449,6 +449,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                 # temporaries that are filled with calls, which get inlined later,
                 # need to be initialised
                 insns.append(*inits)
+
+                # drop all terminals that are initialised now and terminals which are the coefficient in an action
+                keys = [k for k,v in var2terminal.items() if v == node.children[1]]
+                var2terminal.pop(gem_temp)
+                if keys:
+                    var2terminal.pop(keys[0])
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
@@ -468,10 +474,21 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                     insns.append(tsfc_calls[0])
                     insns.append(insn)
 
-    # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name=name,
-                                     seq_dependencies=True, target=lp.CTarget(),
-                                     lang_version=(2018, 2))
+        else:
+            insns.append(insn)
+
+    # Initialise the very first temporary
+    var2terminal_vectors = {v:t for v,t in var2terminal.items() if len(v.shape)<2}
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, builder.bag.coefficients)            
+    tensor2temps.update(tensor2temp)
+    if inits:
+        insns.insert(0, *inits)
+
+    return tensor2temps, tsfc_knl_list, insns, builder
+
+def inline_kernel_properly(wrapper, kernel):
+
+    from loopy.transform.callable import _match_caller_callee_argument_dimension_
 
     # Generate program from kernel, so that one can register kernels
     from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
