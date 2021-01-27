@@ -459,7 +459,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                     # substitute action call with the generated tsfc call for that action
                     # but keep the lhs so that the following instructions still act on the right temporaries
                     insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                                       tsfc_calls[0].expression, id=insn.id))
+                                                                       tsfc_calls[0].expression,
+                                                                       id=insn.id,
+                                                                       within_inames=insn.within_inames))
                 else:
                     # TODO we need to be able to this in case someone wants a matrix explicit solve
                     # If we want an explicit solve, we need to assemble matrix first
