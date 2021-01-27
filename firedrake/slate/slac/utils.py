@@ -450,6 +450,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
                 # temporaries that are filled with calls, which get inlined later,
                 # need to be initialised
                 insns.append(*inits)
+
+                # drop all terminals that are initialised now and terminals which are the coefficient in an action
+                keys = [k for k,v in var2terminal.items() if v == node.children[1]]
+                var2terminal.pop(gem_temp)
+                if keys:
+                    var2terminal.pop(keys[0])
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
@@ -471,6 +477,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr):
 
         else:
             insns.append(insn)
+
+    # Initialise the very first temporary
+    var2terminal_vectors = {v:t for v,t in var2terminal.items() if len(v.shape)<2}
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, builder.bag.coefficients)            
+    tensor2temps.update(tensor2temp)
+    if inits:
+        insns.insert(0, *inits)
 
     return tensor2temps, tsfc_knl_list, insns, builder
 
