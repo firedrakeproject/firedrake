@@ -1643,6 +1643,7 @@ def Mesh(meshfile, **kwargs):
 
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
+
     filename extension):
 
     * GMSH: with extension `.msh`
@@ -1743,54 +1744,31 @@ def Mesh(meshfile, **kwargs):
                                                                dim=geometric_dim)
 
             # So every proc has a set of mesh entities that have already been partitioned
-            # I think I prefer the total_size 
             fs_section = coordinates_fs.dm.getDefaultSection()
             coordinates_data = np.empty((coordinates_fs.node_set.total_size,geometric_dim)) 
-            #coordinates_data = np.empty((self.num_cells()*(geometric_dim+1),geometric_dim)) 
-
-            spacedim=geometric_dim
-            print("My node_set calc", self.num_cells()*(geometric_dim+1))
-
-            # num_XXX yields to local size of the elements
-            print("Coordinate Function Space size", coordinates_fs.node_set.total_size)
-            print("Num vertices", self.num_vertices())
-            print("Num cells", self.num_cells())
             
             dm_cells = plex.getHeightStratum(0)
             dm_coord_sec = plex.getCoordinateSection()
             closure = self._topology.cell_closure
 
-            print("Cells range", *dm_cells)
-            print(closure)
-            simplex_dim = geometric_dim+1 # simplex dim
-            # Could be sped up only looping through cells were not made periodic
+            #with np.printoptions(threshold=np.inf):
+            #    print(closure)
+            simplex_dim = geometric_dim+1 
             
-            # FIXME: There seems to be a bug between rows and cells in the closure
-            for cell in range(*dm_cells):
-                print("***********************")
-                print("CELL", cell)
-                ys = plex.getVecClosure(dm_coord_sec, plex.getCoordinatesLocal(),cell).reshape((-1,2))
-                y = ys[:simplex_dim,:]   # Keep coords generated prior to periodization
-                print("YS")
-                print(ys)
-                print("Y2")
-                y2 = ys[simplex_dim:,:]   # Will be used later
-                print(y2)
+            # Could be sped up only looping through cells became periodic
+            for row,cell in enumerate(closure[:,-1]):
+                ys = plex.getVecClosure(dm_coord_sec,
+                                        plex.getCoordinatesLocal(),cell).reshape((-1,geometric_dim))
+                
+                y = ys[:simplex_dim,:]      # Keep coords generated prior to periodization
+                y2 = ys[simplex_dim:2*simplex_dim,:]     # Pull multivalued
                 x = np.empty_like(y)
 
-                print("Y")
-                print(y)
-                # This is the bug! rows aren't always organized by cell
-                row = np.where(closure[:,-1] == cell)  
-                # The node should be in one of the two lists.
                 for node in range(simplex_dim):
-                    #dm_node = closure[cell,node]
                     dm_node = closure[row,node]
-                    print("dmnode", dm_node)
-                    # Is there a section bug???
-                    x_temp = plex.getVecClosure(dm_coord_sec, plex.getCoordinatesLocal(), dm_node).reshape((-1, geometric_dim))
-                    print("XTEMP")
-                    print(x_temp)
+                    x_temp = plex.getVecClosure(dm_coord_sec, plex.getCoordinatesLocal(), 
+                                                    dm_node).reshape((-1, geometric_dim))
+                    # The node should be in one of the two lists.
                     missing_node =  x_temp[0].tolist() not in y.tolist()
                     if missing_node:
                         loc = np.argmax(np.sum(x_temp == y2,axis=1)) # Find the closests point
@@ -1798,13 +1776,16 @@ def Mesh(meshfile, **kwargs):
                     else:
                         x[node,:] = x_temp
                 
-
+                # What could be causing the scramble in parallel?
                 for node in range(simplex_dim):
                     for j in range(geometric_dim):
+                        # Need to get the correct ordering
                         coordinates_data[simplex_dim*cell+node,j] = x[node,j]
                         
 
-            coordinates = function.CoordinatelessFunction(coordinates_fs, val=coordinates_data, name="Coordinates")
+            coordinates = function.CoordinatelessFunction(coordinates_fs, 
+                                                          val=coordinates_data,
+                                                          name="Coordinates")
             
         else:
             coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
