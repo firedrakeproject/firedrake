@@ -412,12 +412,15 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 lhs.name = inlined_name
                 gem_inlined_node = Variable(lhs.name, gem_action_node.shape)
                 terminal = slate_node.action()
-                coeffs.update(builder.collect_coefficients([slate_node.ufl_coefficient]))
 
-                # FIXME have a better way of updating the builder bag with coeffs
+                # link the coefficient of the action to the right tensor
+                coeff = slate_node.ufl_coefficient
+                coeff_name = insn.expression.parameters[1].subscript.aggregate.name
+                coeffs.update(builder.collect_coefficients([coeff], names={coeff:coeff_name}))
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
                 builder.bag = SlateWrapperBag(coeffs, "_"+str(c))
                 builder.bag.call_name_generator("_"+str(c))
+                # FIXME have a better way of updating the builder bag with coeffs
 
                 # TODO get the tempoary which links to the same coefficient as the rhs of this node and init it
                 inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
