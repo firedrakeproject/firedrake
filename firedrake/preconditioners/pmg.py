@@ -5,10 +5,9 @@ import numpy as np
 from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement, replace
 
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD
 import loopy
 
-from firedrake.petsc import PETSc, get_petsc_variables
+from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
@@ -60,10 +59,7 @@ class PMGBase(PCSNESBase):
         if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
             raise NotImplementedError("Implement this method yourself")
 
-        degree = ele.degree()
-        family = ele.family()
-
-        N = degree
+        N = ele.degree()
         try:
             N, = set(N)
         except TypeError:
@@ -71,8 +67,14 @@ class PMGBase(PCSNESBase):
         except ValueError:
             raise NotImplementedError("Different degrees on TensorProductElement")
 
-        if family == "Discontinuous Galerkin" and N == 0:
-            raise ValueError
+        if isinstance(ele, TensorProductElement):
+            family = set(e.family() for e in ele.sub_elements())
+        else:
+            family = {ele.family()}
+
+        if family <= {"Discontinuous Lagrange", "DQ"}:
+            if N == 0:
+                raise ValueError
         elif N == 1:
             raise ValueError
 
@@ -441,7 +443,9 @@ def tensor_product_space_query(V):
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
-            variant, = set(e.variant() for e in ele.sub_elements())
+            # variant = None defaults to spectral
+            # We must allow tensor products between None and spectral
+            variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
         except ValueError:
             # Multiple variants
             variant = "unsupported"
@@ -671,16 +675,7 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
 
-        if COMM_WORLD.rank == 0:
-            petsc_variables = get_petsc_variables()
-            BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-            BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
-            BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-            BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
-        else:
-            BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
-            BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
-
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
 
