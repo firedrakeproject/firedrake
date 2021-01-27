@@ -14,7 +14,7 @@ from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import complex_mode, ScalarType_c, IntType_c
+from firedrake.utils import ScalarType_c, IntType_c
 import firedrake
 
 
@@ -670,18 +670,16 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-        BLASLAPACK_LIB = None
-        BLASLAPACK_INCLUDE = None
-        if not complex_mode:
-            if COMM_WORLD.rank == 0:
-                petsc_variables = get_petsc_variables()
-                BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-                BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
-                BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-                BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
-            else:
-                BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
-                BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
+
+        if COMM_WORLD.rank == 0:
+            petsc_variables = get_petsc_variables()
+            BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+            BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
+            BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
+            BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
+        else:
+            BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
+            BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
         self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
