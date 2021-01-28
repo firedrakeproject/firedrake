@@ -2,7 +2,8 @@ import numpy as np
 from firedrake.pointwise_operators import AbstractExternalOperator
 from firedrake.utils import cached_property
 
-from firedrake import Function, FunctionSpace, interpolate, Interpolator
+from firedrake import Function, FunctionSpace, interpolate, Interpolator, \
+    SpatialCoordinate, VectorFunctionSpace
 
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.algorithms import extract_coefficients
@@ -13,40 +14,52 @@ from ufl.tensors import as_tensor
 from pyop2.datatypes import ScalarType
 
 
-__all__ = ("DoubleLayerPotential", "SingleLayerPotential", "VolumePotential",)
+__all__ = ("DoubleLayerPotential", "PytentialLayerOperation",
+           "SingleLayerPotential", "VolumePotential",)
 
 
 # TODO: Provide better description of FMM Kwargs
-class LayerPotential(AbstractExternalOperator):
+class PytentialLayerOperation(AbstractExternalOperator):
     r"""
-    Based on whether one invokes the SingleLayerPotential subclass
-    or DoubleLyaerPotential subclass,
-    evaluates to either
+    Evaluates a pytential layer operation on a 2 or 3D mesh
+    (with geometric dim == topological dim) which has
+    a source and target of co-dimension 1 (the source
+    and target must be external boundaries in the mesh).
 
-    .. math::
+    IMPORTANT: The pytential normal direction is OPPOSITE that
+               of the firedrake normal direction.
+               This is not automatically accounted for.
+               (Although in :class:`SingleLayerPotential`
+                and :class:`DoubleLayerPotential` it is automatically
+                accounted for)
 
-         f(x)|_{x\in\Gamma} = \int_\Om K(x-y) op(y) \,dx
-
-    or
-
-    .. math::
-
-         f(x)|_{x\in\Gamma} = \int_\Om \partial_n K(x-y) op(y) \,dx
-
-    where op is a function-type living in *function_space*, \Om and \Ga
-    are disjoint boundaries of the 2, or 3D (both geometric and topological
-    dimension) mesh on which *function_space* lives,
-    and K is a :mod:`sumpy` kernel.
-
-    :kwarg source_bdy_id: A boundary id representing the source (\Om)
-    :kwarg target_bdy_id: A boundary id representing the target (\Ga)
     :kwarg operator_data: A map with required keys
 
-        * 'kernel': a :class:`sumpy.kernel.Kernel` (*K* in the math above)
+        * 'op': The pytential operation (see, for example,
+                :class:`SingleLayerPotential` or :class:`DoubleLayerPotential`).
+                Must be made up of :class:`pytential.sym.primitives`
+                as described in the *expr* argument to
+                :function:`pytential.bind`. This is not validated.
+        * 'op_shape': The shape of the output of this operator
+                      (e.g. (,) for scalar, (3,) for a vector in 3-space,
+                       (2,) for a vector in 2-space, etc.)
+        * 'density_name': The name of the density function in the
+                          pytential operation *op* (see, for example,
+                          :class:`SingleLayerPotential` or
+                          :class:`DoubleLayerPotential`).
         * 'actx': a :mod:`meshmode` :class:`meshmode.array_context.ArrayContext`
+        * 'source_bdy_id' A boundary id representing the source
+        * 'target_bdy_id' A boundary id representing the target
 
         And optional keys
 
+        * 'op_kwargs': (optional) keyword arguments to be passed to the
+                       evaluator of the pytential operation. For instance,
+                       if a :class:`sumpy.kernel.HelmholtzKernel` is being
+                       evaluated with a kappa of 0.5, you might pass
+                       `operator_data['op_kwargs'] = {'k': 0.5}`.
+                       DO NOT include the density functions in these kwargs,
+                       it will be automatically inserted.
         * 'grp_factory': (optional) An interpolatory group factory
             inheriting from :class:`meshmode.discretization.ElementGroupFactory`
             to be used in the intermediate :mod:`meshmode` representation
@@ -78,8 +91,10 @@ class LayerPotential(AbstractExternalOperator):
         #                      " not %s." % operand.function_space().shape)
         operator_data = kwargs["operator_data"]
         assert isinstance(operator_data, dict)
-        required_keys = ('kernel', 'actx')
-        optional_keys = ('grp_factory')
+        required_keys = ('op', 'op_shape', 'density_name',
+                         'actx', 'source_bdy_id', 'target_bdy_id')
+        optional_keys = ('op_kwargs',
+                         'grp_factory', 'qbx_order', 'fmm_order', 'fine_order',)
         permissible_keys = required_keys + optional_keys
         if not all(key in operator_data for key in required_keys):
             raise ValueError("operator_data is missing one of the required "
@@ -90,7 +105,9 @@ class LayerPotential(AbstractExternalOperator):
 
     @cached_property
     def _evaluator(self):
-        raise NotImplementedError("Must be provided by subclass")
+        return PytentialLayerOperationEvaluator(self,
+                                                *self.operands,
+                                                **self.kwargs)
 
     def _evaluate(self):
         1/0
@@ -102,37 +119,103 @@ class LayerPotential(AbstractExternalOperator):
         return self._evaluator._evaluate_action()
 
 
-class SingleLayerPotential(LayerPotential):
-    """
-    Layer potential which evaluates to 
+class SingleLayerPotential(PytentialLayerOperation):
+    r"""
+    Layer potential which evaluates to
 
     .. math::
 
          f(x)|_{x\in\Gamma} = \int_\Om K(x-y) op(y) \,dx
 
-    as described in :class:`~firedrake.layer_potentials.LayerPotential`
+    where \Gamma is the target boundary id and \Om is the
+    source bdy id
+    as described in :class:`~firedrake.layer_potentials.LayerPotential`,
+    and K is a :class:`sumpy.kernel.Kernel`.
+    The function space must have scalar shape.
+
+    :kwarg operator_data: A map as described in
+                          :class:`~firedrake.layer_potentials.LayerPotential`
+                          except that
+
+        * 'kernel' must be included, and map to a value of type
+          :class:`sumpy.kernel.Kernel`
+        * 'op' must not be included
+        * 'op_shape' must not be included
+        * 'density_name' must not be included
     """
-    @cached_property
-    def _evaluator(self):
-        return SingleLayerPotentialEvaluator(self, *self.operands, **self.kwargs)
+    def __init__(self):
+        # TODO
+        pass
 
 
-class DoubleLayerPotential(LayerPotential):
-    """
-    Layer potential which evaluates to 
+class DoubleLayerPotential(PytentialLayerOperation):
+    r"""
+    Layer potential which evaluates to
 
     .. math::
 
          f(x)|_{x\in\Gamma} = \int_\Om \partial_n K(x-y) op(y) \,dx
 
-    as described in :class:`~firedrake.layer_potentials.LayerPotential`
+    where \Gamma is the target boundary id and \Om is the
+    source bdy id
+    as described in :class:`~firedrake.layer_potentials.LayerPotential`,
+    and K is a :class:`sumpy.kernel.Kernel`.
+    The function space must have scalar shape.
+
+    :kwarg operator_data: A map as described in
+                          :class:`~firedrake.layer_potentials.LayerPotential`
+                          except that
+
+        * 'kernel' must be included, and map to a value of type
+          :class:`sumpy.kernel.Kernel`
+        * 'op' must not be included
+        * 'op_shape' must not be included
+        * 'density_name' must not be included
     """
     @cached_property
-    def _evaluator(self):
-        return DoubleLayerPotentialEvaluator(self, *self.operands, **self.kwargs)
+    def __init__(self):
+        # TODO:
+        pass
 
 
-class LayerPotentialEvaluator:
+def _get_target_points_and_indices(fspace, boundary_ids):
+    """
+    Get  the points from the function space which lie on the given boundary
+    id as a pytential PointsTarget, and their indices into the
+    firedrake function
+
+    :arg fspace: The function space
+    :arg boundary_ids: the boundary ids (an int or tuple of ints,
+                                         not validated)
+    :return: (target_indices, target_points)
+    """
+    if isinstance(boundary_ids, int):
+        boundary_ids = tuple(boundary_ids)
+    target_indices = set()
+    for marker in boundary_ids:
+        target_indices |= set(
+            fspace.boundary_nodes(marker, 'topological'))
+    target_indices = np.array(list(target_indices), dtype=np.int32)
+
+    target_indices = np.array(target_indices, dtype=np.int32)
+    # Get coordinates of nodes
+    coords = SpatialCoordinate(fspace.mesh())
+    function_space_dim = VectorFunctionSpace(
+        fspace.mesh(),
+        fspace.ufl_element().family(),
+        degree=fspace.ufl_element().degree())
+
+    coords = Function(function_space_dim).interpolate(coords)
+    coords = np.real(coords.dat.data)
+
+    target_pts = coords[target_indices]
+    # change from [nnodes][ambient_dim] to [ambient_dim][nnodes]
+    target_pts = np.transpose(target_pts).copy()
+    from pytential.target import PointsTarget
+    return (target_indices, PointsTarget(target_pts))
+
+
+class PytentialLayerOperationEvaluator:
     def __init__(self, vp, *operands, **kwargs):
         self.vp = vp
         operand = operands[0]
@@ -161,21 +244,68 @@ class LayerPotentialEvaluator:
         # we can re-interpolate it into the space at each evaluation
         # in case it has changed (e.g. cost functional in PDE constrained optimization.
 
-        source_bdy_id = kwargs["source_bdy_id"]
-        target_bdy_id = kwargs["target_bdy_id"]
+        # Get operator data
+        operator_data = kwargs["operator_data"]
+        # get op and op-shape
+        op = operator_data["op"]
+        op_shape = operator_data["op_shape"]
+        # Validate operator-shape
+        if not isinstance(op_shape, tuple):
+            raise TypeError("operator_data['op_shape'] must be of type "
+                            "tuple, not %s." % type(op_shape))
+        for dim in op_shape:
+            if not isinstance(dim, int):
+                raise TypeError("'%s' in operator_data['op_shape'] is of "
+                                " non-integer type %s." % (dim, type(dim)))
+            if dim <= 0:
+                raise ValueError("'%s' in operator_data['op_shape'] is "
+                                 "not positive." % dim)
+        # Get density-name and validate
+        density_name = operator_data["density_name"]
+        if not isinstance(density_name, str):
+            raise TypeError("operator_data['density_name'] must be of type "
+                            " str, not '%s'." % type(density_name))
+        # Get op kwargs and validate
+        op_kwargs = operator_data.get('op_kwargs', {})
+        if not isinstance(op_kwargs, dict):
+            raise TypeError("operator_data['op_kwargs'] must be of type "
+                            " dict, not '%s'." % type(op_kwargs))
+        for k in op_kwargs.keys():
+            if not isinstance(k, str):
+                raise TypeError("Key '%s' in operator_data['op_kwargs'] must "
+                                " be of type str, not '%s'." % type(k))
+        """
+        # Validate kernel is a sumpy kernel
+        kernel = operator_data['kernel']
+        from sumpy.kernel import Kernel
+        if not isinstance(kernel, Kernel):
+            raise TypeError("operator_data['kernel'] must be of type "
+                            "sumpy.kernel.Kernel, not %s." % type(kernel))
+        """
+
+        # Validate actx type
+        actx = operator_data['actx']
+        from meshmode.array_context import PyOpenCLArrayContext
+        if not isinstance(actx, PyOpenCLArrayContext):
+            raise TypeError("operator_data['actx'] must be of type "
+                            "PyOpenCLArrayContext, not %s." % type(actx))
+
+        source_bdy_id = operator_data["source_bdy_id"]
+        target_bdy_id = operator_data["target_bdy_id"]
         # Make sure bdy ids are appropriate types
         if not isinstance(source_bdy_id, int):
-            raise TypeError("source_bdy_id must be of type int, not type %s",
-                            type(source_bdy_id))
+            raise TypeError("operator_data['source_bdy_id'] must be of type int,"
+                            " not type %s" % type(source_bdy_id))
         if isinstance(target_bdy_id, int):
             target_bdy_id = tuple(target_bdy_id)
         if not isinstance(target_bdy_id, tuple):
-            raise TypeError("target_bdy_id must be an int or a tuple of ints,"
-                            " not of type %s" % type(target_bdy_id))
+            raise TypeError("operator_data['target_bdy_id'] must be an int "
+                            " or a tuple of ints, not of type %s" %
+                            type(target_bdy_id))
         for bdy_id in target_bdy_id:
             if not isinstance(bdy_id, int):
-                raise TypeError("non-integer value %s found in target_bdy_id"
-                                % bdy_id)
+                raise TypeError("non-integer value '%s' found in "
+                                "operator_data['target_bdy_id']" % bdy_id)
         # Make sure bdy ids are actually boundary ids
         valid_ids = function_space.mesh().exterior_facets.unique_markers
         if not set(valid_ids) >= set(target_bdy_id):
@@ -188,17 +318,29 @@ class LayerPotentialEvaluator:
             raise NotImplementedError("source and target boundaries must be "
                                       "disjoint")
 
-        operator_data = kwargs["operator_data"]
-        kernel = operator_data['kernel']
-        actx = operator_data['actx']
         degree = function_space.ufl_element().degree()
         # Get group factory, if any
         grp_factory = operator_data.get('grp_factory', None)
+        # validate grp_factory
+        from meshmode.discretization.poly_element import ElementGroupFactory
+        if grp_factory is not None:
+            if not isinstance(grp_factory, ElementGroupFactory):
+                raise TypeError("operator_data['grp_factory'] must be *None*"
+                                " or of type ElementGroupFactory, not %s." %
+                                type(grp_factory))
         # Set defaults for qbx kwargs
         qbx_order = kwargs.get('qbx_order', degree+2)
         fine_order = kwargs.get('fine_order', 4 * degree)
         fmm_order = kwargs.get('fmm_order', 6)
-        # TODO : Validate these kwargs
+        # Validate qbx kwargs
+        for var, name in zip([qbx_order, fine_order, fmm_order],
+                             ['qbx_order', 'fine_order', 'fmm_order']):
+            if not isinstance(var, int):
+                raise TypeError("operator_data['%s'] must be of type int, "
+                                "not %s." % (name, type(var)))
+            if not var > 0:
+                raise ValueError("operator_data['%s'] = %s is not positive."
+                                 % (name, var))
 
         qbx_kwargs = {'qbx_order': qbx_order,
                       'fine_order': fine_order,
@@ -207,30 +349,50 @@ class LayerPotentialEvaluator:
                       }
         # }}}
 
-        from sumpy.kernel import Kernel
-        if not isinstance(kernel, Kernel):
-            raise TypeError("operator_data['kernel'] must be of type "
-                            "sumpy.kernel.Kernel, not %s." % type(kernel))
-
         # Build connection into meshmode
+        from meshmode.discretization.poly_element import \
+            PolynomialRecursiveNodesElementGroupFactory
         from meshmode.interop.firedrake import build_connection_from_firedrake
+        if grp_factory is None:
+            grp_factory = PolynomialRecursiveNodesElementGroupFactory(degree)
         meshmode_connection = build_connection_from_firedrake(
             actx, function_space, grp_factory=grp_factory,
             restrict_to_boundary=source_bdy_id)
 
-        # TODO: Bind pytential operator
+        # build connection meshmode near src boundary -> src boundary inside meshmode
+        from meshmode.discretization.connection import make_face_restriction
+        src_bdy_connection = make_face_restriction(actx,
+                                                   meshmode_connection.discr,
+                                                   grp_factory,
+                                                   source_bdy_id)
+
+        # Build QBX
+        from pytential.qbx import QBXLayerPotentialSource
+        qbx = QBXLayerPotentialSource(src_bdy_connection.to_discr, **qbx_kwargs)
+        # Get target, and store the firedrake indices of the points
+        target_indices, target = _get_target_points_and_indices(function_space,
+                                                                target_bdy_id)
+
+        # Bind pytential operator
+        from pytential import bind
+        self.pyt_op = bind((qbx, target), op)
+        self.density_name = density_name
+        self.op_kwargs = op_kwargs
 
         # Store attributes that we may need later
-        #self.ufl_operands = operands
+        # self.ufl_operands = operands
         self.actx = actx
-        self.sumpy_kernel = kernel
+        self.op_shape = op_shape
         self.meshmode_connection = meshmode_connection
+        self.src_bdy_connection = src_bdy_connection
+        self.target_indices = target_indices
         # so we don't have to keep making a fd function during conversion
         # from meshmode. AbstractExternalOperator s aren't functions,
         # so can't use *self*
         self.fd_pot = Function(function_space)
         # initialize to zero so that only has values on target boundary
         self.fd_pot.dat.data[:] = 0.0
+
 
     def _evaluate(self):
         operand, = self.vp.ufl_operands
@@ -240,16 +402,16 @@ class LayerPotentialEvaluator:
         from meshmode.dof_array import flatten
         meshmode_src_vals = \
             self.meshmode_connection.from_firedrake(operand_discrete, actx=self.actx)
-        meshmode_src_vals = flatten(meshmode_src_vals)
+        # pass operand onto boundary
+        meshmode_src_vals_on_bdy = self.src_bdy_connection(meshmode_src_vals)
 
-        # TODO : Evluate pytential potential
-
-        # get meshmode data back as firedrake function
-        self.meshmode_connection.from_meshmode(
-            meshmode_pot_vals,
-            out=self.fd_pot)
+        # Evaluate pytential potential
+        self.op_kwargs[self.density_name] = meshmode_src_vals_on_bdy
+        # FIXME : Make sure this conversion works for non-scalar shapes!!!
+        self.fd_pot.dat.data[self.target_indices] = self.pyt_op(**self.op_kwargs)
+        # Store in vp
         self.vp.dat.data[:] = self.fd_pot.dat.data[:]
-
+        # Return evaluated potential
         return self.fd_pot
 
     def _compute_derivatives(self):
@@ -282,7 +444,6 @@ class LayerPotentialEvaluator:
             if len(expr.ufl_free_indices):
                 expr = as_tensor(expr, mi_tensor)
         return self.interpolate(expr)
-
 
 
 class VolumePotential(AbstractExternalOperator):
