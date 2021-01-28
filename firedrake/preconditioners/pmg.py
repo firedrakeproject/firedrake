@@ -2,7 +2,7 @@ from functools import partial
 from itertools import chain
 import numpy as np
 
-from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement, replace
+from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
 
 from pyop2 import op2
 import loopy
@@ -195,29 +195,36 @@ class PMGBase(PCSNESBase):
                                               bc.sub_domain,
                                               method=bc.method))
 
-        def get_degree(ele):
-            if isinstance(ele, (MixedElement, VectorElement, TensorElement, TensorProductElement)):
-                sub = ele.sub_elements()
-                return get_degree(sub[0])
+        def get_max_degree(ele):
+            if isinstance(ele, MixedElement):
+                return max(get_max_degree(sub) for sub in ele.sub_elements())
             else:
                 N = ele.degree()
                 try:
-                    N, = set(N)
+                    N = max(N)
                 except TypeError:
                     pass
                 return N
 
-        # Coarsen the quadrature degree
+        Nf = get_max_degree(fV.ufl_element())
+        Nc = get_max_degree(cV.ufl_element())
+
+        # Coarsen the quadrature degree in a dictionary
         # such that the ratio of GL to GLL nodes is preserved
+        def coarsen_quadrature(df, Nf, Nc):
+            dc = dict(df)
+            Nq = dc.get("quadrature_degree", None)
+            if Nq is not None:
+                dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+            return dc
+
         fcp = fctx._problem.form_compiler_parameters
         if fcp is not None:
-            fcp = dict(fcp)
-            if "quadrature_degree" in fcp:
-                Nq = fcp["quadrature_degree"]
-                Nc = get_degree(cV.ufl_element())
-                Nf = get_degree(fV.ufl_element())
-                Nq = ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1
-                fcp["quadrature_degree"] = max(Nq, 2*Nc+1)
+            fcp = coarsen_quadrature(fcp, Nf, Nc)
+
+        for cform in (cF, cJ, cJp):
+            if cform is not None:
+                cform = Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc)) for f in cform.integrals()])
 
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
                                                          Jp=cJp,
