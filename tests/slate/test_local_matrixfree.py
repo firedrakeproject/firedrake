@@ -69,8 +69,12 @@ def expr(request, A, A2, f):
         return A2*A.inv
     elif request.param == "A2.inv*A":
         return A2.inv*A
-    elif request.param == "A-A*A.inv*A":
-        return A-A*A.inv*A
+    elif request.param == "A2*A.inv*A":
+        return A2*A.inv*A
+    elif request.param == "A-A.inv*A":
+        return A-A.inv*A
+    elif request.param == "A+A2*A.inv*A":
+        return A+A-A2*A.inv*A
 
 
 def test_new_slateoptpass(expr, f):
