@@ -54,7 +54,7 @@ def test_derivation_wrt_pointwiseoperator(mesh):
     dl = diff(l, p2)
     assert apply_derivatives(dl) == dl_dp2
 
-    L = p2*u*dx
-    dL_dp2 = u*u_hat*dx
+    L = inner(u, p2) * dx
+    dL_dp2 = inner(u, u_hat) * dx
     Gateaux_dL = derivative(L, p2, u_hat)
     assert apply_derivatives(Gateaux_dL) == dL_dp2

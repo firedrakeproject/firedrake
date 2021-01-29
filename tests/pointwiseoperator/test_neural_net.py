@@ -1,9 +1,12 @@
 import pytest
 from firedrake import *
-try:
-    import torch
-except ImportError:
-    raise ImportError("Try: pip install torch")
+
+# skip testing this module if cannot import torch
+pytestmark = pytest.importorskip("torch")
+# torch isn't compatible with complex types
+pytestmark = pytest.mark.skipif(utils.complex_mode, reason="PyTorch not compatible with complex types")
+
+import torch
 
 import torch.nn.functional as F
 

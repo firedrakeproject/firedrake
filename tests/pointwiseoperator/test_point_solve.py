@@ -73,13 +73,13 @@ def test_pointwise_solve_operator(mesh):
     p = point_solve(lambda x, y: x**3-y, function_space=V, solver_params={'x0': g+0.3})
     p2 = p(g)
 
-    F = (dot(grad(p2*u), grad(v)) + u*v)*dx - f*v*dx
+    F = (inner(grad(p2*u), grad(v)) + inner(u, v))*dx - inner(f, v)*dx
     solve(F == 0, u)
 
-    F = (dot(grad((g**2)*u2), grad(v)) + u2*v)*dx - f*v*dx
+    F = (inner(grad((g**2)*u2), grad(v)) + inner(u2, v))*dx - inner(f, v)*dx
     solve(F == 0, u2)
 
-    F = (dot(grad(p2*u3), grad(v)) + u3*v)*dx - f*v*dx
+    F = (inner(grad(p2*u3), grad(v)) + inner(u3, v))*dx - inner(f, v)*dx
     problem = NonlinearVariationalProblem(F, u3)
     solver = NonlinearVariationalSolver(problem)
     solver.solve()
@@ -118,14 +118,14 @@ def test_scalar_check_equality(mesh):
     u = Function(V1)
     f = Function(V1).interpolate(cos(x)*sin(y))
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_solve(lambda x, y: x - y, function_space=V1, solver_params={'maxiter': 50})
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_solve = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -141,14 +141,14 @@ def test_vector_check_equality(mesh):
     u = Function(V1)
     f = Function(V1).interpolate(as_vector([cos(x), sin(y)]))
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_solve(lambda x, y: x - y, function_space=V1, solver_params={'maxiter': 50})
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_solve = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -166,14 +166,14 @@ def test_tensor_check_equality(mesh):
     phi = Function(V0).interpolate(as_vector([cos(x), sin(y)]))
     f = grad(phi)
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_solve(lambda x, y: x - y, function_space=V1, solver_params={'maxiter': 50})
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_solve = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -192,7 +192,7 @@ def test_sym_grad_check_equality(mesh):
 
     u = Function(V1)
 
-    F = inner(grad(w), sym(grad(u)))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), sym(grad(w)))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u3 = Function(V1).assign(1.5)
@@ -201,7 +201,7 @@ def test_sym_grad_check_equality(mesh):
     ps = point_solve(lambda x, y: x - y, function_space=V1, solver_name='newton', solver_params={'maxiter': 50, 'x0': u2+u3})
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), sym(grad(u2)))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), sym(grad(w)))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -240,7 +240,7 @@ def test_glen_flow_law():
     # PointsolveOperator
     tau2 = ps(sym(grad(u2)))
 
-    F2 = inner(p2, div(w))*dx - inner(grad(w), tau2)*dx - inner(div(u2), phi)*dx
+    F2 = inner(p2, div(w))*dx - inner(tau2, grad(w))*dx - inner(div(u2), phi)*dx
     solve(F2 == 0, soln2, bcs=bcs, solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
                                                       "mat_type": "aij", "pc_factor_mat_solver_type": "mumps"})
     u2_out, p2_out = soln2.split()

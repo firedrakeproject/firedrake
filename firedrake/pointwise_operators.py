@@ -276,7 +276,9 @@ class PointexprOperator(AbstractExternalOperator):
         return self.operator_data
 
     def _compute_derivatives(self):
-        symb = sp.symbols('s:%d' % len(self.ufl_operands))
+        cplx = utils.complex_mode
+        real = not cplx
+        symb = sp.symbols('s:%d' % len(self.ufl_operands), real=real, complex=cplx)
         r = sp.diff(self.expr(*symb), *zip(symb, self.derivatives))
         return sp.lambdify(symb, r, dummify=True)
 
@@ -348,6 +350,16 @@ class PointsolveOperator(AbstractExternalOperator):
             error("Expecting a dict with the solver arguments instead of %s" % operator_data['solver_params'])
 
         self.disp = disp
+
+        # per this stack overflow
+        # https://stackoverflow.com/questions/63363308/can-a-ufuncify-function-be-set-up-to-take-complex-input-ufunc-wrapper-modul
+        # Cython doesn't do the right thing for ufuncify, so use fortran instead
+        if utils.complex_mode:
+            self.ufuncify_language = 'F95'
+            self.ufuncify_backend = 'f2py'
+        else:
+            self.ufuncify_language = 'C'
+            self.ufuncify_backend = 'Cython'
 
     @property
     def operator_f(self):
@@ -663,14 +675,19 @@ class PointsolveOperator(AbstractExternalOperator):
                     H += ((str(var), sub_expr, list(symbs) + extra_symbs),)
                     extra_symbs += [var]
                 # TODO: define directory (add name path tempdir="[name_path]")
-                gen_func = ufuncify(symbs, S, language='C', backend='Cython', helpers=list(H))
+                gen_func = ufuncify(symbs, S,
+                                    language=self.ufuncify_language,
+                                    backend=self.ufuncify_backend,
+                                    helpers=list(H))
             else:
                 # Special case because helpers=list( () ) slows down the code generation
                 # TODO: define directory (add name path tempdir="[name_path]")
-                gen_func = ufuncify(symbs, S, language='C', backend='Cython')
+                gen_func = ufuncify(symbs, S,
+                                    language=self.ufuncify_language,
+                                    backend=self.ufuncify_backend)
 
             def python_eval_wrapper(*args, n=n):
-                result = np.empty((n,))
+                result = np.empty((n,), dtype=utils.ScalarType)
                 vals = ()
                 for e in args:
                     if len(e.shape) == 1:
@@ -706,11 +723,16 @@ class PointsolveOperator(AbstractExternalOperator):
                     H += ((str(var), sub_expr, list(symbs) + extra_symbs),)
                     extra_symbs += [var]
                 # TODO: define directory (add name path tempdir="[name_path]")
-                ufuncs = [ufuncify(symbs, expr[i], language='C', backend='Cython', helpers=list(H)) for i in range(nn*mm)]
+                ufuncs = [ufuncify(symbs, expr[i],
+                                   language=self.ufuncify_language,
+                                   backend=self.ufuncify_backend,
+                                   helpers=list(H)) for i in range(nn*mm)]
             else:
                 # Special case because helpers=list( () ) slows down the code generation
                 # TODO: define directory (add name path tempdir="[name_path]")
-                ufuncs = [ufuncify(symbs, expr[i], language='C', backend='Cython') for i in range(nn*mm)]
+                ufuncs = [ufuncify(symbs, expr[i],
+                                   language=self.ufuncify_language,
+                                   backend=self.ufuncify_backend) for i in range(nn*mm)]
 
             def python_eval_wrapper(*args, n=n, M=M, expr=expr, symbs=symbs):
                 result = np.empty((n, nn, mm))
@@ -752,7 +774,7 @@ class PointsolveOperator(AbstractExternalOperator):
         # Explicitly copy `x0` as `p` will be modified inplace, but, the
         # user's array should not be altered.
         try:
-            p = np.array(x0, copy=True, dtype=float)
+            p = np.array(x0, copy=True, dtype=utils.ScalarType)
         except TypeError:
             # can't convert complex to float
             p = np.array(x0, copy=True)
@@ -808,19 +830,21 @@ class PointsolveOperator(AbstractExternalOperator):
         return p
 
     def _sympy_create_symbols(self, xshape, i, granular=True):
+        cplx = utils.complex_mode
+        real = not cplx
         if len(xshape) == 0:
-            return sp.symbols('s_'+str(i))
+            return sp.symbols('s_'+str(i), real=real, complex=cplx)
         elif len(xshape) == 1:
             if not granular:
                 return sp.Matrix(sp.MatrixSymbol('V_'+str(i), xshape[0], 1))
-            symb = sp.symbols('v'+str(i)+'_:%d' % xshape[0], real=True)
+            symb = sp.symbols('v'+str(i)+'_:%d' % xshape[0], real=real, complex=cplx)
             # sp.Matrix are more flexible for the representation of vector than sp.Array (e.g it enables to use norms)
             return sp.Matrix(symb)
         elif len(xshape) == 2:
             if not granular:
                 return sp.Matrix(sp.MatrixSymbol('M_'+str(i), *xshape))
             nm = xshape[0]*xshape[1]
-            symb = sp.symbols('m'+str(i)+'_:%d' % nm, real=True)
+            symb = sp.symbols('m'+str(i)+'_:%d' % nm, real=real, complex=cplx)
             coeffs = [symb[i:i+xshape[1]] for i in range(0, nm, xshape[1])]
             return sp.Matrix(coeffs)
 

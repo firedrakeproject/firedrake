@@ -103,10 +103,10 @@ def test_pointwise_expr_operator(mesh):
     p = point_expr(lambda x: x**2+1, function_space=V)
     p2 = p(g)
 
-    F = (dot(grad(p2*u), grad(v)) + u*v)*dx - f*v*dx
+    F = (inner(grad(p2*u), grad(v)) + inner(u, v))*dx - inner(f, v)*dx
     solve(F == 0, u)
 
-    F2 = (dot(grad((g**2+1)*u2), grad(v)) + u2*v)*dx - f*v*dx
+    F2 = (inner(grad((g**2+1)*u2), grad(v)) + inner(u2, v))*dx - inner(f, v)*dx
     solve(F2 == 0, u2)
 
     a1 = assemble(u*dx)
@@ -155,14 +155,14 @@ def test_scalar_check_equality(mesh):
     u = Function(V1)
     f = Function(V1).interpolate(cos(x)*sin(y))
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -173,11 +173,13 @@ def test_scalar_check_equality(mesh):
     ps = action_point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
     check_error = False
     try:
+        import petsc4py.PETSc
+        petsc4py.PETSc.Sys.popErrorHandler()
         solve(F2 == 0, u2)
     except:
         # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
@@ -201,14 +203,14 @@ def test_vector_check_equality(mesh):
     u = Function(V1)
     f = Function(V1).interpolate(as_vector([cos(x), sin(y)]))
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
@@ -219,7 +221,7 @@ def test_vector_check_equality(mesh):
     ps = action_point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
     check_error = False
@@ -249,14 +251,14 @@ def test_tensor_check_equality(mesh):
     phi = Function(V0).interpolate(as_vector([cos(x), sin(y)]))
     f = grad(phi)
 
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     u2 = Function(V1)
     ps = point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -269,7 +271,7 @@ def test_tensor_check_equality(mesh):
     ps = action_point_expr(lambda x: x, function_space=V1)
     tau2 = ps(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
     check_error = False
