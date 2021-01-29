@@ -38,10 +38,9 @@ class PMGBase(PCSNESBase):
     of the polynomial degree. For mixed systems a `NotImplementedError`
     is raised, as I don't know how to make a sensible default for this.
     It is expected that many (most?) applications of this preconditioner
-    will subclass :class:`PMGPC` to override `coarsen_element`.
+    will subclass :class:`PMGBase` to override `coarsen_element`.
     """
-    @staticmethod
-    def coarsen_element(ele):
+    def coarsen_element(self, ele):
         """
         Coarsen a given element to form the next problem down in the p-hierarchy.
 
@@ -90,7 +89,10 @@ class PMGBase(PCSNESBase):
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
         :arg N: an integer degree.
         """
-        if isinstance(ele, (VectorElement, TensorElement)):
+        if isinstance(ele, TensorElement):
+            sub = ele.sub_elements()
+            return TensorElement(PMGBase.reconstruct_degree(sub[0], N), shape=ele.value_shape(), symmetry=ele.symmetry())
+        elif isinstance(ele, VectorElement):
             sub = ele.sub_elements()
             return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):

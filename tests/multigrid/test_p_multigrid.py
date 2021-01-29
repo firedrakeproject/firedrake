@@ -165,12 +165,8 @@ def test_p_multigrid_vector():
 
 
 class MixedPMG(PMGPC):
-    @staticmethod
-    def coarsen_element(ele):
-        csubeles = []
-        for subele in ele.sub_elements():
-            csubeles.append(PMGPC.coarsen_element(subele))
-        return MixedElement(csubeles)
+    def coarsen_element(self, ele):
+        return MixedElement([super().coarsen_element(sub) for sub in ele.sub_elements()])
 
 
 @pytest.mark.skipcomplex
@@ -216,8 +212,15 @@ def test_p_multigrid_mixed():
 
 
 def test_p_fas_scalar():
+    mat_type = "matfree"
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
-    V = FunctionSpace(mesh, "CG", 7)
+    V = FunctionSpace(mesh, "CG", 4)
+
+    # This problem is fabricated such that the exact solution
+    # is resolved before reaching the finest level, hence no
+    # work should be done in the finest level.
+    # This will no longer be true for non-homogenous bcs, due
+    # to the way firedrake imposes the bcs before injection.
     x = SpatialCoordinate(mesh)
     u = Function(V)
     v = TestFunction(V)
@@ -225,13 +228,17 @@ def test_p_fas_scalar():
     bcs = DirichletBC(V, 0, "on_boundary")
 
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+    rhs = assemble(F, bcs=bcs)
+    with rhs.dat.vec_ro as Fvec:
+        Fnorm = Fvec.norm()
+
+    rtol = 1E-8
+    atol = rtol * Fnorm
 
     coarse = {
-        "ksp_type": "richardson",
-        "ksp_max_it": 1,
-        "ksp_norm_type": "unpreconditioned",
-        "ksp_monitor": None,
-        "pc_type": "lu"}
+        "ksp_type": "preonly",
+        "ksp_norm_type": None,
+        "pc_type": "cholesky"}
 
     relax = {
         "ksp_type": "chebyshev",
@@ -241,27 +248,26 @@ def test_p_fas_scalar():
         "pc_type": "jacobi"}
 
     pmg = {
-        "snes_monitor": None,
         "snes_type": "ksponly",
-        "ksp_atol": 1.0E-9,
-        "ksp_rtol": 1.0E-9,
-        "ksp_type": "fgmres",
-        "ksp_monitor_true_residual": None,
+        "ksp_atol": atol,
+        "ksp_rtol": 1E-50,
+        "ksp_type": "cg",
         "ksp_converged_reason": None,
+        "ksp_monitor_true_residual": None,
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",
         "pc_python_type": "firedrake.PMGPC",
         "pmg_pc_mg_type": "multiplicative",
         "pmg_mg_levels": relax,
-        "pmg_mg_levels_transfer_mat_type": "matfree",
+        "pmg_mg_levels_transfer_mat_type": mat_type,
         "pmg_mg_coarse": coarse}
 
     pfas = {
         "mat_type": "aij",
         "snes_monitor": None,
-        "snes_rtol": 1.0e-8,
-        "snes_atol": 1.0e-8,
-        "snes_max_it": 1,
+        "snes_converged_reason": None,
+        "snes_atol": atol,
+        "snes_rtol": 1E-50,
         "snes_type": "python",
         "snes_python_type": "firedrake.PMGSNES",
         "pfas_snes_fas_type": "kaskade",
@@ -272,6 +278,89 @@ def test_p_fas_scalar():
     solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
     solver.solve()
 
+    # FIXME this is incorrect, must find a way to get ksp_iter from every level
     assert solver.snes.ksp.its <= 0
+    ppc = solver.snes.getPythonContext().ppc
+    assert ppc.getFASLevels() == 3
+
+
+def test_p_fas_nonlinear_scalar():
+    mat_type = "matfree"
+    N = 4
+    dxq = dx(degree=3*N)  # here we test coarsening of quadrature degree
+
+    mesh = UnitSquareMesh(4, 4, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", N)
+    u = Function(V)
+    f = Constant(1)
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    # Regularized p-Laplacian
+    p = 5
+    eps = 1
+    y = eps + inner(grad(u), grad(u))
+    E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
+    F = derivative(E, u, TestFunction(V))
+
+    rhs = assemble(F, bcs=bcs)
+    with rhs.dat.vec_ro as Fvec:
+        Fnorm = Fvec.norm()
+
+    rtol = 1E-8
+    atol = rtol * Fnorm
+
+    newton = {
+        "mat_type": "aij",
+        "snes_monitor": None,
+        "snes_converged_reason": None,
+        "snes_type": "newtonls",
+        "snes_max_it": 20,
+        "snes_atol": atol,
+        "snes_rtol": 1E-50}
+
+    coarse = {
+        "ksp_type": "preonly",
+        "ksp_norm_type": None,
+        "pc_type": "cholesky"}
+
+    relax = {
+        "ksp_type": "chebyshev",
+        "ksp_norm_type": None,
+        "ksp_max_it": 3,
+        "pc_type": "jacobi"}
+
+    pmg = {
+        "ksp_atol": atol*1E-1,
+        "ksp_rtol": 1E-50,
+        "ksp_type": "cg",
+        "ksp_converged_reason": None,
+        "ksp_monitor_true_residual": None,
+        "ksp_norm_type": "unpreconditioned",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.PMGPC",
+        "pmg_pc_mg_type": "multiplicative",
+        "pmg_mg_levels": relax,
+        "pmg_mg_levels_transfer_mat_type": mat_type,
+        "pmg_mg_coarse": coarse}
+
+    nt_pmg = {**newton, **pmg}
+
+    pfas = {
+        "mat_type": "aij",
+        "snes_monitor": None,
+        "snes_converged_reason": None,
+        "snes_atol": atol,
+        "snes_rtol": 1E-50,
+        "snes_type": "python",
+        "snes_python_type": "firedrake.PMGSNES",
+        "pfas_snes_fas_type": "kaskade",
+        "pfas_fas_levels": nt_pmg,
+        "pfas_fas_coarse": {**newton, **coarse}}
+
+    problem = NonlinearVariationalProblem(F, u, bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
+    solver.solve()
+
+    # TODO assert ksp_iter(pfas) < ksp_iter(nt_pmg)
     ppc = solver.snes.getPythonContext().ppc
     assert ppc.getFASLevels() == 3
