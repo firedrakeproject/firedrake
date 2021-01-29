@@ -221,13 +221,16 @@ def test_p_fas_scalar():
     # work should be done in the finest level.
     # This will no longer be true for non-homogenous bcs, due
     # to the way firedrake imposes the bcs before injection.
-    x = SpatialCoordinate(mesh)
     u = Function(V)
     v = TestFunction(V)
+    x = SpatialCoordinate(mesh)
     f = x[0]*(1-x[0]) + x[1]*(1-x[1])
     bcs = DirichletBC(V, 0, "on_boundary")
 
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+
+    # Due to the convoluted nature of the nested iteration
+    # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
     with rhs.dat.vec_ro as Fvec:
         Fnorm = Fvec.norm()
@@ -278,16 +281,16 @@ def test_p_fas_scalar():
     solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
     solver.solve()
 
-    # FIXME this is incorrect, must find a way to get ksp_iter from every level
-    assert solver.snes.ksp.its <= 0
     ppc = solver.snes.getPythonContext().ppc
-    assert ppc.getFASLevels() == 3
+    levels = ppc.getFASLevels() 
+    assert levels == 3
+    assert ppc.getFASSmoother(levels-1).getLinearSolveIterations() == 0
 
 
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
     N = 4
-    dxq = dx(degree=3*N)  # here we test coarsening of quadrature degree
+    dxq = dx(degree=3*N)  # here we also test coarsening of quadrature degree
 
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", N)
@@ -302,6 +305,8 @@ def test_p_fas_nonlinear_scalar():
     E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
     F = derivative(E, u, TestFunction(V))
 
+    # Due to the convoluted nature of the nested iteration
+    # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
     with rhs.dat.vec_ro as Fvec:
         Fnorm = Fvec.norm()
@@ -360,7 +365,14 @@ def test_p_fas_nonlinear_scalar():
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
     solver.solve()
-
-    # TODO assert ksp_iter(pfas) < ksp_iter(nt_pmg)
     ppc = solver.snes.getPythonContext().ppc
-    assert ppc.getFASLevels() == 3
+    levels = ppc.getFASLevels() 
+    assert levels == 3
+    iter_pfas = ppc.getFASSmoother(levels-1).getLinearSolveIterations()
+
+    # Compare iterations on fine grid against a cold start (Newton/pmg)
+    u.interpolate(Constant(0))
+    solver = NonlinearVariationalSolver(problem, solver_parameters=nt_pmg)
+    solver.solve()
+    iter_pmg = solver.snes.getLinearSolveIterations()
+    assert 2*iter_pfas <= iter_pmg
