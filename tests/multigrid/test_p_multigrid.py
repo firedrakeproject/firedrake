@@ -166,7 +166,7 @@ def test_p_multigrid_vector():
 
 class MixedPMG(PMGPC):
     def coarsen_element(self, ele):
-        return MixedElement([super().coarsen_element(sub) for sub in ele.sub_elements()])
+        return MixedElement([PMGPC.coarsen_element(self, sub) for sub in ele.sub_elements()])
 
 
 @pytest.mark.skipcomplex

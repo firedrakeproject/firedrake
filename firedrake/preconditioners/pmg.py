@@ -66,15 +66,7 @@ class PMGBase(PCSNESBase):
         except ValueError:
             raise NotImplementedError("Different degrees on TensorProductElement")
 
-        if isinstance(ele, TensorProductElement):
-            family = set(e.family() for e in ele.sub_elements())
-        else:
-            family = {ele.family()}
-
-        if family <= {"Discontinuous Lagrange", "DQ"}:
-            if N == 0:
-                raise ValueError
-        elif N == 1:
+        if N <= self.coarse_degree:
             raise ValueError
 
         return PMGBase.reconstruct_degree(ele, N // 2)
@@ -112,6 +104,10 @@ class PMGBase(PCSNESBase):
         test, trial = ctx.J.arguments()
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
+
+        # Get the coarse degree from PETSc options
+        prefix = pc.getOptionsPrefix()
+        self.coarse_degree = PETSc.Options(prefix).getInt("pmg_mg_coarse_degree", default=1)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
