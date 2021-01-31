@@ -271,7 +271,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         # make sure to collect petsc errors
         import petsc4py.PETSc
         petsc4py.PETSc.Sys.popErrorHandler()
-        solve(aN + aL == rhs_form, u, solver_parameters=solver_params)
+        solve(aN + aL == rhs_form, comp_sol, solver_parameters=solver_params)
 
         true_sol = Function(cgfspace).interpolate(true_sol_expr)
         err = norms.l2_norm(true_sol - comp_sol)
