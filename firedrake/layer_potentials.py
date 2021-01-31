@@ -192,7 +192,8 @@ class SingleOrDoubleLayerPotential(PytentialLayerOperation):
         # Get kernel kwargs if any
         kernel_kwargs = operator_data.get('kernel_kwargs', {})
         # Build single-layer potential
-        op = self._getOp(kernel, density_name, kernel_kwargs)
+        from pytential.sym import var
+        op = self._getOp(kernel, var(density_name), kernel_kwargs)
         del operator_data['kernel']
         del operator_data['kernel_kwargs']
         operator_data['op'] = op
@@ -255,8 +256,9 @@ def _get_target_points_and_indices(fspace, boundary_ids):
         boundary_ids = tuple(boundary_ids)
     target_indices = set()
     for marker in boundary_ids:
+        # Make sure geometric since discontinuous space
         target_indices |= set(
-            fspace.boundary_nodes(marker, 'topological'))
+            fspace.boundary_nodes(marker, 'geometric'))
     target_indices = np.array(list(target_indices), dtype=np.int32)
 
     target_indices = np.array(target_indices, dtype=np.int32)
@@ -278,8 +280,8 @@ def _get_target_points_and_indices(fspace, boundary_ids):
 
 
 class PytentialLayerOperationEvaluator:
-    def __init__(self, vp, *operands, **kwargs):
-        self.vp = vp
+    def __init__(self, pyt_layer, *operands, **kwargs):
+        self.pyt_layer = pyt_layer
         operand = operands[0]
 
         function_space = kwargs["function_space"]
@@ -392,14 +394,16 @@ class PytentialLayerOperationEvaluator:
         # }}}
 
         # Build connection into meshmode
-        from meshmode.discretization.poly_element import \
-            PolynomialRecursiveNodesElementGroupFactory
         from meshmode.interop.firedrake import build_connection_from_firedrake
-        if grp_factory is None:
-            grp_factory = PolynomialRecursiveNodesElementGroupFactory(degree)
         meshmode_connection = build_connection_from_firedrake(
             actx, function_space, grp_factory=grp_factory,
             restrict_to_boundary=source_bdy_id)
+
+        # Build recursive nodes group factory if none provided
+        if grp_factory is None:
+            from meshmode.discretization.poly_element import \
+                PolynomialRecursiveNodesGroupFactory
+            grp_factory = PolynomialRecursiveNodesGroupFactory(degree, family='lgl')
 
         # build connection meshmode near src boundary -> src boundary inside meshmode
         from meshmode.discretization.connection import make_face_restriction
@@ -436,8 +440,10 @@ class PytentialLayerOperationEvaluator:
         self.fd_pot.dat.data[:] = 0.0
 
     def _evaluate(self):
-        operand, = self.vp.ufl_operands
-        operand_discrete = interpolate(operand, self.vp.function_space())
+        operand, = self.pyt_layer.ufl_operands
+        # TODO : Fix this by allowing for ufl arguments
+        assert isinstance(operand, Function)
+        operand_discrete = operand
 
         # pass operand into a meshmode DOFArray
         from meshmode.dof_array import flatten
@@ -449,27 +455,21 @@ class PytentialLayerOperationEvaluator:
         # Evaluate pytential potential
         self.op_kwargs[self.density_name] = meshmode_src_vals_on_bdy
         target_values = self.pyt_op(**self.op_kwargs)
-        # (copied and modified from
-        # https://github.com/inducer/meshmode/blob/be1bcc9d395ca51d6903993eb57acc865acec243/meshmode/interop/firedrake/connection.py#L531-L534
-        #  )
-        # Handle firedrake dropping dimensions
+
+        # FIXME : Is this correct?
         fspace_shape = self.function_space.shape
-        if len(target_values.shape) != 1 + len(fspace_shape):
-            shape = (target_values.shape[0],) + fspace_shape
-            target_values = target_values.reshape(shape)
-        # Now make sure we got right shape
-        if target_values.shape[-1] != fspace_shape:
-            raise ValueError("pytential operation has output of shape %s,"
-                             " which fails to match the firedrake funciton "
-                             " space shape of %s." %
-                             (target_values.shape[-1], fspace_shape))
+        if target_values.shape != fspace_shape and not \
+                (fspace_shape == () and len(target_values.shape) == 1):
+            raise ValueError("function_space shape of %s does not match"
+                             "operator shape %s." %
+                             (fspace_shape, target_values.shape))
         # Make sure conversion back to firedrake works for non-scalar types
         # (copied and modified from
         # https://github.com/inducer/meshmode/blob/be1bcc9d395ca51d6903993eb57acc865acec243/meshmode/interop/firedrake/connection.py#L544-L555
         #  )
         # If scalar, just reorder and resample out
         if fspace_shape == ():
-            self.fd_pot.dat.data[self.target_indices] = target_values[:]
+            self.fd_pot.dat.data[self.target_indices] = target_values.get(queue=self.actx.queue)[:]
         else:
             # otherwise, have to grab each dofarray and the corresponding
             # data from *function_data*
@@ -478,10 +478,10 @@ class PytentialLayerOperationEvaluator:
                 index = (np.s_[:],) + multi_index
                 fd_data = self.fd_pot.dat.data[index]
                 dof_array = target_values[multi_index]
-                fd_data[self.target_indices] = dof_array[:]
+                fd_data[self.target_indices] = dof_array.get(queue=self.actx.queue)
 
         # Store in vp
-        self.vp.dat.data[:] = self.fd_pot.dat.data[:]
+        self.pyt_layer.dat.data[:] = self.fd_pot.dat.data[:]
         # Return evaluated potential
         return self.fd_pot
 
@@ -575,7 +575,7 @@ class VolumePotential(AbstractExternalOperator):
         AbstractExternalOperator.__init__(self, operands[0], **kwargs)
 
         # Validate input
-        print(len(self.operands), self.derivatives)
+        # print(len(self.operands), self.derivatives)
         # assert self.derivatives == (0,), \
         #     "Derivatives of volume potential not currently supported: " + str(self.derivatives)
         # from firedrake import Function
