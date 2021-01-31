@@ -3,7 +3,7 @@ from firedrake.pointwise_operators import AbstractExternalOperator
 from firedrake.utils import cached_property
 
 from firedrake import Function, FunctionSpace, interpolate, Interpolator, \
-    SpatialCoordinate, VectorFunctionSpace
+    SpatialCoordinate, VectorFunctionSpace, TensorFunctionSpace, project
 
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.algorithms import extract_coefficients
@@ -34,6 +34,11 @@ class PytentialLayerOperation(AbstractExternalOperator):
                 and :class:`DoubleLayerPotential` it is automatically
                 accounted for)
 
+    Note: The function_space is the function space of the target,
+          this must be a "CG" space or "DG" space.
+          The function space of the operand (the density)
+          MUST be a "DG" space.
+
     :kwarg operator_data: A map with required keys
 
         * 'op': The pytential operation (see, for example,
@@ -60,6 +65,10 @@ class PytentialLayerOperation(AbstractExternalOperator):
                        `operator_data['op_kwargs'] = {'k': 0.5}`.
                        DO NOT include the density functions in these kwargs,
                        it will be automatically inserted.
+        * 'project_to_dg': (optional) If *True*, when an operand in "CG"
+                           space is received, it is interpolated into
+                           a "DG" space of the same degree.
+                           Default *False*
         * 'grp_factory': (optional) An interpolatory group factory
             inheriting from :class:`meshmode.discretization.ElementGroupFactory`
             to be used in the intermediate :mod:`meshmode` representation
@@ -84,7 +93,7 @@ class PytentialLayerOperation(AbstractExternalOperator):
         AbstractExternalOperator.__init__(self, operands[0], **kwargs)
 
         # Validate input
-        print(len(self.operands), self.derivatives)
+        # print(len(self.operands), self.derivatives)
         # assert self.derivatives == (0,), \
         #     "Derivatives of single layer potential not currently supported: " + str(self.derivatives)
         # from firedrake import Function
@@ -99,7 +108,7 @@ class PytentialLayerOperation(AbstractExternalOperator):
         assert isinstance(operator_data, dict)
         required_keys = ('op', 'density_name',
                          'actx', 'source_bdy_id', 'target_bdy_id')
-        optional_keys = ('op_kwargs',
+        optional_keys = ('op_kwargs', 'project_to_dg',
                          'grp_factory', 'qbx_order', 'fmm_order', 'fine_order',)
         permissible_keys = required_keys + optional_keys
         if not all(key in operator_data for key in required_keys):
@@ -284,13 +293,20 @@ class PytentialLayerOperationEvaluator:
         self.pyt_layer = pyt_layer
         operand = operands[0]
 
+        # FIXME : Allow ufl
+        # Check operand is a function
+        if not isinstance(operand, Function):
+            raise TypeError("operand %s must be of type Function, not %s" %
+                            operand, type(operand))
+
+        # Get funciton space
         function_space = kwargs["function_space"]
-        # Make sure function space is of the appropriate
-        # family, and mesh lives in the appropriate dimensions
-        if function_space.ufl_element().family() != 'Discontinuous Lagrange':
-            raise TypeError("function_space family must be "
-                            "'Discontinuous Lagrange', not %s" %
-                            function_space.ufl_element().family())
+        if function_space.ufl_element().family() not in ['Lagrange',
+                                                         'Discontinuous Lagrange']:
+            raise ValueError("function_space must have family 'Lagrange' or"
+                             "'Discontinuous Lagrange', not '%s'" %
+                             operand.function_space().ufl_element().family())
+        # validate mesh
         valid_geo_dims = [2, 3]
         mesh = function_space.mesh()
         if mesh.geometric_dimension() not in valid_geo_dims:
@@ -310,6 +326,40 @@ class PytentialLayerOperationEvaluator:
 
         # Get operator data
         operator_data = kwargs["operator_data"]
+        # project to dg?
+        project_to_dg = operator_data.get('project_to_dg', False)
+        if not isinstance(project_to_dg, bool):
+            raise TypeError("operator_data['project_to_dg'] must be of type "
+                            "bool, not %s." % type(project_to_dg))
+        # get operand fspace
+        operand_fspace = operand.function_space()
+        if operand_fspace.ufl_element().family() != 'Discontinuous Lagrange':
+            # If operand is not "DG" and not projecting, throw error
+            if not project_to_dg:
+                raise ValueError("operand must live in a function space with family "
+                                 "Discontinuous Lagrange, not '%s'. Look at the "
+                                 "optional operator_data['project_to_dg'] argument." %
+                                 operand.function_space().ufl_element().family())
+            # otherwise build new function space if necessary
+            elif operand_fspace.shape == ():
+                operand_fspace = FunctionSpace(operand_fspace.mesh(),
+                                               "DG",
+                                               degree=operand_fspace.ufl_element().degree())
+            elif len(operand_fspace.shape) == 1:
+                operand_fspace = VectorFunctionSpace(operand_fspace.mesh(),
+                                                     "DG",
+                                                     degree=operand_fspace.ufl_element().degree(),
+                                                     dim=operand_fspace.shape[0])
+            else:
+                operand_fspace = TensorFunctionSpace(operand_fspace.mesh(),
+                                                     "DG",
+                                                     degree=operand_fspace.ufl_element().degree(),
+                                                     shape=operand_fspace.shape)
+        else:
+            # No need to project
+            project_to_dg = False
+
+
         # get op and op-shape
         op = operator_data["op"]
         # Get density-name and validate
@@ -396,7 +446,7 @@ class PytentialLayerOperationEvaluator:
         # Build connection into meshmode
         from meshmode.interop.firedrake import build_connection_from_firedrake
         meshmode_connection = build_connection_from_firedrake(
-            actx, function_space, grp_factory=grp_factory,
+            actx, operand_fspace, grp_factory=grp_factory,
             restrict_to_boundary=source_bdy_id)
 
         # Build recursive nodes group factory if none provided
@@ -427,6 +477,8 @@ class PytentialLayerOperationEvaluator:
 
         # Store attributes that we may need later
         # self.ufl_operands = operands
+        self.project_to_dg = project_to_dg
+        self.operand_fspace = operand_fspace
         self.actx = actx
         self.meshmode_connection = meshmode_connection
         self.src_bdy_connection = src_bdy_connection
@@ -444,6 +496,8 @@ class PytentialLayerOperationEvaluator:
         # TODO : Fix this by allowing for ufl arguments
         assert isinstance(operand, Function)
         operand_discrete = operand
+        if self.project_to_dg:
+            operand_discrete = project(operand_discrete, self.operand_fspace)
 
         # pass operand into a meshmode DOFArray
         from meshmode.dof_array import flatten
@@ -575,7 +629,7 @@ class VolumePotential(AbstractExternalOperator):
         AbstractExternalOperator.__init__(self, operands[0], **kwargs)
 
         # Validate input
-        # print(len(self.operands), self.derivatives)
+        print(len(self.operands), self.derivatives)
         # assert self.derivatives == (0,), \
         #     "Derivatives of volume potential not currently supported: " + str(self.derivatives)
         # from firedrake import Function

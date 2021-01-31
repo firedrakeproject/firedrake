@@ -9,10 +9,13 @@ from firedrake import MeshHierarchy, norms, Constant, \
     TestFunction, ds, Function, exp, TrialFunction, dx, project, solve, \
     utils, OpenCascadeMeshHierarchy
 from math import factorial
-from warning import warn
+from warnings import warn
 
 # skip testing this module if cannot import pytential
-pytential_installed = pytest.importorskip("pytential")
+pytential = pytest.importorskip("pytential")
+# skip testing if opencascade is not installed
+STEPControl = pytest.importorskip("OCC.Core.STEPControl")
+TopologyUtils = pytest.importorskip("OCC.Extend.TopologyUtils")
 
 import pyopencl as cl
 
@@ -85,13 +88,9 @@ def hankel_function(expr, n=None):
 
 # Make sure to skip if not in complex mode
 @pytest.mark.skipif(not utils.complex_mode, reason="Solves a PDE with complex variables")
-# Make sure to skip if no opencascade
-@pytest.mark.importorskip("OCC.Core.StepControl.StepControl_Reader",
-                          reason="Relies on OpenCascadeMeshHierarchy")
-@pytest.mark.importorskip("OCC.Extend.TopologyUtils.TopologyExplorer",
-                          reason="Relies on OpenCascadeMeshHierarchy")
 # Test following degrees and wave number (kappa)s
-@pytest.mark.parametrize("fspace_degree", [1, 2, 3], "kappa", [1.0])
+@pytest.mark.parametrize("fspace_degree", [1, 2, 3])
+@pytest.mark.parametrize("kappa", [1.0])
 def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
     """
     Solve the Helmholtz equation with a radiating-sommerfeld
@@ -129,7 +128,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         order=2,
         project_refinements_to_cad=False)
     source_bdy_id = 5  # (inner boundary) the circle
-    target_bdy_id = [1, 2, 3, 4]  # (outer boundary) the square
+    target_bdy_id = (1, 2, 3, 4)  # (outer boundary) the square
     # Solve for each mesh in hierarchy
     for mesh in mesh_hierarchy:
         # Get true solution
@@ -138,6 +137,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
 
         # Build function spaces
         cgfspace = FunctionSpace(mesh, "CG", fspace_degree)
+        cgvfspace = VectorFunctionSpace(mesh, "CG", fspace_degree)
         dgfspace = FunctionSpace(mesh, "DG", fspace_degree)
         dgvfspace = VectorFunctionSpace(mesh, "DG", fspace_degree)
 
@@ -147,7 +147,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         # Build rhs pytential operations
         from pytential import sym
         from sumpy.kernel import HelmholtzKernel
-        sigma = sym.make_sym_vector("sigma", ambient_dim)
+        sigma = sym.make_sym_vector("density", ambient_dim)
         r"""
         ..math:
 
@@ -175,7 +175,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
                          'density_name': 'density',
                          'source_bdy_id': source_bdy_id,
                          'target_bdy_id': target_bdy_id,
-                         'op_kwargs': {'k': 'k'},
+                         'op_kwargs': {'k': kappa},
                          'qbx_order': fspace_degree + 2,
                          'fine_order': 4 * fspace_degree,
                          'fmm_order': 50,
@@ -184,21 +184,20 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         rhs_grad_layer_operator_data = dict(operator_data)
         rhs_grad_layer_operator_data['op'] = rhs_pyt_grad_layer
         rhs_grad_layer = PytentialLayerOperation(dg_true_sol_grad,
-                                                 function_space=dgvfspace,
+                                                 function_space=cgvfspace,
                                                  operator_data=rhs_grad_layer_operator_data)
         rhs_layer_operator_data = dict(operator_data)
         rhs_layer_operator_data['op'] = rhs_pyt_layer
         rhs_layer = PytentialLayerOperation(dg_true_sol_grad,
-                                            function_space=dgfspace,
+                                            function_space=cgfspace,
                                             operator_data=rhs_layer_operator_data)
-        # assemble rhs form
+        # get rhs form
         v = TestFunction(cgfspace)
         rhs_form = inner(inner(grad(true_sol_expr), FacetNormal(mesh)),
                          v) * ds(source_bdy_id) \
             + inner(rhs_layer, v) * ds(target_bdy_id) \
             - inner(inner(rhs_grad_layer, FacetNormal(mesh)),
                     v) * ds(target_bdy_id)
-        rhs = assemble(rhs_form)
         
         # local helmholtz operator
         r"""
@@ -208,7 +207,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
             - \kappa^2 \cdot \langle u, v \rangle
             - i \kappa \langle u, v \rangle_\Sigma
         """
-        u = TrialFunction(cgfspace)
+        u = Function(cgfspace)
         aL = inner(grad(u), grad(v)) * dx \
             - Constant(kappa**2) * inner(u, v) * dx \
             - Constant(1j * kappa) * inner(u, v) * ds(target_bdy_id)
@@ -222,7 +221,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         """
         pyt_grad_layer = pyt_inner_normal_sign * sym.grad(
             ambient_dim, sym.D(HelmholtzKernel(ambient_dim),
-                               sym.var("u"), k=sym.var("k"),
+                               sym.var("density"), k=sym.var("k"),
                                qbx_forced_limit=None))
 
         r"""
@@ -233,19 +232,21 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         """
         pyt_layer = pyt_inner_normal_sign * 1j * sym.var("k") * (
             sym.D(HelmholtzKernel(ambient_dim),
-                  sym.var("u"), k=sym.var("k"),
+                  sym.var("density"), k=sym.var("k"),
                   qbx_forced_limit=None))
         # rhs pytential operations into firedrake
         grad_layer_operator_data = dict(operator_data)
         grad_layer_operator_data['op'] = pyt_grad_layer
-        grad_layer = PytentialLayerOperation(project(u, dgfspace),
-                                             function_space=dgfspace,
+        grad_layer_operator_data['project_to_dg'] = True
+        grad_layer = PytentialLayerOperation(u,
+                                             function_space=cgvfspace,
                                              operator_data=grad_layer_operator_data)
-        op_operator_data = dict(operator_data)
-        op_operator_data['op'] = pyt_layer
-        layer = PytentialLayerOperation(project(u, dgfspace),
-                                        function_space=dgfspace,
-                                        operator_data=op_operator_data)
+        layer_operator_data = dict(operator_data)
+        layer_operator_data['op'] = pyt_layer
+        layer_operator_data['project_to_dg'] = True
+        layer = PytentialLayerOperation(u,
+                                        function_space=cgfspace,
+                                        operator_data=layer_operator_data)
 
         # non-local helmholtz operator
         r"""
@@ -264,8 +265,13 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
 
         # Solve
         comp_sol = Function(cgfspace)
-        solver_params = {}
-        solve(aN + aL == rhs, comp_sol, solver_params=solver_params)
+        solver_params = {'ksp_monitor': None,
+                         'mat_type': 'matfree',
+                         }
+        # make sure to collect petsc errors
+        import petsc4py.PETSc
+        petsc4py.PETSc.Sys.popErrorHandler()
+        solve(aN + aL == rhs_form, u, solver_parameters=solver_params)
 
         true_sol = Function(cgfspace).interpolate(true_sol_expr)
         err = norms.l2_norm(true_sol - comp_sol)
@@ -276,3 +282,9 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
 
     assert(eoc_recorder.order_estimate() >= fspace_degree
            or eoc_recorder.max_error() < 2e-14)
+
+
+ctx_factory = cl.create_some_context
+fspace_degree = 1
+kappa = 1.0
+test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa)
