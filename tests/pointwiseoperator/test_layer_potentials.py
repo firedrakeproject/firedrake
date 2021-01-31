@@ -207,7 +207,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
             - \kappa^2 \cdot \langle u, v \rangle
             - i \kappa \langle u, v \rangle_\Sigma
         """
-        u = Function(cgfspace)
+        u = TrialFunction(cgfspace)
         aL = inner(grad(u), grad(v)) * dx \
             - Constant(kappa**2) * inner(u, v) * dx \
             - Constant(1j * kappa) * inner(u, v) * ds(target_bdy_id)
