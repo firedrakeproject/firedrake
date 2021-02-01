@@ -452,13 +452,14 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
             insns.append(insn)
 
     # Initialise the very first temporary
-    coeffs = builder.collect_coefficients()
-    builder.bag.coefficients = coeffs
+    # For that we need to get the temporary which
+    # links to the same coefficient as the rhs of this node and init it              
+    init_coeffs,_ = builder.collect_coefficients()
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
-                                for (cv,ct) in coeffs.items()
+                                for (cv,ct) in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
                                 and t._function==cv}
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, coeffs)            
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
     tensor2temps.update(tensor2temp)
     if inits:
         insns.insert(0, *inits)
