@@ -691,7 +691,7 @@ class LocalLoopyKernelBuilder(object):
             for arg in loopy_inner.args[1:]:
                 if arg.name == self.cell_orientations_arg or\
                    arg.name == self.cell_size_arg:
-                    if arg not in args:
+                    if arg.name not in [arg.name for arg in args]:
                         args.append(arg)
 
         for coeff in self.bag.coefficients.values():
@@ -728,7 +728,8 @@ class LocalLoopyKernelBuilder(object):
                         dtype=np.int32))
 
         for tensor_temp in tensor2temp.values():
-            args.append(tensor_temp)
+            if tensor_temp.name not in [arg.name for arg in args]:
+                args.append(tensor_temp)
 
         for knl in templated_subkernels:
             if isinstance(knl, loopy.program.Program):
