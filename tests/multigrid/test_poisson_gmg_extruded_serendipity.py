@@ -3,43 +3,44 @@ import pytest
 
 
 def run_poisson():
-    parameters = {"snes_type": "ksponly",
-                  "ksp_type": "preonly",
-                  "pc_type": "mg",
-                  "pc_mg_type": "full",
-                  "mg_levels_ksp_type": "chebyshev",
-                  "mg_levels_ksp_max_it": 2,
-                  "mg_levels_pc_type": "jacobi"}
+    test_params = {"snes_type": "ksponly",
+                   "ksp_type": "preonly",
+                   "pc_type": "mg",
+                   "pc_mg_type": "full",
+                   "mg_levels_ksp_type": "chebyshev",
+                   "mg_levels_ksp_max_it": 2,
+                   "mg_levels_pc_type": "jacobi"}
 
-    N = 4
-    base = UnitSquareMesh(N, N, quadrilateral=True)
-    basemh = MeshHierarchy(base, 2)
-    mh = ExtrudedMeshHierarchy(basemh, height=1, base_layer=N)
+    N = 2
 
-    V = FunctionSpace(mh[-1], 'S', 2)
+    base_msh = UnitSquareMesh(N, N, quadrilateral=True)
+    base_mh = MeshHierarchy(base_msh, 2)
+    mh = ExtrudedMeshHierarchy(base_mh, height=1, base_layer=N)
 
-    u = Function(V)
+    deg = 2
+
+    msh = mh[-1]
+
+    V = FunctionSpace(msh, "S", deg)
     v = TestFunction(V)
+    u = Function(V, name="Potential")
+    gg = Function(V)
 
-    x, y, z = SpatialCoordinate(V.mesh())
+    bcs = [DirichletBC(V, gg, blah) for blah in ("on_boundary", "top", "bottom")]
 
-    uex = x*(1-x) * y*(1-x) * z*(1-z) * exp(x)
+    x, y, z = SpatialCoordinate(msh)
+    uex = x * (1 - x) * y * (1 - y) * z * (1 - z) * exp(x)
     f = -div(grad(uex))
-    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
-    bcs = [DirichletBC(V, 0, "on_boundary"),
-           DirichletBC(V, 0, "top"),
-           DirichletBC(V, 0, "bottom")]
 
-    # Choose a forcing function such that the exact solution is not an
-    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
-    # iterations of ilu fails to converge this problem sufficiently.
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx(metadata={"quadrature_degree": 2*deg})
 
-    solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
+    solve(F == 0, u, bcs=bcs, solver_parameters=test_params)
 
-    return errornorm(uex, u)
+    err = errornorm(uex, u)
+
+    return err
 
 
 @pytest.mark.parallel
 def test_poisson_gmg():
-    print(run_poisson())
     assert run_poisson() < 1e-3

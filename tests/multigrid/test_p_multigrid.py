@@ -282,7 +282,7 @@ def test_p_fas_scalar():
     solver.solve()
 
     ppc = solver.snes.getPythonContext().ppc
-    levels = ppc.getFASLevels() 
+    levels = ppc.getFASLevels()
     assert levels == 3
     assert ppc.getFASSmoother(levels-1).getLinearSolveIterations() == 0
 
@@ -366,7 +366,7 @@ def test_p_fas_nonlinear_scalar():
     solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
     solver.solve()
     ppc = solver.snes.getPythonContext().ppc
-    levels = ppc.getFASLevels() 
+    levels = ppc.getFASLevels()
     assert levels == 3
     iter_pfas = ppc.getFASSmoother(levels-1).getLinearSolveIterations()
 
