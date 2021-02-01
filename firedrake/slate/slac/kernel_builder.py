@@ -464,7 +464,7 @@ class LocalLoopyKernelBuilder(object):
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
-    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, wrapper_coefficients, kinfo):
+    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, kinfo):
         """ Collect the kernel data aka the parameters fed into the subkernel,
             that are coordinates, orientations, cell sizes and cofficients.
         """
@@ -482,15 +482,36 @@ class LocalLoopyKernelBuilder(object):
             kernel_data.append((mesh.cell_sizes,
                                 self.cell_size_arg))
 
+        # Append coefficients from the expression
+        if self.bag.coefficients:
+            kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
+                                                            kinfo,
+                                                            self.bag.coefficients))
+        
+        # Append coefficients for action
+        if self.bag.action_coefficients:
+            kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
+                                                            kinfo,
+                                                            self.bag.action_coefficients))
+        return kernel_data
+
+
+    def collect_tsfc_coefficients(self, tsfc_coefficients, kinfo, wrapper_coefficients):
+        kernel_data = []
         # Pick the coefficients associated with a Tensor()/TSFC kernel
         tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        added_coefficients = []
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):
-                    kernel_data.extend([(c, cinfo[0])])
+                    if cinfo[0] not in added_coefficients:
+                        kernel_data.extend([(c, cinfo[0])])
+                        added_coefficients.append(cinfo[0])
                 else:
                     for c_, info in cinfo.items():
-                        kernel_data.extend([(c_, info[0])])
+                        if info[0] not in added_coefficients:
+                            kernel_data.extend([(c_, info[0])])
+                            added_coefficients.append(info[0])
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
@@ -567,17 +588,19 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, coeffs=None, names=None):
+    def collect_coefficients(self, new_coeffs=None, names=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
         """
-        if not coeffs:
-            coeffs = self.expression.coefficients()
+        coeffs = self.expression.coefficients()
         coeff_dict = OrderedDict()
+        new_coeff_dict = OrderedDict()
+        new = False
         for i, c in enumerate(coeffs):
             try:
                 prefix = names[c]
+                new = True
             except:
                 prefix = "w_{}".format(i)
             element = c.ufl_element()
@@ -587,11 +610,17 @@ class LocalLoopyKernelBuilder(object):
                     name = prefix+"_{}".format(j)
                     info = (name, self.extent(c_))
                     mixed.update({c_: info})
-                coeff_dict[c] = mixed
+                if new:
+                    new_coeff_dict[c] = mixed
+                else:
+                    coeff_dict[c] = mixed
             else:
                 name = prefix
-                coeff_dict[c] = (name, self.extent(c))
-        return coeff_dict
+                if new:
+                    new_coeff_dict[c] = (name, self.extent(c))
+                else:
+                    coeff_dict[c] = (name, self.extent(c))
+        return coeff_dict, new_coeff_dict
 
     def initialise_terminals(self, var2terminal, coefficients):
         """ Initilisation of the variables in which coefficients
@@ -783,8 +812,9 @@ def match_kernel_argnames(insn, code):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, prefix=""):
+    def __init__(self, coeffs, prefix="", new_coeffs=None):
         self.coefficients = coeffs
+        self.action_coefficients = new_coeffs
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
