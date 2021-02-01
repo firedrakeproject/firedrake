@@ -443,15 +443,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
-                tsfc_knl_list.append(*tsfc_knls)
+                tsfc_knl_list.extend(tsfc_knls)
 
                 if isinstance(slate_node, sl.Action):
                     # substitute action call with the generated tsfc call for that action
                     # but keep the lhs so that the following instructions still act on the right temporaries
-                    insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                                       tsfc_calls[0].expression,
-                                                                       id=insn.id,
-                                                                       within_inames=insn.within_inames))
+                    for i, tsfc_call in enumerate(tsfc_calls):
+                        insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                                        tsfc_call.expression,
+                                                                        id=insn.id+"_inlined_tsfc_"+str(i),
+                                                                        within_inames=insn.within_inames,
+                                                                        predicates=tsfc_call.predicates))
                 else:
                     # TODO we need to be able to this in case someone wants a matrix explicit solve
                     # If we want an explicit solve, we need to assemble matrix first
