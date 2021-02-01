@@ -30,7 +30,7 @@ class Expression(ufl.Coefficient):
     :class:`.Function` to the square of the magnitude of the
     coordinate:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         class MyExpression(Expression):
             def eval(self, value, X):
@@ -42,7 +42,7 @@ class Expression(ufl.Coefficient):
     This :class:`Expression` could be interpolated onto the
     :class:`.Function` ``f`` by executing:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         f.interpolate(MyExpression())
 
@@ -53,7 +53,7 @@ class Expression(ufl.Coefficient):
     override the :meth:`value_shape` method of that
     :class:`Expression`. For example:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         class MyExpression(Expression):
             def eval(self, value, X):

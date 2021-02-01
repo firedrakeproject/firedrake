@@ -86,7 +86,7 @@ Let ``m`` be a standard :py:func:`~.UnitSquareMesh`. The following code
 produces the extruded mesh, whose base mesh is ``m``, with 5 mesh layers and
 a layer thickness of 0.2:
 
-.. code-block:: python
+.. code-block:: python3
 
 	m = UnitSquareMesh(4, 4)
 	mesh = ExtrudedMesh(m, 5, layer_height=0.2, extrusion_type='uniform')
@@ -96,7 +96,7 @@ this can be omitted. Furthermore, the layer_height, if omitted, defaults to
 the reciprocal of the number of layers. The following code therefore has the
 same effect:
 
-.. code-block:: python
+.. code-block:: python3
 
 	m = UnitSquareMesh(4, 4)
 	mesh = ExtrudedMesh(m, 5)
@@ -118,7 +118,7 @@ Radial extrusion extrudes cells radially outwards from the origin, without
 increasing the number of spatial dimensions. An example in 2 dimensions, in
 which a circle is extruded into an annulus, is:
 
-.. code-block:: python
+.. code-block:: python3
 
     m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial')
@@ -136,7 +136,7 @@ The base mesh and extruded mesh are shown below.
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
 
-.. code-block:: python
+.. code-block:: python3
 
     m = IcosahedralSphereMesh(radius=3, refinement_level=3)
     mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial')
@@ -158,7 +158,7 @@ Hedgehog extrusion is similar to radial extrusion, but the cells are extruded
 outwards in a direction normal to the base cell. This produces a discontinuous
 coordinate field.
 
-.. code-block:: python
+.. code-block:: python3
 
     m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
@@ -166,7 +166,7 @@ coordinate field.
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
 
-.. code-block:: python
+.. code-block:: python3
 
     m = UnitIcosahedralSphereMesh(refinement_level=2)
     mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial_hedgehog')
@@ -188,7 +188,7 @@ For a more complicated extruded mesh, a custom *kernel* can be given by the
 user. Since this is a mesh-wide operation, a PyOP2 parallel loop is
 constructed by Firedrake.
 
-.. code-block:: python
+.. code-block:: python3
 
     m = UnitSquareMesh(5, 5)
     kernel = op2.Kernel("""
@@ -218,7 +218,7 @@ is the number of cells in the column.
 
 For example, we might create this extruded mesh:
 
-.. code-block:: python
+.. code-block:: python3
 
    mesh = UnitIntervalMesh(3)
    extmesh = ExtrudedMesh(mesh, layers=[[0, 2], [1, 1], [2, 1]],
@@ -268,7 +268,7 @@ The syntax for building a :py:class:`~.FunctionSpace` on an extruded mesh is
 an extension of the existing syntax used with normal meshes. On a
 non-extruded mesh, the following syntax is used:
 
-.. code-block:: python
+.. code-block:: python3
 
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "RT", 1)
@@ -276,7 +276,7 @@ non-extruded mesh, the following syntax is used:
 To allow maximal flexibility in constructing function spaces, Firedrake
 supports a more general syntax:
 
-.. code-block:: python
+.. code-block:: python3
 
     V = FunctionSpace(mesh, element)
 
@@ -298,7 +298,7 @@ To create an element compatible with an extruded mesh, one should use
 the :py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
 operator. For example,
 
-.. code-block:: python
+.. code-block:: python3
 
     horiz_elt = FiniteElement("CG", triangle, 1)
     vert_elt = FiniteElement("CG", interval, 1)
@@ -316,7 +316,7 @@ linearly in the vertical direction.
 
 The degree and continuity may differ; for example
 
-.. code-block:: python
+.. code-block:: python3
 
     horiz_elt = FiniteElement("DG", triangle, 0)
     vert_elt = FiniteElement("CG", interval, 2)
@@ -338,7 +338,7 @@ variation in the vertical direction, may be built using the
 :py:class:`~ufl.finiteelement.enrichedelement.EnrichedElement` functionality
 in either of the following ways:
 
-.. code-block:: python
+.. code-block:: python3
 
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
     mini_horiz_2 = FiniteElement("B", triangle, 3)
@@ -349,7 +349,7 @@ in either of the following ways:
 
 or
 
-.. code-block:: python
+.. code-block:: python3
 
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
     mini_horiz_2 = FiniteElement("B", triangle, 3)
@@ -376,7 +376,7 @@ a single evaluation of the component of the vector field normal to each facet.
 
 The following element is closely related to the desired Raviart-Thomas element:
 
-.. code-block:: python
+.. code-block:: python3
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
@@ -395,7 +395,7 @@ continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
 :py:class:`~ufl.finiteelement.hdivcurl.HDivElement` operator:
 
-.. code-block:: python
+.. code-block:: python3
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
@@ -415,14 +415,14 @@ Another reason to use these operators is when expanding a vector into a
 higher dimensional space. Consider the lowest-order Nedelec element of the
 2nd kind on a triangle:
 
-.. code-block:: python
+.. code-block:: python3
 
     N2_1 = FiniteElement("N2curl", triangle, 1)
 
 This is naturally vector-valued, and has two components. Suppose we form
 the product of this with a continuous element on an interval:
 
-.. code-block:: python
+.. code-block:: python3
 
     CG_2 = FiniteElement("CG", interval, 2)
     N2CG = TensorProductElement(N2_1, CG_2)
@@ -431,7 +431,7 @@ This element still only has two components. To expand this into a
 three-dimensional curl-conforming element, we must use the
 :py:class:`~ufl.finiteelement.hdivcurl.HCurlElement` operator; the syntax is:
 
-.. code-block:: python
+.. code-block:: python3
 
     Ned_horiz = HCurlElement(N2CG)
 
@@ -441,7 +441,7 @@ three-dimensional curl-conforming element, we must use the
 This gives the horizontal part of a Nedelec edge element on a triangular
 prism. The full element can be built as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
     N2_1 = FiniteElement("N2curl", triangle, 1)
     CG_2 = FiniteElement("CG", interval, 2)
@@ -463,7 +463,7 @@ are not required. To create a function space of degree 2 in the horizontal
 direction, degree 1 in the vertical direction and possibly discontinuous
 between layers, the short syntax is
 
-.. code-block:: python
+.. code-block:: python3
 
 	fspace = FunctionSpace(mesh, "CG", 2, vfamily="DG", vdegree=1)
 
@@ -471,13 +471,13 @@ If the horizontal and vertical parts have the same ``family`` and ``degree``,
 the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
 ``ExtrudedMesh`` then the following are equivalent:
 
-.. code-block:: python
+.. code-block:: python3
 
 	fspace = FunctionSpace(mesh, "Lagrange", 1)
 
 and
 
-.. code-block:: python
+.. code-block:: python3
 
 	fspace = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
 

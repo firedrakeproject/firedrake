@@ -352,6 +352,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         self.name = name
 
+        self.topology_dm = None
+        r"The PETSc DM representation of the mesh topology."
+
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -397,6 +400,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
@@ -580,7 +590,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmcommon.get_cell_markers(self._topology_dm,
+                ids = tuple(dmcommon.get_cell_markers(self.topology_dm,
                                                       self._cell_numbering,
                                                       sid)
                             for sid in all_integer_subdomain_ids)
@@ -588,7 +598,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmcommon.get_cell_markers(self._topology_dm,
+                indices = dmcommon.get_cell_markers(self.topology_dm,
                                                     self._cell_numbering,
                                                     subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
@@ -650,7 +660,7 @@ class MeshTopology(AbstractMeshTopology):
         self._distribution_parameters = distribution_parameters.copy()
         if distribute is None:
             distribute = True
-
+        partitioner_type = distribution_parameters.get("partitioner_type")
         overlap_type, overlap = distribution_parameters.get("overlap_type",
                                                             (DistributedMeshOverlapType.FACET, 1))
 
@@ -663,14 +673,14 @@ class MeshTopology(AbstractMeshTopology):
                 raise ValueError("Can't have NONE overlap with overlap > 0")
         elif overlap_type == DistributedMeshOverlapType.FACET:
             def add_overlap():
-                dmcommon.set_adjacency_callback(self._topology_dm)
-                self._topology_dm.distributeOverlap(overlap)
-                dmcommon.clear_adjacency_callback(self._topology_dm)
+                dmcommon.set_adjacency_callback(self.topology_dm)
+                self.topology_dm.distributeOverlap(overlap)
+                dmcommon.clear_adjacency_callback(self.topology_dm)
                 self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             def add_overlap():
                 # Default is FEM (vertex star) adjacency.
-                self._topology_dm.distributeOverlap(overlap)
+                self.topology_dm.distributeOverlap(overlap)
                 self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -678,7 +688,8 @@ class MeshTopology(AbstractMeshTopology):
         dmcommon.validate_mesh(plex)
         plex.setFromOptions()
 
-        self._topology_dm = plex
+        self.topology_dm = plex
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(plex.comm.tompi4py())
 
         # Mark exterior and interior facets
@@ -688,29 +699,17 @@ class MeshTopology(AbstractMeshTopology):
         label_boundary = (self.comm.size == 1) or distribute
         dmcommon.label_facets(plex, label_boundary=label_boundary)
 
-        # Distribute the dm to all ranks
+        # Distribute/redistribute the dm to all ranks
         if self.comm.size > 1 and distribute:
             # We distribute with overlap zero, in case we're going to
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
-            partitioner = plex.getPartitioner()
-            if IntType.itemsize == 8:
-                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
-                from firedrake_configuration import get_config
-                if get_config().get("options", {}).get("with_parmetis", False):
-                    partitioner.setType(partitioner.Type.PARMETIS)
-                else:
-                    partitioner.setType(partitioner.Type.PTSCOTCH)
-            else:
-                partitioner.setType(partitioner.Type.CHACO)
-            try:
-                sizes, points = distribute
-                partitioner.setType(partitioner.Type.SHELL)
-                partitioner.setShellPartition(self.comm.size, sizes, points)
-            except TypeError:
-                pass
-            partitioner.setFromOptions()
+            self.set_partitioner(distribute, partitioner_type)
             plex.distribute(overlap=0)
+            # plex carries a new dm after distribute, which
+            # does not inherit partitioner from the old dm.
+            # It probably makes sense as chaco does not work
+            # once distributed.
 
         tdim = plex.getDimension()
 
@@ -742,7 +741,7 @@ class MeshTopology(AbstractMeshTopology):
 
             if reorder:
                 with timed_region("Mesh: reorder"):
-                    old_to_new = self._topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
             else:
@@ -752,9 +751,9 @@ class MeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
-                self._plex_renumbering = dmcommon.plex_renumbering(self._topology_dm,
+                dmcommon.mark_entity_classes(self.topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+                self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
                                                                    self._entity_classes,
                                                                    reordering)
 
@@ -770,7 +769,7 @@ class MeshTopology(AbstractMeshTopology):
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmcommon.get_facet_ordering(self._topology_dm, facet_numbering)
+                self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
 
     @property
@@ -783,7 +782,7 @@ class MeshTopology(AbstractMeshTopology):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self._topology_dm
+        plex = self.topology_dm
         tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
@@ -830,7 +829,7 @@ class MeshTopology(AbstractMeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
 
-        dm = self._topology_dm
+        dm = self.topology_dm
         facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets").encode(),
                                                        self._facet_ordering)
         label = dmcommon.FACE_SETS_LABEL
@@ -883,7 +882,7 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmcommon.cell_facet_labeling(self._topology_dm,
+        cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
@@ -894,33 +893,77 @@ class MeshTopology(AbstractMeshTopology):
                        name="cell-to-local-facet-dat")
 
     def num_cells(self):
-        cStart, cEnd = self._topology_dm.getHeightStratum(0)
+        cStart, cEnd = self.topology_dm.getHeightStratum(0)
         return cEnd - cStart
 
     def num_facets(self):
-        fStart, fEnd = self._topology_dm.getHeightStratum(1)
+        fStart, fEnd = self.topology_dm.getHeightStratum(1)
         return fEnd - fStart
 
     def num_faces(self):
-        fStart, fEnd = self._topology_dm.getDepthStratum(2)
+        fStart, fEnd = self.topology_dm.getDepthStratum(2)
         return fEnd - fStart
 
     def num_edges(self):
-        eStart, eEnd = self._topology_dm.getDepthStratum(1)
+        eStart, eEnd = self.topology_dm.getDepthStratum(1)
         return eEnd - eStart
 
     def num_vertices(self):
-        vStart, vEnd = self._topology_dm.getDepthStratum(0)
+        vStart, vEnd = self.topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
     def num_entities(self, d):
-        eStart, eEnd = self._topology_dm.getDepthStratum(d)
+        eStart, eEnd = self.topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
+
+    def set_partitioner(self, distribute, partitioner_type=None):
+        """Set partitioner for (re)distributing underlying plex over comm.
+
+        :arg distribute: Boolean or (sizes, points)-tuple.  If (sizes, point)-
+            tuple is given, it is used to set shell partition. If Boolean, no-op.
+        :kwarg partitioner_type: Partitioner to be used: "chaco", "ptscotch", "parmetis",
+            "shell", or `None` (unspecified). Ignored if the distribute parameter
+            specifies the distribution.
+        """
+        from firedrake_configuration import get_config
+        plex = self.topology_dm
+        partitioner = plex.getPartitioner()
+        if type(distribute) is bool:
+            if partitioner_type:
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
+                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
+                if partitioner_type == "chaco":
+                    if IntType.itemsize == 8:
+                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
+                                         "but your Integer is %d bit." % IntType.itemsize * 8)
+                if partitioner_type == "parmetis":
+                    if not get_config().get("options", {}).get("with_parmetis", False):
+                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
+                                         "installed with 'parmetis'.")
+            else:
+                if IntType.itemsize == 8:
+                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
+                    # Chaco does not work on distributed meshes.
+                    if get_config().get("options", {}).get("with_parmetis", False):
+                        partitioner_type = "parmetis"
+                    else:
+                        partitioner_type = "ptscotch"
+                else:
+                    partitioner_type = "chaco"
+            partitioner.setType({"chaco": partitioner.Type.CHACO,
+                                 "ptscotch": partitioner.Type.PTSCOTCH,
+                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+        else:
+            sizes, points = distribute
+            partitioner.setType(partitioner.Type.SHELL)
+            partitioner.setShellPartition(self.comm.size, sizes, points)
+        # Command line option `-petscpartitioner_type <type>` overrides.
+        partitioner.setFromOptions()
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -951,7 +994,8 @@ class ExtrudedMeshTopology(MeshTopology):
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self._topology_dm = mesh._topology_dm
+        self.topology_dm = mesh.topology_dm
+        r"The PETSc DM representation of the mesh topology."
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
@@ -960,7 +1004,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
-            extents = extnum.layer_extents(self._topology_dm,
+            extents = extnum.layer_extents(self.topology_dm,
                                            self._cell_numbering,
                                            layers)
             if np.any(extents[:, 3] - extents[:, 2] <= 0):
@@ -1146,7 +1190,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         swarm.setFromOptions()
 
         self._parent_mesh = parentmesh
-        self._topology_dm = swarm
+        self.topology_dm = swarm
+        r"The PETSc DM representation of the mesh topology."
         self._comm = dup_comm(swarm.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
@@ -1166,8 +1211,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
             # Mark OP2 entities and derive the resulting Swarm numbering
             with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self._topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self._topology_dm).astype(int)
+                dmcommon.mark_entity_classes(self.topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
                 # Derive a cell numbering from the Swarm numbering
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
@@ -1190,7 +1235,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        swarm = self._topology_dm
+        swarm = self.topology_dm
         tdim = 0
 
         # Cell numbering and global vertex numbering
@@ -1246,7 +1291,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return 0
 
     def num_vertices(self):
-        return self._topology_dm.getLocalSize()
+        return self.topology_dm.getLocalSize()
 
     def num_entities(self, d):
         if d > 0:
@@ -1305,6 +1350,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     @utils.cached_property
     @MeshGeometryMixin._ad_annotate_coordinates_function
@@ -1575,6 +1627,8 @@ def Mesh(meshfile, **kwargs):
                  the default choice), ``False`` (do not) ``True``
                  (do), or a 2-tuple that specifies a partitioning of
                  the cells (only really useful for debugging).
+             -``"partitioner_type"``: which may take ``"chaco"``,
+                 ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
              - ``"overlap_type"``: a 2-tuple indicating how to grow
                  the mesh overlap.  The first entry should be a
                  :class:`DistributedMeshOverlapType` instance, the
@@ -1860,7 +1914,7 @@ def VertexOnlyMesh(mesh, vertexcoords):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology._topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
 
     dmcommon.label_pic_parent_cell_nums(swarm, mesh)
 
@@ -1995,6 +2049,8 @@ def SubDomainData(geometric_expr):
 
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
+
+    .. code-block:: python3
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)

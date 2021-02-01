@@ -1,13 +1,15 @@
 # Utility module that imports and initialises petsc4py
+import os
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
 from petsc4py import PETSc
 import itertools
+import functools
 from contextlib import contextmanager
 
 
-__all__ = ("PETSc", "OptionsManager")
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
 
 
 def flatten_parameters(parameters, sep="_"):
@@ -19,7 +21,7 @@ def flatten_parameters(parameters, sep="_"):
     Used to flatten parameter dictionaries with nested structure to a
     flat dict suitable to pass to PETSc.  For example:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
        => {"a_b_c": 4, "a_d": 2, "e": 1}
@@ -27,7 +29,7 @@ def flatten_parameters(parameters, sep="_"):
     If a "prefix" key already ends with the provided separator, then
     it is not used to concatenate the keys.  Hence:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        flatten_parameters({"a_": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
        => {"a_b_c": 4, "a_d": 2, "e": 1}
@@ -77,6 +79,22 @@ def flatten_parameters(parameters, sep="_"):
     return new
 
 
+@functools.lru_cache()
+def get_petsc_variables():
+    """Get dict of PETSc environment variables from the file:
+    $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables
+
+    The result is memoized to avoid constantly reading the file.
+    """
+    config = petsc4py.get_config()
+    path = [config["PETSC_DIR"], config["PETSC_ARCH"], "lib/petsc/conf/petscvariables"]
+    variables_path = os.path.join(*path)
+    with open(variables_path) as fh:
+        # Split lines on first '=' (assignment)
+        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
+    return {k.strip(): v.strip() for k, v in splitlines}
+
+
 class OptionsManager(object):
 
     # What appeared on the commandline, we should never clear these.
@@ -111,7 +129,7 @@ class OptionsManager(object):
     is populated at the time of a ``SNESSolve`` or ``KSPSolve`` call.
     Do that using the :meth:`inserted_options` context manager.
 
-    .. code-block:: python
+    .. code-block:: python3
 
        with self.inserted_options():
            self.snes.solve(...)

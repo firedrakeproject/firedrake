@@ -35,10 +35,12 @@ def run_no_manifold():
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
 
-    # Add additional flags to MUMPS in complex mode as pivoting fails with default options
-    params = {'ksp_rtol': 1e-10}
-    if config['options']['complex'] and COMM_WORLD.size == 1:
-        params['mat_mumps_icntl_7'] = 1
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
     solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x[0] - 0.5)
 
@@ -77,12 +79,12 @@ def run_manifold():
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
 
-    # Add additional flags to MUMPS in complex mode as pivoting fails with default options
-    params = {'ksp_rtol': 1e-10}
-    if config['options']['complex'] and COMM_WORLD.size == 1:
-        params['mat_mumps_icntl_7'] = 1
-    elif config['options']['complex'] and COMM_WORLD.size > 1:
-        params['mat_mumps_icntl_7'] = 3
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
     solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 

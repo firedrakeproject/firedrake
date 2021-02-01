@@ -304,10 +304,10 @@ class test_TextCodeConverter(object):
                    ' indented text :: ',
                    '. no-directive::',
                    'a .. directive:: somewhere::']
-        directives = ['.. code-block:: python',
-                     '  .. code-block:: python',
-                     '.. code-block:: python listings',
-                     '  .. code-block:: python listings']
+        directives = ['.. code-block:: python3',
+                     '  .. code-block:: python3',
+                     '.. code-block:: python3 listings',
+                     '  .. code-block:: python3 listings']
         misses = ['.. comment string ::',
                   '.. ::',
                   'text:']
@@ -849,12 +849,12 @@ class test_Code2Text(object):
     def test_call_different_code_block_marker(self):
         """recognize specified code-block marker
         """
-        data = ["# .. code-block:: python\n",
+        data = ["# .. code-block:: python3\n",
                 "\n",
                 "block1 = 'first block'\n",
                 "\n",
                 "#  more text\n"]
-        soll = ['.. code-block:: python\n',
+        soll = ['.. code-block:: python3\n',
                 '\n',
                 "  block1 = 'first block'\n",
                 '  \n',
