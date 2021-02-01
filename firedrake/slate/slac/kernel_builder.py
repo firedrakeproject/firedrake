@@ -734,7 +734,8 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
         for tensor_temp in tensor2temp.values():
-            args.append(tensor_temp)
+            if tensor_temp.name not in [arg.name for arg in args]:
+                args.append(tensor_temp)
 
         for knl in templated_subkernels:
             if isinstance(knl, loopy.program.Program):
