@@ -363,7 +363,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
 
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-    coeffs = builder.collect_coefficients()
+    coeffs, _ = builder.collect_coefficients()
     builder.bag = SlateWrapperBag(coeffs)
 
     # In the initialisation the loopy tensors for the terminals are generated
@@ -386,7 +386,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     insns = []
     tsfc_knl_list = []
     tensor2temps = OrderedDict()
-    coeffs = {}
+
+    # Keeping track off all coefficients upfront
+    # saves us the effort of one of those ugly dict comparisons
+    coeffs = {}  # all coefficients including the ones for the action
+    new_coeffs = {}  # coeffs coming from action
+    old_coeffs = {}  # only old coeffs minus the ones replaced by the action coefficients
+
     # invert dict
     import pymbolic.primitives as pym
     pyms = [pyms if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
@@ -416,9 +422,14 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # link the coefficient of the action to the right tensor
                 coeff = slate_node.ufl_coefficient
                 coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-                coeffs.update(builder.collect_coefficients([coeff], names={coeff:coeff_name}))
+                coeff, new_coeff = builder.collect_coefficients([coeff], names={coeff:coeff_name})
+                coeffs.update(coeff)
+                coeffs.update(new_coeff)
+                new_coeffs.update(new_coeff)
+                old_coeffs.update(coeff)
+
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                builder.bag = SlateWrapperBag(coeffs, "_"+str(c))
+                builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeffs)
                 builder.bag.call_name_generator("_"+str(c))
                 # FIXME have a better way of updating the builder bag with coeffs
 
@@ -463,6 +474,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     tensor2temps.update(tensor2temp)
     if inits:
         insns.insert(0, *inits)
+
+    # Get all coeffs into the wrapper kernel
+    # so that we can generate the right wrapper kernel args of it
+    builder.bag.coefficients = init_coeffs
+    builder.bag.action_coefficients = new_coeffs
 
     return tensor2temps, tsfc_knl_list, insns, builder
 
