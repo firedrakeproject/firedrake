@@ -413,3 +413,30 @@ def test_interpolate_periodic_coords_max():
     # All nodes on the "seam" end up being 1, not 0.
     assert np.allclose(np.unique(continuous.dat.data_ro),
                        [0.25, 0.5, 0.75, 1])
+
+
+def test_basic_dual_eval_cg3():
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 3)
+    x = SpatialCoordinate(mesh)
+    expr = Constant(1.)
+    f = interpolate(expr, V)
+    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    expr = x[0]**3
+    # Account for cell and corresponding expression being flipped onto
+    # reference cell before reaching FIAT
+    expr_fiat = (1-x[0])**3
+    f = interpolate(expr, V)
+    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+
+
+def test_basic_dual_eval_bdm():
+    mesh = UnitTriangleMesh()
+    V = FunctionSpace(mesh, "BDM", 6)
+    x = SpatialCoordinate(mesh)
+    expr = as_vector([x[0], x[1]])
+    f = interpolate(expr, V)
+    dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
+    # Can't do nodal evaluation of the FIAT dual basis yet so just check the
+    # dat is the correct length
+    assert len(f.dat.data_ro) == len(dual_basis)
