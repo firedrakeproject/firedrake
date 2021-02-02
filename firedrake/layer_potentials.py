@@ -131,7 +131,7 @@ class PytentialLayerOperation(AbstractExternalOperator):
         1/0
 
     def _evaluate_action(self, *args):
-        return self._evaluator._evaluate_action()
+        return self._evaluator._evaluate_action(*args)
 
 
 class SingleOrDoubleLayerPotential(PytentialLayerOperation):
@@ -291,6 +291,8 @@ def _get_target_points_and_indices(fspace, boundary_ids):
 class PytentialLayerOperationEvaluator:
     def __init__(self, pyt_layer, *operands, **kwargs):
         self.pyt_layer = pyt_layer
+        if len(operands) != 1:
+            raise NotImplementedError("I haven't thought this through")
         operand = operands[0]
 
         # FIXME : Allow ufl
@@ -476,7 +478,6 @@ class PytentialLayerOperationEvaluator:
         self.op_kwargs = op_kwargs
 
         # Store attributes that we may need later
-        # self.ufl_operands = operands
         self.project_to_dg = project_to_dg
         self.operand_fspace = operand_fspace
         self.actx = actx
@@ -491,7 +492,7 @@ class PytentialLayerOperationEvaluator:
         # initialize to zero so that only has values on target boundary
         self.fd_pot.dat.data[:] = 0.0
 
-    def _evaluate(self):
+    def _evaluate(self, *args):
         operand, = self.pyt_layer.ufl_operands
         # TODO : Fix this by allowing for ufl arguments
         assert isinstance(operand, Function)
@@ -519,7 +520,7 @@ class PytentialLayerOperationEvaluator:
                              (fspace_shape, target_values.shape))
         # Make sure conversion back to firedrake works for non-scalar types
         # (copied and modified from
-        # https://github.com/inducer/meshmode/blob/be1bcc9d395ca51d6903993eb57acc865acec243/meshmode/interop/firedrake/connection.py#L544-L555
+        # https://github.com/inducer/meshmode/blob/be1bcc9d395ca51d6903993eb57acc865acec243/meshmode/interop/firedrake/connection.py#L544-L555  # noqa
         #  )
         # If scalar, just reorder and resample out
         if fspace_shape == ():
@@ -539,36 +540,17 @@ class PytentialLayerOperationEvaluator:
         # Return evaluated potential
         return self.fd_pot
 
-    def _compute_derivatives(self):
-        # TODO : Support derivatives
-        return self._evaluate()
-
     def _evaluate_action(self, *args):
-        # From tests/pointwiseoperator/test_point_expr.py
-        # https://github.com/firedrakeproject/firedrake/blob/c0d9b592f587fa8c7437f690da7a6595f6804c1b/tests/pointwiseoperator/test_point_expr.py  # noqa
-        if len(args) == 0:
-            # Evaluate the operator
-            return self._evaluate()
-
-        # Evaluate the Jacobian/Hessian action
-        operands = self.ufl_operands
-        operator = self._compute_derivatives()
-        expr = as_ufl(operator(*operands))
-        if expr.ufl_shape == () and expr != 0:
-            var = VariableRuleset(self.ufl_operands[0])
-            expr = expr*var._Id
-        elif expr == 0:
-            return self.assign(expr)
-
-        for arg in args:
-            mi = indices(len(expr.ufl_shape))
-            aa = mi
-            bb = mi[-len(arg.ufl_shape):]
-            expr = arg[bb] * expr[aa]
-            mi_tensor = tuple(e for e in mi if not (e in aa and e in bb))
-            if len(expr.ufl_free_indices):
-                expr = as_tensor(expr, mi_tensor)
-        return self.interpolate(expr)
+        assert len(args) == 1
+        action_coeffs = args[0]
+        assert len(action_coeffs) in [0, 1]
+        if len(action_coeffs) == 1:
+            action_coeff, = action_coeffs
+            ufl_operand, = self.pyt_layer.ufl_operands
+            # Store new action coefficients into operand
+            ufl_operand.dat.data[:] = action_coeff.dat.data[:]
+        # Evaluate operation on current operands
+        return self._evaluate()
 
 
 class VolumePotential(AbstractExternalOperator):

@@ -7,7 +7,7 @@ from firedrake import MeshHierarchy, norms, Constant, \
     ln, pi, SpatialCoordinate, sqrt, PytentialLayerOperation, grad, \
     FunctionSpace, VectorFunctionSpace, FacetNormal, inner, assemble, \
     TestFunction, ds, Function, exp, TrialFunction, dx, project, solve, \
-    utils, OpenCascadeMeshHierarchy
+    utils, OpenCascadeMeshHierarchy, dot
 from math import factorial
 from warnings import warn
 
@@ -45,7 +45,7 @@ def test_greens_formula(ctx_factory, fspace_degree):
         # NOTE: Assumes mesh is order 1
         cell_size = np.max(mesh.cell_sizes.data.data)
         # TODO : Solve a system
-        err = norms.l2_norm(true - comp)
+        err = norms.norm(true - comp, norm_type="L2")
         eoc_recorder.add_data_point(cell_size, err)
 
     assert(eoc_recorder.order_estimate() >= fspace_degree
@@ -130,7 +130,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
     source_bdy_id = 5  # (inner boundary) the circle
     target_bdy_id = (1, 2, 3, 4)  # (outer boundary) the square
     # Solve for each mesh in hierarchy
-    for mesh in mesh_hierarchy:
+    for h, mesh in zip([0.5 * 2**i for i in range(len(mesh_hierarchy))], mesh_hierarchy):
         # Get true solution
         spatial_coord = SpatialCoordinate(mesh)
         true_sol_expr = get_true_sol_expr(spatial_coord)
@@ -138,7 +138,6 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         # Build function spaces
         cgfspace = FunctionSpace(mesh, "CG", fspace_degree)
         cgvfspace = VectorFunctionSpace(mesh, "CG", fspace_degree)
-        dgfspace = FunctionSpace(mesh, "DG", fspace_degree)
         dgvfspace = VectorFunctionSpace(mesh, "DG", fspace_degree)
 
         # pytential normals point opposite direction of firedrake
@@ -193,11 +192,10 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
                                             operator_data=rhs_layer_operator_data)
         # get rhs form
         v = TestFunction(cgfspace)
-        rhs_form = inner(inner(grad(true_sol_expr), FacetNormal(mesh)),
-                         v) * ds(source_bdy_id) \
+        rhs_form = inner(dot(grad(true_sol_expr), FacetNormal(mesh)),
+                         v) * ds(source_bdy_id, metadata={'quadrature_degree': 2 * fspace_degree}) \
             + inner(rhs_layer, v) * ds(target_bdy_id) \
-            - inner(inner(rhs_grad_layer, FacetNormal(mesh)),
-                    v) * ds(target_bdy_id)
+            - inner(dot(rhs_grad_layer, FacetNormal(mesh)), v) * ds(target_bdy_id)
         
         # local helmholtz operator
         r"""
@@ -207,8 +205,14 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
             - \kappa^2 \cdot \langle u, v \rangle
             - i \kappa \langle u, v \rangle_\Sigma
         """
-        u = TrialFunction(cgfspace)
-        aL = inner(grad(u), grad(v)) * dx \
+        # local operator as bilinear form
+        trial = TrialFunction(cgfspace)
+        aL = inner(grad(trial), grad(v)) * dx \
+            - Constant(kappa**2) * inner(trial, v) * dx \
+            - Constant(1j * kappa) * inner(trial, v) * ds(target_bdy_id)
+        # local operator as functional FL(u)
+        u = Function(cgfspace, name="u")
+        FL = inner(grad(u), grad(v)) * dx \
             - Constant(kappa**2) * inner(u, v) * dx \
             - Constant(1j * kappa) * inner(u, v) * ds(target_bdy_id)
 
@@ -234,7 +238,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
             sym.D(HelmholtzKernel(ambient_dim),
                   sym.var("density"), k=sym.var("k"),
                   qbx_forced_limit=None))
-        # rhs pytential operations into firedrake
+        # pytential operations into firedrake
         grad_layer_operator_data = dict(operator_data)
         grad_layer_operator_data['op'] = pyt_grad_layer
         grad_layer_operator_data['project_to_dg'] = True
@@ -259,32 +263,44 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
                 n(x) \cdot \nabla( \int_\Gamma( u(y) \partial_n H_0^{(1)}(\kappa |x - y|) )d\gamma(y)), v
             \rangle_\Sigma
         """
+        # Non-local operator as functional of u FN(u)
         n = FacetNormal(mesh)
-        aN = inner(layer, v) * ds(target_bdy_id) - \
-            inner(inner(grad_layer, n), v) * ds(target_bdy_id)
+        FN = inner(layer, v) * ds(target_bdy_id) - \
+            inner(dot(grad_layer, n), v) * ds(target_bdy_id)
+
+        from ufl import derivative
 
         # Solve
-        comp_sol = Function(cgfspace)
-        solver_params = {'ksp_monitor': None,
+        solver_params = {'snes_type': 'ksponly',
+                         'ksp_monitor': None,
+                         'ksp_rtol': 1e-7,
                          'mat_type': 'matfree',
+                         'pmat_type': 'aij',
+                         'pc_type': 'lu',
                          }
         # make sure to collect petsc errors
+        from ufl import derivative
         import petsc4py.PETSc
         petsc4py.PETSc.Sys.popErrorHandler()
-        solve(aN + aL == rhs_form, comp_sol, solver_parameters=solver_params)
+        solve(FN + FL - rhs_form == 0, u,
+              Jp=aL,
+              solver_parameters=solver_params)
 
         true_sol = Function(cgfspace).interpolate(true_sol_expr)
-        err = norms.l2_norm(true_sol - comp_sol)
+        err = norms.norm(true_sol - u, norm_type="L2")
+        print("L^2 Error: ", abs(err))
         # Record the cell size and error
-        # NOTE: Assumes mesh is order 1
-        cell_size = np.max(mesh.cell_sizes.data.data)
-        eoc_recorder.add_data_point(cell_size, err)
+        eoc_recorder.add_data_point(h, err)
+        # visualize for debugging
+        visualize = False
+        if visualize:
+            from firedrake import trisurf
+            import matplotlib.pyplot as plt
+            trisurf(true_sol)
+            plt.title("True Solution")
+            trisurf(u)
+            plt.title("Computed Solution")
+            plt.show()
 
     assert(eoc_recorder.order_estimate() >= fspace_degree
            or eoc_recorder.max_error() < 2e-14)
-
-
-ctx_factory = cl.create_some_context
-fspace_degree = 1
-kappa = 1.0
-test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa)
