@@ -67,6 +67,7 @@ class AssembledPC(PCBase):
         tnullsp = P.getTransposeNullSpace()
         if tnullsp.handle != 0:
             Pmat.setTransposeNullSpace(tnullsp)
+        Pmat.setNearNullSpace(P.getNearNullSpace())
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
