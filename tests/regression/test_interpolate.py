@@ -358,18 +358,3 @@ def test_interpolate_periodic_coords_max():
     # All nodes on the "seam" end up being 1, not 0.
     assert np.allclose(np.unique(continuous.dat.data_ro),
                        [0.25, 0.5, 0.75, 1])
-
-
-def test_basic_dual_eval_c0modified():
-    mesh = UnitIntervalMesh(1)
-    V = FunctionSpace(mesh, "C0 Modified", 3)
-    x = SpatialCoordinate(mesh)
-    expr = Constant(1.)
-    f = interpolate(expr, V)
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [1, 1, 1, 1/2])
-    expr = x[0]
-    f = interpolate(expr, V)
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [0, 1, 1/2, 1/3])
-    expr = x[0]**2
-    f = interpolate(expr, V)
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [0, 1, 1/3, 1/4])
