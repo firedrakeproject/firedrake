@@ -1055,11 +1055,11 @@ class Action(BinaryOp):
 
     def __init__(self, A, b, pick_op):
         """Constructor for the Mul class."""
-        if A.shape[1] != b.shape[0]:
+        if A.shape[pick_op] != b.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, b.shape))
 
-        fsA = A.arg_function_spaces[-1]
+        fsA = A.arg_function_spaces[-pick_op]
         fsB = b.arg_function_spaces[0]
 
         assert space_equivalence(fsA, fsB), (
@@ -1071,7 +1071,10 @@ class Action(BinaryOp):
 
         # Function space check above ensures that middle arguments can
         # be 'eliminated'.
-        self._args = A.arguments()[:-1] + b.arguments()[1:]
+        if pick_op == 0:
+            self._args = A.arguments()[1:] + b.arguments()[1:]
+        else:
+            self._args = A.arguments()[:-1] + b.arguments()[1:]
         self.pick_op = pick_op
         self.tensor = A
         self.coeff = b
@@ -1082,8 +1085,11 @@ class Action(BinaryOp):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        A, b = self.operands
-        return A.arg_function_spaces[:-1] + b.arg_function_spaces[1:]
+        A, B = self.operands
+        if self.pick_op == 1:
+            return A.arg_function_spaces[:-1] + B.arg_function_spaces[1:]
+        else:
+            return A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
@@ -1092,6 +1098,8 @@ class Action(BinaryOp):
         return self._args
 
     def action(self):
+        if isinstance(self.tensor, Factorization):
+            self.tensor, = self.tensor.children
         import ufl.algorithms as ufl_alg
 
         # Pick first or last argument (will be replaced)
