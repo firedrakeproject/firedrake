@@ -422,14 +422,16 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # link the coefficient of the action to the right tensor
                 coeff = slate_node.ufl_coefficient
                 coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-                coeff, new_coeff = builder.collect_coefficients([coeff], names={coeff:coeff_name})
-                coeffs.update(coeff)
+                old_coeff, new_coeff = builder.collect_coefficients([coeff],
+                                                                    names={coeff._ufl_function_space:coeff_name},
+                                                                    action_node=terminal)
+                coeffs.update(old_coeff)
                 coeffs.update(new_coeff)
                 new_coeffs.update(new_coeff)
-                old_coeffs.update(coeff)
+                old_coeffs.update(old_coeff)
 
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeffs)
+                builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff)
                 builder.bag.call_name_generator("_"+str(c))
                 # FIXME have a better way of updating the builder bag with coeffs
 
