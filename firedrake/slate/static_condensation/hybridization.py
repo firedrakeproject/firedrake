@@ -207,6 +207,10 @@ class HybridizationPC(SCBase):
             x = K * Atilde.inv  * AssembledVector(self.broken_residual)
 
         self.schur_rhs = Function(TraceSpace)
+        if local_matfree:
+            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+        else:
+            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
         self._assemble_Srhs = create_assembly_callable(
             x,
             tensor=self.schur_rhs,
