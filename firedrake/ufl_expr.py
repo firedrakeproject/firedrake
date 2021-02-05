@@ -198,7 +198,7 @@ def action(form, coefficient):
     if isinstance(form, firedrake.slate.TensorBase):
         if form.rank == 0:
             raise ValueError("Can't take action of rank-0 tensor")
-        return firedrake.slate.action(form, firedrake.AssembledVector(coefficient))
+        return form * firedrake.AssembledVector(coefficient)
     else:
         return ufl.action(form, coefficient)
 
