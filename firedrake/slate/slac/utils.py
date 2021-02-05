@@ -227,7 +227,7 @@ def _slate2gem_action(expr, self):
     assert expr not in self.var2terminal.values()
     var = Variable(name, expr.shape)
     self.var2terminal[var] = expr
-    return Action(*map(self, expr.children), name)
+    return Action(*map(self, expr.children), name, expr.pick_op)
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
