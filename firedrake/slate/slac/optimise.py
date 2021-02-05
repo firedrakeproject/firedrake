@@ -153,7 +153,7 @@ def _action_mul(expr, self, state):
 
 @_action.register(Factorization)
 def _action_factorization(expr, self, state):
-    return Factorization(*map(self, expr.children, state))
+    return self(*expr.children, state)
 
 def push_mul(tensor, coeff, options):
     """Compute the action of a form on a Coefficient.
