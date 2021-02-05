@@ -45,7 +45,7 @@ def _action_solve(expr, self, state):
     if state.pick_op == 0:
         rhs = state.swap_op
         mat = Transpose(expr.children[state.pick_op])
-        swapped_op = Transpose(expr.children[state.pick_op^1])
+        swapped_op = self(Transpose(expr.children[state.pick_op^1]), ActionBag(state.coeff, None, state.pick_op))
         # FIXME
         assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
                                                              the rhs in a  Solve is a result of a Solve"
@@ -72,7 +72,7 @@ def _action_transpose(expr, self, state):
         :returns: an action of this node on the coefficient.
     """
     if expr.rank == 2:
-        return Transpose(self(*expr.children, ActionBag(state.coeff, state.swap_op, state.pick_op^1)))
+        return self(Transpose(self(*expr.children, ActionBag(state.coeff, state.swap_op, state.pick_op^1))),  ActionBag(state.coeff, state.swap_op, state.pick_op))
     else:
         return expr
 
@@ -146,7 +146,7 @@ def _action_mul(expr, self, state):
                 with self.swapc.swap_ops_bag(state, Transpose(pushed_prio_child)) as new_state:
                     swapped_op, pushed_other_child = self(other_child, new_state)
                 coeff = pushed_other_child
-                return Transpose(self(swapped_op, ActionBag(coeff, state.swap_op, state.pick_op^1)))
+                return self(Transpose(self(swapped_op, ActionBag(coeff, state.swap_op, state.pick_op^1))), ActionBag(coeff, state.swap_op, state.pick_op))
             else:
                 coeff = pushed_prio_child
                 return self(other_child, ActionBag(coeff, state.swap_op, state.pick_op))
