@@ -339,9 +339,18 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = slate_loopy.domains + builder.bag.index_creator.domains
-   
+
+    # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
+    # So we need to introduce new ids on those calls to keep them unique.
+    # But some the dependencies in the local matfree kernel are hand written and depend on the
+    # original action id. At this point all the instructions should be ensured to be sorted, so
+    # we remove all existing dependencies and make them sequential instead
+    insns_new = []
+    for i, insn in enumerate(insns):
+        insns_new.append(insn.copy(depends_on=frozenset({})))
+
     # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
+    slate_wrapper = lp.make_function(domains, insns_new, args, name="slate_wrapper",
                                      seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register kernels
