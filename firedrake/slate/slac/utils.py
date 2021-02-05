@@ -474,8 +474,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                                 and t._function==cv}
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
     tensor2temps.update(tensor2temp)
-    if inits:
-        insns.insert(0, *inits)
+    for i in inits:
+        insns.insert(0, i)
 
     # Get all coeffs into the wrapper kernel
     # so that we can generate the right wrapper kernel args of it
