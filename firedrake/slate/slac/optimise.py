@@ -5,8 +5,12 @@ from collections import namedtuple
 from firedrake.slate.slate import *
 
 @singledispatch
-def _action(expr, self):
+def _action(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+@_action.register(Action)
+def _action_action(expr, self, state):
+    return expr
 
 @_action.register(Tensor)
 def _action_tensor(expr, self, state):
