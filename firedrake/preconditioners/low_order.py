@@ -11,9 +11,11 @@ class P1PC(PMGPC):
 
         N = ele.degree()
         try:
-            N = min(N)
+            N, = set(N)
         except TypeError:
             pass
+        except ValueError:
+            raise NotImplementedError("Different degrees on TensorProductElement")
 
         if N <= self.coarse_degree:
             raise ValueError

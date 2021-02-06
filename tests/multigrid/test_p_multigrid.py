@@ -290,7 +290,7 @@ def test_p_fas_scalar():
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
     N = 4
-    dxq = dx(degree=3*N)  # here we also test coarsening of quadrature degree
+    dxq = dx(degree=3*N+2)  # here we also test coarsening of quadrature degree
 
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", N)
@@ -304,6 +304,8 @@ def test_p_fas_nonlinear_scalar():
     y = eps + inner(grad(u), grad(u))
     E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
     F = derivative(E, u, TestFunction(V))
+
+    problem = NonlinearVariationalProblem(F, u, bcs)
 
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
@@ -330,7 +332,7 @@ def test_p_fas_nonlinear_scalar():
 
     relax = {
         "ksp_type": "chebyshev",
-        "ksp_norm_type": None,
+        "ksp_norm_type": "unpreconditioned",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
 
@@ -348,7 +350,8 @@ def test_p_fas_nonlinear_scalar():
         "pmg_mg_levels_transfer_mat_type": mat_type,
         "pmg_mg_coarse": coarse}
 
-    nt_pmg = {**newton, **pmg}
+    npmg = {**newton, **pmg}
+    ncrs = {**newton, **coarse}
 
     pfas = {
         "mat_type": "aij",
@@ -359,20 +362,32 @@ def test_p_fas_nonlinear_scalar():
         "snes_type": "python",
         "snes_python_type": "firedrake.PMGSNES",
         "pfas_snes_fas_type": "kaskade",
-        "pfas_fas_levels": nt_pmg,
-        "pfas_fas_coarse": {**newton, **coarse}}
+        "pfas_fas_levels": npmg,
+        "pfas_fas_coarse": ncrs}
 
-    problem = NonlinearVariationalProblem(F, u, bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=pfas)
-    solver.solve()
-    ppc = solver.snes.getPythonContext().ppc
+    def check_coarsen_quadrature(solver):
+        Nq = set()
+        level = solver._ctx
+        while level is not None:
+            p = level._problem
+            for form in (p.F, p.J):
+                Nq.update(set(f.metadata().get("quadrature_degree") for f in form.integrals()))
+            level = level._coarse
+        assert {3*1+2, 3*2+2, 3*4+2} <= Nq
+
+    solver_pfas = NonlinearVariationalSolver(problem, solver_parameters=pfas)
+    solver_pfas.solve()
+
+    check_coarsen_quadrature(solver_pfas)
+    ppc = solver_pfas.snes.getPythonContext().ppc
     levels = ppc.getFASLevels()
-    assert levels == 3
     iter_pfas = ppc.getFASSmoother(levels-1).getLinearSolveIterations()
+    assert levels == 3
 
-    # Compare iterations on fine grid against a cold start (Newton/pmg)
     u.interpolate(Constant(0))
-    solver = NonlinearVariationalSolver(problem, solver_parameters=nt_pmg)
-    solver.solve()
-    iter_pmg = solver.snes.getLinearSolveIterations()
-    assert 2*iter_pfas <= iter_pmg
+    solver_npmg = NonlinearVariationalSolver(problem, solver_parameters=npmg)
+    solver_npmg.solve()
+
+    check_coarsen_quadrature(solver_npmg)
+    iter_npmg = solver_npmg.snes.getLinearSolveIterations()
+    assert 2*iter_pfas <= iter_npmg

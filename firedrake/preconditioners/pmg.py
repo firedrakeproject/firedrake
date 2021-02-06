@@ -1,4 +1,4 @@
-from functools import partial, lru_cache
+from functools import partial
 from itertools import chain
 import numpy as np
 
@@ -105,9 +105,13 @@ class PMGBase(PCSNESBase):
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
 
-        # Get the coarse degree from PETSc options
         prefix = pc.getOptionsPrefix()
-        self.coarse_degree = PETSc.Options(prefix).getInt("pmg_mg_coarse_degree", default=1)
+        options_prefix = prefix + "pmg_"
+        pdm = PETSc.DMShell().create(comm=pc.comm)
+        pdm.setOptionsPrefix(options_prefix)
+
+        # Get the coarse degree from PETSc options
+        self.coarse_degree = PETSc.Options(options_prefix).getInt("mg_coarse_degree", default=1)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -122,7 +126,6 @@ class PMGBase(PCSNESBase):
                 break
             elements.append(ele)
 
-        pdm = PETSc.DMShell().create(comm=pc.comm)
         sf = odm.getPointSF()
         section = odm.getDefaultSection()
         attach_hooks(pdm, level=len(elements)-1, sf=sf, section=section)
@@ -136,7 +139,6 @@ class PMGBase(PCSNESBase):
         pdm.setSNESFunction(_SNESContext.form_function)
         pdm.setKSPComputeOperators(_SNESContext.compute_operators)
 
-        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
@@ -153,6 +155,12 @@ class PMGBase(PCSNESBase):
 
     def coarsen(self, fdm, comm):
         fctx = get_appctx(fdm)
+
+        # Have we already done this?
+        cctx = fctx._coarse
+        if cctx is not None:
+            return cctx.J.arguments()[0].function_space().dm
+
         test, trial = fctx.J.arguments()
         fV = test.function_space()
         fu = fctx._problem.u
@@ -207,48 +215,48 @@ class PMGBase(PCSNESBase):
         Nf = get_max_degree(fV.ufl_element())
         Nc = get_max_degree(cV.ufl_element())
 
-        # Coarsen the quadrature degree in a dictionary
-        # such that the ratio of GL to GLL nodes is preserved
         def coarsen_quadrature(df, Nf, Nc):
-            dc = dict(df)
-            Nq = dc.get("quadrature_degree", None)
-            if Nq is not None:
-                dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
-            return dc
+            # Coarsen the quadrature degree in a dictionary or ufl.Form
+            # such that the ratio of GL to GLL nodes is preserved
+            if isinstance(df, dict):
+                dc = dict(df)
+                Nq = dc.get("quadrature_degree", None)
+                if Nq is not None:
+                    dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+                return dc
+            elif isinstance(df, Form):
+                return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc)) for f in df.integrals()])
+            else:
+                return df
 
-        fcp = fctx._problem.form_compiler_parameters
-        if fcp is not None:
-            fcp = coarsen_quadrature(fcp, Nf, Nc)
+        fproblem = fctx._problem
+        fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
+        cF = coarsen_quadrature(cF, Nf, Nc)
+        cJ = coarsen_quadrature(cJ, Nf, Nc)
+        cJp = coarsen_quadrature(cJp, Nf, Nc)
 
-        for cform in (cF, cJ, cJp):
-            if cform is not None:
-                cform = Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc)) for f in cform.integrals()])
+        cproblem = type(fproblem)(cF, cu, cbcs, J=cJ, Jp=cJp,
+                                  form_compiler_parameters=fcp,
+                                  is_linear=fproblem.is_linear)
 
-        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ,
-                                                         Jp=cJp,
-                                                         form_compiler_parameters=fcp,
-                                                         is_linear=fctx._problem.is_linear)
+        cctx = type(fctx)(cproblem, fctx.mat_type, fctx.pmat_type,
+                          appctx=fctx.appctx,
+                          pre_jacobian_callback=fctx._pre_jacobian_callback,
+                          pre_function_callback=fctx._pre_function_callback,
+                          post_jacobian_callback=fctx._post_jacobian_callback,
+                          post_function_callback=fctx._post_function_callback,
+                          options_prefix=fctx.options_prefix,
+                          transfer_manager=fctx.transfer_manager)
 
-        cctx = _SNESContext(cproblem, fctx.mat_type, fctx.pmat_type,
-                            appctx=fctx.appctx,
-                            pre_jacobian_callback=fctx._pre_jacobian_callback,
-                            pre_function_callback=fctx._pre_function_callback,
-                            post_jacobian_callback=fctx._post_jacobian_callback,
-                            post_function_callback=fctx._post_function_callback,
-                            options_prefix=fctx.options_prefix,
-                            transfer_manager=fctx.transfer_manager)
+        # cctx._fine = fctx  # FIXME
+        fctx._coarse = cctx
 
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
-        add_hook(parent, setup=inject_state, call_setup=True)
-
-        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
-        cdm.setCreateInterpolation(self.create_interpolation)
-        # We need this for p-FAS
-        cdm.setCreateInjection(self.create_injection)
-        cdm.setSNESJacobian(_SNESContext.form_jacobian)
-        cdm.setSNESFunction(_SNESContext.form_function)
 
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
+        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+        cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setCreateInjection(self.create_injection)
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
