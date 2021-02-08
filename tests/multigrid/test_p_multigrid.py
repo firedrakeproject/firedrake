@@ -305,7 +305,8 @@ def test_p_fas_nonlinear_scalar():
     E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
     F = derivative(E, u, TestFunction(V))
 
-    problem = NonlinearVariationalProblem(F, u, bcs)
+    fcp = {"quadrature_degree": 3*N+2}
+    problem = NonlinearVariationalProblem(F, u, bcs, form_compiler_parameters=fcp)
 
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
@@ -366,14 +367,27 @@ def test_p_fas_nonlinear_scalar():
         "pfas_fas_coarse": ncrs}
 
     def check_coarsen_quadrature(solver):
-        Nq = set()
+        # Go through p-MG hierarchy
+        # Extract quadrature degree from forms and compiler parameters, Nq
+        # Extract degree from solution, Nl
+        # Assert that Nq == 3*Nl+2
         level = solver._ctx
         while level is not None:
             p = level._problem
-            for form in (p.F, p.J):
-                Nq.update(set(f.metadata().get("quadrature_degree") for f in form.integrals()))
+            Nq = set()
+            for form in filter(None, (p.F, p.J, p.Jp)):
+                Nq.update(set(f.metadata().get("quadrature_degree", set()) for f in form.integrals()))
+            if p.form_compiler_parameters is not None:
+                Nfcp = p.form_compiler_parameters.get("quadrature_degree", None)
+                Nq.update([Nfcp] if Nfcp else [])
+            Nq, = Nq
+            Nl = p.u.ufl_element().degree()
+            try:
+                Nl, = set(Nl)
+            except TypeError:
+                pass
+            assert Nq == 3*Nl+2
             level = level._coarse
-        assert {3*1+2, 3*2+2, 3*4+2} <= Nq
 
     solver_pfas = NonlinearVariationalSolver(problem, solver_parameters=pfas)
     solver_pfas.solve()
@@ -381,10 +395,11 @@ def test_p_fas_nonlinear_scalar():
     check_coarsen_quadrature(solver_pfas)
     ppc = solver_pfas.snes.getPythonContext().ppc
     levels = ppc.getFASLevels()
-    iter_pfas = ppc.getFASSmoother(levels-1).getLinearSolveIterations()
     assert levels == 3
 
-    u.interpolate(Constant(0))
+    iter_pfas = ppc.getFASSmoother(levels-1).getLinearSolveIterations()
+
+    u.assign(zero())
     solver_npmg = NonlinearVariationalSolver(problem, solver_parameters=npmg)
     solver_npmg.solve()
 
