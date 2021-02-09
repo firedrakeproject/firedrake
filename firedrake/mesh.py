@@ -731,6 +731,8 @@ class MeshTopology(AbstractMeshTopology):
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
+
+        # FIXME: Does this need to be equispaced as well?
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
         def callback(self):
@@ -1716,14 +1718,15 @@ def Mesh(meshfile, **kwargs):
     topology = MeshTopology(plex, name=name, reorder=reorder,
                             distribution_parameters=distribution_parameters)
 
-
     tcell = topology.ufl_cell()
     if geometric_dim is None:
         geometric_dim = tcell.topological_dimension()
     cell = tcell.reconstruct(geometric_dimension=geometric_dim)
     
+
+    # FIXME: element choise seems to not care about equispaced
     if periodic:
-        element = ufl.VectorElement("Discontinuous Lagrange", cell, 1)
+        element = ufl.VectorElement("Discontinuous Lagrange", cell, 1,variant="equispaced")
     else:
         element = ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
@@ -1739,9 +1742,11 @@ def Mesh(meshfile, **kwargs):
 
         if self._periodic:
             print("Attempting Periodic Conversion")
+            element = ufl.FiniteElement("Discontinuous Lagrange", degree=1, variant="equispaced")
             coordinates_fs = functionspace.VectorFunctionSpace(self.topology, 
-                                                               "Discontinuous Lagrange", 1,
-                                                               dim=geometric_dim)
+                                                               element,
+                                                               dim=geometric_dim,
+                                                               variant="equispaced")
 
             # So every proc has a set of mesh entities that have already been partitioned
             fs_section = coordinates_fs.dm.getDefaultSection()
@@ -1757,6 +1762,8 @@ def Mesh(meshfile, **kwargs):
             
             # Could be sped up only looping through cells became periodic
             for row,cell in enumerate(closure[:,-1]):
+               # print("***********************")
+               # print("CELL",cell)
                 ys = plex.getVecClosure(dm_coord_sec,
                                         plex.getCoordinatesLocal(),cell).reshape((-1,geometric_dim))
                 
@@ -1766,6 +1773,9 @@ def Mesh(meshfile, **kwargs):
 
                 for node in range(simplex_dim):
                     dm_node = closure[row,node]
+                    c_offset = dm_coord_sec.getOffset(dm_node)
+                    fs_offset = fs_section.getOffset(dm_node)
+              #      print("Loc",simplex_dim*cell, "FS", fs_offset)
                     x_temp = plex.getVecClosure(dm_coord_sec, plex.getCoordinatesLocal(), 
                                                     dm_node).reshape((-1, geometric_dim))
                     # The node should be in one of the two lists.
@@ -1777,10 +1787,21 @@ def Mesh(meshfile, **kwargs):
                         x[node,:] = x_temp
                 
                 # What could be causing the scramble in parallel?
-                for node in range(simplex_dim):
-                    for j in range(geometric_dim):
+                firedrake_coord_sec = fs_section
+                #firedrake_coord_sec = coordinates_fs.dm.getLocalSection()
+                # coordiantes_fs.dm.getLocalSection() does not exist
+            
+                # Lawrence's more efficent assembly
+                offset = firedrake_coord_sec.getOffset(cell)
+                dof = firedrake_coord_sec.getDof(cell)
+                assert dof == simplex_dim
+                coordinates_data[offset:offset+dof, :] = x[:]
+
+                
+                #for node in range(simplex_dim):
+                #    for j in range(geometric_dim):
                         # Need to get the correct ordering
-                        coordinates_data[simplex_dim*cell+node,j] = x[node,j]
+                #        coordinates_data[simplex_dim*cell+node,j] = x[node,j]
                         
 
             coordinates = function.CoordinatelessFunction(coordinates_fs, 

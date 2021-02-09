@@ -145,7 +145,8 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
 
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None):
+                        name=None, vfamily=None, vdegree=None,
+                        variant=None):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     :arg mesh: The mesh to determine the cell from.
@@ -176,7 +177,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     dim = dim or mesh.ufl_cell().geometric_dimension()
-    element = ufl.VectorElement(sub_element, dim=dim)
+    element = ufl.VectorElement(sub_element, dim=dim, variant=variant)
     return FunctionSpace(mesh, element, name=name)
 
 
