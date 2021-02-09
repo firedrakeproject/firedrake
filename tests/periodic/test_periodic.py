@@ -1,7 +1,12 @@
 from firedrake import *
 import matplotlib.pyplot as plt
 
-mesh = Mesh("geom/p2d.msh",reorder=False, periodic=True)
+coarse = False
+if coarse:
+    mesh = Mesh("geom/p2d-coarse.msh",reorder=False, periodic=True)
+else:
+    mesh = Mesh("geom/p2d.msh",reorder=False, periodic=True)
+
 #mesh = PeriodicRectangleMesh(2,2,0.6,0.5, direction="x")
 Vd = VectorFunctionSpace(mesh,"DG",1)
 Vc = VectorFunctionSpace(mesh,"CG",1)
@@ -19,7 +24,12 @@ l = inner(Constant(1e-1),v)*dx
 bc = DirichletBC(V, Constant(0), [1,3])
 #bc = DirichletBC(V, Constant(0),[1,2])
 
-solve(a-l==0, u, bc, solver_parameters={"snes_monitor":None})
+if coarse:
+    solve(a-l==0, u, bc, nullspace=VectorSpaceBasis(constant=True), transpose_nullspace=VectorSpaceBasis(constant=True), solver_parameters={"snes_monitor":None})
+else:
+    # Good Convergence!
+    solve(a-l==0, u, bc, solver_parameters={"snes_monitor":None})
+
 File("output/lapl.pvd").write(u)
 tricontourf(u)
 plt.show()
