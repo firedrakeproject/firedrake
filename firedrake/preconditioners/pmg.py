@@ -3,6 +3,7 @@ from itertools import chain
 import numpy as np
 
 from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
+from ufl.classes import Expr
 
 from pyop2 import op2
 import loopy
@@ -19,8 +20,7 @@ import firedrake
 
 class PMGBase(PCSNESBase):
     """
-    A class for implementing p-multigrid.
-
+    A class for implementing p-multigrid
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
     PETSc PC of type MG and with options prefix 'pmg_'. The
@@ -161,34 +161,26 @@ class PMGBase(PCSNESBase):
         if cctx is not None:
             return cctx.J.arguments()[0].function_space().dm
 
+        fproblem = fctx._problem
         test, trial = fctx.J.arguments()
         fV = test.function_space()
-        fu = fctx._problem.u
+        fu = fproblem.u
 
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
         cu = firedrake.Function(cV)
 
-        Injection = prolongation_matrix_matfree(cV, fV, [], [])
+        injection = prolongation_matrix_matfree(cV, fV, [], [])
 
-        def inject_state():
+        def inject_state(mat):
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                Injection.multTranspose(xf, xc)
+                mat.multTranspose(xf, xc)
 
         parent = get_parent(fdm)
         assert parent is not None
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
-
-        replace_d = {fu: cu,
-                     test: firedrake.TestFunction(cV),
-                     trial: firedrake.TrialFunction(cV)}
-        cJ = replace(fctx.J, replace_d)
-        cF = replace(fctx.F, replace_d)
-        if fctx.Jp is not None:
-            cJp = replace(fctx.Jp, replace_d)
-        else:
-            cJp = None
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         cbcs = []
         for bc in fctx._problem.bcs:
@@ -212,35 +204,47 @@ class PMGBase(PCSNESBase):
                     pass
                 return N
 
+        def coarsen_quadrature(df, Nf, Nc):
+            # Coarsen the quadrature degree in a dictionary
+            # such that the ratio of GL to GLL nodes is preserved
+            if isinstance(df, dict):
+                Nq = df.get("quadrature_degree", None)
+                if Nq is not None:
+                    dc = dict(df)
+                    dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+                    return dc
+            return df
+
+        def coarsen_form(form, Nf, Nc, replace_d):
+            return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
+                         for f in replace(form, replace_d).integrals()]) if form is not None else form
+
         Nf = get_max_degree(fV.ufl_element())
         Nc = get_max_degree(cV.ufl_element())
 
-        def coarsen_quadrature(df, Nf, Nc):
-            # Coarsen the quadrature degree in a dictionary or ufl.Form
-            # such that the ratio of GL to GLL nodes is preserved
-            if isinstance(df, dict):
-                dc = dict(df)
-                Nq = dc.get("quadrature_degree", None)
-                if Nq is not None:
-                    dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
-                return dc
-            elif isinstance(df, Form):
-                return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc)) for f in df.integrals()])
-            else:
-                return df
+        replace_d = {fu: cu,
+                     test: firedrake.TestFunction(cV),
+                     trial: firedrake.TrialFunction(cV)}
 
-        fproblem = fctx._problem
         fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
-        cF = coarsen_quadrature(cF, Nf, Nc)
-        cJ = coarsen_quadrature(cJ, Nf, Nc)
-        cJp = coarsen_quadrature(cJp, Nf, Nc)
+        cF = coarsen_form(fctx.F, Nf, Nc, replace_d)
+        cJ = coarsen_form(fctx.J, Nf, Nc, replace_d)
+        cJp = coarsen_form(fctx.Jp, Nf, Nc, replace_d)
+
+        cappctx = dict(fctx.appctx)
+        for key in cappctx:
+            val = cappctx[key]
+            if isinstance(val, dict):
+                cappctx[key] = coarsen_quadrature(val, Nf, Nc)
+            elif isinstance(val, (Form, Expr)):
+                cappctx[key] = replace(val, replace_d)
 
         cproblem = type(fproblem)(cF, cu, cbcs, J=cJ, Jp=cJp,
                                   form_compiler_parameters=fcp,
                                   is_linear=fproblem.is_linear)
 
         cctx = type(fctx)(cproblem, fctx.mat_type, fctx.pmat_type,
-                          appctx=fctx.appctx,
+                          appctx=cappctx,
                           pre_jacobian_callback=fctx._pre_jacobian_callback,
                           pre_function_callback=fctx._pre_function_callback,
                           post_jacobian_callback=fctx._post_jacobian_callback,
