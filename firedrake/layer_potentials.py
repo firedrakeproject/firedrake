@@ -2,7 +2,7 @@ import numpy as np
 from firedrake.pointwise_operators import AbstractExternalOperator
 from firedrake.utils import cached_property
 
-from firedrake import Function, FunctionSpace, interpolate, Interpolator
+from firedrake import Function, FunctionSpace, interpolate, Interpolator, BrokenElement, project
 
 from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.algorithms import extract_coefficients
@@ -70,11 +70,18 @@ class VolumePotential(AbstractExternalOperator):
     def __init__(self, *operands, **kwargs):
         self.operands = operands
         self.kwargs = kwargs
-
         AbstractExternalOperator.__init__(self, operands[0], **kwargs)
 
+
+        # Build a broken version of input function space
+        fs = kwargs["function_space"]
+        fsdg = FunctionSpace(fs.mesh(), "DG", fs.ufl_element().degree())
+
+        self.evaluator_kwargs = kwargs.copy()
+        self.evaluator_kwargs["function_space"] = fsdg
+        
         # Validate input
-        print(len(self.operands), self.derivatives)
+        # print(len(self.operands), self.derivatives)
         # assert self.derivatives == (0,), \
         #     "Derivatives of volume potential not currently supported: " + str(self.derivatives)
         # from firedrake import Function
@@ -100,10 +107,10 @@ class VolumePotential(AbstractExternalOperator):
         if not all(key in permissible_keys for key in operator_data):
             raise ValueError("operator_data contains an unexpected key. All "
                              "keys must be one of %s." % (permissible_keys,))
-
+        
     @cached_property
     def _evaluator(self):
-        return VolumePotentialEvaluator(self, *self.operands, **self.kwargs)
+        return VolumePotentialEvaluator(self, *self.operands, **self.evaluator_kwargs)
 
     def _evaluate(self, continuity_tolerance=None):
         1/0
@@ -114,13 +121,27 @@ class VolumePotential(AbstractExternalOperator):
     def _evaluate_action(self, *args, continuity_tolerance=None):
         return self._evaluator._evaluate_action(continuity_tolerance=continuity_tolerance)
 
+    def _evaluate_adjoint_action(self, *args, continuity_tolerance=None):
+        return self._evaluator._evaluate_action(continuity_tolerance=continuity_tolerance)
 
+    def evaluate_adj_component_control(self, x, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dN = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        return dN._evaluate_adjoint_action((x.function,)).vector()
+
+    def evaluate_adj_component(self, x, idx):
+        print(x, type(x))
+        1/0
+    
+    
 class VolumePotentialEvaluator:
     def __init__(self, vp, *operands, **kwargs):
         self.vp = vp
         operand = operands[0]
 
+        cg_function_space = vp.function_space()
         function_space = kwargs["function_space"]
+        self.dg_function_space = function_space
 
         # Create an interpolator from the original operand so that
         # we can re-interpolate it into the space at each evaluation
@@ -241,7 +262,9 @@ class VolumePotentialEvaluator:
         # so we don't have to keep making a fd function during conversion
         # from meshmode. AbstractExternalOperator s aren't functions,
         # so can't use *self*
-        self.fd_pot = Function(function_space)
+        self.fd_pot = Function(self.dg_function_space)
+        self.fd_pot_cg = Function(vp.function_space())
+
 
     def _evaluate(self, continuity_tolerance=None):
         """
@@ -256,7 +279,7 @@ class VolumePotentialEvaluator:
             value at any duplicated firedrake node
         """
         operand, = self.vp.ufl_operands
-        operand_discrete = interpolate(operand, self.vp.function_space())
+        operand_discrete = interpolate(operand, self.dg_function_space)
 
         # pass operand into a meshmode DOFArray
         from meshmode.dof_array import flatten
@@ -264,23 +287,23 @@ class VolumePotentialEvaluator:
             self.meshmode_connection.from_firedrake(operand_discrete, actx=self.actx)
         meshmode_src_vals = flatten(meshmode_src_vals)
 
-        if 1:
-            alpha = 40
-            dim = 2
+       # if 1:
+       #     alpha = 40
+       #     dim = 2
 
-        if 1:
-            mm_discr = self.meshmode_connection.discr
-            from meshmode.dof_array import thaw, flat_norm
-            x = flatten(thaw(self.actx, mm_discr.nodes()[0]))
-            y = flatten(thaw(self.actx, mm_discr.nodes()[1]))
-            import pyopencl.clmath as clmath
-            import pyopencl.array as cla
-            norm2 = (x-0.5)**2 + (y-0.5)**2
-            ref_src = -(4 * alpha ** 2 * norm2 - 2 * dim * alpha) * clmath.exp(
-                    -alpha * norm2)
-            denom = np.max(np.abs(ref_src.get()))
-            err = np.abs((ref_src - meshmode_src_vals).get())
-            print("Fdrake -> meshmode error:", np.max(err)/denom)
+       # if 1:
+       #     mm_discr = self.meshmode_connection.discr
+       #     from meshmode.dof_array import thaw, flat_norm
+       #     x = flatten(thaw(self.actx, mm_discr.nodes()[0]))
+       #     y = flatten(thaw(self.actx, mm_discr.nodes()[1]))
+       #     import pyopencl.clmath as clmath
+       #     import pyopencl.array as cla
+       #     norm2 = (x-0.5)**2 + (y-0.5)**2
+       #     ref_src = -(4 * alpha ** 2 * norm2 - 2 * dim * alpha) * clmath.exp(
+       #             -alpha * norm2)
+       #     denom = np.max(np.abs(ref_src.get()))
+       #     err = np.abs((ref_src - meshmode_src_vals).get())
+       #     print("Fdrake -> meshmode error:", np.max(err)/denom)
 
         # pass flattened operand into volumential interpolator
         from volumential.interpolation import interpolate_from_meshmode
@@ -290,19 +313,19 @@ class VolumePotentialEvaluator:
                                       self.to_volumential_lookup,
                                       order="user")  # user order is more intuitive
 
-        if 1:
-            # check source density against known value
-            # x = self.volumential_boxgeo.tree.sources[0].with_queue(self.queue)
-            # y = self.volumential_boxgeo.tree.sources[1].with_queue(self.queue)
-            x, y = self.volumential_boxgeo.nodes
-            import pyopencl.clmath as clmath
-            import pyopencl.array as cla
-            norm2 = (x-0.5)**2 + (y-0.5)**2
-            ref_src = -(4 * alpha ** 2 * norm2 - 2 * dim * alpha) * clmath.exp(
-                    -alpha * norm2)
-            denom = np.max(np.abs(ref_src.get()))
-            err = np.abs((ref_src-volumential_src_vals).get())
-            print("Fdrake -> volumential error:", np.max(err)/denom)
+        # if 1:
+        #     # check source density against known value
+        #     # x = self.volumential_boxgeo.tree.sources[0].with_queue(self.queue)
+        #     # y = self.volumential_boxgeo.tree.sources[1].with_queue(self.queue)
+        #     x, y = self.volumential_boxgeo.nodes
+        #     import pyopencl.clmath as clmath
+        #     import pyopencl.array as cla
+        #     norm2 = (x-0.5)**2 + (y-0.5)**2
+        #     ref_src = -(4 * alpha ** 2 * norm2 - 2 * dim * alpha) * clmath.exp(
+        #             -alpha * norm2)
+        #     denom = np.max(np.abs(ref_src.get()))
+        #     err = np.abs((ref_src-volumential_src_vals).get())
+        #     print("Fdrake -> volumential error:", np.max(err)/denom)
 
         # evaluate volume fmm
         from volumential.volume_fmm import drive_volume_fmm
@@ -315,25 +338,25 @@ class VolumePotentialEvaluator:
             reorder_sources=True,
             **self.fmm_kwargs)
 
-        if 1:
-            # check potential against known value
-            ref_pot = clmath.exp(-alpha * norm2)
-            denom = np.max(np.abs(ref_pot.get()))
-            err = np.abs((ref_pot-pot).get())
-            print("volumential potential error:", np.max(err)/denom)
+        # if 1:
+        #     # check potential against known value
+        #     ref_pot = clmath.exp(-alpha * norm2)
+        #     denom = np.max(np.abs(ref_pot.get()))
+        #     err = np.abs((ref_pot-pot).get())
+        #     print("volumential potential error:", np.max(err)/denom)
 
-            # evaluate volume fmm with ref_src
-            pot_w_ref_src, = drive_volume_fmm(
-                self.volumential_boxgeo.traversal,
-                self.expansion_wrangler,
-                ref_src * self.volumential_boxgeo.weights,
-                ref_src,
-                direct_evaluation=self.force_direct_evaluation,
-                reorder_sources=True,
-                **self.fmm_kwargs)
+        #     # evaluate volume fmm with ref_src
+        #     pot_w_ref_src, = drive_volume_fmm(
+        #         self.volumential_boxgeo.traversal,
+        #         self.expansion_wrangler,
+        #         ref_src * self.volumential_boxgeo.weights,
+        #         ref_src,
+        #         direct_evaluation=self.force_direct_evaluation,
+        #         reorder_sources=True,
+        #         **self.fmm_kwargs)
 
-            err = np.abs((ref_pot-pot_w_ref_src).get())
-            print("volumential potential w/t ref src error:", np.max(err)/denom)
+        #     err = np.abs((ref_pot-pot_w_ref_src).get())
+        #     print("volumential potential w/t ref src error:", np.max(err)/denom)
 
         # pass volumential back to meshmode DOFArray
         from volumential.interpolation import interpolate_to_meshmode
@@ -354,9 +377,13 @@ class VolumePotentialEvaluator:
         self.meshmode_connection.from_meshmode(
             meshmode_pot_vals,
             out=self.fd_pot)
-        self.vp.dat.data[:] = self.fd_pot.dat.data[:]
 
-        return self.fd_pot
+
+        self.fd_pot_cg = project(self.fd_pot, self.vp.function_space())
+        
+        self.vp.dat.data[:] = self.fd_pot_cg.dat.data[:]
+
+        return self.fd_pot_cg
 
     def _compute_derivatives(self, continuity_tolerance=None):
         # TODO : Support derivatives
