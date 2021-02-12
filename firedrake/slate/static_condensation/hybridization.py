@@ -14,6 +14,10 @@ from pyop2.utils import as_tuple
 
 __all__ = ['HybridizationPC']
 
+class CheckSchurComplement(Exception):
+    def __init__(self, expr, m):
+        self.expression = expr
+        self.message = m
 
 class HybridizationPC(SCBase):
 
@@ -238,6 +242,7 @@ class HybridizationPC(SCBase):
             self._assemble_S()
 
         Smat = self.S.petscmat
+        raise CheckSchurComplement(self.ctx, "The Schur complement.")
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
         if nullspace is not None:
