@@ -282,9 +282,9 @@ class HybridizationPC(SCBase):
         split_trace_op = dict(split_form(K.form))
 
         # Generate reconstruction calls
-        self._reconstruction_calls(split_mixed_op, split_trace_op)
+        self._reconstruction_calls(split_mixed_op, split_trace_op, local_matfree=local_matfree, mat_type=mat_type)
 
-    def _reconstruction_calls(self, split_mixed_op, split_trace_op):
+    def _reconstruction_calls(self, split_mixed_op, split_trace_op, local_matfree=False, mat_type=None):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -317,11 +317,19 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        # TODO invs have to replaced my matfree solves
-        M = D - C * A.inv * B
-        R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar, # This a.inv needs to be rewritten as well?
-                        decomposition="PartialPivLU")
+        if not local_matfree:
+            M = D - C * A.inv * B
+            R = K_1.T - C * A.inv * K_0.T
+            u_rec = M.solve(f - C * A.inv * g - R * lambdar,
+                            decomposition="PartialPivLU")
+            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+        else:
+            M = D - C * A.solve(B, matfree=True)
+            R = K_1.T - C * A.solve(K_0.T, matfree=True)
+            u_rec = M.solve(f - C * A.solve(g, matfree=True) - R * lambdar,
+                            decomposition="PartialPivLU",
+                            matfree=True)
+            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.ctx.fc_params)
@@ -330,7 +338,8 @@ class HybridizationPC(SCBase):
                             decomposition="PartialPivLU")
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
+                                                      form_compiler_parameters=self.ctx.fc_params,
+                                                      mat_type=mat_type)
 
     @timed_function("HybridUpdate")
     def update(self, pc):
