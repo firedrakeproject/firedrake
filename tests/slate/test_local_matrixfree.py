@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.slate.static_condensation.hybridization import CheckSchurComplement
 
 
 @pytest.fixture
@@ -148,3 +149,68 @@ def test_new_slateoptpass(expr):
         tmp_opt = assemble(expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
 
+def temporary_test_for_reallifeschur():
+    # Create a mesh
+    mesh = UnitSquareMesh(6, 6)
+    U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    W = U * V
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    n = FacetNormal(mesh)
+
+    # Define the source function
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V)
+    f.interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+
+    # Define the variational forms
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    L = -inner(f, v) * dx + Constant(0.0) * dot(conj(tau), n) * (ds(3) + ds(4))
+
+    # Compare hybridized solution with non-hybridized
+    w = Function(W)
+    bc1 = DirichletBC(W[0], as_vector([0.0, -sin(5*x)]), 1)
+    bc2 = DirichletBC(W[0], as_vector([0.0, sin(5*y)]), 2)
+    bcs = [bc1, bc2]
+
+    matfree_params = {'mat_type': 'matfree',
+                      'ksp_type': 'preonly',
+                      'pc_type': 'python',
+                      'pc_python_type': 'firedrake.HybridizationPC',
+                      'hybridization': {'ksp_type': 'cg',
+                                        'pc_type': 'none',
+                                        'ksp_rtol': 1e-8,
+                                        'mat_type': 'matfree',
+                                        'local_matfree': True,
+                                        'throw_the_schur': True}} # new petsc option!
+                                        # will I need to specify GT preconditioner here?
+    params = {'mat_type': 'matfree',
+                      'ksp_type': 'preonly',
+                      'pc_type': 'python',
+                      'pc_python_type': 'firedrake.HybridizationPC',
+                      'hybridization': {'ksp_type': 'cg',
+                                        'pc_type': 'none',
+                                        'ksp_rtol': 1e-8,
+                                        'mat_type': 'matfree'
+                                        'throw_the_schur': True}}
+    try:
+        solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
+    except Exception as e:
+        matfree_schur = e.expression.action
+        u, = matfree_schur._coefficients
+        import ufl.algorithms as ufl_alg
+        f = Function(W)
+        f.assign(Constant(2))
+        matfree_schur_wv = ufl_alg.replace(matfree_schur, {u: f})
+        A = assemble(matfree_schur_wv)
+        try:
+            solve(a == L, w, bcs=bcs, solver_parameters=params)
+        except Exception as e:
+            schur = e.expression.action
+            u, = schur._coefficients
+            schur_wv = ufl_alg.replace(schur, {u: f})
+            B = assemble(schur_wv)
+
+            for a,b in zip(A.dat.data, B.dat.data):
+                assert np.allclose(a,b)
