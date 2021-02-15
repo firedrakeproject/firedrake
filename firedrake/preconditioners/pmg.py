@@ -161,37 +161,14 @@ class PMGBase(PCSNESBase):
         if cctx is not None:
             return cctx.J.arguments()[0].function_space().dm
 
-        fproblem = fctx._problem
+        parent = get_parent(fdm)
+        assert parent is not None
+
         test, trial = fctx.J.arguments()
         fV = test.function_space()
-        fu = fproblem.u
-
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
-        cu = firedrake.Function(cV)
-
-        injection = prolongation_matrix_matfree(cV, fV, [], [])
-
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
-
-        parent = get_parent(fdm)
-        assert parent is not None
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
-
-        cbcs = []
-        for bc in fctx._problem.bcs:
-            cV_ = cV
-            for index in bc._indices:
-                cV_ = cV_.sub(index)
-
-            cbc_value = self.coarsen_bc_value(bc, cV_)
-            cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                              bc.sub_domain,
-                                              method=bc.method))
 
         def get_max_degree(ele):
             if isinstance(ele, MixedElement):
@@ -217,31 +194,57 @@ class PMGBase(PCSNESBase):
 
         def coarsen_form(form, Nf, Nc, replace_d):
             return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
-                         for f in replace(form, replace_d).integrals()]) if form is not None else form
+                         for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
+
+        def coarsen_bcs(fbcs):
+            cbcs = []
+            for bc in fbcs:
+                cV_ = cV
+                for index in bc._indices:
+                    cV_ = cV_.sub(index)
+                cbc_value = self.coarsen_bc_value(bc, cV_)
+                cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                                  bc.sub_domain,
+                                                  method=bc.method))
+            return cbcs
 
         Nf = get_max_degree(fV.ufl_element())
         Nc = get_max_degree(cV.ufl_element())
+
+        fproblem = fctx._problem
+        fu = fproblem.u
+        cu = firedrake.Function(cV)
+        injection = prolongation_matrix_matfree(cV, fV, [], [])
+
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
                      trial: firedrake.TrialFunction(cV)}
 
-        fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
         cF = coarsen_form(fctx.F, Nf, Nc, replace_d)
         cJ = coarsen_form(fctx.J, Nf, Nc, replace_d)
         cJp = coarsen_form(fctx.Jp, Nf, Nc, replace_d)
+        fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
+        cbcs = coarsen_bcs(fproblem.bcs)
 
         cappctx = dict(fctx.appctx)
         for key in cappctx:
             val = cappctx[key]
             if isinstance(val, dict):
                 cappctx[key] = coarsen_quadrature(val, Nf, Nc)
-            elif isinstance(val, (Form, Expr)):
+            elif isinstance(val, Expr):
                 cappctx[key] = replace(val, replace_d)
+            elif isinstance(val, Form):
+                cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
 
-        cproblem = type(fproblem)(cF, cu, cbcs, J=cJ, Jp=cJp,
-                                  form_compiler_parameters=fcp,
-                                  is_linear=fproblem.is_linear)
+        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ, Jp=cJp,
+                                                         form_compiler_parameters=fcp,
+                                                         is_linear=fproblem.is_linear)
 
         cctx = type(fctx)(cproblem, fctx.mat_type, fctx.pmat_type,
                           appctx=cappctx,
@@ -255,6 +258,7 @@ class PMGBase(PCSNESBase):
         # cctx._fine = fctx  # FIXME
         fctx._coarse = cctx
 
+        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
 
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
@@ -557,9 +561,9 @@ class StandaloneInterpolationMatrix(object):
         zc = self.get_nodes_1d(Vc)
         Jnp = self.barycentric(zc, zf)
         # Declare array shapes to be used as literals inside the kernels, I follow to the m-by-n convention.
-        (mx, nx) = Jnp.shape
-        (my, ny) = (mx, nx) if ndim >= 2 else (1, 1)
-        (mz, nz) = (mx, nx) if ndim >= 3 else (1, 1)
+        mx, nx = Jnp.shape
+        my, ny = (mx, nx) if ndim >= 2 else (1, 1)
+        mz, nz = (mx, nx) if ndim >= 3 else (1, 1)
         nscal = Vf.value_size  # number of components
         mxyz = mx*my*mz  # dim of Vf scalar element
         nxyz = nx*ny*nz  # dim of Vc scalar element
