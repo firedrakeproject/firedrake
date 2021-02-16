@@ -62,7 +62,7 @@ class Ensemble(object):
             self.ensemble_comm.Free()
             del self.ensemble_comm
 
-    def send(self, f, rank, tag=0):
+    def send(self, f, dest, tag=0):
         """
         Send (blocking) a function f over :attr:`ensemble_comm` to another
         ensemble rank.
@@ -71,8 +71,10 @@ class Ensemble(object):
         :arg dest: the rank to send to
         :arg tag: the tag of the message
         """
-
-        raise NotImplementedError("Ensemble send not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        with f.dat.vec_ro as vout:
+            self.ensemble_comm.Send(vout.array_r, dest=dest, tag=tag)
 
     def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
@@ -83,8 +85,10 @@ class Ensemble(object):
         :arg source: the rank to receive from
         :arg tag: the tag of the message
         """
-
-        raise NotImplementedError("Ensemble recv not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        with f.dat.vec_wo as vin:
+            self.ensemble_comm.Recv(vin.array, source=source, tag=tag)
 
     def isend(self, f, dest, tag=0):
         """
@@ -97,8 +101,10 @@ class Ensemble(object):
         :arg dest: the rank to send to
         :arg tag: the tag of the message
         """
-
-        raise NotImplementedError("Ensemble isend not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        with f.dat.vec_ro as vout:
+            return self.ensemble_comm.Isend(vout.array_r, dest=dest, tag=tag)
 
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
@@ -111,5 +117,7 @@ class Ensemble(object):
         :arg source: the rank to receive from
         :arg tag: the tag of the message
         """
-
-        raise NotImplementedError("Ensemble irecv not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        with f.dat.vec_wo as vin:
+            return self.ensemble_comm.Irecv(vin.array, source=source, tag=tag)
