@@ -76,7 +76,7 @@ class Ensemble(object):
         with f.dat.vec_ro as vout:
             self.ensemble_comm.Send(vout.array_r, dest=dest, tag=tag)
 
-    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
+    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=None):
         """
         Receive (blocking) a function f over :attr:`ensemble_comm` from
         another ensemble rank.
@@ -84,11 +84,12 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from
         :arg tag: the tag of the message
+        :arg status: the status information
         """
         if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
         with f.dat.vec_wo as vin:
-            self.ensemble_comm.Recv(vin.array, source=source, tag=tag)
+            self.ensemble_comm.Recv(vin.array, source=source, tag=tag, status=status)
 
     def isend(self, f, dest, tag=0):
         """

@@ -111,3 +111,68 @@ def test_comm_manager_allreduce():
     g = Function(V3)
     with pytest.raises(ValueError):
         manager.allreduce(f, g)
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_blocking_send_recv():
+    nprocs_spatial = 2
+    manager = Ensemble(COMM_WORLD, nprocs_spatial)
+
+    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V).assign(0)
+    x, y = SpatialCoordinate(mesh)
+    u_correct = Function(V).interpolate(sin(2*pi*x)*cos(2*pi*y))
+
+    ensemble_procno = manager.ensemble_comm.rank
+
+    if ensemble_procno == 0:
+        # before receiving, u should be 0
+        assert norm(u) < 1e-8
+
+        manager.send(u_correct, dest=1, tag=0)
+        manager.recv(u, source=1, tag=1)
+
+        # after receiving, u should be like u_correct
+        assert assemble((u-u_correct)**2*dx) < 1e-8
+
+    if ensemble_procno == 1:
+        # before receiving, u should be 0
+        assert norm(u) < 1e-8
+        manager.recv(u, source=0, tag=0)
+        manager.send(u, dest=0, tag=1)
+        # after receiving, u should be like u_correct
+        assert assemble((u - u_correct)**2*dx) < 1e-8
+
+    if ensemble_procno != 0 and ensemble_procno != 1:
+        # without receiving, u should be 0
+        assert norm(u) < 1e-8
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_nonblocking_send_recv():
+    nprocs_spatial = 2
+    manager = Ensemble(COMM_WORLD, nprocs_spatial)
+
+    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V).assign(0)
+    x, y = SpatialCoordinate(mesh)
+    u_correct = Function(V).interpolate(sin(2*pi*x)*cos(2*pi*y))
+
+    ensemble_procno = manager.ensemble_comm.rank
+
+    if ensemble_procno == 0:
+        req = manager.isend(u_correct, dest=1, tag=0)
+        req.wait()
+
+    if ensemble_procno == 1:
+        # before receiving, u should be 0
+        assert norm(u) < 1e-8
+        req = manager.irecv(u, source=0, tag=0)
+        req.wait()
+        # after receiving, u should be like u_correct
+        assert assemble((u - u_correct)**2*dx) < 1e-8
+
+    else:
+        assert norm(u) < 1e-8
