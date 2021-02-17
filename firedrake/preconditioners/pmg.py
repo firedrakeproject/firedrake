@@ -69,7 +69,7 @@ class PMGBase(PCSNESBase):
         if N <= self.coarse_degree:
             raise ValueError
 
-        return PMGBase.reconstruct_degree(ele, N // 2)
+        return PMGBase.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
 
     @staticmethod
     def reconstruct_degree(ele, N):
