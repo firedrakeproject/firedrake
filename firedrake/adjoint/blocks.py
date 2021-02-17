@@ -402,7 +402,7 @@ class InterpolateBlock(Block, Backend):
         if len(adj_inputs) > 1:
             raise(NotImplementedError("Interpolate block must have a single output"))
         dJdm = self.backend.derivative(prepared, inputs[idx])
-        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True)
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True).vector()
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -580,7 +580,7 @@ class InterpolateBlock(Block, Backend):
         # left multiply by dJ/dv (adj_inputs[0]) - i.e. interpolate using the
         # transpose operator
         component += self.backend.Interpolator(d2exprdudu, self.V).interpolate(adj_inputs[0], transpose=True)
-        return component
+        return component.vector()
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
