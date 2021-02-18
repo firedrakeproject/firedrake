@@ -47,7 +47,9 @@ class PMGBase(PCSNESBase):
         If the supplied element should form the coarsest level of the p-hierarchy,
         raise `ValueError`. Otherwise, return a new :class:`ufl.FiniteElement`.
 
-        By default, this does power-of-2 coarsening in polynomial degree.
+        By default, this does power-of-2 coarsening in polynomial degree until
+        we reach the coarse degree specified through PETSc options (1 by default).
+
         It raises a `NotImplementedError` for :class:`ufl.MixedElement`s, as
         I don't know if there's a sensible default strategy to implement here.
         It is intended that the user subclass `PMGPC` to override this method
@@ -154,6 +156,8 @@ class PMGBase(PCSNESBase):
         pass
 
     def coarsen(self, fdm, comm):
+        # Coarsen the _SNESContext of a DM fdm
+        # return the coarse DM cdm of the coarse _SNESContext
         fctx = get_appctx(fdm)
 
         # Have we already done this?
@@ -183,7 +187,7 @@ class PMGBase(PCSNESBase):
 
         def coarsen_quadrature(df, Nf, Nc):
             # Coarsen the quadrature degree in a dictionary
-            # such that the ratio of GL to GLL nodes is preserved
+            # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
             if isinstance(df, dict):
                 Nq = df.get("quadrature_degree", None)
                 if Nq is not None:
@@ -193,6 +197,9 @@ class PMGBase(PCSNESBase):
             return df
 
         def coarsen_form(form, Nf, Nc, replace_d):
+            # Coarsen a form, by replacing the solution, test and trial functions, and
+            # reconstructing each integral with a corsened quadrature degree.
+            # If form is None, then return form.
             return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
                          for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
 
@@ -214,6 +221,11 @@ class PMGBase(PCSNESBase):
         fproblem = fctx._problem
         fu = fproblem.u
         cu = firedrake.Function(cV)
+
+        # Use matrix-free injection of the initial state
+        # FIXME this Mat could be the same one used for the updates after the first FAS cycle,
+        # which we create via setCreateInjection.
+        # Maybe we could attach the one from getFASInjection(level) when we call add_hook?
         injection = prolongation_matrix_matfree(cV, fV, [], [])
 
         def inject_state(mat):
@@ -222,6 +234,7 @@ class PMGBase(PCSNESBase):
 
         add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
+        # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
                      trial: firedrake.TrialFunction(cV)}
@@ -232,6 +245,7 @@ class PMGBase(PCSNESBase):
         fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
         cbcs = coarsen_bcs(fproblem.bcs)
 
+        # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
         for key in cappctx:
             val = cappctx[key]
@@ -242,7 +256,8 @@ class PMGBase(PCSNESBase):
             elif isinstance(val, Form):
                 cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
 
-        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, J=cJ, Jp=cJp,
+        # Coarsen the problem and the _SNESContext
+        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
                                                          form_compiler_parameters=fcp,
                                                          is_linear=fproblem.is_linear)
 
@@ -255,7 +270,8 @@ class PMGBase(PCSNESBase):
                           options_prefix=fctx.options_prefix,
                           transfer_manager=fctx.transfer_manager)
 
-        # cctx._fine = fctx  # FIXME
+        # FIXME setting up the _fine attribute triggers gmg injection.
+        # cctx._fine = fctx
         fctx._coarse = cctx
 
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
