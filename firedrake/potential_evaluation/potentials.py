@@ -1,5 +1,4 @@
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.potential_evaluation.pytential import PytentialOperation
 
 
 def SingleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
@@ -84,6 +83,7 @@ def _layer_potential(layer_potential_sym,
     # extract Pytential operation kwargs
     pyt_op_kwargs = _extract_pytential_operation_kwargs(**kwargs)
     # now return the pytential operation as an external operator
+    from firedrake.potential_evaluation.pytential import PytentialOperation
     return PytentialOperation(actx, density, unbound_op, "density",
                               potential_src_and_tgt, **pyt_op_kwargs)
 
