@@ -20,6 +20,7 @@ def mat_type(request):
     return request.param
 
 
+@pytest.mark.skipcomplex
 def test_p_multigrid_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -67,6 +68,7 @@ def test_p_multigrid_scalar(mesh, mat_type):
     assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
 
 
+@pytest.mark.skipcomplex
 def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -211,6 +213,7 @@ def test_p_multigrid_mixed():
     assert ppc.getMGLevels() == 3
 
 
+@pytest.mark.skipcomplex
 def test_p_fas_scalar():
     mat_type = "matfree"
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
@@ -287,6 +290,7 @@ def test_p_fas_scalar():
     assert ppc.getFASSmoother(levels-1).getLinearSolveIterations() == 0
 
 
+@pytest.mark.skipcomplex
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
     N = 4

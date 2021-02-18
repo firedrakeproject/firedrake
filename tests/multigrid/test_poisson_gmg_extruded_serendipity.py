@@ -41,6 +41,7 @@ def run_poisson():
     return err
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_poisson_gmg():
     assert run_poisson() < 1e-3
