@@ -7,7 +7,8 @@ from firedrake import MeshHierarchy, norms, Constant, \
     ln, pi, SpatialCoordinate, sqrt, PytentialLayerOperation, grad, \
     FunctionSpace, VectorFunctionSpace, FacetNormal, inner, assemble, \
     TestFunction, ds, Function, exp, TrialFunction, dx, project, solve, \
-    utils, OpenCascadeMeshHierarchy, dot
+    utils, OpenCascadeMeshHierarchy, dot, SingleLayerPotential,
+    DoubleLayerPotential, PotentialSourceAndTarget
 from math import factorial
 from warnings import warn
 
@@ -138,64 +139,28 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         # Build function spaces
         cgfspace = FunctionSpace(mesh, "CG", fspace_degree)
         cgvfspace = VectorFunctionSpace(mesh, "CG", fspace_degree)
-        dgvfspace = VectorFunctionSpace(mesh, "DG", fspace_degree)
 
-        # pytential normals point opposite direction of firedrake
-        pyt_inner_normal_sign = -1
-        ambient_dim = mesh.geometric_dimension()
-        # Build rhs pytential operations
-        from pytential import sym
-        from sumpy.kernel import HelmholtzKernel
-        sigma = sym.make_sym_vector("density", ambient_dim)
-        r"""
-        ..math:
+        # TODO: Fix RHS
+        # TODO: Fix true solution expr
+        true_sol = Function(cgfspace).interpolate(true_sol_expr)
+        
+        # FIXME: Handle normal signs
+        places = PotentialSourceAndTarget(mesh,
+                                          source_region_dim=2,
+                                          source_region_id=source_bdy_id,
+                                          target_region_dim=2,
+                                          target_region_id=target_bdy_id)
 
-        x \in \Sigma
-        grad_op(x) = \nabla( \int_\Gamma( f(y) H_0^{(1)}(\kappa |x - y|) )d\gamma(y))
-        """
-        rhs_pyt_grad_layer = pyt_inner_normal_sign * \
-            sym.grad(ambient_dim, sym.S(HelmholtzKernel(ambient_dim),
-                                        sym.n_dot(sigma),
-                                        k=sym.var("k"), qbx_forced_limit=None))
-        r"""
-        ..math:
-
-        x \in \Sigma
-        op(x) = i \kappa \cdot \int_\Gamma( f(y) H_0^{(1)}(\kappa |x - y|) )d\gamma(y)
-        """
-        rhs_pyt_layer = 1j * sym.var("k") * pyt_inner_normal_sign * \
-            sym.S(HelmholtzKernel(ambient_dim),
-                  sym.n_dot(sigma),
-                  k=sym.var("k"),
-                  qbx_forced_limit=None)
-        dg_true_sol_grad = Function(dgvfspace).interpolate(grad(true_sol_expr))
-        # general operator data settings, missing 'op'
-        operator_data = {'actx': actx,
-                         'density_name': 'density',
-                         'source_bdy_id': source_bdy_id,
-                         'target_bdy_id': target_bdy_id,
-                         'op_kwargs': {'k': kappa},
-                         'qbx_order': fspace_degree + 2,
-                         'fine_order': 4 * fspace_degree,
-                         'fmm_order': 50,
-                         }
-        # Bind rhs pytential operations into firedrake
-        rhs_grad_layer_operator_data = dict(operator_data)
-        rhs_grad_layer_operator_data['op'] = rhs_pyt_grad_layer
-        rhs_grad_layer = PytentialLayerOperation(dg_true_sol_grad,
-                                                 function_space=cgvfspace,
-                                                 operator_data=rhs_grad_layer_operator_data)
-        rhs_layer_operator_data = dict(operator_data)
-        rhs_layer_operator_data['op'] = rhs_pyt_layer
-        rhs_layer = PytentialLayerOperation(dg_true_sol_grad,
-                                            function_space=cgfspace,
-                                            operator_data=rhs_layer_operator_data)
+        Dtrue_sol = DoubleLayerPotential(dot(true_sol, n), actx=actx)
+        Strue_sol = SingleLayerPotential(dot(true_sol, n), actx=actx)
         # get rhs form
         v = TestFunction(cgfspace)
-        rhs_form = inner(dot(grad(true_sol_expr), FacetNormal(mesh)),
+        rhs_form = inner(dot(grad(true_sol), n),
                          v) * ds(source_bdy_id, metadata={'quadrature_degree': 2 * fspace_degree}) \
-            + inner(rhs_layer, v) * ds(target_bdy_id) \
-            - inner(dot(rhs_grad_layer, FacetNormal(mesh)), v) * ds(target_bdy_id)
+            - 1j * inner(Strue_sol, v) * ds(target_bdy_id) \
+            - inner(dot(grad(Dtrue_sol), n), v) * ds(target_bdy_id)
+
+        # TODO: Continue fixing test
         
         # local helmholtz operator
         r"""

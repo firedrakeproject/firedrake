@@ -89,7 +89,7 @@ from firedrake.version import __version__ as ver, __version_info__, check  # noq
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.pointwise_operators import *
-from firedrake.layer_potentials import *
+from firedrake.potential_evaluation import *
 
 from firedrake.logging import *
 # Set default log level
