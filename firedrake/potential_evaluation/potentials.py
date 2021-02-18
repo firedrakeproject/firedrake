@@ -12,6 +12,10 @@ def SingleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
     :arg potential_src_and_tgt: A
         :class:`firedrake.potential_evaluation.PotentialSourceAndTarget`
 
+    :kwarg function_space: If density is a firedrake function,
+        this is optional. Otherwise it must be supplied.
+        If supplied and density is a function, they must
+        be the same object.
     :kwarg cl_ctx: (Optional) a :class:`pyopencl.Context` used
         to create a command queue.
         At most one of *cl_ctx*, *queue*, *actx* should be included.
@@ -77,15 +81,20 @@ def _layer_potential(layer_potential_sym,
     unbound_op = layer_potential_sym(kernel,
                                      sym.var("density"),
                                      qbx_forced_limit=qbx_forced_limit)
-    # make sure we got an actx
+    # make sure we got an actx during validation
     assert 'actx' in kwargs
     actx = kwargs['actx']
+    # make sure we got a function_space during validation
+    assert 'function_space' in kwargs
+    function_space = kwargs['function_space']
     # extract Pytential operation kwargs
     pyt_op_kwargs = _extract_pytential_operation_kwargs(**kwargs)
     # now return the pytential operation as an external operator
     from firedrake.potential_evaluation.pytential import PytentialOperation
     return PytentialOperation(actx, density, unbound_op, "density",
-                              potential_src_and_tgt, **pyt_op_kwargs)
+                              potential_src_and_tgt,
+                              function_space=function_space,
+                              **pyt_op_kwargs)
 
 
 def _validate_layer_potential_args_and_set_defaults(density,
@@ -98,9 +107,25 @@ def _validate_layer_potential_args_and_set_defaults(density,
     Returns dictionary updated with default arguments
     """
     # validate density function space
-    if not isinstance(density.function_space(), WithGeometry):
-        raise TypeError("density.function_space() must be of type "
-                        f"WithGeometry, not {type(density.function_space())}")
+    if hasattr(density, 'function_space'):
+        if not isinstance(density.function_space(), WithGeometry):
+            raise TypeError("density.function_space() must be of type "
+                            f"WithGeometry, not {type(density.function_space())}")
+        function_space = kwargs.get('function_space', None)
+        if function_space is not None:
+            if function_space is not density.function_space():
+                raise ValueError("density.function_space() and function_space"
+                                 " must be the same object")
+        else:
+            kwargs['function_space'] = density.function_space()
+    else:
+        function_space = kwargs.get('function_space', None)
+        if function_space is None:
+            raise ValueError("density has no function_space method, so"
+                             "function_space kwarg must be supplied")
+        if not isinstance(function_space, WithGeometry):
+            raise TypeError("function_space must be of type "
+                            f"WithGeometry, not {type(function_space)}")
 
     # validate kernel
     from sumpy.kernel import Kernel

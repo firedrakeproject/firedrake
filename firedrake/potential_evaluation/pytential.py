@@ -187,6 +187,8 @@ def PytentialOperation(actx,
         bound pytential operator (e.g. {'k': 0.5} for
         a :class:`sumpy.kernel.HelmholtzKernel`).
         Must not include *density_name*
+
+    Remaining kwargs are passed to Potential.__init__
     """
     # make sure density name is a string
     if not isinstance(density_name, str):
@@ -194,8 +196,8 @@ def PytentialOperation(actx,
                         density_name)
 
     # get kwargs to build connection
-    warn_if_cg = kwargs.get('warn_if_cg', True)
-    meshmode_connection_kwargs = kwargs.get('meshmode_connection_kwargs', None)
+    warn_if_cg = kwargs.pop('warn_if_cg', True)
+    meshmode_connection_kwargs = kwargs.pop('meshmode_connection_kwargs', None)
 
     # Build meshmode connection
     meshmode_connection = MeshmodeConnection(
@@ -207,7 +209,7 @@ def PytentialOperation(actx,
 
     # Build QBX
     src_discr = meshmode_connection.get_source_discretization()
-    qbx_kwargs = kwargs.get('qbx_kwargs', None)
+    qbx_kwargs = kwargs.pop('qbx_kwargs', None)
     from pytential.qbx import QBXLayerPotentialSource
     qbx = QBXLayerPotentialSource(src_discr, **qbx_kwargs)
 
@@ -217,7 +219,7 @@ def PytentialOperation(actx,
     pyt_op = bind((qbx, tgt_discr), unbound_op)
 
     # Get operator kwargs
-    op_kwargs = kwargs.get('op_kwargs', {})
+    op_kwargs = kwargs.pop('op_kwargs', {})
     if density_name in op_kwargs:
         raise ValueError(f"density_name '{density_name}' should not be included"
                          " in op_kwargs.")
@@ -230,4 +232,5 @@ def PytentialOperation(actx,
     # Now build and return Potential object
     return Potential(density,
                      connection=meshmode_connection,
-                     potential_operator=bound_op_with_kwargs)
+                     potential_operator=bound_op_with_kwargs,
+                     **kwargs)
