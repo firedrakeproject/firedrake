@@ -1,6 +1,8 @@
 import numpy as np
 from firedrake.pointwise_operators import AbstractExternalOperator
 from firedrake.utils import cached_property
+from firedrake.functionspaceimpl import WithGeometry
+import firedrake.function
 
 from firedrake import Function, FunctionSpace, interpolate, Interpolator, \
     SpatialCoordinate, VectorFunctionSpace, TensorFunctionSpace, project
@@ -12,12 +14,489 @@ from ufl.core.multiindex import indices
 from ufl.tensors import as_tensor
 
 from pyop2.datatypes import ScalarType
+from warnings import warn
 
 
 __all__ = ("DoubleLayerPotential", "PytentialLayerOperation",
            "SingleLayerPotential",
            "SingleOrDoubleLayerPotential",  # included for the docs
            "VolumePotential",)
+
+
+class Potential(AbstractExternalOperator):
+    r"""
+    This is a function which represents a potential
+    computed on a firedrake function.
+
+    For a firedrake function :math:`u:\Omega\to\mathbb C^n`
+    with :math:`\Omega \subseteq \mathbb R^m`,
+    the potential :math:`P(u):\Omega \to\mathbb C^n` is a
+    convolution of :math:`u` against some kernel function.
+    More concretely, given a source region :math:`\Gamma \subseteq \Omega`
+    a target region :math:`\Sigma \subseteq \Omega`, and
+    a kernel function :math:`K`, we define
+
+    .. math::
+
+        P(u)(x) = \begin{cases}
+            \int_\Gamma K(x, y) u(y) \,dy & x \in \Sigma
+            0 & x \notin \Sigma
+        \end{cases}
+    """
+    _external_operator_type = 'GLOBAL'
+
+    def __init__(self, density, **kwargs):
+        """
+        :arg density: A :mod:`firedrake` :class:`firedrake.function.Function`
+            or UFL expression which represents the density :math:`u`
+        :kwarg connection: A :class:`PotentialEvaluationLibraryConnection`
+        :kwarg potential_operator: The external potential evaluation library
+                                 bound operator.
+        """
+        # super
+        AbstractExternalOperator.__init__(self, density, **kwargs)
+
+        # FIXME
+        for order in self.derivatives:
+            assert order == 1, "Assumes self.derivatives = (1,..,1)"
+
+        # Get connection & bound op and validate
+        connection = kwargs.get("connection", None)
+        if connection is None:
+            raise ValueError("Missing kwarg 'connection'")
+        if not isinstance(connection, PotentialEvaluationLibraryConnection):
+            raise TypeError("connection must be of type "
+                            "PotentialEvaluationLibraryConnection, not %s."
+                            % type(connection))
+        self.connection = connection
+
+        self.potential_operator = kwargs.get("potential_operator", None)
+        if self.potential_operator is None:
+            raise ValueError("Missing kwarg 'potential_operator'")
+
+        # Get function space and validate aginst bound op
+        function_space = self.ufl_function_space()
+        assert isinstance(function_space, WithGeometry)  # sanity check
+        if function_space is not self.potential_operator.function_space():
+            raise ValueError("function_space must be same object as "
+                             "potential_operator.function_space().")
+
+        # Make sure density is a member of our function space, if it is
+        if isinstance(density, Function):
+            if density.function_space() is not function_space:
+                raise ValueError("density.function_space() must be the "
+                                 "same as function_space")
+        # Make sure the shapes match, at least
+        elif density.shape != function_space.shape:
+            raise ValueError("Shape mismatch between function_space and "
+                             "density. %s != %s." %
+                             (density.shape, function_space.shape))
+
+    @cached_property
+    def _evaluator(self):
+        return PotentialEvaluator(self,
+                                  self.density,
+                                  self.connection,
+                                  self.potential_operator)
+
+    def _evaluate(self):
+        raise NotImplementedError
+
+    def _compute_derivatives(self, continuity_tolerance=None):
+        raise NotImplementedError
+
+    def _evaluate_action(self, *args):
+        return self._evaluator._evaluate_action()
+
+    def _evaluate_adjoint_action(self, *args):
+        return self._evaluator._evaluate_action()
+
+    def evaluate_adj_component_control(self, x, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dN = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        return dN._evaluate_adjoint_action((x.function,)).vector()
+
+    def evaluate_adj_component(self, x, idx):
+        print(x, type(x))
+        raise NotImplementedError
+
+
+class PotentialEvaluator:
+    """
+    Evaluates a potential
+    """
+    def __init__(self, density, connection, potential_operator):
+        """
+        :arg density: The UFL/firedrake density function
+        :arg connection: A :class:`PotentialEvaluationLibraryConnection`
+        :arg potential_operator: The external potential evaluation library
+                                 bound operator.
+        """
+        self.density = density
+        self.connection = connection
+        self.potential_operator = potential_operator
+
+    def _eval_potential_operator(self, action_coefficients, out=None):
+        """
+        Evaluate the potential on the action coefficients and return.
+        If *out* is not *None*, stores the result in *out*
+
+        :arg action_coefficients: A :class:`~firedrake.function.Function`
+                                  to evaluate the potential at
+        :arg out: If not *None*, then a :class:`~firedrake.function.Function`
+                  in which to store the evaluated potential
+        :return: *out* if it is not *None*, otherwise a new
+                 :class:`firedrake.function.Function` storing the evaluated
+                 potential
+        """
+        density = self.connection.from_firedrake(action_coefficients)
+        potential = self.potential_operator(density)
+        return self.connection.to_firedrake(potential, out=out)
+
+    def _evaluate(self):
+        """
+        Evaluate P(self.density) into self
+        """
+        return self._eval_potential_operator(self.density, out=self)
+
+    def _compute_derivatives(self):
+        """
+        Return a function
+        Derivative(P, self.derivatives, self.density)
+        """
+        # FIXME : Assumes derivatives are Jacobian
+        return self._eval_potential_operator
+
+    def _evaluate_action(self, action_coefficients):
+        """
+        Evaluate derivatives of layer potential at action coefficients.
+        i.e. Derivative(P, self.derivatives, self.density) evaluated at
+        the action coefficients and store into self
+        """
+        operator = self._compute_derivatives()
+        return operator(action_coefficients, out=self)
+
+
+class PotentialEvaluationLibraryConnection:
+    """
+    A connection to an external library for potential evaluation
+    """
+    def __init__(self, function_space, warn_if_cg=True):
+        """
+        Initialize self to work on the function space
+
+        :arg function_space: The :mod:`firedrake` function space
+            (of type :class:`~firedrake.functionspaceimpl.WithGeometry`) on
+            which to convert to/from. Must be a 'Lagrange' or
+            'Discontinuous Lagrange' space.
+        :arg warn_if_cg: If *True*, warn if the space is "CG"
+        """
+        # validate function space
+        if not isinstance(function_space, WithGeometry):
+            raise TypeError("function_space must be of type WithGeometry, not "
+                            "%s" % type(function_space))
+
+        family = function_space.ufl_element().family()
+        acceptable_families = ['Discontinuous Lagrange', 'Lagrange']
+        if family not in acceptable_families:
+            raise ValueError("function_space.ufl_element().family() must be "
+                             "one of %s, not '%s'" %
+                             (acceptable_families, family))
+        if family == 'Lagrange' and warn_if_cg:
+            warn("Functions in continuous function space will be projected "
+                 "to/from a 'Discontinuous Lagrange' space. Make sure "
+                 "any operators evaluated are continuous. "
+                 "Pass warn_if_cg=False to suppress this warning.")
+
+        # build DG space if necessary
+        family = function_space.ufl_element().family()
+        if family == 'Discontinuous Lagrange':
+            dg_function_space = function_space
+        elif family == 'Lagrange':
+            mesh = function_space.mesh()
+            degree = function_space.ufl_element().degree()
+            shape = function_space.shape
+            if shape is None or len(shape) == 0:
+                dg_function_space = FunctionSpace(mesh, "DG", degree)
+            elif len(shape) == 1:
+                dg_function_space = VectorFunctionSpace(mesh, "DG", degree,
+                                                        dim=shape)
+            else:
+                dg_function_space = TensorFunctionSpace(mesh, "DG", degree,
+                                                        shape=shape)
+        else:
+            acceptable_families = ['Discontinuous Lagrange', 'Lagrange']
+            raise ValueError("function_space.ufl_element().family() must be "
+                             "one of %s, not '%s'" %
+                             (acceptable_families, family))
+
+        # store function space and dg function space
+        self.function_space = function_space
+        self.dg_function_space = dg_function_space
+        self.is_dg = function_space == dg_function_space
+
+    def from_firedrake(self, density):
+        """
+        Convert the density into a form acceptable by an bound operation
+        in an external library
+
+        :arg density: A :class:`~firedrake.function.Function` holding the
+                      density.
+        :returns: The converted density
+        """
+        raise NotImplementedError
+
+    def to_firedrake(self, evaluated_potential, out=None):
+        """
+        Convert the evaluated potential from an external library
+        into a firedrake function
+
+        :arg evaluated_potential: the evaluated potential
+        :arg out: If not *None*, store the converted potential into this
+                  :class:`firedrake.function.Function`.
+        :return: *out* if it is not *None*, otherwise a new
+                 :class:`firedrake.function.Function` storing the evaluated
+                 potential
+        """
+        raise NotImplementedError
+
+
+class MeshmodeConnection(PotentialEvaluationLibraryConnection):
+    """
+    Build a connection into :mod:`meshmode`
+    """
+    def __init__(self, actx, function_space, warn_if_cg=True,
+                 meshmode_connection_kwargs=None):
+        """
+        For other args see :class:`PotentialEvaluationLibraryConnection`
+
+        :arg actx: a :class:`meshmode.array_context.PyOpenCLArrayContext`
+           used for :func:`meshmode.interop.build_connection_from_firedrake`
+           and for conversion by the
+           :class:`meshmode.interop.FiredrakeConnection`.
+        :arg meshmode_connection_kwargs: A dict passes as kwargs
+            to :func:`meshmode.interop.build_connection_from_firedrake`
+        """
+        PotentialEvaluationLibraryConnection.__init__(self, function_space,
+                                                      warn_if_cg=warn_if_cg)
+        # validate actx
+        from meshmode.array_context import PyOpenCLArrayContext
+        if not isinstance(actx, PyOpenCLArrayContext):
+            raise TypeError("actx must be of type PyOpenCLArrayContext, not "
+                            "%s." % type(actx))
+        self.actx = actx
+        # validate meshmode_connection_kwargs
+        if meshmode_connection_kwargs is None:
+            meshmode_connection_kwargs = {}
+        if not isinstance(meshmode_connection_kwargs, dict):
+            raise TypeError("meshmode_connection_kwargs must be *None* or of "
+                            "type dict, not '%s'." %
+                            type(meshmode_connection_kwargs))
+        # build a meshmode connection
+        from meshmode.interop.firedrake import build_connection_from_firedrake
+        mm_conn = build_connection_from_firedrake(actx,
+                                                  self.dg_function_space,
+                                                  **meshmode_connection_kwargs)
+        self.meshmode_connection = mm_conn
+
+    def from_firedrake(self, density):
+        return self.meshmode_connection.from_firedrake(density, actx=self.actx)
+
+    def to_firedrake(self, evaluated_potential, out=None):
+        return self.meshmode_connection.from_meshmode(evaluated_potential,
+                                                      out=out)
+
+
+class VolumentialConnection(PotentialEvaluationLibraryConnection):
+    """
+    Build a connection into :mod:`volumential`
+    """
+    def __init__(self, cl_ctx, queue,
+                 function_space,
+                 box_fmm_geometry_kwargs,
+                 reorder_potentials,
+                 meshmode_connection_kwargs,
+                 warn_if_cg=True):
+        """
+        For other args see :class:`PotentialEvaluationLibraryConnection`
+
+        :arg cl_ctx: A :class:`pyopencl.Context`
+        :arg queue: A :class:`pyopencl.CommandQueue`
+        :arg box_fmm_geometry_kwargs: kwargs passed to
+            :class:`volumential.geometry.BoxFMMGeometryFactory`.
+            Must include the key *'nlevels'*
+        :arg reorder_potentials: *True* iff the volumential FMM
+            is reordering potentials. *False* otherwise.
+        :arg meshmode_connection_kwargs: A dict passes as kwargs
+            to :func:`meshmode.interop.build_connection_from_firedrake`.
+            :mod:`meshmode` is used an intermediate level between
+            :mod:`firedrake` and :mod:`volumential`.
+        """
+        # super
+        PotentialEvaluationLibraryConnection.__init__(self, function_space,
+                                                      warn_if_cg=warn_if_cg)
+        # validate cl_ctx argument
+        from pyopencl import Context
+        if not isinstance(cl_ctx, Context):
+            raise TypeError("cl_ctx must be of type Context, not "
+                            "%s." % type(cl_ctx))
+
+        # validate queue argument
+        from pyopencl import CommandQueue
+        if not isinstance(queue, CommandQueue):
+            raise TypeError("queue must be of type CommandQueue, not "
+                            "%s." % type(queue))
+
+        # validate reorder_potentials
+        if not isinstance(reorder_potentials, bool):
+            raise TypeError("reorder_potentials must be of type bool, not "
+                            "%s." % type(reorder_potentials))
+
+        # validate box_fmm_geometry_kwargs
+        if not isinstance(box_fmm_geometry_kwargs, dict):
+            raise TypeError("box_fmm_geometry_kwargs must be of "
+                            "type dict, not '%s'." %
+                            type(box_fmm_geometry_kwargs))
+        if 'nlevels' not in box_fmm_geometry_kwargs:
+            raise ValueError("box_fmm_geometry_kwargs missing required keyword"
+                             " 'nlevels'.")
+
+        # validate meshmode_connection_kwargs
+        if meshmode_connection_kwargs is None:
+            meshmode_connection_kwargs = {}
+        if not isinstance(meshmode_connection_kwargs, dict):
+            raise TypeError("meshmode_connection_kwargs must be *None* or of "
+                            "type dict, not '%s'." %
+                            type(meshmode_connection_kwargs))
+
+        # Build intermediate connection into meshmode
+        from meshmode.interop.firedrake import build_connection_from_firedrake
+        from meshmode.array_context import PyOpenCLArrayContext
+        actx = PyOpenCLArrayContext(queue)
+        meshmode_connection = build_connection_from_firedrake(
+            actx, function_space, **meshmode_connection_kwargs)
+
+        # Build connection from meshmode into volumential
+        # (following https://gitlab.tiker.net/xywei/volumential/-/blob/fe2c3e7af355d5c527060e783237c124c95397b5/test/test_interpolation.py#L72 ) # noqa : E501
+        from volumential.geometry import (
+            BoundingBoxFactory, BoxFMMGeometryFactory)
+        from volumential.interpolation import ElementsToSourcesLookupBuilder
+        dim = function_space.mesh().geometric_dimension()
+        bboxfmm_fac = BoxFMMGeometryFactory(cl_ctx, dim=dim,
+                                            **box_fmm_geometry_kwargs)
+        boxgeo = bboxfmm_fac(queue)
+        elt_to_src_lookup_fac = ElementsToSourcesLookupBuilder(
+            cl_ctx, tree=boxgeo.tree, discr=meshmode_connection.discr)
+        elt_to_src_lookup, evt = elt_to_src_lookup_fac(queue)
+
+        # Build connection from volumential into meshmode
+        from volumential.interpolation import LeavesToNodesLookupBuilder
+        leaves_to_node_lookup_fac = LeavesToNodesLookupBuilder(
+            cl_ctx, trav=boxgeo.trav, discr=meshmode_connection.discr)
+        leaves_to_node_lookup, evt = leaves_to_node_lookup_fac(queue)
+
+        # Figure out whether or not conversion from volumential -> meshmode
+        # should user order or tree order
+        order = "user" if reorder_potentials else "tree"
+
+        # Store maps for conversion to/from volumential
+        self.meshmode_connection = meshmode_connection
+        self.to_volumential_lookup = elt_to_src_lookup
+        self.from_volumential_lookup = leaves_to_node_lookup
+        self.from_volumential_order = order
+        # store necessary computing contextx
+        self.queue = queue
+        self.actx = actx
+
+    def from_firedrake(self, density):
+        # pass operand into a meshmode DOFArray
+        from meshmode.dof_array import flatten
+        meshmode_density = \
+            self.meshmode_connection.from_firedrake(density, actx=self.actx)
+        meshmode_density = flatten(meshmode_density)
+
+        # pass flattened operand into volumential interpolator
+        from volumential.interpolation import interpolate_from_meshmode
+        volumential_density = \
+            interpolate_from_meshmode(self.queue,
+                                      meshmode_density,
+                                      self.to_volumential_lookup,
+                                      order="user")  # user order is more intuitive
+        return volumential_density
+
+    def to_firedrake(self, evaluated_potential, out=None):
+        # pass volumential back to meshmode DOFArray
+        from volumential.interpolation import interpolate_to_meshmode
+        from meshmode.dof_array import unflatten
+        meshmode_pot_vals = \
+            interpolate_to_meshmode(self.queue,
+                                    evaluated_potential,
+                                    self.from_volumential_lookup,
+                                    order=self.from_volumential_order)
+        meshmode_pot_vals = unflatten(self.actx,
+                                      self.meshmode_connection.discr,
+                                      meshmode_pot_vals)
+        # get meshmode data back as firedrake function
+        return self.meshmode_connection.from_meshmode(meshmode_pot_vals,
+                                                      out=self)
+
+
+"""
+functions
+    PytentialOperation
+    SingleLayerPotential
+    DoubleLayerPotential
+    VolumentialOperation
+    VolumePotential
+"""
+
+
+class PotentialSourceAndTarget:
+    """
+    Holds the source and target for a layer or volume potential
+    """
+    def __init__(self, mesh,
+                 source_region_dim=None,
+                 source_region_id=None,
+                 target_region_dim=None,
+                 target_region_id=None):
+        """
+        Source and target of a layer or volume potential
+
+        Region dims must be the geometric dimension or the geometric
+        dimension minus 1. *None* indicates the geometric dimension.
+
+        Region ids must be either a valid mesh subdomain id (an
+        integer or tuple) or *None*. *None* indicates either
+        the entire mesh, or the entire exterior boundary
+        (as determined by the value of region).
+
+        Currently, if both the source and target are of dimension
+        geometric dimension - 1, they must be disjoint.
+        """
+        pass
+
+
+def PytentialOperation(density, unbound_op, potential_src_and_tgt,
+                       function_space=None):
+    pass
+
+
+def VolumentialOperation(density, unbound_op, potential_src_and_tgt,
+                         function_space=None):
+    pass
+
+
+def SingleLayerPotential(density, kernel, potential_src_and_tgt,
+                         function_space=None,
+                         operator_kwargs=None):
+    pass
+
+
+def DoubleLayerPotential(density, kernel, potential_src_and_tgt,
+                         function_space=None,
+                         operator_kwargs=None):
+    pass
 
 
 class PytentialLayerOperation(AbstractExternalOperator):
