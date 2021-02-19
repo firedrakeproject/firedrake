@@ -28,16 +28,16 @@ def SingleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
         used for :mod:`pytential` and :mod:`meshmode` computations.
         At most one of *cl_ctx*, *queue*, *actx* should be included.
         If none is included, a *cl_ctx* will be created.
-    :kwarg qbx_forced_limit: (Optional) As described in
-        https://documen.tician.de/pytential/_modules/pytential/symbolic/primitives.html#IntG
-        DEFAULT: *None*
-    :kwarg op_kwargs: (Optional)  kwargs passed to the invocation of the
-        bound pytential operator (e.g. {'k': 0.5} for
-        a :class:`sumpy.kernel.HelmholtzKernel`).
+    :kwarg op_kwargs: (Optional)  kwargs passed to the construction
+        of the unbound pytential operator (e.g. {'k': 0.5} for
+        a :class:`sumpy.kernel.HelmholtzKernel` must be passed
+        to :func:`pytential.symbolic.primitives.S`),
+        DEFAULT:
+        * {'qbx_forced_limit': None}
     :kwarg qbx_kwargs: (Optional) *None*, or a dict with arguments to pass to
         :class:`pytential.qbx.QBXLayerPotentialSource`.
         DEFAULTS:
-            - fine order: 4 8 function space degree
+            - fine_order: 4 8 function space degree
             - qbx_order: function space degree
             - fmm_order: *None*
             - fmm_level_to_order: A
@@ -55,7 +55,7 @@ def SingleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
     """
     # TODO: Make fmm_level_to_order depend on number of derivatives somehow?
     from pytential.symbolic.primitives import S
-    _layer_potential(S, density, kernel, potential_src_and_tgt, **kwargs)
+    return _layer_potential(S, density, kernel, potential_src_and_tgt, **kwargs)
 
 
 def DoubleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
@@ -64,7 +64,7 @@ def DoubleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
     instead of the single
     """
     from pytential.symbolic.primitives import D
-    _layer_potential(D, density, kernel, potential_src_and_tgt, **kwargs)
+    return _layer_potential(D, density, kernel, potential_src_and_tgt, **kwargs)
 
 
 def _layer_potential(layer_potential_sym,
@@ -75,12 +75,13 @@ def _layer_potential(layer_potential_sym,
     """
     kwargs = _validate_layer_potential_args_and_set_defaults(
         density, kernel, potential_src_and_tgt, **kwargs)
-    qbx_forced_limit = kwargs.get('qbx_forced_limit', None)
     # build our unbound operator
+    assert 'op_kwargs' in kwargs  # make sure we got op kwargs
+    op_kwargs = kwargs['op_kwargs']
     from pytential import sym
     unbound_op = layer_potential_sym(kernel,
                                      sym.var("density"),
-                                     qbx_forced_limit=qbx_forced_limit)
+                                     **op_kwargs)
     # make sure we got an actx during validation
     assert 'actx' in kwargs
     actx = kwargs['actx']
@@ -93,7 +94,6 @@ def _layer_potential(layer_potential_sym,
     from firedrake.potential_evaluation.pytential import PytentialOperation
     return PytentialOperation(actx, density, unbound_op, "density",
                               potential_src_and_tgt,
-                              function_space=function_space,
                               **pyt_op_kwargs)
 
 
@@ -126,6 +126,7 @@ def _validate_layer_potential_args_and_set_defaults(density,
         if not isinstance(function_space, WithGeometry):
             raise TypeError("function_space must be of type "
                             f"WithGeometry, not {type(function_space)}")
+    function_space = kwargs['function_space']
 
     # validate kernel
     from sumpy.kernel import Kernel
@@ -152,7 +153,7 @@ def _validate_layer_potential_args_and_set_defaults(density,
 
     # Make sure all kwargs are recognized
     allowed_kwargs = ("cl_ctx", "queue", "actx", "op_kwargs", "qbx_kwargs",
-                      "meshmode_connection_kwargs")
+                      "meshmode_connection_kwargs", "function_space")
     for key in kwargs:
         if key not in allowed_kwargs:
             raise ValueError(f"Unrecognized kwarg {key}")
@@ -203,9 +204,9 @@ def _validate_layer_potential_args_and_set_defaults(density,
 
     # Set qbx_kwargs defaults
     if 'qbx_kwargs' not in kwargs:
-        degree = density.function_space().ufl_element().degree()
+        degree = function_space.ufl_element().degree()
         from sumpy.expansion.level_to_order import FMMLibExpansionOrderFinder
-        qbx_kwargs = {'fine order': 4 * degree,
+        qbx_kwargs = {'fine_order': 4 * degree,
                       'qbx_order': degree,
                       'fmm_order': None,
                       'fmm_level_to_order':
@@ -213,6 +214,10 @@ def _validate_layer_potential_args_and_set_defaults(density,
                       'fmm_backend': "fmmlib",
                       }
         kwargs['qbx_kwargs'] = qbx_kwargs
+
+    # Set op_kwargs defaults
+    if 'op_kwargs' not in kwargs:
+        kwargs['op_kwargs'] = {'qbx_forced_limit': None}
 
     return kwargs
 
@@ -225,7 +230,7 @@ def _extract_pytential_operation_kwargs(**kwargs):
     pyt_op_possible_keywords = ("warn_if_cg",
                                 "meshmode_connection_kwargs",
                                 "qbx_kwargs",
-                                "op_kwargs")
+                                "function_space")
     for key in pyt_op_possible_keywords:
         if key in kwargs:
             pyt_op_kwargs[key] = kwargs[key]

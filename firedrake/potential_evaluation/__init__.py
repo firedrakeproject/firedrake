@@ -49,7 +49,7 @@ class Potential(AbstractExternalOperator):
     """
     _external_operator_type = 'GLOBAL'
 
-    def __init__(self, density, **kwargs):
+    def __init__(self, density, connection, potential_operator, **kwargs):
         """
         :arg density: A :mod:`firedrake` :class:`firedrake.function.Function`
             or UFL expression which represents the density :math:`u`
@@ -60,41 +60,23 @@ class Potential(AbstractExternalOperator):
         # super
         AbstractExternalOperator.__init__(self, density, **kwargs)
 
-        # FIXME
-        for order in self.derivatives:
-            assert order == 1, "Assumes self.derivatives = (1,..,1)"
-
         # Get connection & bound op and validate
-        connection = kwargs.get("connection", None)
-        if connection is None:
-            raise ValueError("Missing kwarg 'connection'")
         if not isinstance(connection, PotentialEvaluationLibraryConnection):
             raise TypeError("connection must be of type "
                             "PotentialEvaluationLibraryConnection, not %s."
                             % type(connection))
         self.connection = connection
-
-        self.potential_operator = kwargs.get("potential_operator", None)
-        if self.potential_operator is None:
-            raise ValueError("Missing kwarg 'potential_operator'")
+        self.potential_operator = potential_operator
 
         # Get function space and validate aginst bound op
         function_space = self.ufl_function_space()
         assert isinstance(function_space, WithGeometry)  # sanity check
-        if function_space is not self.potential_operator.function_space():
-            raise ValueError("function_space must be same object as "
-                             "potential_operator.function_space().")
 
         # Make sure density is a member of our function space, if it is
         if isinstance(density, Function):
             if density.function_space() is not function_space:
                 raise ValueError("density.function_space() must be the "
                                  "same as function_space")
-        # Make sure the shapes match, at least
-        elif density.shape != function_space.shape:
-            raise ValueError("Shape mismatch between function_space and "
-                             "density. %s != %s." %
-                             (density.shape, function_space.shape))
 
     @cached_property
     def _evaluator(self):
@@ -355,7 +337,7 @@ class PotentialSourceAndTarget:
                 continue
             # standardize id_ to a tuple
             if isinstance(id_, int):
-                id_ = tuple(id_)
+                id_ = tuple([id_])
             # check type
             if not isinstance(id_, tuple):
                 raise TypeError("source and target region ids must be "
@@ -374,6 +356,12 @@ class PotentialSourceAndTarget:
                 # probably be doing anyway if we're targeting the region
                 #
                 # It also throws a ValueError if the id_ is invalid
+                # FIXME: Figure out how to support multiple ids
+                if len(id_) > 1:
+                    raise NotImplementedError("Currently, any tuple of "
+                                              "cell subdomain ids must be of "
+                                              "length 1.")
+                id_, = id_
                 mesh.cell_subset(id_)
 
         # handle None case

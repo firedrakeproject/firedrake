@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 
 from firedrake import MeshHierarchy, norms, Constant, \
-    ln, pi, SpatialCoordinate, sqrt, PytentialLayerOperation, grad, \
+    ln, pi, SpatialCoordinate, sqrt, grad, \
     FunctionSpace, VectorFunctionSpace, FacetNormal, inner, assemble, \
     TestFunction, ds, Function, exp, TrialFunction, dx, project, solve, \
-    utils, OpenCascadeMeshHierarchy, dot, SingleLayerPotential,
+    utils, OpenCascadeMeshHierarchy, dot, SingleLayerPotential, \
     DoubleLayerPotential, PotentialSourceAndTarget
 from math import factorial
 from warnings import warn
@@ -128,37 +128,45 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         levels=3,
         order=2,
         project_refinements_to_cad=False)
-    source_bdy_id = 5  # (inner boundary) the circle
-    target_bdy_id = (1, 2, 3, 4)  # (outer boundary) the square
+    scatterer_bdy = 5  # (inner boundary) the circle
+    truncated_bdy = (1, 2, 3, 4)  # (outer boundary) the square
     # Solve for each mesh in hierarchy
     for h, mesh in zip([0.5 * 2**i for i in range(len(mesh_hierarchy))], mesh_hierarchy):
+        # Build function spaces
+        V = FunctionSpace(mesh, "CG", fspace_degree)
+
         # Get true solution
         spatial_coord = SpatialCoordinate(mesh)
         true_sol_expr = get_true_sol_expr(spatial_coord)
+        # TODO: Fix true sol
+        true_sol = Function(V).interpolate(true_sol_expr)
+        n = FacetNormal(mesh)
+        f = dot(grad(true_sol), n)
 
-        # Build function spaces
-        cgfspace = FunctionSpace(mesh, "CG", fspace_degree)
-        cgvfspace = VectorFunctionSpace(mesh, "CG", fspace_degree)
-
-        # TODO: Fix RHS
-        # TODO: Fix true solution expr
-        true_sol = Function(cgfspace).interpolate(true_sol_expr)
-        
         # FIXME: Handle normal signs
+        # places has source of inner boundary and target of outer boundary
+        from ufl import derivative
+        import petsc4py.PETSc
+        petsc4py.PETSc.Sys.popErrorHandler()
         places = PotentialSourceAndTarget(mesh,
-                                          source_region_dim=2,
-                                          source_region_id=source_bdy_id,
-                                          target_region_dim=2,
-                                          target_region_id=target_bdy_id)
+                                          source_region_dim=1,
+                                          source_region_id=scatterer_bdy,
+                                          target_region_dim=1,
+                                          target_region_id=truncated_bdy)
+        # TODO: Fix RHS
+        from sumpy.kernel import HelmholtzKernel
+        Sf = SingleLayerPotential(dot(grad(true_sol), n),
+                                  HelmholtzKernel(dim=2),
+                                  places,
+                                  actx=actx,
+                                  function_space=V,
+                                  op_kwargs={'k': kappa, 'qbx_forced_limit': None})
+        v = TestFunction(V)
+        rhs = inner(f, v) * ds(scatterer_bdy) + \
+            1j * kappa * inner(Sf, v) * ds(truncated_bdy) - \
+            inner(dot(grad(Sf), n), v) * ds(truncated_bdy)
 
-        Dtrue_sol = DoubleLayerPotential(dot(true_sol, n), actx=actx)
-        Strue_sol = SingleLayerPotential(dot(true_sol, n), actx=actx)
-        # get rhs form
-        v = TestFunction(cgfspace)
-        rhs_form = inner(dot(grad(true_sol), n),
-                         v) * ds(source_bdy_id, metadata={'quadrature_degree': 2 * fspace_degree}) \
-            - 1j * inner(Strue_sol, v) * ds(target_bdy_id) \
-            - inner(dot(grad(Dtrue_sol), n), v) * ds(target_bdy_id)
+        assemble(rhs)
 
         # TODO: Continue fixing test
         
@@ -269,3 +277,9 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
 
     assert(eoc_recorder.order_estimate() >= fspace_degree
            or eoc_recorder.max_error() < 2e-14)
+
+
+fspace_degree = 1
+kappa = 1.0
+from pyopencl import create_some_context
+test_sommerfeld_helmholtz(create_some_context, fspace_degree, kappa)

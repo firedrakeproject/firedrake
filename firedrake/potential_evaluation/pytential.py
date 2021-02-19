@@ -29,10 +29,10 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
 
         # FIXME : allow subdomain regions
         tdim = potential_source_and_target.mesh.topological_dimension()
-        if potential_source_and_target.get_source_dim() != tdim:
+        if potential_source_and_target.get_source_dimension() == tdim:
             if potential_source_and_target.get_source_id() != "everywhere":
                 raise NotImplementedError("subdomain sources not implemented")
-        if potential_source_and_target.get_target_dim() != tdim:
+        if potential_source_and_target.get_target_dimension() == tdim:
             if potential_source_and_target.get_target_id() != "everywhere":
                 raise NotImplementedError("subdomain targets not implemented")
 
@@ -55,9 +55,9 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
 
         # build a meshmode connection for the source
         src_bdy = None
-        if potential_source_and_target.get_source_dim() != tdim:
+        if potential_source_and_target.get_source_dimension() != tdim:
             # sanity check
-            assert potential_source_and_target.get_source_dim() == tdim - 1
+            assert potential_source_and_target.get_source_dimension() == tdim - 1
             src_bdy = potential_source_and_target.get_source_id()
 
         from meshmode.interop.firedrake import build_connection_from_firedrake
@@ -75,7 +75,7 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
                 from meshmode.mesh import BTAG_ALL
                 meshmode_src_bdy = BTAG_ALL
             # get group factory
-            order = self.dg_function_space.degree()
+            order = self.dg_function_space.ufl_element().degree()
             from meshmode.discretization.poly_element import \
                 PolynomialRecursiveNodesGroupFactory
             default_grp_factory = \
@@ -90,14 +90,14 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
 
         # Build a meshmode connection for the target
         tgt_bdy = None
-        if potential_source_and_target.get_target_dim() != tdim:
+        if potential_source_and_target.get_target_dimension() != tdim:
             # sanity check
-            assert potential_source_and_target.get_target_dim() == tdim - 1
+            assert potential_source_and_target.get_target_dimension() == tdim - 1
             tgt_bdy = potential_source_and_target.get_target_id()
 
         # Can we re-use the source connection?
-        src_dim = potential_source_and_target.get_source_dim()
-        tgt_dim = potential_source_and_target.get_target_dim()
+        src_dim = potential_source_and_target.get_source_dimension()
+        tgt_dim = potential_source_and_target.get_target_dimension()
         if tgt_bdy == src_bdy and src_dim == tgt_dim:
             tgt_conn = src_conn
         else:
@@ -176,6 +176,7 @@ def PytentialOperation(actx,
         in the unbound_op
     :arg potential_src_and_tgt: A :class:`PotentialSourceAndTarget`
 
+    :kwarg function_space: The function space of the operator
     :kwarg warn_if_cg: Pass *False* to suppress the warning if
         a "CG" space is used
     :kwarg meshmode_connection_kwargs: *None*, or
@@ -183,10 +184,6 @@ def PytentialOperation(actx,
         :func:`meshmode.interop.firedrake.build_connection_from_firedrake`
     :kwarg qbx_kwargs: *None*, or a dict with arguments to pass to
         :class:`pytential.qbx.QBXLayerPotentialSource`.
-    :kwarg op_kwargs: kwargs passed to the invocation of the
-        bound pytential operator (e.g. {'k': 0.5} for
-        a :class:`sumpy.kernel.HelmholtzKernel`).
-        Must not include *density_name*
 
     Remaining kwargs are passed to Potential.__init__
     """
@@ -201,7 +198,7 @@ def PytentialOperation(actx,
 
     # Build meshmode connection
     meshmode_connection = MeshmodeConnection(
-        density.function_space(),
+        kwargs['function_space'],
         potential_src_and_tgt,
         actx,
         warn_if_cg=warn_if_cg,
@@ -218,16 +215,9 @@ def PytentialOperation(actx,
     from pytential import bind
     pyt_op = bind((qbx, tgt_discr), unbound_op)
 
-    # Get operator kwargs
-    op_kwargs = kwargs.pop('op_kwargs', {})
-    if density_name in op_kwargs:
-        raise ValueError(f"density_name '{density_name}' should not be included"
-                         " in op_kwargs.")
-
     # build bound operator that just takes density as argument
     def bound_op_with_kwargs(density_arg):
-        op_kwargs[density_name] = density_arg
-        return pyt_op(**op_kwargs)
+        return pyt_op(**{density_name: density_arg})
 
     # Now build and return Potential object
     return Potential(density,
