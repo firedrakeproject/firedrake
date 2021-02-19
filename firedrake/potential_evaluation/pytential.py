@@ -220,7 +220,8 @@ def PytentialOperation(actx,
         return pyt_op(**{density_name: density_arg})
 
     # Now build and return Potential object
-    return Potential(density,
-                     connection=meshmode_connection,
-                     potential_operator=bound_op_with_kwargs,
-                     **kwargs)
+    operator_data = {'connection': meshmode_connection,
+                     'potential_operator': bound_op_with_kwargs,
+                     }
+    kwargs['operator_data'] = operator_data
+    return Potential(density, **kwargs)

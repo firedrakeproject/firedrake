@@ -49,39 +49,58 @@ class Potential(AbstractExternalOperator):
     """
     _external_operator_type = 'GLOBAL'
 
-    def __init__(self, density, connection, potential_operator, **kwargs):
+    def __init__(self, density, **kwargs):
         """
         :arg density: A :mod:`firedrake` :class:`firedrake.function.Function`
             or UFL expression which represents the density :math:`u`
-        :kwarg connection: A :class:`PotentialEvaluationLibraryConnection`
-        :kwarg potential_operator: The external potential evaluation library
-                                 bound operator.
+
+        :kwarg operator_data: Should have keys
+
+            :kwarg connection: A :class:`PotentialEvaluationLibraryConnection`
+            :kwarg potential_operator: The external potential evaluation library
+                                     bound operator.
+        :kwarg function_space: the function space
         """
         # super
         AbstractExternalOperator.__init__(self, density, **kwargs)
 
+        if 'operator_data' not in kwargs:
+            raise ValueError("Missing kwarg 'operator_data'")
+        operator_data = kwargs['operator_data']
+
         # Get connection & bound op and validate
+        if 'connection' not in operator_data:
+            raise ValueError("Missing operator_data 'connection'")
+        connection = operator_data['connection']
         if not isinstance(connection, PotentialEvaluationLibraryConnection):
             raise TypeError("connection must be of type "
                             "PotentialEvaluationLibraryConnection, not %s."
                             % type(connection))
-        self.connection = connection
-        self.potential_operator = potential_operator
+        if 'potential_operator' not in operator_data:
+            raise ValueError("Missing operator_data 'potential_operator'")
 
         # Get function space and validate aginst bound op
-        function_space = self.ufl_function_space()
-        assert isinstance(function_space, WithGeometry)  # sanity check
+        if 'function_space' not in kwargs:
+            raise ValueError("Missing kwarg 'function_space'")
+
+        function_space = kwargs['function_space']
+        if not isinstance(function_space, WithGeometry):
+            raise TypeError("function_space must be of type WithGeometry, "
+                            f"not {type(function_space)}")
 
         # Make sure density is a member of our function space, if it is
         if isinstance(density, Function):
             if density.function_space() is not function_space:
                 raise ValueError("density.function_space() must be the "
                                  "same as function_space")
+        # save attributes
+        self.density = density
+        self.connection = connection
+        self.potential_operator = operator_data['potential_operator']
 
     @cached_property
     def _evaluator(self):
-        return PotentialEvaluator(self,
-                                  self.density,
+        return PotentialEvaluator(self.density,
                                   self.connection,
                                   self.potential_operator)
 
@@ -92,10 +111,10 @@ class Potential(AbstractExternalOperator):
         raise NotImplementedError
 
     def _evaluate_action(self, *args):
-        return self._evaluator._evaluate_action()
+        return self._evaluator._evaluate_action(*args)
 
     def _evaluate_adjoint_action(self, *args):
-        return self._evaluator._evaluate_action()
+        return self._evaluator._evaluate_action(*args)
 
     def evaluate_adj_component_control(self, x, idx):
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
