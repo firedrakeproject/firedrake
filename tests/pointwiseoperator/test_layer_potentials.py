@@ -106,19 +106,35 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
     # We'll use this to test convergence
     eoc_recorder = EOCRecorder()
 
-    def get_true_sol_expr(spatial_coord):
+    def get_true_sol(fspace, kappa, cl_ctx, queue):
         """
-        Get the ufl expression for the true solution
+        Get the ufl expression for the true solution (3D)
+        or a function with the evaluated solution (2D)
         """
-        mesh_dim = len(spatial_coord)
+        mesh_dim = fspace.mesh().geometric_dimension()
         if mesh_dim == 3:
+            spatial_coord = SpatialCoordinate(fspace.mesh())
             x, y, z = spatial_coord  # pylint: disable=C0103
             norm = sqrt(x**2 + y**2 + z**2)
             return Constant(1j / (4*pi)) / norm * exp(1j * kappa * norm)
 
         if mesh_dim == 2:
-            x, y = spatial_coord  # pylint: disable=C0103
-            return Constant(1j / 4) * hankel_function(kappa * sqrt(x**2 + y**2), n=80)
+            # Evaluate true-sol using sumpy
+            from sumpy.p2p import P2P
+            from sumpy.kernel import HelmholtzKernel
+            # https://github.com/inducer/sumpy/blob/900745184d2618bc27a64c847f247e01c2b90b02/examples/curve-pot.py#L87-L88
+            p2p = P2P(cl_ctx, [HelmholtzKernel(dim=2)], exclude_self=False,
+                      value_dtypes=np.complex128)
+            # source is just (0, 0)
+            sources = np.array([[0.0], [0.0]])
+            strengths = np.array([[1.0], [1.0]])
+            # targets are everywhere
+            targets = np.array([Function(fspace).interpolate(x_i).dat.data
+                                for x_i in SpatialCoordinate(fspace.mesh())])
+            evt, (true_sol_arr,) = p2p(queue, targets, sources, strengths, k=kappa)
+            true_sol = Function(fspace)
+            true_sol.dat.data[:] = true_sol_arr[:]
+            return true_sol
         raise ValueError("Only meshes of dimension 2, 3 supported")
 
     # Create mesh and build hierarchy
@@ -127,21 +143,34 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
         element_size=0.5,
         levels=3,
         order=2,
-        project_refinements_to_cad=False)
+        project_refinements_to_cad=False,
+        cache=False)
     scatterer_bdy = 5  # (inner boundary) the circle
     truncated_bdy = (1, 2, 3, 4)  # (outer boundary) the square
     # Solve for each mesh in hierarchy
     for h, mesh in zip([0.5 * 2**i for i in range(len(mesh_hierarchy))], mesh_hierarchy):
         # Build function spaces
         V = FunctionSpace(mesh, "CG", fspace_degree)
+        Vdg = FunctionSpace(mesh, "DG", fspace_degree)
 
         # Get true solution
-        spatial_coord = SpatialCoordinate(mesh)
-        true_sol_expr = get_true_sol_expr(spatial_coord)
-        # TODO: Fix true sol
-        true_sol = Function(V).interpolate(true_sol_expr)
+        true_sol = get_true_sol(Vdg, kappa, cl_ctx, queue)
+
+        # {{{ Get Neumann Data
+
         n = FacetNormal(mesh)
-        f = dot(grad(true_sol), n)
+        f_expr = dot(grad(true_sol), n)
+        v = TestFunction(Vdg)
+        u = TrialFunction(Vdg)
+        a = inner(u, v) * ds(scatterer_bdy) + inner(u, v) * dx
+        L = inner(f_expr, v) * ds(scatterer_bdy) + inner(Constant(0.0), v) * dx
+        from firedrake import DirichletBC
+        bc = DirichletBC(Vdg, Constant(0.0), truncated_bdy)
+        f = Function(Vdg)
+        solve(a == L, f, bcs=[bc])
+        f = project(f, V)
+
+        # }}}
 
         # FIXME: Handle normal signs
         # places has source of inner boundary and target of outer boundary
@@ -155,7 +184,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
                                           target_region_id=truncated_bdy)
         # TODO: Fix RHS
         from sumpy.kernel import HelmholtzKernel
-        Sf = SingleLayerPotential(dot(grad(true_sol), n),
+        Sf = SingleLayerPotential(f,
                                   HelmholtzKernel(dim=2),
                                   places,
                                   actx=actx,
@@ -167,6 +196,7 @@ def test_sommerfeld_helmholtz(ctx_factory, fspace_degree, kappa):
             inner(dot(grad(Sf), n), v) * ds(truncated_bdy)
 
         assemble(rhs)
+        1/0
 
         # TODO: Continue fixing test
         

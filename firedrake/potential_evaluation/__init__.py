@@ -100,9 +100,11 @@ class Potential(AbstractExternalOperator):
 
     @cached_property
     def _evaluator(self):
-        return PotentialEvaluator(self.density,
+        return PotentialEvaluator(self,
+                                  self.density,
                                   self.connection,
-                                  self.potential_operator)
+                                  self.potential_operator,
+                                  self.function_space())
 
     def _evaluate(self):
         raise NotImplementedError
@@ -130,31 +132,35 @@ class PotentialEvaluator:
     """
     Evaluates a potential
     """
-    def __init__(self, density, connection, potential_operator):
+    def __init__(self, potential, density, connection, potential_operator, function_space):
         """
         :arg density: The UFL/firedrake density function
         :arg connection: A :class:`PotentialEvaluationLibraryConnection`
         :arg potential_operator: The external potential evaluation library
                                  bound operator.
+        :arg function_space: the :mod:`firedrake` function space of this
+            operator
         """
+        self.potential = potential
         self.density = density
         self.connection = connection
         self.potential_operator = potential_operator
+        self.function_space = function_space
 
-    def _eval_potential_operator(self, action_coefficients, out=None):
+    def _eval_potential_operator(self, density, out=None):
         """
         Evaluate the potential on the action coefficients and return.
         If *out* is not *None*, stores the result in *out*
 
-        :arg action_coefficients: A :class:`~firedrake.function.Function`
-                                  to evaluate the potential at
+        :arg density: the density
         :arg out: If not *None*, then a :class:`~firedrake.function.Function`
                   in which to store the evaluated potential
         :return: *out* if it is not *None*, otherwise a new
                  :class:`firedrake.function.Function` storing the evaluated
                  potential
         """
-        density = self.connection.from_firedrake(action_coefficients)
+        density_discrete = interpolate(density, self.function_space)
+        density = self.connection.from_firedrake(density_discrete)
         potential = self.potential_operator(density)
         return self.connection.to_firedrake(potential, out=out)
 
@@ -162,7 +168,7 @@ class PotentialEvaluator:
         """
         Evaluate P(self.density) into self
         """
-        return self._eval_potential_operator(self.density, out=self)
+        return self._eval_potential_operator(self.density, out=self.potential)
 
     def _compute_derivatives(self):
         """
@@ -172,14 +178,19 @@ class PotentialEvaluator:
         # FIXME : Assumes derivatives are Jacobian
         return self._eval_potential_operator
 
-    def _evaluate_action(self, action_coefficients):
+    def _evaluate_action(self, args):
         """
         Evaluate derivatives of layer potential at action coefficients.
         i.e. Derivative(P, self.derivatives, self.density) evaluated at
         the action coefficients and store into self
         """
+        if len(args) == 0:
+            return self._evaluate()
+
+        # FIXME: Assumes just taking Jacobian
+        assert len(args) == 1
         operator = self._compute_derivatives()
-        return operator(action_coefficients, out=self)
+        return operator(*args, out=self.potential)
 
 
 class PotentialEvaluationLibraryConnection:

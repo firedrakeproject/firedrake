@@ -138,7 +138,7 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
             # Otherwise, we have to project back to our function space
             pot = \
                 self.target_to_meshmode_connection.from_meshmode(evaluated_potential)
-            pot = project(evaluated_potential, self.function_space)
+            pot = project(pot, self.function_space)
             if out is not None:
                 out.dat.data[:] = pot.dat.data[:]
                 pot = out
