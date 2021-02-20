@@ -196,7 +196,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, name=None, operator_data=None, val=None, coefficient=None, arguments=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, name=None, operator_data=None, val=None, coefficient=None, arguments=None, local_operands=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
         deriv_multiindex = derivatives or self.derivatives
 
@@ -211,6 +211,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
                                                       name=name,
                                                       coefficient=coefficient,
                                                       arguments=arguments,
+                                                      local_operands=local_operands,
                                                       operator_data=operator_data,
                                                       add_kwargs=add_kwargs)
         else:
@@ -221,6 +222,7 @@ class AbstractExternalOperator(ExternalOperator, PointwiseOperatorsMixin, metacl
                                     name=name or self.name(),
                                     coefficient=corresponding_coefficient,
                                     arguments=arguments or (self.arguments()+self.action_coefficients()),
+                                    local_operands=self.local_operands,
                                     operator_data=operator_data or self.operator_data,
                                     **add_kwargs)
 
