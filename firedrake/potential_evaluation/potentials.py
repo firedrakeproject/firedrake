@@ -12,6 +12,10 @@ def SingleLayerPotential(density, kernel, potential_src_and_tgt, **kwargs):
     :arg potential_src_and_tgt: A
         :class:`firedrake.potential_evaluation.PotentialSourceAndTarget`
 
+    Any kwargs not listed below are passed on to the
+    :class:`firedrake.potential_evaluation.Potential` class
+    (along with some of the kwargs which are listed below).
+
     :kwarg function_space: If density is a firedrake function,
         this is optional. Otherwise it must be supplied.
         If supplied and density is a function, they must
@@ -87,7 +91,6 @@ def _layer_potential(layer_potential_sym,
     actx = kwargs['actx']
     # make sure we got a function_space during validation
     assert 'function_space' in kwargs
-    function_space = kwargs['function_space']
     # extract Pytential operation kwargs
     pyt_op_kwargs = _extract_pytential_operation_kwargs(**kwargs)
     # now return the pytential operation as an external operator
@@ -150,13 +153,6 @@ def _validate_layer_potential_args_and_set_defaults(density,
     if mesh_gdim - src_tdim != 1:
         raise ValueError("source of a layer potential must have co-dimension 1,"
                          f" not {mesh_gdim - src_tdim}.")
-
-    # Make sure all kwargs are recognized
-    allowed_kwargs = ("cl_ctx", "queue", "actx", "op_kwargs", "qbx_kwargs",
-                      "meshmode_connection_kwargs", "function_space")
-    for key in kwargs:
-        if key not in allowed_kwargs:
-            raise ValueError(f"Unrecognized kwarg {key}")
 
     # Now handle pyopencl computing contexts and build
     # a PyOpenCLArrayContext
@@ -226,14 +222,10 @@ def _extract_pytential_operation_kwargs(**kwargs):
     """
     Extract kwargs to be passed to :func:`PytentialOperation`
     """
-    pyt_op_kwargs = {}
-    pyt_op_possible_keywords = ("warn_if_cg",
-                                "meshmode_connection_kwargs",
-                                "qbx_kwargs",
-                                "function_space")
-    for key in pyt_op_possible_keywords:
-        if key in kwargs:
-            pyt_op_kwargs[key] = kwargs[key]
+    keywords_to_remove = ("cl_ctx", "queue", "actx", "op_kwargs")
+    pyt_op_kwargs = dict(kwargs)
+    for key in keywords_to_remove:
+        pyt_op_kwargs.pop(key, None)
 
     return pyt_op_kwargs
 

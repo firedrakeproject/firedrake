@@ -223,5 +223,7 @@ def PytentialOperation(actx,
     operator_data = {'connection': meshmode_connection,
                      'potential_operator': bound_op_with_kwargs,
                      }
+    if 'operator_data' in kwargs:
+        raise ValueError("User may not pass 'operator_data' as kwarg")
     kwargs['operator_data'] = operator_data
     return Potential(density, **kwargs)

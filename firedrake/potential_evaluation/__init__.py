@@ -47,8 +47,6 @@ class Potential(AbstractExternalOperator):
             0 & x \notin \Sigma
         \end{cases}
     """
-    _external_operator_type = 'GLOBAL'
-
     def __init__(self, density, **kwargs):
         """
         :arg density: A :mod:`firedrake` :class:`firedrake.function.Function`
@@ -107,10 +105,10 @@ class Potential(AbstractExternalOperator):
                                   self.function_space())
 
     def _evaluate(self):
-        raise NotImplementedError
+        return self._evaluator._evaluate()
 
-    def _compute_derivatives(self, continuity_tolerance=None):
-        raise NotImplementedError
+    def _compute_derivatives(self):
+        return self._evaluator._compute_derivatives()
 
     def _evaluate_action(self, *args):
         return self._evaluator._evaluate_action(*args)
