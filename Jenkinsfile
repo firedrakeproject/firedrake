@@ -103,29 +103,6 @@ pipeline {
               }
             }
           }
-          stage('Zenodo API canary') {
-            when { environment name: 'SCALAR_TYPE', value: 'real' }
-            steps {
-              timestamps {
-                sh 'scripts/firedrake-install --test-doi-resolution || (cat firedrake-install.log && /bin/false)'
-              }
-            }
-          }
-          stage('Lint') {
-            when { environment name: 'SCALAR_TYPE', value: 'real' }
-            steps {
-              dir('tmp') {
-                timestamps {
-                  sh '''
-  . ./firedrake/bin/activate
-  python -m pip install flake8
-  cd firedrake/src/firedrake
-  make lint
-  '''
-                }
-              }
-            }
-          }
           stage('Docker'){
             when {
               allOf {
