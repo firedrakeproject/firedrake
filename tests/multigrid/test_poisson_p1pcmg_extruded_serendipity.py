@@ -3,6 +3,8 @@ import pytest
 
 
 def run_poisson():
+    deg = 4
+    coarse_deg = 2
     test_params = {"snes_type": "ksponly",
                    "ksp_type": "cg",
                    "ksp_monitor": None,
@@ -13,19 +15,16 @@ def run_poisson():
                        "ksp_max_it": 2,
                        "pc_type": "jacobi"},
                    "pmg_mg_coarse": {
+                       "degree": coarse_deg,
                        "ksp_type": "preonly",
                        "pc_type": "lu",
                        "pc_factor_mat_solver_type": "mumps"
                    }}
 
     N = 2
-
     base_msh = UnitSquareMesh(N, N, quadrilateral=True)
     base_mh = MeshHierarchy(base_msh, 2)
     mh = ExtrudedMeshHierarchy(base_mh, height=1, base_layer=N)
-
-    deg = 2
-
     msh = mh[-1]
 
     V = FunctionSpace(msh, "S", deg)
@@ -41,11 +40,30 @@ def run_poisson():
 
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx(metadata={"quadrature_degree": 2*deg})
 
-    solve(F == 0, u, bcs=bcs, solver_parameters=test_params)
+    problem = NonlinearVariationalProblem(F, u, bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=test_params)
+    solver.solve()
+
+    assert solver.snes.ksp.its <= 10
+    ppc = solver.snes.ksp.pc.getPythonContext().ppc
+    levels = ppc.getMGLevels()
+    assert levels == 2
+
+    def get_int_degree(context):
+        V = context._problem.u.ufl_function_space()
+        N = V.ufl_element().degree()
+        try:
+            N, = set(N)
+        except TypeError:
+            pass
+        return N
+
+    fine = solver._ctx
+    coarse = fine._coarse
+    assert get_int_degree(fine) == deg
+    assert get_int_degree(coarse) == coarse_deg
 
     err = errornorm(uex, u)
-
-    
     return err
 
 
@@ -53,4 +71,3 @@ def run_poisson():
 @pytest.mark.parallel
 def test_poisson_gmg():
     assert run_poisson() < 1e-3
-
