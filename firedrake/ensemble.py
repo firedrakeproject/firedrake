@@ -50,7 +50,6 @@ class Ensemble(object):
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
             if vout.getSizes() != vin.getSizes():
                 raise ValueError("Mismatching sizes")
-            vout.set(0)
             self.ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 

@@ -18,6 +18,7 @@ def test_ensemble_allreduce():
     u_correct.interpolate(sin(pi*x)*cos(pi*y) + sin(2*pi*x)*cos(2*pi*y) + sin(3*pi*x)*cos(3*pi*y))
     q = Constant(manager.ensemble_comm.rank + 1)
     u.interpolate(sin(q*pi*x)*cos(q*pi*y))
+    usum.assign(10)             # Check that the output gets zeroed.
     manager.allreduce(u, usum)
 
     assert assemble((u_correct - usum)**2*dx) < 1e-4
