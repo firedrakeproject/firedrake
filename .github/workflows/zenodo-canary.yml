@@ -9,7 +9,8 @@ on:
   pull_request_target:
 
 jobs:
-  test:
+  zenodo:
+    name: "Run zenodo canary"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
