@@ -1,5 +1,5 @@
 # Checks DOI resolution, testing if Zenodo's REST API has changed
-name: Zenodo canary
+name: Run Zenodo canary
 
 on:
   # Push to master or PR
@@ -9,7 +9,8 @@ on:
   pull_request_target:
 
 jobs:
-  test:
+  zenodo_canary:
+    name: "Run zenodo canary"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
