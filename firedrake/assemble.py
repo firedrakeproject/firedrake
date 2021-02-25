@@ -17,7 +17,7 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
 
-__all__ = ("assemble", )
+__all__ = ("assemble",)
 
 
 class AssemblyRank(IntEnum):
@@ -161,14 +161,24 @@ def _make_vector(test):
 
 def _assemble_expr(expr, tensor, *, bcs, diagonal, assemble_now, **kwargs):
     bcs = _preprocess_bcs(bcs)
-    # TODO: Reimplement this when PyOP2 functionality added.
-    # if "parloops" in expr._cache:
-    #     parloops = expr._cache["parloops"]
-    # else:
-    #     parloops = _make_parloops(expr, tensor, bcs=bcs, diagonal=diagonal, **kwargs)
-    #     expr._cache["parloops"] = parloops
-    # parloop.compute(out=tensor.dat)
-    parloops = _make_parloops(expr, tensor, bcs=bcs, diagonal=diagonal, **kwargs)
+
+    # We cache the parloops on the form but keep track of the tensor. If the
+    # tensor is changed then we need to regenerate the parloop (until parloops
+    # stop depending on data).
+    # When we generate a new parloop the old one is removed from the cache to
+    # prevent leaking memory.
+    cache_key = "parloops"
+    if cache_key in expr._cache:
+        cached_tensor, parloops = expr._cache[cache_key]
+        if cached_tensor is not tensor:
+            parloops = None
+            del expr._cache[cache_key]
+    else:
+        parloops = None
+
+    if not parloops:
+        parloops = _make_parloops(expr, tensor, bcs=bcs, diagonal=diagonal, **kwargs)
+        expr._cache[cache_key] = (tensor, parloops)
     for parloop in parloops:
         parloop.compute()
 
