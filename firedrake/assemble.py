@@ -10,7 +10,7 @@ import ufl
 from firedrake import (assemble_expressions, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
-from firedrake.bcs import DirichletBC, EquationBC
+from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from pyop2 import op2
@@ -103,7 +103,7 @@ def assemble(expr, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         mat_type, sub_mat_type = get_mat_type(mat_type, sub_mat_type, expr.arguments())
         assembly_rank = _get_assembly_rank(expr, diagonal)
-        # bcs = solving._extract_bcs(bcs)
+        bcs = solving._extract_bcs(bcs)
         if assembly_rank == AssemblyRank.SCALAR:
             return _assemble_scalar(expr, tensor, bcs=bcs, form_compiler_parameters=form_compiler_parameters, mat_type=mat_type, sub_mat_type=sub_mat_type, appctx=appctx, options_prefix=options_prefix, assembly_type=assembly_type)
         elif assembly_rank == AssemblyRank.VECTOR:
@@ -197,7 +197,7 @@ def _assemble_expr(expr, tensor, *, bcs, diagonal, assembly_type, **kwargs):
     dir_bcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
     _apply_dirichlet_bcs(tensor, dir_bcs, assembly_rank=assembly_rank, diagonal=diagonal, assembly_type=assembly_type)
 
-    eq_bcs = tuple(bc for bc in bcs if isinstance(bc, EquationBC))
+    eq_bcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
     if eq_bcs and diagonal:
         raise NotImplementedError("Diagonal assembly and EquationBC not supported")
     for bc in eq_bcs:
@@ -208,10 +208,11 @@ def _assemble_expr(expr, tensor, *, bcs, diagonal, assembly_type, **kwargs):
 
 def _preprocess_bcs(bcs):
     # Might have gotten here without `EquationBC` objects preprocessed.
-    # if any(isinstance(bc, EquationBC) for bc in bcs):
-    #     return tuple(bc.extract_form("F") for bc in bcs)
-    # return ()
-    return tuple(bc.extract_form("F") for bc in solving._extract_bcs(bcs))
+    bcs_copy = list(bcs)
+    for i, bc in enumerate(bcs_copy):
+        if isinstance(bc, EquationBC):
+            bcs_copy[i] = bc.extract_form("F")
+    return tuple(bcs_copy)
 
 
 def get_mat_type(mat_type, sub_mat_type, arguments):
