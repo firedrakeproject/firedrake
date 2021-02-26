@@ -88,7 +88,7 @@ class Potential(AbstractExternalOperator):
 
         # Make sure density is a member of our function space, if it is
         if isinstance(density, Function):
-            if density.function_space() is not function_space:
+            if density.function_space() != function_space:
                 raise ValueError("density.function_space() must be the "
                                  "same as function_space")
         # save attributes
@@ -144,6 +144,17 @@ class PotentialEvaluator:
         self.connection = connection
         self.potential_operator = potential_operator
         self.function_space = function_space
+
+        import matplotlib.pyplot as plt
+        from meshmode.mesh.visualization import draw_2d_mesh, draw_curve
+        src_discr = connection.get_source_discretization()
+        tgt_discr = connection.get_target_discretization()
+        draw_curve(src_discr.mesh)
+        plt.title("SOURCE")
+        plt.show()
+        draw_2d_mesh(tgt_discr.mesh, set_bounding_box=True)
+        plt.title("TARGET")
+        plt.show()
 
     def _eval_potential_operator(self, density, out=None):
         """
@@ -317,8 +328,8 @@ class PotentialSourceAndTarget:
         integer or tuple) or *None*. *None* indicates either
         the entire mesh, or the entire exterior boundary
         (as determined by the value of region).
-        The string "everywhere" is also equivalent to a
-        value of *None*
+        The string "on_boundary"/"everywhere" is also equivalent to a
+        value of *None* (for the appropriate subdomain dimension)
 
         NOTE: For implementation reasons, if the target is
               a boundary, instead of just evaluating the
@@ -363,6 +374,21 @@ class PotentialSourceAndTarget:
                             [source_region_dim, target_region_dim]):
             if id_ is None or id_ == "everywhere":
                 continue
+            if id_ == "everywhere":
+                if dim != mesh.topological_dimension():
+                    raise ValueError("\"everywhere\" only valid for subdomain"
+                                     " of same dimension as mesh. Try "
+                                     "\"on_boundary\" instead")
+                continue
+            if id_ == "on_boundary":
+                if dim != mesh.topological_dimension()-1:
+                    raise ValueError("\"on_boundary\" only valid for subdomain"
+                                     " of dimension one less than the mesh. Try "
+                                     "\"everywhere\" instead")
+                continue
+            if isinstance(id_, str):
+                raise TypeError("Only valid strings are \"on_boundary\" and "
+                                f"\"everywhere\", not '{id_}'.")
             # standardize id_ to a tuple
             if isinstance(id_, int):
                 id_ = tuple([id_])
@@ -394,16 +420,22 @@ class PotentialSourceAndTarget:
 
         # handle None case
         if source_region_id is None:
-            source_region_id = "everywhere"
+            if source_region_dim == mesh.topological_dimension():
+                source_region_id = "everywhere"
+            else:
+                source_region_id = "on_boundary"
         if target_region_id is None:
-            target_region_id = "everywhere"
+            if target_region_dim == mesh.topological_dimension():
+                target_region_id = "everywhere"
+            else:
+                target_region_id = "on_boundary"
 
         # store mesh, region dims, and region ids
         self.mesh = mesh
         self._source_region_dim = source_region_dim
-        self._target_region_dim = source_region_dim
+        self._target_region_dim = target_region_dim
         self._source_region_id = source_region_id
-        self._target_region_id = source_region_id
+        self._target_region_id = target_region_id
 
     def get_source_dimension(self):
         """
