@@ -564,28 +564,30 @@ class StandaloneInterpolationMatrix(object):
 
     def make_blas_kernels(self, Vf, Vc):
         """
-        Interpolation and restriction kernels between CG/DG
+        Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
 
         Works by tabulating the coarse 1D Lagrange basis
-        functions in the (Nf+1)-by-(Nc+1) matrix Jhat,
-        and using the fact that the 2d/3d tabulation is the
+        functions as the (Nf+1)-by-(Nc+1) matrix Jhat,
+        and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
         ndim = Vf.ufl_domain().topological_dimension()
-        zf = self.get_nodes_1d(Vf)
-        zc = self.get_nodes_1d(Vc)
-        Jnp = self.barycentric(zc, zf)
-        # Declare array shapes to be used as literals inside the kernels, I follow to the m-by-n convention.
-        mx, nx = Jnp.shape
-        my, ny = (mx, nx) if ndim >= 2 else (1, 1)
-        mz, nz = (mx, nx) if ndim >= 3 else (1, 1)
+        celem = self.get_fiat_element(Vc)
+        nodes = self.get_fiat_nodes(Vf)
+        basis = celem.tabulate(0, nodes)
+        Jhat = basis[(0,)]
+        
+        # Declare array shapes to be used as literals inside the kernels
+        # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
+        nx, mx = Jhat.shape
+        ny, my = (nx, mx) if ndim >= 2 else (1, 1)
+        nz, mz = (nx, mx) if ndim >= 3 else (1, 1)
         nscal = Vf.value_size  # number of components
         mxyz = mx*my*mz  # dim of Vf scalar element
         nxyz = nx*ny*nz  # dim of Vc scalar element
         lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
-        Jhat = np.ascontiguousarray(Jnp.T)  # BLAS uses FORTRAN ordering
         # Pass the 1D tabulation as hexadecimal string
         JX = ', '.join(map(float.hex, np.asarray(Jhat).flatten()))
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
@@ -662,7 +664,7 @@ class StandaloneInterpolationMatrix(object):
         }
         """
 
-        # UFL elements order the component DoFs related to the same node contiguously.
+        # FInaT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
@@ -717,47 +719,52 @@ class StandaloneInterpolationMatrix(object):
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
 
     @staticmethod
-    def get_nodes_1d(V):
-        # Return GLL nodes if V==CG or GL nodes if V==DG
-        from FIAT import quadrature
-        from FIAT.reference_element import DefaultLine
+    def get_fiat_element(V):
+        # Return the corresponding Line element for CG / DG
+        from FIAT.reference_element import UFCInterval
+        from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
         use_tensorproduct, N, family, variant = tensor_product_space_query(V)
         assert use_tensorproduct
+        cell = UFCInterval()
         if family <= {"Q", "Lagrange"}:
             if variant == "equispaced":
-                nodes = np.linspace(-1.0E0, 1.0E0, N+1)
+                element = lagrange.Lagrange(cell, N)
             else:
-                rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
+                element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
+        elif family <= {"DQ", "Discontinuous Lagrange"}:
+            if variant == "equispaced":
+                element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
+            else:
+                element = gauss_legendre.GaussLegendre(cell, N)
+        else:
+            raise ValueError("Don't know how to get fiat element for %r" % family)
+
+        return element
+
+    @staticmethod
+    def get_fiat_nodes(V):
+        # Return the corresponding nodes in the Line for CG / DG
+        from FIAT.reference_element import UFCInterval
+        from FIAT import quadrature
+        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+        assert use_tensorproduct
+        cell = UFCInterval()
+        if family <= {"Q", "Lagrange"}:
+            if variant == "equispaced":
+                nodes = np.linspace(0.0E0, 1.0E0, N+1)
+            else:
+                rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
                 nodes = np.asarray(rule.get_points()).flatten()
         elif family <= {"DQ", "Discontinuous Lagrange"}:
             if variant == "equispaced":
-                nodes = np.arange(1, N+2)*(2.0E0/(N+2))-1.0E0
+                nodes = np.arange(1, N+2)/(N+2.0E0)
             else:
-                rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
+                rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
                 nodes = np.asarray(rule.get_points()).flatten()
         else:
             raise ValueError("Don't know how to get nodes for %r" % family)
 
         return nodes
-
-    @staticmethod
-    def barycentric(xsrc, xdst):
-        # returns barycentric interpolation matrix from xsrc to xdst
-        # J[i,j] = phi_j(xdst[i]), where phi_j(xsrc[i]) = delta_{ij}
-        # and phi_j(x) are Lagrange polynomials defined on xsrc[j]
-        # use the second form of the barycentric interpolation formula
-        # see Trefethen ATAP eq. 5.11
-        temp = np.subtract.outer(xsrc, xsrc)
-        np.fill_diagonal(temp, 1.0E0)
-        lam = 1.0E0 / np.prod(temp, axis=1)  # barycentric weights
-        J = np.subtract.outer(xdst, xsrc)
-        idx = np.argwhere(np.isclose(J, 0.0E0, 1E-14))
-        J[idx[:, 0], idx[:, 1]] = 1.0E0
-        J = lam/J
-        J[idx[:, 0], :] = 0.0E0
-        J[idx[:, 0], idx[:, 1]] = 1.0E0
-        J *= (1/np.sum(J, axis=1))[:, None]
-        return J
 
     @staticmethod
     def multiplicity(V):
