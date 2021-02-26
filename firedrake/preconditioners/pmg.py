@@ -577,7 +577,7 @@ class StandaloneInterpolationMatrix(object):
         nodes = self.get_fiat_nodes(Vf)
         basis = celem.tabulate(0, nodes)
         Jhat = basis[(0,)]
-        
+
         # Declare array shapes to be used as literals inside the kernels
         # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
         nx, mx = Jhat.shape
@@ -749,22 +749,16 @@ class StandaloneInterpolationMatrix(object):
         use_tensorproduct, N, family, variant = tensor_product_space_query(V)
         assert use_tensorproduct
         cell = UFCInterval()
-        if family <= {"Q", "Lagrange"}:
-            if variant == "equispaced":
-                nodes = np.linspace(0.0E0, 1.0E0, N+1)
-            else:
-                rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-                nodes = np.asarray(rule.get_points()).flatten()
+        if variant == "equispaced":
+            return cell.make_points(1, 0, N+1)
+        elif family <= {"Q", "Lagrange"}:
+            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
+            return rule.get_points()
         elif family <= {"DQ", "Discontinuous Lagrange"}:
-            if variant == "equispaced":
-                nodes = np.arange(1, N+2)/(N+2.0E0)
-            else:
-                rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-                nodes = np.asarray(rule.get_points()).flatten()
+            rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
+            return rule.get_points()
         else:
-            raise ValueError("Don't know how to get nodes for %r" % family)
-
-        return nodes
+            raise NotImplementedError("Don't know how to get nodes for %r" % family)
 
     @staticmethod
     def multiplicity(V):
