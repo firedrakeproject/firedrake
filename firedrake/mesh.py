@@ -1330,6 +1330,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
+        self._geometric_shared_data_cache = defaultdict(dict)
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
