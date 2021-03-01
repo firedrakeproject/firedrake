@@ -10,7 +10,6 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from scipy.special import comb
-from tsfc.finatinterface import create_base_element
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
@@ -685,18 +684,18 @@ def _bezier_calculate_points(function):
 
     :arg function: 1D Function with 1 < deg < 4
     """
-    deg = function.function_space().ufl_element().degree()
+    Q = function.function_space()
+    deg = Q.ufl_element().degree()
     M = np.empty([deg + 1, deg + 1], dtype=float)
-    finat_element = create_base_element(function.function_space().ufl_element())
     # TODO: Revise this when FInAT gets dual evaluation
-    basis = finat_element.fiat_equivalent.dual_basis()
+    basis = Q.finat_element.fiat_equivalent.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
             x = list(basis[j].get_point_dict().keys())[0][0]
             M[i, j] = comb(deg, i) * (x ** i) * (1 - x) ** (deg - i)
 
     M_inv = np.linalg.inv(M)
-    cell_node_list = function.function_space().cell_node_list
+    cell_node_list = Q.cell_node_list
     return np.dot(function.dat.data_ro[cell_node_list], M_inv)
 
 
@@ -833,7 +832,7 @@ class FunctionPlotter:
         dimension = Q.mesh().topological_dimension()
         keys = {1: (0,), 2: (0, 0)}
 
-        fiat_element = create_base_element(Q.ufl_element()).fiat_equivalent
+        fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
         data = function.dat.data_ro[cell_node_list]
