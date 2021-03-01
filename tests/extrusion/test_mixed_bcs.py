@@ -19,7 +19,7 @@ def test_multiple_poisson_Pn(quadrilateral, degree):
     # Solve 2 independent Poisson problems with strong boundary
     # conditions applied to the top and bottom for the first and on x
     # == 0 and x == 1 for the second.
-    a = dot(grad(u), grad(v))*dx + dot(grad(p), grad(q))*dx
+    a = inner(grad(u), grad(v))*dx + inner(grad(p), grad(q))*dx
 
     # BCs for first problem
     bc0 = [DirichletBC(W[0], 10.0, "top"),
@@ -43,8 +43,9 @@ def test_multiple_poisson_Pn(quadrilateral, degree):
 
     u, p = wexact.split()
 
-    u.interpolate(Expression("1.0 + 9*x[2]"))
-    p.interpolate(Expression("8.0 - 2*x[0]"))
+    xs = SpatialCoordinate(mesh)
+    u.interpolate(1 + 9*xs[2])
+    p.interpolate(8 - 2*xs[0])
 
     assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
 
@@ -66,8 +67,8 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
     # Solve two independent Poisson problems with a strong boundary
     # condition on the top and a weak condition on the bottom, and
     # vice versa.
-    a = dot(grad(u), grad(v))*dx + dot(grad(p), grad(q))*dx
-    L = Constant(1)*v*ds_b + Constant(4)*q*ds_t
+    a = inner(grad(u), grad(v))*dx + inner(grad(p), grad(q))*dx
+    L = inner(Constant(1), v)*ds_b + inner(Constant(4), q)*ds_t
 
     # BCs for first problem
     bc0 = [DirichletBC(W[0], 10.0, "top")]
@@ -89,8 +90,9 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
 
     u, p = wexact.split()
 
-    u.interpolate(Expression("11.0 - x[2]"))
-    p.interpolate(Expression("2.0 + 4*x[2]"))
+    xs = SpatialCoordinate(mesh)
+    u.interpolate(11 - xs[2])
+    p.interpolate(2 + 4*xs[2])
 
     assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
 
@@ -109,7 +111,7 @@ def test_stokes_taylor_hood(mat_type):
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    a = inner(grad(u), grad(v))*dx - div(v)*p*dx + q*div(u)*dx
+    a = inner(grad(u), grad(v))*dx - inner(p, div(v))*dx + inner(div(u), q)*dx
 
     f = Constant((0, 0))
     L = inner(f, v)*dx
@@ -121,7 +123,8 @@ def test_stokes_taylor_hood(mat_type):
            DirichletBC(W[0], noslip, "bottom")]
 
     # Parabolic inflow y(1-y) at x = 0 in positive x direction
-    inflow = Expression(("x[1]*(1 - x[1])", "0.0"))
+    xs = SpatialCoordinate(mesh)
+    inflow = as_vector([xs[1]*(1 - xs[1]), 0.0])
     bc1 = DirichletBC(W[0], inflow, 1)
 
     # Zero pressure at outlow at x = 1
@@ -144,8 +147,8 @@ def test_stokes_taylor_hood(mat_type):
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
-    uexact = Function(V).interpolate(Expression(("x[1]*(1 - x[1])", "0.0")))
-    pexact = Function(P).interpolate(Expression("2*(L - x[0])", L=length))
+    uexact = Function(V).interpolate(as_vector([xs[1]*(1 - xs[1]), Constant(0.0)]))
+    pexact = Function(P).interpolate(2*(length - xs[0]))
 
     assert errornorm(u, uexact, degree_rise=0) < 1e-7
     assert errornorm(p, pexact, degree_rise=0) < 1e-7
@@ -159,8 +162,3 @@ def test_stokes_taylor_hood_parallel():
 @pytest.mark.parallel
 def test_stokes_taylor_hood_parallel_monolithic():
     test_stokes_taylor_hood("aij")
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

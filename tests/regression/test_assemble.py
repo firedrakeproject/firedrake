@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import ScalarType
 
 
 @pytest.fixture(scope='module')
@@ -40,20 +41,39 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    if fs.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * fs.value_size))
-    else:
-        f.interpolate(Expression("x[0]"))
+    f_split = f.split()
+    x = SpatialCoordinate(fs.mesh())[0]
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in f_split:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(as_vector((x,) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(as_tensor([[x for i in range(fs_i.mesh().geometric_dimension())]
+                                      for j in range(fs_i.rank)]))
+        else:
+            fi.interpolate(x)
     return f
 
 
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    if fs.rank >= 1:
-        one.interpolate(Expression(("1",) * fs.value_size))
-    else:
-        one.interpolate(Expression("1"))
+    ones = one.split()
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in ones:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(Constant((1.0,) * fs_i.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
+                                     for j in range(fs_i.rank)]))
+        else:
+            fi.interpolate(Constant(1.0))
     return one
 
 
@@ -76,14 +96,14 @@ def test_one_form(M, f):
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
-    assert isinstance(zero_form, float)
+    assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
 def test_assemble_with_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
-    L = v*dx
+    L = conj(v) * dx
     f = Function(V)
     # Assemble a form into f
     f = assemble(L, f)
@@ -95,9 +115,9 @@ def test_assemble_with_tensor(mesh):
 
 def test_assemble_mat_with_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
-    u = TestFunction(V)
-    v = TrialFunction(V)
-    a = u*v*dx
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
     M = assemble(a)
     # Assemble a different form into M
     M = assemble(Constant(2)*a, M)
@@ -105,6 +125,22 @@ def test_assemble_mat_with_tensor(mesh):
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
 
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+def test_assemble_diagonal(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v)*dx
+    M = assemble(a, mat_type="aij")
+    Mdiag = assemble(a, diagonal=True)
+    assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)
+
+
+def test_assemble_diagonal_bcs(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, 0, (1, 4))
+    a = inner(grad(u), grad(v))*dx
+    M = assemble(a, mat_type="aij", bcs=bc)
+    Mdiag = assemble(a, bcs=bc, diagonal=True)
+    assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)

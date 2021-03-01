@@ -17,14 +17,14 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 import numpy
 import finat
 from decorator import decorator
-from functools import reduce, partial
+from functools import partial
 
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
-import firedrake.extrusion_numbering as extnum
-from firedrake import dmplex
+from firedrake.cython import extrusion_numbering as extnum
+from firedrake.cython import dmcommon
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -56,38 +56,40 @@ def cached(f, mesh, key, *args, **kwargs):
 
 
 @cached
-def get_global_numbering(mesh, nodes_per_entity):
+def get_global_numbering(mesh, key):
     """Get a PETSc Section describing the global numbering.
 
     This numbering associates function space nodes with topological
     entities.
 
     :arg mesh: The mesh to use.
-    :arg nodes_per_entity: a tuple of the number of nodes per
-        topological entity.
+    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+        nodes_per_entity is a tuple of the number of nodes per topological
+        entity; real_tensorproduct is True if the function space is a
+        degenerate fs x Real tensorproduct.
     :returns: A new PETSc Section.
     """
-    return mesh.create_section(nodes_per_entity)
+    nodes_per_entity, real_tensorproduct = key
+    return mesh.create_section(nodes_per_entity, real_tensorproduct)
 
 
 @cached
-def get_node_set(mesh, nodes_per_entity):
+def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
     :arg mesh: The mesh to use.
-    :arg nodes_per_entity: The number of function space nodes per
-        topological entity.
+    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+        nodes_per_entity is a tuple of the number of nodes per topological
+        entity; real_tensorproduct is True if the function space is a
+        degenerate fs x Real tensorproduct.
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
-    global_numbering = get_global_numbering(mesh, nodes_per_entity)
-    node_classes = mesh.node_classes(nodes_per_entity)
-    halo = halo_mod.Halo(mesh._plex, global_numbering)
+    nodes_per_entity, real_tensorproduct = key
+    global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+    node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
+    halo = halo_mod.Halo(mesh.topology_dm, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
-    if extruded:
-        # FIXME! This is a LIE! But these sets should not be extruded
-        # anyway, only the code gen in PyOP2 is busted.
-        node_set = op2.ExtrudedSet(node_set, layers=2)
 
     assert global_numbering.getStorageSize() == node_set.total_size
     if not extruded and node_set.total_size >= (1 << (IntType.itemsize * 8 - 4)):
@@ -122,8 +124,8 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
-    if mesh._plex.getStratumSize(kind, 1) > 0:
-        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
+    if mesh.topology_dm.getStratumSize(kind, 1) > 0:
+        return dmcommon.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
@@ -133,7 +135,7 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
-    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs, real_tensorproduct) tuple.
     :arg entity_dofs: FInAT entity dofs.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
@@ -148,26 +150,35 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
     class magic(dict):
         def __missing__(self, key):
-            return self.setdefault(key,
-                                   {mesh.cell_set: lambda: cell_node_list,
-                                    mesh.interior_facets.set: interior_facet_node_list,
-                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+            if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list}[key]())
+            else:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list,
+                                        mesh.interior_facets.set: interior_facet_node_list,
+                                        mesh.exterior_facets.set: exterior_facet_node_list}[key]())
 
     return magic()
 
 
 @cached
-def get_map_caches(mesh, entity_dofs):
-    """Get the map caches for this mesh.
+def get_map_cache(mesh, key):
+    """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg entity_dofs: Canonicalised entity_dofs (see
-        :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs, real_tensorproduct) tuple where
+        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
+        real_tensorproduct is True if the function space is a degenerate
+        fs x Real tensorproduct.
     """
-    return {mesh.cell_set: {},
-            mesh.interior_facets.set: {},
-            mesh.exterior_facets.set: {},
-            "boundary_node": {}}
+    if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+        return {mesh.cell_set: None}
+    else:
+        return {mesh.cell_set: None,
+                mesh.interior_facets.set: None,
+                mesh.exterior_facets.set: None,
+                "boundary_node": None}
 
 
 @cached
@@ -175,12 +186,16 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
     """Get the dof offsets.
 
     :arg mesh: The mesh to use.
-    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg key: a (entity_dofs_key, real_tensorproduct) tuple where
+        entity_dofs_key is Canonicalised entity_dofs
+        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
+        function space is a degenerate fs x Real tensorproduct.
     :arg entity_dofs: The FInAT entity_dofs dict.
     :arg ndof: The number of dofs (the FInAT space_dimension).
     :returns: A numpy array of dof offsets (extruded) or ``None``.
     """
-    return mesh.make_offset(entity_dofs, ndof)
+    _, real_tensorproduct = key
+    return mesh.make_offset(entity_dofs, ndof, real_tensorproduct=real_tensorproduct)
 
 
 @cached
@@ -252,8 +267,8 @@ def get_boundary_masks(mesh, key, finat_element):
     closure_indices = numpy.asarray(closure_indices, dtype=IntType)
     support_indices = numpy.asarray(support_indices, dtype=IntType)
     facet_points = numpy.asarray(facet_points, dtype=IntType)
-    masks["topological"] = op2.Map.MapMask(closure_section, closure_indices, facet_points)
-    masks["geometric"] = op2.Map.MapMask(support_section, support_indices, facet_points)
+    masks["topological"] = (closure_section, closure_indices, facet_points)
+    masks["geometric"] = (support_section, support_indices, facet_points)
     return masks
 
 
@@ -307,7 +322,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 @cached
 def get_boundary_nodes(mesh, key, V):
     _, sub_domain, method = key
-    indices = dmplex.boundary_nodes(V, sub_domain, method)
+    indices = dmcommon.boundary_nodes(V, sub_domain, method)
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)
@@ -380,12 +395,12 @@ class FunctionSpaceData(object):
     :arg finat_element: The FInAT element describing how nodes are
        attached to topological entities.
     """
-    __slots__ = ("map_caches", "entity_node_lists",
+    __slots__ = ("map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
-    def __init__(self, mesh, finat_element):
+    def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
@@ -393,8 +408,8 @@ class FunctionSpaceData(object):
         # For non-scalar valued function spaces, there are multiple dofs per node.
 
         # These are keyed only on nodes per topological entity.
-        global_numbering = get_global_numbering(mesh, nodes_per_entity)
-        node_set = get_node_set(mesh, nodes_per_entity)
+        global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+        node_set = get_node_set(mesh, (nodes_per_entity, real_tensorproduct))
 
         edofs_key = entity_dofs_key(entity_dofs)
 
@@ -402,9 +417,9 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_caches = get_map_caches(mesh, edofs_key)
-        self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
-        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
+        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct))
+        self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
+        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct), entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
@@ -445,140 +460,32 @@ class FunctionSpaceData(object):
             key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
             return get_boundary_nodes(V.mesh(), key, V)
 
-    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
-                kind=None):
+    def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
         :arg V: The :class:`FunctionSpace` to create the map for.
         :arg entity_set: The :class:`pyop2.Set` of entities to map from.
         :arg map_arity: The arity of the resulting map.
-        :arg bcs: An iterable of :class:`~.DirichletBC` objects (may
-            be ``None``.
         :arg name: A name for the resulting map.
-        :arg offset: Map offset (for extruded).
-        :arg parent: The parent map (used when bcs are provided)."""
+        :arg offset: Map offset (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
 
-        if bcs is not None:
-            # Separate explicit bcs (we just place negative entries in
-            # the appropriate map values) from implicit ones (extruded
-            # top and bottom) that require PyOP2 code gen.
-            explicit_bcs = [bc for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
-            implicit_bcs = [(bc.sub_domain, bc.method) for bc in bcs if bc.sub_domain in ['top', 'bottom']]
-            if len(explicit_bcs) == 0:
-                # Implicit bcs are not part of the cache key for the
-                # map (they only change the generated PyOP2 code),
-                # hence rewrite bcs here.
-                bcs = ()
-            if len(implicit_bcs) == 0:
-                implicit_bcs = None
-        else:
-            # Empty tuple if no bcs found.  This is so that matrix
-            # assembly, which uses a set to keep track of the bcs
-            # applied to matrix hits the cache when that set is
-            # empty.  tuple(set([])) == tuple().
-            bcs = ()
-            implicit_bcs = None
-
-        for bc in bcs:
-            fs = bc.function_space()
-            # Unwind proxies for ComponentFunctionSpace, but not
-            # IndexedFunctionSpace.
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != V:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-        # Ensure bcs is a tuple in a canonical order for the hash key.
-        lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
-
-        cache = self.map_caches[entity_set]
-        try:
-            # Cache hit
-            val = cache[lbcs]
-            # In the implicit bc case, we decorate the cached map with
-            # the list of implicit boundary conditions so PyOP2 knows
-            # what to do.
-            if implicit_bcs:
-                val = op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
-            return val
-        except KeyError:
-            # Cache miss.
-            # Any top and bottom bcs (for the extruded case) are handled elsewhere.
-            nodes = [bc.nodes for bc in lbcs if bc.sub_domain not in ['top', 'bottom']]
-            decorate = any(bc.function_space().component is not None for
-                           bc in lbcs)
-            if nodes:
-                bcids = reduce(numpy.union1d, nodes)
-                negids = numpy.copy(bcids)
-                for bc in lbcs:
-                    if bc.sub_domain in ["top", "bottom"]:
-                        continue
-                    nbits = IntType.itemsize * 8 - 2
-                    if decorate and bc.function_space().component is None:
-                        # Some of the other entries will be marked
-                        # with high bits, so we need to set all the
-                        # high bits for these bcs
-                        idx = numpy.searchsorted(bcids, bc.nodes)
-                        if bc.function_space().value_size > 3:
-                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().value_size)
-                        for cmp in range(bc.function_space().value_size):
-                            negids[idx] |= (1 << (nbits - cmp))
-
-                    # FunctionSpace with component is IndexedVFS
-                    if bc.function_space().component is not None:
-                        # For indexed VFS bcs, we encode the component
-                        # in the high bits of the map value.
-                        # That value is then negated to indicate to
-                        # the generated code to discard the values
-                        #
-                        # So here we do:
-                        #
-                        # node = -(node + 2**(nbits-cmpt) + 1)
-                        #
-                        # And in the generated code we can then
-                        # extract the information to discard the
-                        # correct entries.
-                        # bcids is sorted, so use searchsorted to find indices
-                        idx = numpy.searchsorted(bcids, bc.nodes)
-                        # Set appropriate bit
-                        negids[idx] |= (1 << (nbits - bc.function_space().component))
-                node_list_bc = numpy.arange(self.node_set.total_size,
-                                            dtype=IntType)
-                # Fix up for extruded, doesn't commute with indexedvfs
-                # for now
-                if self.extruded:
-                    node_list_bc[bcids] = -10000000
-                else:
-                    node_list_bc[bcids] = -(negids + 1)
-                new_entity_node_list = node_list_bc.take(entity_node_list)
-            else:
-                new_entity_node_list = entity_node_list
-
-            if kind == "interior_facet":
-                boundary_masks = self.interior_facet_boundary_masks
-            else:
-                boundary_masks = self.cell_boundary_masks
-
+        val = self.map_cache[entity_set]
+        if val is None:
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
-                          new_entity_node_list,
+                          entity_node_list,
                           ("%s_"+name) % (V.name),
-                          offset=offset,
-                          parent=parent,
-                          boundary_masks=boundary_masks)
+                          offset=offset)
 
-            if decorate:
-                val = op2.DecoratedMap(val, vector_index=True)
-            cache[lbcs] = val
-            if implicit_bcs:
-                return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
-            return val
+            self.map_cache[entity_set] = val
+        return val
 
 
-def get_shared_data(mesh, finat_element):
+def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
@@ -588,9 +495,9 @@ def get_shared_data(mesh, finat_element):
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
-    if not isinstance(mesh, mesh_mod.MeshTopology):
-        raise ValueError("%s is not a MeshTopology" % mesh)
+    if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
+        raise ValueError("%s is not an AbstractMeshTopology" % mesh)
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))
-    return FunctionSpaceData(mesh, finat_element)
+    return FunctionSpaceData(mesh, finat_element, real_tensorproduct=real_tensorproduct)

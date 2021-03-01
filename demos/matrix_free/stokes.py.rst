@@ -21,7 +21,7 @@ As ever, we import firedrake and define a mesh.::
   u, p = TrialFunctions(Z)
   v, q = TestFunctions(Z)
 
-  a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
+  a = (inner(grad(u), grad(v)) - inner(p, div(v)) + inner(div(u), q))*dx
 
   L = inner(Constant((0, 0)), v) * dx
 
@@ -80,8 +80,8 @@ also monitor the convergence of the residual, and ask PETSc to view
 the configured Krylov solver object.::
 
       "ksp_type": "gmres",
-      "ksp_monitor_true_residual": True,
-      "ksp_view": True,
+      "ksp_monitor_true_residual": None,
+      "ksp_view": None,
       "pc_type": "fieldsplit",
       "pc_fieldsplit_type": "schur",
       "pc_fieldsplit_schur_fact_type": "diag",

@@ -22,8 +22,9 @@ def run_test(degree):
     l2error = []
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
-    for n in range(5, 11):
+    for n in range(6, 10):
         mesh = PeriodicUnitIntervalMesh(2**n)
+        x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, 'DG', degree)
         u = Constant((1, ))
         D = TrialFunction(V)
@@ -38,7 +39,8 @@ def run_test(degree):
         dD1 = Function(V)
         D1 = Function(V)
 
-        exact = Expression("sin(2*pi*(x[0] - t))", t=0)
+        t = Constant(0)
+        exact = sin(2*pi*(x[0] - t))
         D = Function(V).interpolate(exact)
 
         nstep = 200
@@ -48,8 +50,7 @@ def run_test(degree):
 
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True)
-        mass_inv.force_evaluation()
+        mass_inv = assemble(Tensor(a_mass).inv)
         mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):
@@ -71,7 +72,7 @@ def run_test(degree):
 
         D1.assign(D)
 
-        exact.t = float(dt) * nstep
+        t.assign(float(dt) * nstep)
 
         D.interpolate(exact)
 
@@ -80,6 +81,7 @@ def run_test(degree):
     return np.asarray(l2error)
 
 
+@pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
@@ -87,14 +89,10 @@ def test_periodic_1d_advection(degree, threshold):
     assert np.all(convergence > threshold)
 
 
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=2)
 def test_periodic_1d_advection_parallel(degree, threshold):
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
 
     assert np.all(convergence > threshold)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

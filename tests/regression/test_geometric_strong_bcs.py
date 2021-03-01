@@ -26,15 +26,10 @@ def test_dg_advection(degree, quadrilateral, direction):
 
     un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-    F = -dot(grad(v), u) * t * dx + dot(jump(v), upw(t, un)) * dS + dot(v, un*t) * ds
+    F = -inner(u, grad(v)) * t * dx + inner(upw(t, un), jump(v)) * dS + inner(un*t, v) * ds
 
-    bc = DirichletBC(V, 1., bc_domain, method="geometric")
+    bc = DirichletBC(V, Constant(1.), bc_domain, method="geometric")
 
     solve(F == 0, t, bcs=bc)
 
     assert errornorm(Constant(1.0), t) < 1.e-12
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

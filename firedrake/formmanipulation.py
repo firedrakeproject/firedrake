@@ -3,9 +3,9 @@ import numpy
 import collections
 
 from ufl import as_vector
-from ufl.classes import Zero
+from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.corealg.map_dag import MultiFunction
+from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from firedrake.ufl_expr import Argument
 
@@ -13,6 +13,24 @@ from firedrake.ufl_expr import Argument
 class ExtractSubBlock(MultiFunction):
 
     """Extract a sub-block from a form."""
+
+    class IndexInliner(MultiFunction):
+        """Inline fixed index of list tensors"""
+        expr = MultiFunction.reuse_if_untouched
+
+        def multi_index(self, o):
+            return o
+
+        def indexed(self, o, child, multiindex):
+            indices = multiindex.indices()
+            if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
+                if len(indices) == 1:
+                    return child.ufl_operands[indices[0]._value]
+                else:
+                    return ListTensor(*(child.ufl_operands[i._value] for i in multiindex.indices()))
+            return self.expr(o, child, multiindex)
+
+    index_inliner = IndexInliner()
 
     def split(self, form, argument_indices):
         """Split a form.
@@ -28,7 +46,7 @@ class ExtractSubBlock(MultiFunction):
         """
         args = form.arguments()
         self._arg_cache = {}
-        self.blocks = dict(zip((0, 1), argument_indices))
+        self.blocks = dict(enumerate(argument_indices))
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -43,6 +61,23 @@ class ExtractSubBlock(MultiFunction):
 
     def multi_index(self, o):
         return o
+
+    def expr_list(self, o, *operands):
+        # Inline list tensor indexing.
+        # This fixes a problem where we extract a subblock from
+        # derivative(foo, ...) and end up with the "Argument" looking like
+        # [v_0, v_2, v_3][1, 2]
+        return self.expr(o, *map_expr_dags(self.index_inliner, operands))
+
+    def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
+        # If we're only taking a derivative wrt part of an argument in
+        # a mixed space other bits might come back as zero. We want to
+        # propagate a zero in that case.
+        argument, = arguments
+        if all(isinstance(a, Zero) for a in argument.ufl_operands):
+            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        else:
+            return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
 
     def argument(self, o):
         from ufl import split
@@ -92,7 +127,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
-def split_form(form):
+def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 
     Each entry is a :class:`SplitForm` tuple of the indices into the
@@ -100,7 +135,7 @@ def split_form(form):
 
     For example, consider the following code:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         V = FunctionSpace(m, 'CG', 1)
         W = V*V*V
@@ -110,7 +145,7 @@ def split_form(form):
 
     Then splitting the form returns a tuple of two forms.
 
-    .. code-block:: python
+    .. code-block:: python3
 
        ((0, 2), w*p*dx),
         (1, 0), q*u*dx))
@@ -124,8 +159,15 @@ def split_form(form):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
+    if diagonal:
+        assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
+            if diagonal:
+                i, j = idx
+                if i != j:
+                    continue
+                idx = (i, )
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)

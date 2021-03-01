@@ -1,0 +1,28 @@
+name: Run lint
+
+on:
+  # Push to master or PR
+  push:
+    branches:
+      - master
+  pull_request_target:
+
+jobs:
+  linter:
+    name: "Run linter"
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    # Steps represent a sequence of tasks that will be executed as
+    # part of the jobs
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Install linter
+        run: |
+          pip install flake8 pylint
+      - name: Lint
+        run: |
+          make lint

@@ -1,6 +1,9 @@
+import firedrake_configuration
 from firedrake import *
 import pytest
 import numpy as np
+
+config = firedrake_configuration.get_config()
 
 
 # This test solves a mixed formulation of the Poisson equation with
@@ -9,28 +12,37 @@ import numpy as np
 # on a 2D mesh embedded in 3D.
 def run_no_manifold():
     mesh = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(mesh)
 
     V0 = FunctionSpace(mesh, "RT", 2)
     V1 = FunctionSpace(mesh, "DG", 1)
 
     V = V0 * V1
 
-    bc = DirichletBC(V.sub(0), (-1, 0), (1, 2, 3, 4))
+    bc_arg = Function(V0).project(Constant((-1, 0)))
+    bc = DirichletBC(V.sub(0), bc_arg, (1, 2, 3, 4))
 
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
-    exact = Function(V1).interpolate(Expression('x[0] - 0.5'))
+
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
+    exact = Function(V1).interpolate(x[0] - 0.5)
 
     u, p = up.split()
     assert errornorm(exact, p, degree_rise=0) < 1e-8
@@ -44,28 +56,37 @@ def run_manifold():
     x, y = SpatialCoordinate(mesh)
     X.interpolate(as_vector([x, y, 0]))
     mesh = Mesh(X)
-    mesh.init_cell_orientations(Expression(('0', '0', '1')))
+    mesh.init_cell_orientations(Constant((0, 0, 1)))
+    x_n = SpatialCoordinate(mesh)
     V0 = FunctionSpace(mesh, "RT", 2)
     V1 = FunctionSpace(mesh, "DG", 1)
 
     V = V0 * V1
 
-    bc = DirichletBC(V.sub(0), (-1, 0, 0), (1, 2, 3, 4))
+    bc_arg = Function(V0).project(Constant((-1, 0, 0)))
+    bc = DirichletBC(V.sub(0), bc_arg, (1, 2, 3, 4))
 
     u, p = TrialFunctions(V)
     v, q = TestFunctions(V)
 
-    a = (dot(u, v) - p*div(v) - div(u)*q)*dx
+    a = (inner(u, v) - inner(p, div(v)) - inner(div(u), q))*dx
 
     f = Function(V1)
     f.assign(0)
-    L = -f*q*dx
+    L = -inner(f, q)*dx
 
     up = Function(V)
 
     nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
-    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
-    exact = Function(V1).interpolate(Expression('x[0] - 0.5'))
+
+    # Add additional flags to MUMPS as pivoting fails with default options
+    params = {'mat_mumps_icntl_7': 1 if mesh.comm.size == 1 else 3,
+              # Detect null pivots
+              'mat_mumps_icntl_24': 1,
+              'ksp_view': None,
+              'ksp_converged_reason': None}
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
+    exact = Function(V1).interpolate(x_n[0] - 0.5)
 
     u, p = up.split()
     assert errornorm(exact, p, degree_rise=0) < 1e-8
@@ -95,11 +116,12 @@ def test_contravariant_piola_facet_integral(space):
         mesh = UnitCubedSphereMesh(refinement_level=2)
     else:
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
-    global_normal = Expression(("x[0]", "x[1]", "x[2]"))
+    x = SpatialCoordinate(mesh)
+    global_normal = as_vector((x[0], x[1], x[2]))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)
     # Some non-zero function
-    u = project(Expression(('x[0]', '-x[1]', '0')), V)
+    u = project(as_vector((x[0], -x[1], 0)), V)
     n = FacetNormal(mesh)
 
     pos = inner(u('+'), n('+'))*dS
@@ -115,11 +137,12 @@ def test_covariant_piola_facet_integral(space):
         mesh = UnitCubedSphereMesh(refinement_level=2)
     else:
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
-    global_normal = Expression(("x[0]", "x[1]", "x[2]"))
+    x = SpatialCoordinate(mesh)
+    global_normal = as_vector((x[0], x[1], x[2]))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)
     # Some non-zero function
-    u = project(Expression(('x[0]', '-x[1]', '0')), V)
+    u = project(as_vector((x[0], -x[1], 0)), V)
     n = FacetNormal(mesh)
 
     pos = inner(u('+'), n('+'))*dS
@@ -127,8 +150,3 @@ def test_covariant_piola_facet_integral(space):
 
     assert np.allclose(assemble(pos) + assemble(neg), 0, atol=1e-7)
     assert np.allclose(assemble(pos + neg), 0, atol=1e-7)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

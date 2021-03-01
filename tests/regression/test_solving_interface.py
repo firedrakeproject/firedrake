@@ -19,7 +19,7 @@ def a_L_out():
 
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    return u*v*dx, f*v*dx, out
+    return inner(u, v) * dx, inner(f, v) * dx, out
 
 
 def test_linear_solver_api(a_L_out):
@@ -120,8 +120,8 @@ def test_linear_solves_equivalent():
     t = TestFunction(V)
     q = TrialFunction(V)
 
-    a = inner(t, q)*dx
-    L = inner(f, t)*dx
+    a = inner(q, t) * dx
+    L = inner(f, t) * dx
 
     # Solve the system using forms
     sol = Function(V)
@@ -137,6 +137,11 @@ def test_linear_solves_equivalent():
     solve(assemble(a), sol3, assemble(L))
     assert np_norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
 
+    # Same, solving into vector
+    sol4 = sol3.vector()
+    solve(assemble(a), sol4, assemble(L))
+    assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
+
 
 def test_constant_jacobian_lvs():
     mesh = UnitSquareMesh(2, 2)
@@ -147,11 +152,11 @@ def test_constant_jacobian_lvs():
 
     q = Function(V)
     q.assign(1)
-    a = q*u*v*dx
+    a = q * inner(u, v) * dx
 
     f = Function(V)
     f.assign(1)
-    L = f*v*dx
+    L = inner(f, v) * dx
 
     out = Function(V)
 
@@ -184,24 +189,3 @@ def test_constant_jacobian_lvs():
     lvs.solve()
 
     assert not (norm(assemble(out*5 - f)) < 2e-7)
-
-
-def test_quasinewton_ops_assembled():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-
-    u = Function(V)
-    v = TestFunction(V)
-
-    F = inner(u*grad(u), grad(v))*dx
-
-    problem = NonlinearVariationalProblem(F, u)
-    solver_parameters = {'snes_type': 'qn'}
-    solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-
-    assert solver.snes.ksp.pc.getOperators()[0].assembled
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

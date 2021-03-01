@@ -20,9 +20,10 @@ def vector_laplace(n, degree):
     k = 1.0
     l = 2.0
 
-    f_expr = Expression(("pi*pi*(kk*kk + ll*ll)*sin(kk*pi*x[0])*cos(ll*pi*x[1])", "pi*pi*(kk*kk + ll*ll)*cos(kk*pi*x[0])*sin(ll*pi*x[1])"), kk=k, ll=l)
-    exact_s_expr = Expression("-(kk+ll)*pi*cos(kk*pi*x[0])*cos(ll*pi*x[1])", kk=k, ll=l)
-    exact_u_expr = Expression(("sin(kk*pi*x[0])*cos(ll*pi*x[1])", "cos(kk*pi*x[0])*sin(ll*pi*x[1])"), kk=k, ll=l)
+    xs = SpatialCoordinate(mesh)
+    f_expr = as_vector([pi*pi*(k*k + l*l)*sin(k*pi*xs[0])*cos(l*pi*xs[1]), pi*pi*(k*k + l*l)*cos(k*pi*xs[0])*sin(l*pi*xs[1])])
+    exact_s_expr = -(k+l)*pi*cos(k*pi*xs[0])*cos(l*pi*xs[1])
+    exact_u_expr = as_vector([sin(k*pi*xs[0])*cos(l*pi*xs[1]), cos(k*pi*xs[0])*sin(l*pi*xs[1])])
 
     f = Function(W1).interpolate(f_expr)
     exact_s = Function(W0).interpolate(exact_s_expr)
@@ -30,25 +31,25 @@ def vector_laplace(n, degree):
 
     sigma, u = TrialFunctions(V)
     tau, v = TestFunctions(V)
-    a = (sigma*tau - dot(u, grad(tau)) + dot(grad(sigma), v) + dot(curl(u), curl(v)))*dx
-    L = dot(f, v)*dx
+    a = (inner(sigma, tau) - inner(u, grad(tau)) + inner(grad(sigma), v) + inner(curl(u), curl(v))) * dx
+    L = inner(f, v) * dx
 
     out = Function(V)
 
     # preconditioner for H1 x H(curl)
-    aP = (dot(grad(sigma), grad(tau)) + sigma*tau + dot(curl(u), curl(v)) + dot(u, v))*dx
+    aP = (inner(grad(sigma), grad(tau)) + inner(sigma, tau) + inner(curl(u), curl(v)) + inner(u, v)) * dx
 
     solve(a == L, out, Jp=aP,
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'additive',
                              'fieldsplit_0_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'lu',
-                             'ksp_monitor': True})
+                             'ksp_monitor': None})
 
     out_s, out_u = out.split()
 
-    return (sqrt(assemble(dot(out_u - exact_u, out_u - exact_u)*dx)),
-            sqrt(assemble((out_s - exact_s)*(out_s - exact_s)*dx)))
+    return (sqrt(assemble(inner(out_u - exact_u, out_u - exact_u) * dx)),
+            sqrt(assemble(inner(out_s - exact_s, out_s - exact_s) * dx)))
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
@@ -62,8 +63,3 @@ def test_hcurl_convergence(testcase, convrate):
     for ii in [i + start for i in range(len(l2err))]:
         l2err[ii - start, :] = vector_laplace(2 ** ii, degree)
     assert (np.log2(l2err[:-1, :] / l2err[1:, :]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

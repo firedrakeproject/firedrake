@@ -1,4 +1,3 @@
-
 from firedrake import *
 import pytest
 
@@ -13,7 +12,7 @@ def test_parallel_kernel_on_sphere():
     domain.
     """
     mesh = UnitIcosahedralSphereMesh(refinement_level=1)
-    mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     x, y, z = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
@@ -36,8 +35,8 @@ def test_parallel_kernel_on_sphere():
     detJ = det(J + dJ)
     u = TrialFunction(U)
     v = TestFunction(U)
-    bilinear_f = u * v * detJ * dx
-    linear_f = expr * v * detJ * dx
+    bilinear_f = inner(detJ * u, v) * dx
+    linear_f = inner(expr * detJ, v) * dx
 
     A = assemble(Tensor(bilinear_f))
     b = assemble(Tensor(linear_f))
@@ -46,8 +45,3 @@ def test_parallel_kernel_on_sphere():
     solve(A, x, b)
 
     assert errornorm(x, expr) < 1e-10
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

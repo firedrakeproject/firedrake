@@ -3,10 +3,10 @@ import ufl
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.datatypes import ScalarType
+from firedrake.utils import ScalarType
 
 import firedrake.utils as utils
-
+from firedrake.adjoint.constant import ConstantMixin
 
 __all__ = ['Constant']
 
@@ -26,7 +26,7 @@ def _globalify(value):
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient):
+class Constant(ufl.Coefficient, ConstantMixin):
 
     """A "constant" coefficient
 
@@ -51,6 +51,7 @@ class Constant(ufl.Coefficient):
        :func:`~.Mesh` as the domain argument.
     """
 
+    @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
@@ -81,7 +82,7 @@ class Constant(ufl.Coefficient):
         :arg index_values: ignored.
         """
         if component in ((), None):
-            if self.ufl_shape is ():
+            if self.ufl_shape == ():
                 return self.dat.data_ro[0]
             return self.dat.data_ro
         return self.dat.data_ro[component]
@@ -115,6 +116,7 @@ class Constant(ufl.Coefficient):
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
+    @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
 

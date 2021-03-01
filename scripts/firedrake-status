@@ -104,7 +104,7 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
         try:
             _ = check_output(["git", "diff-index", "--quiet", "HEAD"])
             modified = False
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             modified = True
 
         status[dir] = {"branch": branch,

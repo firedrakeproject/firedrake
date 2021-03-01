@@ -37,20 +37,22 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         product_elt = TensorProductElement(horiz_elt, vert_elt)
         V2 = FunctionSpace(mesh, product_elt)
 
+        x, y, z = SpatialCoordinate(mesh)
+
         f = Function(V2)
         exact = Function(V2)
         if ori == "h":
-            f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
-            exact.interpolate(Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+            f.interpolate((1+8*np.pi*np.pi)*sin(2*np.pi*x)*sin(2*np.pi*y))
+            exact.interpolate(sin(2*np.pi*x)*sin(2*np.pi*y))
         elif ori == "v":
-            f.interpolate(Expression("(1+4*pi*pi)*sin(x[2]*pi*2)"))
-            exact.interpolate(Expression("sin(x[2]*pi*2)"))
+            f.interpolate((1+4*np.pi*np.pi)*sin(2*np.pi*z))
+            exact.interpolate(sin(2*np.pi*z))
 
         W = V1 * V2
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
-        a = (p*q - q*div(u) + dot(v, u) + div(v)*p)*dx
-        L = f*q*dx
+        a = (inner(p, q) - inner(div(u), q) + inner(u, v) + inner(p, div(v)))*dx
+        L = inner(f, q)*dx
 
         out = Function(W)
         solve(a == L, out, solver_parameters={'pc_type': 'fieldsplit',
@@ -59,10 +61,5 @@ def test_scalar_convergence(extmesh, testcase, convrate):
                                               'pc_fieldsplit_schur_fact_type': 'FULL',
                                               'fieldsplit_0_ksp_type': 'cg',
                                               'fieldsplit_1_ksp_type': 'cg'})
-        l2err[ii - start] = sqrt(assemble((out[3]-exact)*(out[3]-exact)*dx))
+        l2err[ii - start] = sqrt(assemble(inner((out[3]-exact), (out[3]-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

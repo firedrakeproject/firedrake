@@ -9,8 +9,7 @@ def test_cr_facet_integral_parallel():
     V = FunctionSpace(mesh, "CR", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    M = assemble(avg(v)*avg(u)*dS)
-    M.force_evaluation()
+    M = assemble(inner(avg(u), avg(v))*dS)
     M = M.petscmat
 
     x, y = SpatialCoordinate(mesh)

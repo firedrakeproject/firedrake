@@ -25,7 +25,7 @@ def test_hdiv_element(hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    form = dot(u, v)*dx + inner(grad(u), grad(v))*dx
+    form = inner(u, v)*dx + inner(grad(u), grad(v))*dx
 
     A = assemble(Tensor(form)).M.values
     ref = assemble(form).M.values
@@ -49,14 +49,9 @@ def test_hcurl_element(hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    form = dot(u, v)*dx + inner(grad(u), grad(v))*dx
+    form = inner(u, v)*dx + inner(grad(u), grad(v))*dx
 
     A = assemble(Tensor(form)).M.values
     ref = assemble(form).M.values
 
     assert np.allclose(A, ref, rtol=1e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import numpy as np
 import pytest
 
@@ -73,7 +74,8 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
 
     m = CircleManifoldMesh(5)
     mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
-    mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', '0.0')))
+    xs = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(as_vector((xs[0], xs[1], 0.0)))
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
@@ -88,18 +90,19 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     W0 = FunctionSpace(mesh, W0_elt)
     W1 = FunctionSpace(mesh, W1_elt)
 
-    outward_normal = Function(VectorFunctionSpace(mesh, "DG", 0)).interpolate(Expression(('x[0]/sqrt(x[0]*x[0] + x[1]*x[1])', 'x[1]/sqrt(x[0]*x[0] + x[1]*x[1])', '0.0')))
+    outward_normal = Function(VectorFunctionSpace(mesh, "DG", 0)).interpolate(
+        as_vector((xs[0]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), xs[1]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), Constant(0.0))))
 
     W = W0*W1
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    L = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v) +
-                  div(u)*div(v))*dx)
+    L = assemble((inner(sigma, tau) - inner(u, cross(outward_normal, grad(tau))) + inner(cross(outward_normal, grad(sigma)), v)
+                  + inner(div(u), div(v)))*dx)
 
     dW0 = W0.dof_count
     dW1 = W1.dof_count
 
-    A = np.zeros((dW0+dW1, dW0+dW1))
+    A = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
     A[:dW0, :dW0] = L.M[0, 0].values
     A[:dW0, dW0:dW0+dW1] = L.M[0, 1].values
     A[dW0:dW0+dW1, :dW0] = L.M[1, 0].values
@@ -111,12 +114,12 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     assert(nharmonic == 1)
 
     bc0 = [DirichletBC(W.sub(0), 0., x) for x in ["top", "bottom"]]
-    bc1 = [DirichletBC(W.sub(1), Expression(("0.", "0.", "0.")), x)
+    bc1 = [DirichletBC(W.sub(1), as_vector((0.0, 0.0, 0.0)), x)
            for x in ["top", "bottom"]]
-    L0 = assemble((sigma*tau - inner(cross(outward_normal, grad(tau)), u) + inner(cross(outward_normal, grad(sigma)), v) +
-                   div(u)*div(v))*dx, bcs=(bc0 + bc1))
+    L0 = assemble((inner(sigma, tau) - inner(u, cross(outward_normal, grad(tau))) + inner(cross(outward_normal, grad(sigma)), v)
+                   + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
-    A0 = np.zeros((dW0+dW1, dW0+dW1))
+    A0 = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
     A0[:dW0, :dW0] = L0.M[0, 0].values
     A0[:dW0, dW0:dW0+dW1] = L0.M[0, 1].values
     A0[dW0:dW0+dW1, :dW0] = L0.M[1, 0].values
@@ -145,7 +148,8 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
 
     m = CircleManifoldMesh(5)
     mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
-    mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', '0.0')))
+    xs = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(as_vector((xs[0], xs[1], Constant(0.0))))
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
@@ -164,16 +168,16 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    L = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx)
+    L = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx)
 
-    bc1 = [DirichletBC(W.sub(0), Expression(("0.", "0.", "0.")), x)
+    bc1 = [DirichletBC(W.sub(0), as_vector((0.0, 0.0, 0.0)), x)
            for x in ["top", "bottom"]]
-    L0 = assemble((inner(sigma, tau) - div(tau)*u + div(sigma)*v)*dx, bcs=bc1)
+    L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=bc1)
 
     dW1 = W1.dof_count
     dW2 = W2.dof_count
 
-    A = np.zeros((dW1+dW2, dW1+dW2))
+    A = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
     A[:dW1, :dW1] = L.M[0, 0].values
     A[:dW1, dW1:dW1+dW2] = L.M[0, 1].values
     A[dW1:dW1+dW2, :dW1] = L.M[1, 0].values
@@ -184,7 +188,7 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 0)
 
-    A0 = np.zeros((dW1+dW2, dW1+dW2))
+    A0 = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
     A0[:dW1, :dW1] = L0.M[0, 0].values
     A0[:dW1, dW1:dW1+dW2] = L0.M[0, 1].values
     A0[dW1:dW1+dW2, :dW1] = L0.M[1, 0].values
@@ -194,7 +198,3 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
 
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 1)
-
-
-if __name__ == '__main__':
-    pytest.main(os.path.abspath(__file__))

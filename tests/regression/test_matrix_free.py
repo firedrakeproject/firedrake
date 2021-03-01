@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -22,7 +23,7 @@ def L(V):
     x = SpatialCoordinate(V.mesh())
     v = TestFunction(V)
     if V.shape == ():
-        return sin(x[0]*2*pi)*sin(x[1]*2*pi)*v*dx
+        return inner(sin(x[0]*2*pi)*sin(x[1]*2*pi), v)*dx
     elif V.shape == (2, ):
         return inner(as_vector([sin(x[0]*2*pi)*sin(x[1]*2*pi),
                                 cos(x[0]*2*pi)*cos(x[1]*2*pi) - 1]),
@@ -114,9 +115,7 @@ def test_matrixfree_action(a, V, bcs):
     else:
         bcs = None
     A = assemble(a, bcs=bcs)
-    A.force_evaluation()
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
-    Amf.force_evaluation()
 
     with f.dat.vec_ro as x:
         with expect.dat.vec as y:
@@ -173,7 +172,10 @@ def test_fieldsplitting(mesh, preassembled, parameters):
     Q = VectorFunctionSpace(mesh, "DG", 1)
     W = V*P*Q
 
-    expect = Constant((1, 2, 3, 4))
+    expect = Function(W)
+    expect.sub(0).assign(1)
+    expect.sub(1).assign(2)
+    expect.sub(2).assign(Constant((3, 4)))
 
     u = TrialFunction(W)
     v = TestFunction(W)
@@ -198,31 +200,6 @@ def test_fieldsplitting(mesh, preassembled, parameters):
         assert np.allclose(d, 0.0)
 
 
-def test_matrix_free_preassembly_change_bcs(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    v = TestFunction(V)
-    u = TrialFunction(V)
-    a = u*v*dx
-    bc1 = DirichletBC(V, Constant(10), 1)
-
-    A = assemble(a, bcs=bc1, mat_type="matfree")
-    L = Constant(10)*v*dx
-
-    b = assemble(L)
-
-    bc2 = DirichletBC(V, Constant(6), 1)
-
-    u = Function(V)
-
-    solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
-
-    u.assign(0)
-    b = assemble(Constant(6)*v*dx)
-    solve(A, u, b, bcs=bc2)
-    assert np.allclose(u.vector().array(), 6.0)
-
-
 @pytest.mark.parallel(nprocs=4)
 def test_matrix_free_split_communicators():
 
@@ -238,7 +215,7 @@ def test_matrix_free_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        volume = assemble(u*v*dx).M.values
+        volume = assemble(inner(u, v)*dx).M.values
 
         assert np.allclose(volume, 0.5)
     else:
@@ -254,7 +231,7 @@ def test_matrix_free_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        solve(dot(u, v)*dx == dot(Constant((1, 0)), v)*dx, f,
+        solve(inner(u, v)*dx == inner(Constant((1, 0)), v)*dx, f,
               solver_parameters={"mat_type": "matfree"})
 
         expect = Function(V).interpolate(Constant((1, 0)))
@@ -278,7 +255,7 @@ def test_get_info(a, bcs, infotype):
               + (trial.function_space().dof_dset.total_size
                  * trial.function_space().value_size))
 
-    expect *= np.float64().itemsize
+    expect *= ScalarType.itemsize
 
     if infotype == "sum":
         expect = A.comm.allreduce(expect, op=MPI.SUM)
@@ -292,3 +269,41 @@ def test_get_info(a, bcs, infotype):
         ctx = A.petscmat.getPythonContext()
         info = ctx.getInfo(A.petscmat, info=itype)
         assert info["memory"] == 2*expect
+
+
+def test_duplicate(a, bcs):
+
+    test, trial = a.arguments()
+
+    if test.function_space().shape == ():
+        rhs_form = inner(Constant(1), test)*dx
+    elif test.function_space().shape == (2, ):
+        rhs_form = inner(Constant((1, 1)), test)*dx
+
+    if bcs is not None:
+        Af = assemble(a, mat_type="matfree", bcs=bcs)
+        rhs = assemble(rhs_form, bcs=bcs)
+    else:
+        Af = assemble(a, mat_type="matfree")
+        rhs = assemble(rhs_form)
+
+    # matrix-free duplicate creates a matrix-free copy of Af
+    # we have not implemented the default copy = False
+    B_petsc = Af.petscmat.duplicate(copy=True)
+
+    ksp = PETSc.KSP().create()
+    ksp.setOperators(Af.petscmat)
+    ksp.setFromOptions()
+
+    solution1 = Function(test.function_space())
+    solution2 = Function(test.function_space())
+
+    # Solve system with original matrix A
+    with rhs.dat.vec_ro as b, solution1.dat.vec as x:
+        ksp.solve(b, x)
+
+    # Multiply with copied matrix B
+    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+        B_petsc.mult(x, y)
+    # Check if original rhs is equal to BA^-1 (rhs)
+    assert np.allclose(rhs.vector().array(), solution2.vector().array())

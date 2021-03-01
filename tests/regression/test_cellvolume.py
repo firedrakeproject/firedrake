@@ -62,8 +62,3 @@ def test_miscellaneous():
 
     assert np.allclose(assemble(FacetArea(mesh)*ds), 2*(3 - sqrt(2)))
     assert np.allclose(assemble(FacetArea(mesh)*dS), 1)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

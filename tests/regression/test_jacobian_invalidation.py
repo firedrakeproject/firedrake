@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from firedrake import *
 
@@ -13,11 +12,11 @@ def test_jac_invalid():
     f = Function(V).assign(1)
 
     # set up trivial projection problem
-    a = u*v*dx
-    L = f*v*dx
+    a = inner(u, v)*dx
+    L = inner(f, v)*dx
 
     out = Function(V)
-    problem = LinearVariationalProblem(a, L, out)
+    problem = LinearVariationalProblem(a, L, out, constant_jacobian=True)
     solver = LinearVariationalSolver(problem)
     solver.solve()
 
@@ -40,8 +39,3 @@ def test_jac_invalid():
 
     # correct answer produced
     assert np.allclose(out.dat.data, 1.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

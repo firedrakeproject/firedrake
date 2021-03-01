@@ -31,14 +31,28 @@ def quadrilateral(request):
     return request.param
 
 
-def run_periodic_helmholtz(direction, quadrilateral):
+@pytest.fixture(params=["left", "right", "crossed"])
+def diagonal(request):
+    return request.param
+
+
+def run_periodic_helmholtz(direction, quadrilateral, diagonal):
+    if quadrilateral:
+        if diagonal == "left":
+            # run the test
+            diagonal = None
+        else:
+            # don't run the test
+            return
+
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
-                                 direction=direction)
+                                 diagonal=diagonal, direction=direction)
+    x = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
 
     u_exact = Function(V)
-    u_exact.interpolate(Expression("sin(4.0*pi*x[0]/5.0)*sin(2.0*pi*x[1]/3.0)"))
+    u_exact.interpolate(sin(4.0*pi*x[0]/5.0)*sin(2.0*pi*x[1]/3.0))
 
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
@@ -49,26 +63,21 @@ def run_periodic_helmholtz(direction, quadrilateral):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*dx + u*v*dx
-    L = f*v*dx
+    a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    L = inner(f, v)*dx
 
     out = Function(V)
     solve(a == L, out, solver_parameters={'ksp_type': 'cg'}, bcs=bcs)
 
-    l2err = sqrt(assemble((out-u_exact)*(out-u_exact)*dx))
-    l2norm = sqrt(assemble(u_exact*u_exact*dx))
+    l2err = sqrt(assemble(inner((out-u_exact), (out-u_exact))*dx))
+    l2norm = sqrt(assemble(inner(u_exact, u_exact)*dx))
     assert l2err/l2norm < 0.004
 
 
-def test_periodic_helmholtz(direction, quadrilateral):
-    run_periodic_helmholtz(direction, quadrilateral)
+def test_periodic_helmholtz(direction, quadrilateral, diagonal):
+    run_periodic_helmholtz(direction, quadrilateral, diagonal)
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_periodic_helmholtz_parallel(direction, quadrilateral):
-    run_periodic_helmholtz(direction, quadrilateral)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+def test_periodic_helmholtz_parallel(direction, quadrilateral, diagonal):
+    run_periodic_helmholtz(direction, quadrilateral, diagonal)

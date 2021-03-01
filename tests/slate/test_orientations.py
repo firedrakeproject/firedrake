@@ -1,4 +1,3 @@
-
 import pytest
 from firedrake import *
 import numpy as np
@@ -10,7 +9,7 @@ import numpy as np
                           (UnitCubedSphereMesh, 'RTCF', 1)])
 def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     mesh = Mesh(refinement_level=2)
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     n = FacetNormal(mesh)
     V = FunctionSpace(mesh, hdiv_space, degree)
 
@@ -20,12 +19,12 @@ def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     f = Function(FunctionSpace(mesh, "DG", 0))
     f.interpolate(2*x + 2*y + 2*z)
 
-    mass = f*dot(sigma, tau)*dx
-    flux_dS = jump(f*tau, n=n)*dS
-    flux_ds = f*dot(tau, n)*ds
+    mass = f*inner(sigma, tau)*dx
+    flux_dS = jump(f*conj(tau), n=n)*dS
+    flux_ds = f*inner(n, tau)*ds
 
     A = assemble(Tensor(mass))
-    B = assemble(Tensor(dot(f*tau, n)*dS))
+    B = assemble(Tensor(dot(f*conj(tau), n)*dS))
     C = assemble(Tensor(flux_ds))
 
     refA = assemble(mass)
@@ -35,8 +34,3 @@ def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     assert np.allclose(A.M.values, refA.M.values, rtol=1e-13)
     assert np.allclose(B.dat.data, refB.dat.data, rtol=1e-13)
     assert np.allclose(C.dat.data, refC.dat.data, rtol=1e-13)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

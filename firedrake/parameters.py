@@ -3,6 +3,7 @@ from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
 from tsfc import default_parameters
 import sys
+from firedrake.utils import ScalarType, ScalarType_c
 
 max_float = sys.float_info[0]
 
@@ -74,11 +75,13 @@ pyop2_opts["opt_level"] = coffee_default_optlevel
 parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
+parameters["form_compiler"]['scalar_type'] = ScalarType
+parameters["form_compiler"]['scalar_type_c'] = ScalarType_c
 
 parameters["reorder_meshes"] = True
 
 # One of nest, aij, baij or matfree
-parameters["default_matrix_type"] = "nest"
+parameters["default_matrix_type"] = "aij"
 # One of aij or baij
 parameters["default_sub_matrix_type"] = "baij"
 
@@ -100,20 +103,17 @@ def disable_performance_optimisations():
 
     check = parameters["pyop2_options"]["type_check"]
     debug = parameters["pyop2_options"]["debug"]
-    lazy = parameters["pyop2_options"]["lazy_evaluation"]
     safe_check = parameters["type_check_safe_par_loops"]
     coffee = parameters["coffee"]
 
     def restore():
         parameters["pyop2_options"]["type_check"] = check
         parameters["pyop2_options"]["debug"] = debug
-        parameters["pyop2_options"]["lazy_evaluation"] = lazy
         parameters["type_check_safe_par_loops"] = safe_check
         parameters["coffee"] = coffee
 
     parameters["pyop2_options"]["type_check"] = True
     parameters["pyop2_options"]["debug"] = True
-    parameters["pyop2_options"]["lazy_evaluation"] = False
     parameters["type_check_safe_par_loops"] = True
     parameters["coffee"] = {}
 

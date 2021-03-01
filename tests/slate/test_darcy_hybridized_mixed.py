@@ -27,8 +27,8 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
     f.interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
     # Define the variational forms
-    a = (dot(sigma, tau) + div(tau) * u + v * div(sigma)) * dx
-    L = -f * v * dx + Constant(0.0) * dot(tau, n) * (ds(3) + ds(4))
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    L = -inner(f, v) * dx + Constant(0.0) * inner(n, tau) * (ds(3) + ds(4))
 
     # Compare hybridized solution with non-hybridized
     w = Function(W)
@@ -46,14 +46,10 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
     sigma_h, u_h = w.split()
 
     w2 = Function(W)
-    sc_params = {'pc_type': 'fieldsplit',
-                 'pc_fieldsplit_type': 'schur',
-                 'ksp_type': 'gmres',
-                 'pc_fieldsplit_schur_fact_type': 'FULL',
-                 'fieldsplit_0': {'ksp_type': 'cg',
-                                  'pc_factor_shift_type': 'INBLOCKS'},
-                 'fieldsplit_1': {'ksp_type': 'cg',
-                                  'pc_factor_shift_type': 'INBLOCKS'}}
+    sc_params = {'mat_type': 'aij',
+                 'ksp_type': 'preonly',
+                 'pc_type': 'lu',
+                 'pc_factor_mat_solver_type': 'mumps'}
     solve(a == L, w2, bcs=bcs, solver_parameters=sc_params)
     nh_sigma, nh_u = w2.split()
 

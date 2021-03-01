@@ -53,7 +53,7 @@ in a ``try/except`` block. ::
 
   try:
       solve(F == 0, up, bcs=bcs, nullspace=nullspace,
-            solver_parameters={"snes_monitor": True,
+            solver_parameters={"snes_monitor": None,
                                "ksp_type": "gmres",
                                "mat_type": "aij",
                                "pc_type": "lu",
@@ -70,14 +70,14 @@ pressure Schur complement.  We'll need more solver parameters this
 time, so again we'll set those up in a dictionary. ::
 
   parameters = {"mat_type": "matfree",
-                "snes_monitor": True,
+                "snes_monitor": None,
 
 We'll use a non-stationary Krylov solve for the Schur complement, so
 we need to use a flexible Krylov method on the outside. ::
 
                "ksp_type": "fgmres",
-               "ksp_gmres_modifiedgramschmidt": True,
-               "ksp_monitor_true_residual": True,
+               "ksp_gmres_modifiedgramschmidt": None,
+               "ksp_monitor_true_residual": None,
 
 Now to configure the preconditioner::
 

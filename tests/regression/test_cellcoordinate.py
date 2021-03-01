@@ -41,8 +41,3 @@ def test_facet_coordinate_dx(mesh):
 
 def test_facet_coordinate_ds(mesh):
     assert np.allclose(0.5 * (2 + sqrt(2)), assemble(FacetCoordinate(mesh)[0]*ds))
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

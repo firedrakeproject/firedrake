@@ -85,21 +85,22 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     parms = {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}
 
     # TEST CURL(GRAD(u)) = 0, for u in W0
+    x, y, z = SpatialCoordinate(mesh)
 
     u = Function(W0)
-    u.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
+    u.interpolate(x*y - y*z)
 
     v1 = TrialFunction(W1)
     v2 = TestFunction(W1)
-    a = dot(v1, v2)*dx
-    L = dot(grad(u), v2)*dx
+    a = inner(v1, v2)*dx
+    L = inner(grad(u), v2)*dx
     v = Function(W1)
     solve(a == L, v, solver_parameters=parms)
 
     w1 = TrialFunction(W2)
     w2 = TestFunction(W2)
-    a = dot(w1, w2)*dx
-    L = dot(curl(v), w2)*dx
+    a = inner(w1, w2)*dx
+    L = inner(curl(v), w2)*dx
     w = Function(W2)
     solve(a == L, w, solver_parameters=parms)
     maxcoeff = max(abs(w.dat.data))
@@ -107,19 +108,19 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
 
     # TEST DIV(CURL(v)) = 0, for v in W1
 
-    v = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W1)
+    v = project(as_vector((x*y, -y*z, x*z)), W1)
 
     w1 = TrialFunction(W2)
     w2 = TestFunction(W2)
-    a = dot(w1, w2)*dx
-    L = dot(curl(v), w2)*dx
+    a = inner(w1, w2)*dx
+    L = inner(curl(v), w2)*dx
     w = Function(W2)
     solve(a == L, w, solver_parameters=parms)
 
     y1 = TrialFunction(W3)
     y2 = TestFunction(W3)
-    a = y1*y2*dx
-    L = div(w)*y2*dx
+    a = inner(y1, y2)*dx
+    L = inner(div(w), y2)*dx
     y = Function(W3)
     solve(a == L, y, solver_parameters=parms)
     maxcoeff = max(abs(y.dat.data))
@@ -128,19 +129,19 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     # TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3
 
     y = Function(W3)
-    y.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
+    y.interpolate(x*y - y*z)
 
     w1 = TrialFunction(W2)
     w2 = TestFunction(W2)
-    a = dot(w1, w2)*dx
-    L = -y*div(w2)*dx
+    a = inner(w1, w2)*dx
+    L = inner(-y, div(w2))*dx
     w = Function(W2)
     solve(a == L, w, solver_parameters=parms)
 
     v1 = TrialFunction(W1)
     v2 = TestFunction(W1)
-    a = dot(v1, v2)*dx
-    L = -dot(w, curl(v2))*dx
+    a = inner(v1, v2)*dx
+    L = -inner(w, curl(v2))*dx
     v = Function(W1)
     solve(a == L, v, solver_parameters=parms)
     maxcoeff = max(abs(v.dat.data))
@@ -148,25 +149,20 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
 
     # TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2
 
-    w = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W2)
+    w = project(as_vector((x*y, -y*z, x*z)), W2)
 
     v1 = TrialFunction(W1)
     v2 = TestFunction(W1)
-    a = dot(v1, v2)*dx
-    L = -dot(w, curl(v2))*dx
+    a = inner(v1, v2)*dx
+    L = -inner(w, curl(v2))*dx
     v = Function(W1)
     solve(a == L, v, solver_parameters=parms)
 
     u1 = TrialFunction(W0)
     u2 = TestFunction(W0)
-    a = dot(u1, u2)*dx
-    L = -dot(v, grad(u2))*dx
+    a = inner(u1, u2)*dx
+    L = -inner(v, grad(u2))*dx
     u = Function(W0)
     solve(a == L, u, solver_parameters=parms)
     maxcoeff = max(abs(u.dat.data))
     assert maxcoeff < 3e-11
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

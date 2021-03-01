@@ -173,9 +173,9 @@ Finally, we'd like to see some output to check things are working, and
 to limit the KSP solver to 20 iterations. ::
 
   #
-     "ksp_monitor": True,
+     "ksp_monitor": None,
      "ksp_max_it": 20,
-     "snes_monitor": True
+     "snes_monitor": None
      }
 
 We then put all of these options into the iterative solver, ::

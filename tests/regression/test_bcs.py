@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -24,7 +24,7 @@ def u(V):
 @pytest.fixture
 def a(u, V):
     v = TestFunction(V)
-    return inner(grad(v), grad(u)) * dx
+    return inner(grad(u), grad(v)) * dx
 
 
 @pytest.fixture
@@ -46,28 +46,27 @@ def test_init_bcs(V, v):
 @pytest.mark.parametrize('v', [(0, 0)])
 def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
 @pytest.mark.parametrize('measure', [dx, ds])
 def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
-    u, v = TestFunction(V), TrialFunction(V)
+    u, v = TrialFunction(V), TestFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
-    A = assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
+
     with pytest.raises(RuntimeError):
-        A.M.values
+        assemble(inner(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
 
 
 def test_assemble_bcs_wrong_fs_interior(V):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
-    u, v = TestFunction(V), TrialFunction(V)
+    u, v = TrialFunction(V), TestFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
     n = FacetNormal(V.mesh())
-    A = assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
     with pytest.raises(RuntimeError):
-        A.M.values
+        assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
 
 
 def test_apply_bcs_wrong_fs(V, f2):
@@ -150,52 +149,6 @@ def test_set_bc_value(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-def test_update_bc_expression(a, u, V, f):
-    if V.rank == 1:
-        e = Expression(['t', 't'], t=1.0)
-    else:
-        e = Expression('t', t=1.0)
-    bc = DirichletBC(V, e, 1)
-
-    solve(a == 0, u, bcs=[bc])
-
-    # We should get the value in the expression
-    assert np.allclose(u.vector().array(), 1.0)
-
-    e.t = 2.0
-    solve(a == 0, u, bcs=[bc])
-
-    # Updating the expression value should give new value.
-    assert np.allclose(u.vector().array(), 2.0)
-
-    e.t = 3.0
-    bc.homogenize()
-    solve(a == 0, u, bcs=[bc])
-
-    # Homogenized bcs shouldn't be overridden by the expression
-    # changing.
-    assert np.allclose(u.vector().array(), 0.0)
-
-    bc.restore()
-    solve(a == 0, u, bcs=[bc])
-
-    # Restoring the bcs should give the new expression value.
-    assert np.allclose(u.vector().array(), 3.0)
-
-    bc.set_value(7)
-    solve(a == 0, u, bcs=[bc])
-
-    # Setting a value should replace the expression
-    assert np.allclose(u.vector().array(), 7.0)
-
-    e.t = 4.0
-    solve(a == 0, u, bcs=[bc])
-
-    # And now we should just have the new value (since the expression
-    # is gone)
-    assert np.allclose(u.vector().array(), 7.0)
-
-
 def test_update_bc_constant(a, u, V, f):
     if V.rank == 1:
         # Don't bother with the VFS case
@@ -242,38 +195,14 @@ def test_update_bc_constant(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-def test_preassembly_change_bcs(V, f):
-    v = TestFunction(V)
-    u = TrialFunction(V)
-    a = dot(u, v)*dx
-    bc = DirichletBC(V, f, 1)
-
-    A = assemble(a, bcs=[bc])
-    L = dot(v, f)*dx
-    b = assemble(L)
-
-    y = Function(V)
-    y.assign(7)
-    bc1 = DirichletBC(V, y, 1)
-    u = Function(V)
-
-    solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
-
-    u.assign(0)
-    b = assemble(dot(v, y)*dx)
-    solve(A, u, b, bcs=[bc1])
-    assert np.allclose(u.vector().array(), 7.0)
-
-
 def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(u, v)*dx
+    a = inner(u, v)*dx
     bc = DirichletBC(V, f, 1)
 
     A = assemble(a, bcs=[bc])
-    L = dot(v, f)*dx
+    L = inner(f, v)*dx
     b = assemble(L)
 
     b_vals = b.vector().array()
@@ -292,7 +221,7 @@ def test_preassembly_bcs_caching(V):
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    a = dot(u, v)*dx
+    a = inner(u, v)*dx
 
     Aboth = assemble(a, bcs=[bc1, bc2])
     Aneither = assemble(a)
@@ -314,15 +243,22 @@ def test_preassembly_bcs_caching(V):
 def test_assemble_mass_bcs_2d(V):
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V).interpolate(Expression(['x[0]'] * V.value_size))
+
+    x = SpatialCoordinate(V.mesh())
+    if V.value_size == 1:
+        expr = x[0]
+    else:
+        expr = as_vector([x[0]] * V.value_size)
+
+    f = Function(V).interpolate(expr)
 
     bcs = [DirichletBC(V, 0.0, 1),
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-    solve(dot(u, v)*dx == dot(f, v)*dx, w, bcs=bcs)
+    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
 
-    assert assemble(dot((w - f), (w - f))*dx) < 1e-12
+    assert assemble(inner((w - f), (w - f))*dx) < 1e-12
 
 
 @pytest.mark.parametrize("quad",
@@ -335,7 +271,7 @@ def test_overlapping_bc_nodes(quad):
     v = TestFunction(V)
     bcs = [DirichletBC(V, 0, (1, 2, 3)),
            DirichletBC(V, 1, 4)]
-    A = assemble(u*v*dx, bcs=bcs).M.values
+    A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
     assert np.allclose(A, np.identity(V.dof_dset.size))
 
@@ -365,39 +301,12 @@ def test_bcs_rhs_assemble(a, V):
     assert np.allclose(b1.dat.data, b2.dat.data)
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_empty_exterior_facet_node_list():
-    mesh = UnitIntervalMesh(15)
-    V = FunctionSpace(mesh, 'CG', 1)
-    bc = DirichletBC(V, 1, 1)
-    assert V.exterior_facet_node_map([bc])
-
-
 def test_invalid_marker_raises_error(a, V):
     with pytest.raises(LookupError):
         # UnitSquareMesh has region IDs from 1 to 4. Thus 100 should raise an
         # exception.
         bc1 = DirichletBC(V, 0, 100)
         assemble(a, bcs=[bc1])
-
-
-def test_shared_expression_bc(mesh):
-    V = FunctionSpace(mesh, "CG", 2)
-    f = Function(V)
-    g = Function(V)
-    expr = Expression("t", t=1)
-
-    bc = DirichletBC(V, expr, (1, 2, 3, 4))
-
-    for t in range(4):
-        expr.t = t
-        bc.zero(f)
-        bc.apply(f)
-        bc.zero(g)
-        bc.apply(g)
-
-        assert np.allclose(np.unique(f.dat.data), [0, t])
-        assert np.allclose(g.dat.data, f.dat.data)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -451,6 +360,20 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1, 2])
 
 
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+def test_bcs_string_bc_list():
+    N = 10
+    base = SquareMesh(N, N, 1, quadrilateral=True)
+    baseh = MeshHierarchy(base, 1)
+    mh = ExtrudedMeshHierarchy(baseh, height=2, base_layer=N)
+    mesh = mh[-1]
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u0 = Function(V)
+    DirichletBC(V, Constant(1), ["on_boundary", "top", "bottom"]).apply(u0)
+
+    u1 = Function(V)
+    DirichletBC(V, Constant(1), "on_boundary").apply(u1)
+    DirichletBC(V, Constant(1), "top").apply(u1)
+    DirichletBC(V, Constant(1), "bottom").apply(u1)
+
+    assert np.allclose(u0.dat.data, u1.dat.data)

@@ -1,6 +1,6 @@
 from firedrake import *
-from firedrake.solving_utils import ParametersMixin
-from firedrake.petsc import PETSc
+from firedrake.matrix import ImplicitMatrix
+from firedrake.petsc import PETSc, OptionsManager
 import pytest
 
 
@@ -9,10 +9,16 @@ def prefix(request):
     return request.param
 
 
+@pytest.fixture(params=["aij", "matfree"])
+def mat_type(request, prefix):
+    return request.param
+
+
 @pytest.fixture
-def global_parameters():
+def global_parameters(mat_type):
     return {"ksp_type": "fgmres",
-            "pc_type": "none"}
+            "pc_type": "none",
+            "mat_type": mat_type}
 
 
 @pytest.fixture
@@ -25,13 +31,13 @@ def opts(request, prefix, global_parameters):
         opts[prefix + k] = v
 
     # Pretend these came from the commandline
-    ParametersMixin.commandline_options = frozenset(opts.getAll())
+    OptionsManager.commandline_options = frozenset(opts.getAll())
 
     def finalize():
         for k in global_parameters.keys():
             del opts[prefix + k]
         # And remove again
-        ParametersMixin.commandline_options = frozenset(opts.getAll())
+        OptionsManager.commandline_options = frozenset(opts.getAll())
 
     request.addfinalizer(finalize)
 
@@ -47,13 +53,13 @@ def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    return u*v*dx
+    return inner(u, v) * dx
 
 
 @pytest.fixture
 def L(V):
     v = TestFunction(V)
-    return v*dx
+    return conj(v) * dx
 
 
 @pytest.fixture
@@ -132,6 +138,11 @@ def test_lvs_options_prefix(lvs, parameters, global_parameters):
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
 
+    J = solver._ctx._jac
+    if prefix is not None and global_parameters["mat_type"] == "matfree":
+        assert isinstance(J, ImplicitMatrix)
+        assert J.petscmat.getType() == "python"
+
 
 def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
     solver, prefix = nlvs
@@ -150,6 +161,10 @@ def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
 
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
+    J = solver._ctx._jac
+    if prefix is not None and global_parameters["mat_type"] == "matfree":
+        assert isinstance(J, ImplicitMatrix)
+        assert J.petscmat.getType() == "python"
 
 
 def test_options_database_cleared():
@@ -160,8 +175,8 @@ def test_options_database_cleared():
     V = FunctionSpace(mesh, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
-    A = assemble(u*v*dx)
-    b = assemble(v*dx)
+    A = assemble(inner(u, v) * dx)
+    b = assemble(conj(v) * dx)
     u = Function(V)
     solvers = []
     for i in range(100):
@@ -179,7 +194,7 @@ def test_same_options_prefix_different_solve():
     u = Function(V)
     v = TestFunction(V)
 
-    F = u*v*dx - v*dx
+    F = inner(u, v) * dx - conj(v) * dx
 
     problem = NonlinearVariationalProblem(F, u)
     solver1 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "cg"},

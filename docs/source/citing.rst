@@ -27,7 +27,7 @@ the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`.
 
-The form compiler, TSFC, is documented in :cite:`Homolya2017` and
+The form compiler, TSFC, is documented in :cite:`Homolya2018` and
 :cite:`Homolya2017a`.  If, in addition, your work relies on the
 kernel-level performance optimisations that Firedrake performs using
 `COFFEE <https://github.com/coneoproject/COFFEE>`_, please cite the
@@ -35,6 +35,11 @@ COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2017`.
 
 If you make use of matrix-free functionality and custom block
 preconditioning, please cite :cite:`Kirby2017`.
+
+If you would like to help us to keep track of research directly 
+benefitting from Firedrake, please feel free to add your paper in 
+bibtex format in the `bibliography for firedrake applications
+<https://github.com/firedrakeproject/firedrake/blob/master/docs/source/_static/firedrake-apps.bib>`_.
 
 Citing other packages
 ~~~~~~~~~~~~~~~~~~~~~

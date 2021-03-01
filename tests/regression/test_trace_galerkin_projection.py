@@ -53,17 +53,17 @@ def trace_galerkin_projection(degree, quad=False,
     f.interpolate(cos(x*pi*2)*cos(y*pi*2))
 
     # Construct bilinear form
-    a = lambdar*gammar*ds + lambdar('+')*gammar('+')*dS
+    a = inner(lambdar, gammar) * ds + inner(lambdar('+'), gammar('+')) * dS
 
     # Construct linear form
-    l = f*gammar*ds + f('+')*gammar('+')*dS
+    l = inner(f, gammar) * ds + inner(f('+'), gammar('+')) * dS
 
     # Compute the solution
     t = Function(T)
     solve(a == l, t, solver_parameters={'ksp_rtol': 1e-14})
 
     # Compute error in trace norm
-    trace_error = sqrt(assemble(FacetArea(mesh)*(t - f)('+')*(t - f)('+')*dS))
+    trace_error = sqrt(assemble(FacetArea(mesh)*inner((t - f)('+'), (t - f)('+')) * dS))
 
     return trace_error
 
@@ -93,8 +93,3 @@ def test_convergence_rates_trace_galerkin_projection(testdegree,
     conv = np.log2(l2errors[:-1] / l2errors[1:])[-1]
     print("Convergence order: ", conv)
     assert conv > 0.9*convrate
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

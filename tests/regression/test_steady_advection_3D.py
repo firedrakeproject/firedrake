@@ -29,10 +29,11 @@ def W(mesh):
 
 
 def run_near_to_far(mesh, DG0, W):
-    velocity = Expression(("0.0", "1.0", "0.0"))
+    velocity = as_vector((0.0, 1.0, 0.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[2] > 0.33 && x[2] < 0.67 ? 1.0 : 0.5")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = conditional(And(real(xs[2]) > 0.33, real(xs[2]) < 0.67), 1.0, 0.5)
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
@@ -42,12 +43,12 @@ def run_near_to_far(mesh, DG0, W):
     D = TrialFunction(DG0)
     phi = TestFunction(DG0)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(4)  # outflow at far wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un * D, phi) * ds(4)  # outflow at far wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(3)  # inflow at near wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(3)  # inflow at near wall
 
     out = Function(DG0)
     solve(a == L, out)
@@ -65,10 +66,11 @@ def test_3d_near_to_far_parallel(mesh, DG0, W):
 
 
 def run_up_to_down(mesh, DG1, W):
-    velocity = Expression(("0.0", "0.0", "-1.0"))
+    velocity = as_vector((0.0, 0.0, -1.0))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[0] + x[1]")
+    xs = SpatialCoordinate(mesh)
+    inflowexpr = xs[0] + xs[1]
     inflow = Function(DG1)
     inflow.interpolate(inflowexpr)
 
@@ -78,12 +80,12 @@ def run_up_to_down(mesh, DG1, W):
     D = TrialFunction(DG1)
     phi = TestFunction(DG1)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(5)  # outflow at lower wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un * D, phi) * ds(5)  # outflow at lower wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(6)  # inflow at upper wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(6)  # inflow at upper wall
 
     out = Function(DG1)
     solve(a == L, out)
@@ -98,8 +100,3 @@ def test_3d_up_to_down(mesh, DG1, W):
 @pytest.mark.parallel
 def test_3d_up_to_down_parallel(mesh, DG1, W):
     run_up_to_down(mesh, DG1, W)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

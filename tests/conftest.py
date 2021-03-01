@@ -1,8 +1,31 @@
 """Global test configuration."""
 
+import gc
+import os
 import pytest
+
 from subprocess import check_call
-from mpi4py import MPI
+from pyadjoint.tape import get_working_tape
+from firedrake.utils import complex_mode
+
+
+@pytest.fixture(autouse=True)
+def disable_gc_on_parallel(request):
+    """ Disables garbage collection on parallel tests,
+    but only when run on Jenkins CI
+    """
+    from mpi4py import MPI
+    if (MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):
+        gc.disable()
+        assert not gc.isenabled()
+        request.addfinalizer(restart_gc)
+
+
+def restart_gc():
+    """ Finaliser for restarting garbage collection
+    """
+    gc.enable()
+    assert gc.isenabled()
 
 
 def parallel(item):
@@ -10,9 +33,10 @@ def parallel(item):
 
     :arg item: The test item to run.
     """
+    from mpi4py import MPI
     if MPI.COMM_WORLD.size > 1:
         raise RuntimeError("parallel test can't be run within parallel environment")
-    marker = item.get_marker("parallel")
+    marker = item.get_closest_marker("parallel")
     if marker is None:
         raise RuntimeError("Parallel test doesn't have parallel marker")
     nprocs = marker.kwargs.get("nprocs", 3)
@@ -27,11 +51,6 @@ def parallel(item):
     check_call(call)
 
 
-def pytest_addoption(parser):
-    parser.addoption("--short", action="store_true", default=False,
-                     help="Skip long tests")
-
-
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
@@ -39,14 +58,18 @@ def pytest_configure(config):
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
     config.addinivalue_line(
         "markers",
-        "longtest: mark that the test is 'long' (skipped if --short is passed)")
+        "skipcomplex: mark as skipped in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipreal: mark as skipped unless in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
 
 
 def pytest_runtest_setup(item):
-    if item.get_marker("longtest") is not None:
-        if item.config.getoption("--short"):
-            pytest.skip("Skipping long test")
-    if item.get_marker("parallel"):
+    if item.get_closest_marker("parallel"):
+        from mpi4py import MPI
         if MPI.COMM_WORLD.size > 1:
             # Turn on source hash checking
             from firedrake import parameters
@@ -67,6 +90,31 @@ def pytest_runtest_setup(item):
 
 
 def pytest_runtest_call(item):
-    if item.get_marker("parallel") and MPI.COMM_WORLD.size == 1:
+    from mpi4py import MPI
+    if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
+
+
+def pytest_collection_modifyitems(session, config, items):
+    from firedrake.utils import SLATE_SUPPORTS_COMPLEX
+    for item in items:
+        if complex_mode:
+            if item.get_closest_marker("skipcomplex") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
+            if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
+                item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
+        else:
+            if item.get_closest_marker("skipreal") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def check_empty_tape(request):
+    """Check that the tape is empty at the end of each module"""
+    def fin():
+        tape = get_working_tape()
+        if tape is not None:
+            assert len(tape.get_blocks()) == 0
+
+    request.addfinalizer(fin)

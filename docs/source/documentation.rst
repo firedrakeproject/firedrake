@@ -6,8 +6,8 @@
 
      Latest Firedrake status: |firedrakebuild|
 
-     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrakeproject/job/firedrake/job/master/badge/icon
-                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrakeproject%2Ffiredrake/branches/
+     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrake/job/master/badge/icon
+                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrake/branches
 
      Latest PyOP2 status: |pyop2build|
 
@@ -49,6 +49,7 @@ PDEs. Below are a few tutorial examples to get you started.
    A time-dependent DG advection equation using upwinding.<demos/DG_advection.py>
    An extruded mesh example, using a steady-state continuity equation.<demos/extruded_continuity.py>
    A linear wave equation with optional mass lumping.<demos/linear_wave_equation.py>
+   Creating Firedrake-compatible meshes in Gmsh.<demos/immersed_fem.py>
 
 Jupyter notebooks
 -----------------
@@ -57,6 +58,10 @@ In addition to the documented tutorials, we also have some `Jupyter
 notebooks <https://jupyter.org/>`__ that are a more interactive way of
 getting to know Firedrake.  They are described in more detail :doc:`on
 their own page <notebooks>`.
+
+Youtube Channel
+---------------
+Firedrake has a `youtube channel <https://www.youtube.com/channel/UCwwT3kL0HHCv_O3VaeX3GUg>`__ where recorded tutorials are occasionally uploaded.
 
 .. only:: html
 
@@ -91,6 +96,7 @@ finite element problems in Firedrake.
    matrix-free
    petsc-interface
    parallelism
+   zenodo
 
 Advanced tutorials
 ==================
@@ -102,6 +108,7 @@ element systems.
 .. toctree::
    :maxdepth: 1
 
+   Printing in parallel.<demos/parprint.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
    Computing eigenmodes of the Quasi-Geostrophic equations using SLEPc.<demos/qgbasinmodes.py>

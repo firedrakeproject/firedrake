@@ -1,13 +1,27 @@
 from firedrake import *
+import numpy
 import pytest
 
 
-def run_poisson(typ, ref_per_level=1):
+def run_poisson(typ):
     if typ == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
+                      "mg_levels_ksp_type": "chebyshev",
+                      "mg_levels_ksp_max_it": 2,
+                      "mg_levels_pc_type": "jacobi"}
+    elif typ == "mgmatfree":
+        parameters = {"snes_type": "ksponly",
+                      "ksp_type": "preonly",
+                      "mat_type": "matfree",
+                      "pc_type": "mg",
+                      "pc_mg_type": "full",
+                      "mg_coarse_ksp_type": "preonly",
+                      "mg_coarse_pc_type": "python",
+                      "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                      "mg_coarse_assembled_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
@@ -20,7 +34,7 @@ def run_poisson(typ, ref_per_level=1):
                       "fas_coarse_redundant_pc_type": "lu",
                       "fas_levels_snes_type": "ksponly",
                       "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
+                      "fas_levels_ksp_max_it": 3,
                       "fas_levels_pc_type": "jacobi",
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
@@ -51,46 +65,44 @@ def run_poisson(typ, ref_per_level=1):
 
     mesh = UnitSquareMesh(10, 10)
 
-    nlevel = 2 // ref_per_level
+    nlevel = 2
 
-    mh = MeshHierarchy(mesh, nlevel, refinements_per_level=ref_per_level)
+    mh = MeshHierarchy(mesh, nlevel)
 
     V = FunctionSpace(mh[-1], 'CG', 2)
 
     u = function.Function(V)
     f = function.Function(V)
     v = TestFunction(V)
-    F = dot(grad(u), grad(v))*dx - f*v*dx
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
-    f.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
-
-    if ref_per_level == 2:
-        # Need more smoothing iterations if we skipped part of the hierarchy
-        parameters["mg_levels_ksp_max_it"] = 12
-        parameters["fas_levels_ksp_max_it"] = 12
-        parameters["npc_fas_levels_ksp_max_it"] = 12
+    x = SpatialCoordinate(V.mesh())
+    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
 
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
 
     exact = Function(V[-1])
-    exact.interpolate(Expression("sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])"))
+    exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
 
     return norm(assemble(exact - u))
 
 
 @pytest.mark.parametrize("typ",
-                         ["mg", "fas", "newtonfas"])
-@pytest.mark.parametrize("ref_per_level", [1, 2])
-def test_poisson_gmg(typ, ref_per_level):
-    assert run_poisson(typ, ref_per_level) < 4e-6
+                         ["mg", "mgmatfree", "fas", "newtonfas"])
+def test_poisson_gmg(typ):
+    assert run_poisson(typ) < 4e-6
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_mg():
-    assert run_poisson("mg") < 4e-6
+    errmat = run_poisson("mg")
+    errmatfree = run_poisson("mgmatfree")
+    assert numpy.allclose(errmat, errmatfree)
+    assert errmat < 4e-6
+    assert errmatfree < 4e-6
 
 
 @pytest.mark.parallel
@@ -101,8 +113,3 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

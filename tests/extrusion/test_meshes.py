@@ -38,8 +38,3 @@ def test_uniform_extrusion_volume(uniform_mesh):
 
 def test_hedgehog_extrusion_volume(hedgehog_mesh):
     assert np.allclose(assemble(Constant(1, domain=hedgehog_mesh)*dx), 1.0)
-
-
-if __name__ == "__main__":
-    import os
-    pytest.main(os.path.abspath(__file__))

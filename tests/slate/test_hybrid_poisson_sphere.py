@@ -6,7 +6,7 @@ import numpy as np
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     """Test hybridizing lowest order mixed methods on a sphere."""
     mesh = MeshClass(refinement_level=refinement)
-    mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    mesh.init_cell_orientations(SpatialCoordinate(mesh))
     x, y, z = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, hdiv_space, 1)
@@ -21,20 +21,26 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     u, sigma = TrialFunctions(W)
     v, tau = TestFunctions(W)
 
-    a = (dot(sigma, tau) - div(tau)*u + v*div(sigma))*dx
-    L = f*v*dx
+    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
+    L = inner(f, v)*dx
     w = Function(W)
 
-    nullsp = MixedVectorSpaceBasis(W, [VectorSpaceBasis(constant=True), W[1]])
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'pc_factor_mat_solver_type': 'mumps'}}
+                                'pc_type': 'redundant',
+                                'redundant_pc_type': 'lu',
+                                'redundant_pc_factor_mat_solver_type': 'mumps',
+                                'redundant_mat_mumps_icntl_14': 200}}
 
-    solve(a == L, w, nullspace=nullsp, solver_parameters=params)
+    # Provide a callback to construct the trace nullspace
+    def nullspace_basis(T):
+        return VectorSpaceBasis(constant=True)
+
+    appctx = {'trace_nullspace': nullspace_basis}
+    solve(a == L, w, solver_parameters=params, appctx=appctx)
     u_h, _ = w.split()
     error = errornorm(u_exact, u_h)
     return error
@@ -53,8 +59,3 @@ def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
     assert l2conv > 1.8
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

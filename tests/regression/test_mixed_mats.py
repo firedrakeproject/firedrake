@@ -138,7 +138,7 @@ def test_bcs_ordering():
     bc1 = DirichletBC(W.sub(0), 0, 1)
     bc2 = DirichletBC(W.sub(1), 1, 2)
 
-    a = (u*v + u*q + p*v + p*q)*dx
+    a = (inner(u, v) + inner(u, q) + inner(p, v) + inner(p, q))*dx
 
     A = assemble(a, bcs=[bc1, bc2])
 
@@ -148,8 +148,3 @@ def test_bcs_ordering():
     assert np.allclose(A.M[1, 0].values[:, bc1.nodes], 0.0)
     assert np.allclose(A.M[1, 0].values[bc2.nodes, :], 0.0)
     assert np.allclose(A.M[0, 1].values[:, bc2.nodes], 0.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

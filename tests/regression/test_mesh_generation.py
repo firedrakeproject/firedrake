@@ -12,7 +12,7 @@ except ImportError:
 def integrate_one(m):
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
-    u.interpolate(Expression("1"))
+    u.interpolate(Constant(1))
     return assemble(u * dx)
 
 
@@ -45,6 +45,10 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_unit_disk():
+    assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
+
+
 def test_rectangle():
     assert abs(integrate_one(RectangleMesh(3, 3, 10, 2)) - 20) < 1e-3
 
@@ -58,9 +62,11 @@ def run_one_element_advection():
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
-    Vdg = FunctionSpace(mesh, "DG", 1)
-    Vu = VectorFunctionSpace(mesh, "DG", 1)
-    q0 = Function(Vdg).interpolate(Expression("cos(2*pi*x[0])*cos(pi*x[2])"))
+    x = SpatialCoordinate(mesh)
+    fe_dg = FiniteElement("DQ", mesh.ufl_cell(), 1, variant="equispaced")
+    Vdg = FunctionSpace(mesh, fe_dg)
+    Vu = VectorFunctionSpace(mesh, fe_dg)
+    q0 = Function(Vdg).interpolate(cos(2*pi*x[0])*cos(pi*x[2]))
     q_init = Function(Vdg).assign(q0)
     dq1 = Function(Vdg)
     q1 = Function(Vdg)
@@ -68,15 +74,15 @@ def run_one_element_advection():
     dt = Constant(Dt)
     # Mesh-related functions
     n = FacetNormal(mesh)
-    u0 = Function(Vu).interpolate(Expression(("1.0", "0.0", "0.0")))
+    u0 = Function(Vu).interpolate(Constant((1.0, 0.0, 0.0)))
     # ( dot(v, n) + |dot(v, n)| )/2.0
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
     # advection equation
     q = TrialFunction(Vdg)
     p = TestFunction(Vdg)
-    a_mass = p*q*dx
-    a_int = (dot(grad(p), -u0*q))*dx
-    a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')))*(dS_v + dS_h)
+    a_mass = inner(q, p)*dx
+    a_int = (inner(-u0*q, grad(p)))*dx
+    a_flux = (inner(un('+')*q('+') - un('-')*q('-'), jump(p)))*(dS_v + dS_h)
     arhs = a_mass-dt*(a_int + a_flux)
     q_problem = LinearVariationalProblem(a_mass, action(arhs, q1), dq1)
     q_solver = LinearVariationalSolver(q_problem,
@@ -96,7 +102,7 @@ def run_one_element_advection():
         q_solver.solve()
         q0.assign(q0/3 + 2*dq1/3)
         t += Dt
-    assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
+    assert(assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005)
 
 
 def test_one_element_advection():
@@ -110,28 +116,30 @@ def test_one_element_advection_parallel():
 
 def run_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
+    x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
-    Vdg = FunctionSpace(mesh, "DG", 1)
+    fe_dg = FiniteElement("DQ", mesh.ufl_cell(), 1, variant="equispaced")
+    Vdg = FunctionSpace(mesh, fe_dg)
     r = Function(Vdg)
     u = Function(V)
 
     # Interpolate a double periodic function to DG,
     # then check if projecting to CG returns the same DG function.
-    r.interpolate(Expression("sin(2*pi*x[0])"))
+    r.interpolate(sin(2*pi*x[0]))
     u.project(r)
-    assert(assemble((u-r)*(u-r)*dx) < 1.0e-4)
+    assert(assemble(inner(u-r, u-r)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
-    r.interpolate(Expression("x[1]"))
+    r.interpolate(x[1])
     u.project(r)
-    assert(assemble((u-0.5)*(u-0.5)*dx) < 1.0e-4)
+    assert(assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
-    r.interpolate(Expression("x[0]"))
+    r.interpolate(x[0])
     u.project(r)
-    err = assemble((u-r)*(u-r)*dx)
+    err = assemble(inner(u-r, u-r)*dx)
     assert(err > 1.0e-3)
 
 
@@ -146,6 +154,14 @@ def test_one_element_mesh_parallel():
 
 def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
+
+
+def test_periodic_unit_cube():
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+def test_periodic_box():
+    assert abs(integrate_one(PeriodicBoxMesh(3, 3, 3, 2., 3., 4.)) - 24.0) < 1e-3
 
 
 def test_unit_triangle():
@@ -189,6 +205,11 @@ def test_unit_square_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_periodic_unit_cube_parallel():
+    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
 def assert_num_exterior_facets_equals_zero(m):
@@ -415,6 +436,9 @@ def test_changing_default_reorder_works(reorder):
         parameters["reorder_meshes"] = old_reorder
 
 
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))
+@pytest.mark.parametrize("kind, num_cells",
+                         [("default", 6)])
+def test_boxmesh_kind(kind, num_cells):
+    m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
+    m.init()
+    assert m.num_cells() == num_cells

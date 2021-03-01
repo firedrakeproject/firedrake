@@ -36,15 +36,16 @@ def test_hybrid_extr_helmholtz(quad):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    a = dot(sigma, tau)*dx + u*v*dx + div(sigma)*v*dx - div(tau)*u*dx
-    L = f*v*dx
+    a = inner(sigma, tau)*dx + inner(u, v)*dx + inner(div(sigma), v)*dx - inner(u, div(tau))*dx
+    L = inner(f, v)*dx
     w = Function(W)
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu'}}
+                                'pc_type': 'lu',
+                                'pc_factor_mat_solver_type': 'mumps'}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 
@@ -64,8 +65,3 @@ def test_hybrid_extr_helmholtz(quad):
 
     assert sigma_err < 5e-8
     assert u_err < 1e-8
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

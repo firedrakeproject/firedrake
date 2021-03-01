@@ -27,19 +27,21 @@ def quadrilateral(request):
     return request.param
 
 
+@pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
     l2error = []
+    t = Constant(0)
     if direction == "x":
         nx = lambda n: 2**n
         ny = lambda n: 2
         u = Constant((1, 0))
-        exact_expr = "sin(2*pi*(x[0] - t))"
+        exact_expr = lambda x: sin(2*pi*(x[0] - t))
     elif direction == "y":
         nx = lambda n: 2
         ny = lambda n: 2**n
         u = Constant((0, 1))
-        exact_expr = "sin(2*pi*(x[1] - t))"
+        exact_expr = lambda x: sin(2*pi*(x[1] - t))
 
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
@@ -47,6 +49,7 @@ def test_periodic_rectangle_advection(degree, threshold,
         mesh = PeriodicRectangleMesh(nx(n), ny(n), 1, 1,
                                      direction=direction,
                                      quadrilateral=quadrilateral)
+        x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, "DG", degree)
         D = TrialFunction(V)
         phi = TestFunction(V)
@@ -59,7 +62,8 @@ def test_periodic_rectangle_advection(degree, threshold,
 
         dD1 = Function(V)
         D1 = Function(V)
-        exact = Expression(exact_expr, t=0)
+        t.assign(0)
+        exact = exact_expr(x)
 
         D = Function(V).interpolate(exact)
 
@@ -70,8 +74,7 @@ def test_periodic_rectangle_advection(degree, threshold,
 
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True)
-        mass_inv.force_evaluation()
+        mass_inv = assemble(Tensor(a_mass).inv)
         mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):
@@ -93,7 +96,7 @@ def test_periodic_rectangle_advection(degree, threshold,
 
         D1.assign(D)
 
-        exact.t = float(dt) * nstep
+        t.assign(float(dt) * nstep)
 
         D.interpolate(exact)
 
@@ -104,11 +107,7 @@ def test_periodic_rectangle_advection(degree, threshold,
     assert np.all(convergence > threshold)
 
 
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=3)
 def test_parallel_periodic_rectangle_advection():
     test_periodic_rectangle_advection(1, 1.8, "x", False)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -15,7 +15,6 @@ This has the analytical solution
   u(x, y, z) = 42*z
 
 """
-import pytest
 from firedrake import *
 
 
@@ -30,15 +29,16 @@ def run_test(layers, quadrilateral):
 
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v)) * dx
     f = Function(V)
     f.assign(0)
-    L = v * f * dx
+    L = inner(f, v) * dx
     u = Function(V)
     exact = Function(V)
-    exact.interpolate(Expression('42*x[2]'))
+    xs = SpatialCoordinate(mesh)
+    exact.interpolate(42*xs[2])
     solve(a == L, u, bcs=bcs)
-    res = sqrt(assemble(dot(u - exact, u - exact) * dx))
+    res = sqrt(assemble(inner(u - exact, u - exact) * dx))
     return res
 
 
@@ -50,8 +50,3 @@ def test_extrusion_poisson_strong_bcs():
 def test_extrusion_poisson_strong_bcs_quadrilateral():
     for layers in [1, 2, 10]:
         assert (run_test(layers, quadrilateral=True) < 1.e-6)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

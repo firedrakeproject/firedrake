@@ -1,9 +1,21 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
-
+from pyop2.datatypes import ScalarType, as_cstr
+from pyop2.datatypes import RealType     # noqa: F401
+from pyop2.datatypes import IntType      # noqa: F401
+from pyop2.datatypes import as_ctypes    # noqa: F401
+from firedrake_configuration import get_config
 
 _current_uid = 0
+
+ScalarType_c = as_cstr(ScalarType)
+IntType_c = as_cstr(IntType)
+
+complex_mode = get_config()["options"].get("complex", False)
+
+# Remove this (and update test suite) when Slate supports complex mode.
+SLATE_SUPPORTS_COMPLEX = False
 
 
 def _new_uid():

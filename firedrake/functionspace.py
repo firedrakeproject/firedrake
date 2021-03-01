@@ -34,15 +34,14 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     .. note::
 
        As a side effect, this function finalises the initialisation of
-       the provided mesh, by calling :meth:`.MeshTopology.init` (or
+       the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
        :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
-    if isinstance(family, ufl.FiniteElementBase):
-        return family
-
     topology = mesh.topology
     cell = topology.ufl_cell()
+    if isinstance(family, ufl.FiniteElementBase):
+        return family.reconstruct(cell=cell)
 
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
@@ -121,6 +120,15 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
 
+    # Support foo x Real tensorproduct elements
+    real_tensorproduct = False
+    scalar_element = element
+    if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
+        scalar_element = element.sub_elements()[0]
+    if isinstance(scalar_element, ufl.TensorProductElement):
+        a, b = scalar_element.sub_elements()
+        real_tensorproduct = b.family() == 'Real'
+
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
 
@@ -129,7 +137,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name)
+        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
@@ -204,7 +212,6 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
        :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    assert sub_element.value_shape() == ()
     shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
     element = ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)

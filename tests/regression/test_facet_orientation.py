@@ -19,26 +19,28 @@ cwd = abspath(dirname(__file__))
                                             "unitsquare_unstructured_quadrilaterals.msh"))])
 def test_consistent_facet_orientation(mesh_thunk):
     mesh = mesh_thunk()
-
+    x = SpatialCoordinate(mesh)
     degree = 3
-    V = FunctionSpace(mesh, "CG", degree)  # continuous space
-    W = FunctionSpace(mesh, "DG", degree)  # discontinuous space
+    fe_cg = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
+    V = FunctionSpace(mesh, fe_cg)  # continuous space
+    fe_dg = FiniteElement("DG", mesh.ufl_cell(), degree, variant="equispaced")
+    W = FunctionSpace(mesh, fe_dg)  # discontinuous space
 
     Q = FunctionSpace(mesh, "DG", 0)  # result space
 
-    expression = Expression("x[0]*(x[0] + sqrt(2.0)) + x[1]")
+    expression = x[0]*(x[0] + sqrt(2.0)) + x[1]
     f = Function(V).interpolate(expression)
     g = Function(W).interpolate(expression)
 
-    q = Function(Q).interpolate(Expression("0.0"))
-    par_loop('''
-        for (int i = 0; i < C.dofs; i++)
-             R[0][0] = fmax(R[0][0], fabs(C[i][0] - D[i][0]));
-        ''', dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
+    q = Function(Q).interpolate(Constant(0.0))
+
+    domain = "{[i]: 0 <= i < C.dofs}"
+    instructions = """
+    for i
+        R[0, 0] = fmax(real(R[0, 0]), abs(C[i, 0] - D[i, 0]))
+    end
+    """
+    par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)},
+             is_loopy_kernel=True)
 
     assert np.allclose(q.dat.data, 0.0)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

@@ -26,7 +26,6 @@ class MatrixShim(object):
         self._mat = mat
 
     def mat(self):
-        self._mat.force_evaluation()
         return self._mat.petscmat
 
 
@@ -64,7 +63,9 @@ class Vector(object):
 
     # Make everything mostly pretend to be like a Function
     def __getattr__(self, name):
-        return getattr(self.function, name)
+        val = getattr(self.function, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Vector, self).__dir__()
@@ -109,6 +110,9 @@ class Vector(object):
             sum += other
         return sum
 
+    def __radd__(self, other):
+        return self + other
+
     def __iadd__(self, other):
         """Add other to self"""
         try:
@@ -133,6 +137,9 @@ class Vector(object):
         except AttributeError:
             self.dat -= other
         return self
+
+    def __rsub__(self, other):
+        return -1.0 * self + other
 
     def apply(self, action):
         """Finalise vector assembly. This is not actually required in

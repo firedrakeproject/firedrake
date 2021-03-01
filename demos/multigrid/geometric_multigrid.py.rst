@@ -13,9 +13,9 @@ Creating a geometric hierarchy
 ------------------------------
 
 Geometric multigrid requires a geometric hierarchy of meshes on which
-the equations will be discretised.  To create a hierarchy, we will create
-a :class:`~.MeshHierarchy` object that encapsulates the hierarchy of
-meshes and remembers the relationships between them.  Currently, these
+the equations will be discretised.  To create a hierarchy, we use
+:func:`~.MeshHierarchy` to create a hierarchy of meshes, the resulting
+object remembers the relationships between them.  Currently, these
 hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh. ::
 
@@ -29,12 +29,6 @@ refinements, going from 128 cells on the coarse mesh to 32768 cells on
 the finest. ::
 
   hierarchy = MeshHierarchy(mesh, 4)
-
-.. note::
-
-   Currently, the implementation of mesh refinement only supports the
-   refinement of interval meshes and triangular meshes.  Support for
-   quadrilateral and tetrahedral meshes is currently missing.
 
 Defining the problem: the Poisson equation
 ------------------------------------------
@@ -131,82 +125,86 @@ other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
 with specified velocity inflow and outflow conditions. ::
 
-  def create_problem():
-      mesh = RectangleMesh(15, 10, 1.5, 1)
+  mesh = RectangleMesh(15, 10, 1.5, 1)
 
-      hierarchy = MeshHierarchy(mesh, 3)
+  hierarchy = MeshHierarchy(mesh, 3)
 
-      mesh = hierarchy[-1]
+  mesh = hierarchy[-1]
 
-      V = VectorFunctionSpace(mesh, "CG", 2)
-      W = FunctionSpace(mesh, "CG", 1)
-      Z = V * W
+  V = VectorFunctionSpace(mesh, "CG", 2)
+  W = FunctionSpace(mesh, "CG", 1)
+  Z = V * W
 
-      u, p = TrialFunctions(Z)
-      v, q = TestFunctions(Z)
+  u, p = TrialFunctions(Z)
+  v, q = TestFunctions(Z)
+  nu = Constant(1)
 
-      a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
+  a = (nu*inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
 
-      L = inner(Constant((0, 0)), v) * dx
+  L = inner(Constant((0, 0)), v) * dx
 
-      x, y = SpatialCoordinate(mesh)
+  x, y = SpatialCoordinate(mesh)
 
-      t = conditional(y < 0.5, y - 0.25, y - 0.75)
-      l = 1.0/6.0
-      gbar = conditional(Or(And(0.25 - l/2 < y,
-                                y < 0.25 + l/2),
-                            And(0.75 - l/2 < y,
-                                y < 0.75 + l/2)),
-                            Constant(1.0), Constant(0.0))
+  t = conditional(y < 0.5, y - 0.25, y - 0.75)
+  l = 1.0/6.0
+  gbar = conditional(Or(And(0.25 - l/2 < y,
+  y < 0.25 + l/2),
+  And(0.75 - l/2 < y,
+  y < 0.75 + l/2)),
+  Constant(1.0), Constant(0.0))
 
-      value = gbar*(1 - (2*t/l)**2)
-      inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
-      bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
-             DirichletBC(Z.sub(0), zero(2), (3, 4))]
-      return a, L, bcs, Z
+  value = gbar*(1 - (2*t/l)**2)
+  inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
+  bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
+  DirichletBC(Z.sub(0), zero(2), (3, 4))]
 
 First up, we'll use an algebraic preconditioner, with a direct solve,
 remembering to tell PETSc to use pivoting in the factorisation. ::
 
-  a, L, bcs, Z = create_problem()
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                "pc_type": "lu",
                                                "pc_factor_shift_type": "inblocks",
-                                               "ksp_monitor": True,
+                                               "ksp_monitor": None,
                                                "pmat_type": "aij"})
 
-Next we'll use a schur complement solver, using geometric multigrid to
-invert the velocity block. ::
+Next we'll use a Schur complement solver, using geometric multigrid to
+invert the velocity block. The Schur complement is spectrally equivalent
+to the viscosity-weighted pressure mass matrix. Since the pressure mass
+matrix does not appear in the original form, we need to supply its
+bilinear form to the solver ourselves: ::
+
+  class Mass(AuxiliaryOperatorPC):
+
+      def form(self, pc, test, trial):
+          a = 1/nu * inner(test, trial)*dx
+          bcs = None
+          return (a, bcs)
 
   parameters = {
       "ksp_type": "gmres",
-      "ksp_monitor": True,
+      "ksp_monitor": None,
       "pc_type": "fieldsplit",
       "pc_fieldsplit_type": "schur",
       "pc_fieldsplit_schur_fact_type": "lower",
       "fieldsplit_0_ksp_type": "preonly",
       "fieldsplit_0_pc_type": "mg",
       "fieldsplit_1_ksp_type": "preonly",
-      "fieldsplit_1_pc_type": "bjacobi",
-      "fieldsplit_1_sub_pc_type": "icc",
+      "fieldsplit_1_pc_type": "python",
+      "fieldsplit_1_pc_python_type": "__main__.Mass",
+      "fieldsplit_1_aux_pc_type": "bjacobi",
+      "fieldsplit_1_aux_sub_pc_type": "icc",
   }
 
-We provide an auxiliary operator so that we can precondition the schur
-complement inverse with a pressure mass matrix. ::
-
-  a, L, bcs, Z = create_problem()
-  _, p = TrialFunctions(Z)
-  _, q = TestFunctions(Z)
-  Jp = a + p*q*dx
   u = Function(Z)
-  solve(a == L, u, bcs=bcs, Jp=Jp, solver_parameters=parameters)
+  solve(a == L, u, bcs=bcs, solver_parameters=parameters)
 
 Finally, we'll use coupled geometric multigrid on the full problem,
-using schur complement "smoothers" on each level.  On the coarse grid
-we use a full factorisation with LU for the velocity block, whereas on
-the finer levels we use incomplete factorisations for the velocity
-block.
+using Schur complement "smoothers" on each level. On the coarse grid
+we use a full factorisation for the velocity and Schur complement
+approximations, whereas on the finer levels we use incomplete
+factorisations for the velocity block and Schur complement
+approximations.
 
 .. note::
 
@@ -218,7 +216,7 @@ block.
 
   parameters = {
         "ksp_type": "gcr",
-        "ksp_monitor": True,
+        "ksp_monitor": None,
         "mat_type": "nest",
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
@@ -227,38 +225,33 @@ block.
         "mg_coarse_pc_fieldsplit_schur_fact_type": "full",
         "mg_coarse_fieldsplit_0_ksp_type": "preonly",
         "mg_coarse_fieldsplit_0_pc_type": "lu",
-        "mg_coarse_fieldsplit_1_ksp_type": "richardson",
-        "mg_coarse_fieldsplit_1_ksp_richardson_self_scale": True,
-        "mg_coarse_fieldsplit_1_ksp_max_it": 5,
-        "mg_coarse_fieldsplit_1_pc_type": "none",
+        "mg_coarse_fieldsplit_1_ksp_type": "preonly",
+        "mg_coarse_fieldsplit_1_pc_type": "python",
+        "mg_coarse_fieldsplit_1_pc_python_type": "__main__.Mass",
+        "mg_coarse_fieldsplit_1_aux_pc_type": "cholesky",
         "mg_levels_ksp_type": "richardson",
         "mg_levels_ksp_max_it": 1,
         "mg_levels_pc_type": "fieldsplit",
         "mg_levels_pc_fieldsplit_type": "schur",
         "mg_levels_pc_fieldsplit_schur_fact_type": "upper",
         "mg_levels_fieldsplit_0_ksp_type": "richardson",
+        "mg_levels_fieldsplit_0_ksp_convergence_test": "skip",
         "mg_levels_fieldsplit_0_ksp_max_it": 2,
-        "mg_levels_fieldsplit_0_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_0_ksp_richardson_self_scale": None,
         "mg_levels_fieldsplit_0_pc_type": "bjacobi",
         "mg_levels_fieldsplit_0_sub_pc_type": "ilu",
         "mg_levels_fieldsplit_1_ksp_type": "richardson",
-        "mg_levels_fieldsplit_1_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_1_ksp_convergence_test": "skip",
+        "mg_levels_fieldsplit_1_ksp_richardson_self_scale": None,
         "mg_levels_fieldsplit_1_ksp_max_it": 3,
-        "mg_levels_fieldsplit_1_pc_type": "none",
+        "mg_levels_fieldsplit_1_pc_type": "python",
+        "mg_levels_fieldsplit_1_pc_python_type": "__main__.Mass",
+        "mg_levels_fieldsplit_1_aux_pc_type": "bjacobi",
+        "mg_levels_fieldsplit_1_aux_sub_pc_type": "icc",
   }
 
-  a, L, bcs, Z = create_problem()
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters=parameters)
-
-.. note::
-
-   We would really like to be able to provide an operator on the
-   coarse grids to precondition the inverse of the schur complement,
-   for example a viscosity-weighted mass matrix.  Unfortunately, PETSc
-   does not currently allow us to provide separate Jacobian and
-   preconditioning matrices for nonlinear solves on coarse levels.
-   This preconditioner is therefore not parameter-independent.
 
 Finally, we'll write the solution for visualisation with Paraview. ::
 

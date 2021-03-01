@@ -48,19 +48,19 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
 
         # Manually specify integration degree due to non-polynomial
         # source terms.
-        a = (inner(grad(u), grad(v)) - p*div(v) - q*div(u))*dx(degree=6)
+        a = (inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx(degree=6)
 
-        a += (- inner(avg(grad(u)), outer(jump(v), n("+")))
-              - inner(avg(grad(v)), outer(jump(u), n("+")))
-              + (sigma/avg(h))*inner(jump(u), jump(v)))*dS(degree=6)
+        a += (- inner(avg(grad(u)), outer(jump(conj(v)), n("+")))
+              - inner(outer(jump(conj(u)), n("+")), avg(grad(v)))
+              + (sigma/avg(h)) * inner(jump(u), jump(v))) * dS(degree=6)
 
-        a += (- inner(grad(u), outer(v, n))
-              - inner(grad(v), outer(u, n))
-              + (sigma/h)*inner(u, v))*ds(degree=6)
+        a += (- inner(grad(u), outer(conj(v), n))
+              - inner(outer(conj(u), n), grad(v))
+              + (sigma/h) * inner(u, v)) * ds(degree=6)
 
-        L = (inner(source, v)*dx(degree=6)
-             + (sigma/h)*inner(u_exact, v)*ds(degree=6)
-             - inner(grad(v), outer(u_exact, n))*ds(degree=6))
+        L = (inner(source, v) * dx(degree=6)
+             + (sigma/h) * inner(u_exact, v) * ds(degree=6)
+             - inner(outer(conj(u_exact), n), grad(v)) * ds(degree=6))
 
         # left = 1
         # right = 2
@@ -86,22 +86,27 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
             "ksp_max_it": "30",
             "ksp_atol": "1.e-16",
             "ksp_rtol": "1.e-11",
-            "ksp_monitor_true_residual": True,
+            "ksp_monitor_true_residual": None,
             "pc_type": "fieldsplit",
             "pc_fieldsplit_type": "multiplicative",
 
-            "fieldsplit_0_ksp_type": "preonly",
-            "fieldsplit_0_pc_type": "python",
-            "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
-            "fieldsplit_0_assembled_pc_type": "lu",
-            "fieldsplit_0_assembled_pc_factor_mat_solver_type": "mumps",
-
-            "fieldsplit_1_ksp_type": "preonly",
-            "fieldsplit_1_pc_type": "python",
-            "fieldsplit_1_pc_python_type": "firedrake.MassInvPC",
-            "fieldsplit_1_Mp_ksp_type": "preonly",
-            "fieldsplit_1_Mp_pc_type": "lu",
-            "fieldsplit_1_Mp_pc_factor_mat_solver_type": "mumps"
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                # Avoid MUMPS segfaults
+                "assembled_pc_type": "redundant",
+                "assembled_redundant_pc_type": "lu",
+            },
+            "fieldsplit_1": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.MassInvPC",
+                # Avoid MUMPS hangs?
+                "Mp_ksp_type": "preonly",
+                "Mp_pc_type": "redundant",
+                "Mp_redundant_pc_type": "lu",
+            }
         }
 
         # Switch sign of pressure mass matrix
@@ -115,9 +120,9 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         u, p = UP.split()
         u_error = u - u_exact
         p_error = p - p_exact
-        err_u.append(sqrt(abs(assemble(dot(u_error, u_error)*dx))))
-        err_p.append(sqrt(abs(assemble(p_error*p_error*dx))))
-        err_div.append(sqrt(assemble(div(u)**2*dx)))
+        err_u.append(sqrt(abs(assemble(inner(u_error, u_error) * dx))))
+        err_p.append(sqrt(abs(assemble(inner(p_error, p_error) * dx))))
+        err_div.append(sqrt(assemble(inner(div(u), div(u)) * dx)))
     err_u = numpy.asarray(err_u)
     err_p = numpy.asarray(err_p)
     err_div = numpy.asarray(err_div)

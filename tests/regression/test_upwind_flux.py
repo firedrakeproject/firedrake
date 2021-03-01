@@ -1,4 +1,4 @@
-"""
+r"""
 This code does the following.
 
 First, obtains an upwind DG0 approximation to div(u*D).
@@ -34,9 +34,11 @@ def run_test(quadrilateral):
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
         RT_elt = FiniteElement("RT", "triangle", 1)
 
-    global_normal = Expression(("x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
-                                "x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
-                                "x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])"))
+    x = SpatialCoordinate(mesh)
+
+    global_normal = as_vector((x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]),
+                               x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]),
+                               x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])))
     mesh.init_cell_orientations(global_normal)
 
     # Define function spaces and basis functions
@@ -44,7 +46,7 @@ def run_test(quadrilateral):
     M = FunctionSpace(mesh, RT_elt)
 
     # advecting velocity
-    u0 = Expression(('-x[1]', 'x[0]', '0'))
+    u0 = as_vector((-x[1], x[0], 0))
     u = Function(M).project(u0)
 
     # Mesh-related functions
@@ -56,15 +58,15 @@ def run_test(quadrilateral):
     # D advection equation
     phi = TestFunction(V_dg)
     D = TrialFunction(V_dg)
-    a_mass = phi*D*dx
-    a_int = dot(grad(phi), -u*D)*dx
-    a_flux = (dot(jump(phi), un('+')*D('+') - un('-')*D('-')))*dS
+    a_mass = inner(D, phi) * dx
+    a_int = inner(-u*D, grad(phi)) * dx
+    a_flux = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
 
     arhs = (a_int + a_flux)
 
     D1 = Function(V_dg)
 
-    D0 = Expression("exp(-pow(x[2],2) - pow(x[1],2))")
+    D0 = exp(-pow(x[2], 2) - pow(x[1], 2))
     D = Function(V_dg).interpolate(D0)
 
     D1problem = LinearVariationalProblem(a_mass, action(arhs, D), D1)
@@ -77,10 +79,10 @@ def run_test(quadrilateral):
     Ft = TrialFunction(V1)
     Fs = Function(V1)
 
-    aFs = (inner(w('+'), n('+'))*inner(Ft('+'), n('+')) +
-           inner(w('-'), n('-'))*inner(Ft('-'), n('-')))*dS
-    LFs = 2.0*(inner(w('+'), n('+'))*un('+')*D('+')
-               + inner(w('-'), n('-'))*un('-')*D('-'))*dS
+    aFs = (inner(n('+'), w('+')) * inner(Ft('+'), n('+'))
+           + inner(n('-'), w('-')) * inner(Ft('-'), n('-'))) * dS
+    LFs = 2.0*(inner(n('+'), w('+')) * un('+') * D('+')
+               + inner(n('-'), w('-')) * un('-') * D('-')) * dS
 
     Fsproblem = LinearVariationalProblem(aFs, LFs, Fs)
     Fssolver = LinearVariationalSolver(Fsproblem,
@@ -89,7 +91,7 @@ def run_test(quadrilateral):
 
     divFs = Function(V_dg)
 
-    solve(a_mass == phi*div(Fs)*dx, divFs)
+    solve(a_mass == inner(div(Fs), phi) * dx, divFs)
 
     assert errornorm(divFs, D1, degree_rise=0) < 1e-12
 
@@ -110,8 +112,3 @@ def test_upwind_flux_cubed_sphere():
 @pytest.mark.parallel
 def test_upwind_flux_cubed_sphere_parallel():
     run_test(quadrilateral=True)
-
-
-if __name__ == '__main__':
-    import os
-    pytest.main(os.path.abspath(__file__))

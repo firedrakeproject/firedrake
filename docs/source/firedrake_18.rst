@@ -29,33 +29,24 @@ interested new users and the main science programme will start at lunchtime on 7
 Key Dates
 ---------
 
-* Early registration deadline: 10 April 2018
+* Early registration deadline: 20 April 2018
 * Registration deadline: 25 May 2018
-* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 10 April 2018
+* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 20 April 2018
 * Workshop: 7-8 June 2018
 
 
-Call for submissions
---------------------
+Programme
+---------
 
-We invite contributions in either oral or poster form from Firedrake
-users and developers on any aspect of Firedrake and its application.
-Contributions might include new classes of problem tackled with
-Firedrake, any new discretisations made available, new features in the
-compilation pipeline, or new technology at the solver level.
-
-Please consider how your contribution could help other users achieve
-more with Firedrake, and also how Firedrake could be developed to
-further facilitate your science goals.
-
-Abstracts can be submitted online `here
-<https://easychair.org/conferences/?conf=firedrake18>`_.
+Abstract submission is now closed.  The workshop programme is
+`available on easychair <https://easychair.org/smart-program/Firedrake'18/>`_.
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 7 June.  Further
-details to follow.
+There will be a workshop dinner in the evening of 7 June at `The
+Candlemaker <https://www.candlemaker.pub/>`_ in Battersea (easily
+accessible from Imperial by bike, or public transport).
 
 Location
 ~~~~~~~~
@@ -67,8 +58,8 @@ Kensington Campus.
 Registration
 ------------
 
-Early bird registration (before 10 April) costs £50 (students £40),
-rising to £75 thereafter.
+Early bird registration is now closed.  Registration (before 25th May)
+costs £75.
 
 .. raw:: html
 
