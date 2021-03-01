@@ -405,6 +405,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_isub
     @utils.known_pyop2_safe
     def __isub__(self, expr):
 
@@ -440,6 +441,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_idiv
     @utils.known_pyop2_safe
     def __idiv__(self, expr):
 
