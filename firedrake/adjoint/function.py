@@ -2,7 +2,7 @@ from functools import wraps
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 
 
@@ -31,7 +31,10 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
-                block = ProjectBlock(b, self.function_space(), self, bcs)
+                if b.function_space().mesh() != self.function_space().mesh():
+                    block = SupermeshProjectBlock(b, self.function_space(), self, bcs)
+                else:
+                    block = ProjectBlock(b, self.function_space(), self, bcs)
 
                 tape = get_working_tape()
                 tape.add_block(block)

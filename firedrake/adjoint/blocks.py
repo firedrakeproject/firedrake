@@ -587,3 +587,29 @@ class InterpolateBlock(Block, Backend):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return self.backend.interpolate(prepared, self.V)
+
+
+class SupermeshProjectBlock(Block):
+    """
+    Annotates supermesh projection.
+    """
+    def __init__(self, source, V, target, bcs=[], *args, **kwargs):
+        target_mesh = kwargs.pop("mesh", None)
+        if target_mesh is None:
+            target_mesh = V.mesh()
+        source_mesh = source.function_space().mesh()
+        raise NotImplementedError  # TODO
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        raise NotImplementedError  # TODO
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        raise NotImplementedError  # TODO
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        raise NotImplementedError  # TODO
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        return self.backend.project(prepared, self.V)
