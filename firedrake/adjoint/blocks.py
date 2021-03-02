@@ -589,16 +589,50 @@ class InterpolateBlock(Block, Backend):
         return self.backend.interpolate(prepared, self.V)
 
 
-class SupermeshProjectBlock(Block):
+class SupermeshProjectBlock(Block, Backend):
     """
     Annotates supermesh projection.
     """
-    def __init__(self, source, V, target, bcs=[], *args, **kwargs):
-        target_mesh = kwargs.pop("mesh", None)
-        if target_mesh is None:
-            target_mesh = V.mesh()
-        source_mesh = source.function_space().mesh()
-        raise NotImplementedError  # TODO
+    def __init__(self, source, target_space, target, bcs=[], *args, **kwargs):
+        import firedrake.supermeshing as supermesh
+
+        super().__init__()
+        mesh = kwargs.pop("mesh", None)
+        if mesh is None:
+            mesh = target_space.mesh()
+        solver_parameters = kwargs.get('solver_parameters')
+        self.source = source
+        self.target_space = target_space
+
+        # Form LHS
+        dx = self.backend.dx(mesh)
+        w = self.backend.TestFunction(target_space)
+        Pv = self.backend.TrialFunction(target_space)
+        self.lhs = self.backend.assemble(self.backend.inner(Pv, w)*dx, bcs=bcs)
+        self.solver = self.backend.LinearSolver(self.lhs, solver_parameters=solver_parameters)
+
+        # Form RHS
+        self.mixed_mass = supermesh.assemble_mixed_mass_matrix(source.function_space(), target_space)
+        self.rhs = firedrake.Function(target.function_space())
+        self._compute_rhs()
+
+        # Add dependencies
+        self.add_dependency(source, no_duplicates=True)
+        for bc in bcs:
+            self.add_dependency(bc, no_duplicates=True)
+
+    def _compute_rhs(self):
+        with self.source.dat.vec_ro as vsrc, self.rhs.dat.vec_ro as vrhs:
+            self.mixed_mass.mult(vsrc, vrhs)
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        self.source.assign(inputs[0])
+        self._compute_rhs()
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        target = self.backend.Function(self.target_space)
+        self.solver.solve(target, self.rhs)
+        return target
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
         raise NotImplementedError  # TODO
@@ -610,6 +644,3 @@ class SupermeshProjectBlock(Block):
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
         raise NotImplementedError  # TODO
-
-    def recompute_component(self, inputs, block_variable, idx, prepared):
-        return self.backend.project(prepared, self.V)
