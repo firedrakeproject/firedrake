@@ -663,8 +663,8 @@ class SupermeshProjectBlock(Block, Backend):
           Adjoint of step 1. multiply :math:`v_S^{adj} := M_{ST}^T * w^{tmp}`.
         """
         from firedrake.petsc import PETSc
-        if len(adj_inputs) > 1:
-            raise(NotImplementedError("SupermeshProjectBlock must have a single output"))
+        if len(adj_inputs) != 1:
+            raise NotImplementedError("SupermeshProjectBlock must have a single output")
 
         # Seed vector, intermediate and output
         seed = adj_inputs[0]
@@ -694,6 +694,6 @@ class SupermeshProjectBlock(Block, Backend):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        if len(adj_inputs) > 1:
-            raise(NotImplementedError("SupermeshProjectBlock must have a single output"))
+        if len(adj_inputs) != 1:
+            raise NotImplementedError("SupermeshProjectBlock must have a single output")
         raise NotImplementedError  # TODO

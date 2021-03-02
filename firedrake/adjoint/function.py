@@ -31,7 +31,7 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
-                if b.function_space().mesh() != self.function_space().mesh():
+                if b.ufl_domain() != self.function_space().mesh():
                     block = SupermeshProjectBlock(b, self.function_space(), self, bcs)
                 else:
                     block = ProjectBlock(b, self.function_space(), self, bcs)
