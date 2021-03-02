@@ -590,18 +590,36 @@ class InterpolateBlock(Block, Backend):
 
 
 class SupermeshProjectBlock(Block, Backend):
-    """
+    r"""
     Annotates supermesh projection.
+
+    Suppose we have a source space, :math:`V_S`, and a target space, :math:`V_T`.
+    Projecting a source from :math:`V_S` to :math:`V_T` amounts to solving the
+    linear system
+
+  ..math::
+        M_T * v_T = M_{ST} * v_S,
+
+    where :math:`M_T` is the mass matrix on :math:`V_T`, :math:`M_{ST}` is the
+    mixed mass matrix for :math:`V_S` and :math:`V_T` and :math:`v_S` and
+    :math:`v_T` are vector representations of the source and target
+    :class:`Function`s.
+
+    This can be broken into two steps:
+      Step 1. form RHS, multiplying the source with the mixed mass matrix;
+      Step 2. solve linear system.
     """
     def __init__(self, source, target_space, target, bcs=[], *args, **kwargs):
+        super(SupermeshProjectBlock, self).__init__()
         import firedrake.supermeshing as supermesh
 
-        super().__init__()
+        # Store spaces
         mesh = kwargs.pop("mesh", None)
         if mesh is None:
             mesh = target_space.mesh()
-        solver_parameters = kwargs.get('solver_parameters')
+        self.solver_parameters = kwargs.get('solver_parameters')
         self.source = source
+        self.source_space = source.function_space()
         self.target_space = target_space
 
         # Form LHS
@@ -609,7 +627,7 @@ class SupermeshProjectBlock(Block, Backend):
         w = self.backend.TestFunction(target_space)
         Pv = self.backend.TrialFunction(target_space)
         self.lhs = self.backend.assemble(self.backend.inner(Pv, w)*dx, bcs=bcs)
-        self.solver = self.backend.LinearSolver(self.lhs, solver_parameters=solver_parameters)
+        self.solver = self.backend.LinearSolver(self.lhs, solver_parameters=self.solver_parameters)
 
         # Form RHS
         self.mixed_mass = supermesh.assemble_mixed_mass_matrix(source.function_space(), target_space)
@@ -627,20 +645,55 @@ class SupermeshProjectBlock(Block, Backend):
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         self.source.assign(inputs[0])
-        self._compute_rhs()
+        self._compute_rhs()  # Step 1
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         target = self.backend.Function(self.target_space)
-        self.solver.solve(target, self.rhs)
+        self.solver.solve(target, self.rhs)  # Step 2
         return target
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        """
+        Recall that the forward propagation can be broken down as
+          Step 1. multiply :math:`w^{tmp} := M_{ST} * v_S`;
+          Step 2. solve :math:`M_T * v_T = w^{tmp}`.
+
+        For a seed vector :math:`v_T^{seed}` from the target space, the adjoint is given by
+          Adjoint of step 2. solve :math:`M_T^T * w^{tmp} = v_T^{seed}`;
+          Adjoint of step 1. multiply :math:`v_S^{adj} := M_{ST}^T * w^{tmp}`.
+        """
+        from firedrake.petsc import PETSc
+        if len(adj_inputs) > 1:
+            raise(NotImplementedError("SupermeshProjectBlock must have a single output"))
+
+        # Seed vector, intermediate and output
+        seed = adj_inputs[0]
+        tmp = self.backend.Function(self.target_space)
+        out = self.backend.Function(self.source_space)
+
+        # Adjoint of step 2
+        ksp = PETSc.KSP().create()
+        ksp.setOperators(self.lhs.M.handle.transpose())
+        with seed.dat.vec_ro as vin, tmp.dat.vec_ro as v_:
+            ksp.solve(vin, v_)
+
+        # Adjoint of step 1
+        with tmp.dat.vec_ro as v_, out.dat.vec_ro as vout:
+            self.mixed_mass.multTranspose(v_, vout)
+        return out
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         raise NotImplementedError  # TODO
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
         raise NotImplementedError  # TODO
 
+    def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
+        raise NotImplementedError  # TODO
+
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
+        if len(adj_inputs) > 1:
+            raise(NotImplementedError("SupermeshProjectBlock must have a single output"))
         raise NotImplementedError  # TODO
