@@ -69,11 +69,17 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
         # boundary
         restrict_conn = None
         if src_bdy is not None:
-            # convert "everywhere" to meshmode BTAG_ALL
+            # convert "on_boundary" to meshmode BTAG_ALL
             meshmode_src_bdy = src_bdy
-            if meshmode_src_bdy == "everywhere":
+            if meshmode_src_bdy == "on_boundary":
                 from meshmode.mesh import BTAG_ALL
                 meshmode_src_bdy = BTAG_ALL
+            else:
+                # sanity check
+                assert isinstance(src_bdy, int) or isinstance(src_bdy, tuple)
+                if isinstance(src_bdy, tuple):
+                    for id_ in src_bdy:
+                        assert isinstance(id_, int)
             # get group factory
             order = self.dg_function_space.ufl_element().degree()
             from meshmode.discretization.poly_element import \
