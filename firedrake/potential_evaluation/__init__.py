@@ -96,66 +96,6 @@ class Potential(AbstractExternalOperator):
         self.connection = connection
         self.potential_operator = operator_data['potential_operator']
 
-    @cached_property
-    def _evaluator(self):
-        return PotentialEvaluator(self,
-                                  self.density,
-                                  self.connection,
-                                  self.potential_operator,
-                                  self.function_space())
-
-    def _evaluate(self):
-        return self._evaluator._evaluate()
-
-    def _compute_derivatives(self):
-        return self._evaluator._compute_derivatives()
-
-    def _evaluate_action(self, *args):
-        return self._evaluator._evaluate_action(*args)
-
-    def _evaluate_adjoint_action(self, *args):
-        return self._evaluator._evaluate_action(*args)
-
-    def evaluate_adj_component_control(self, x, idx):
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        dN = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        return dN._evaluate_adjoint_action((x.function,)).vector()
-
-    def evaluate_adj_component(self, x, idx):
-        print(x, type(x))
-        raise NotImplementedError
-
-
-class PotentialEvaluator:
-    """
-    Evaluates a potential
-    """
-    def __init__(self, potential, density, connection, potential_operator, function_space):
-        """
-        :arg density: The UFL/firedrake density function
-        :arg connection: A :class:`PotentialEvaluationLibraryConnection`
-        :arg potential_operator: The external potential evaluation library
-                                 bound operator.
-        :arg function_space: the :mod:`firedrake` function space of this
-            operator
-        """
-        self.potential = potential
-        self.density = density
-        self.connection = connection
-        self.potential_operator = potential_operator
-        self.function_space = function_space
-
-        import matplotlib.pyplot as plt
-        from meshmode.mesh.visualization import draw_2d_mesh, draw_curve
-        src_discr = connection.get_source_discretization()
-        tgt_discr = connection.get_target_discretization()
-        draw_curve(src_discr.mesh)
-        plt.title("SOURCE")
-        plt.show()
-        draw_2d_mesh(tgt_discr.mesh, set_bounding_box=True)
-        plt.title("TARGET")
-        plt.show()
-
     def _eval_potential_operator(self, density, out=None):
         """
         Evaluate the potential on the action coefficients and return.
@@ -168,7 +108,7 @@ class PotentialEvaluator:
                  :class:`firedrake.function.Function` storing the evaluated
                  potential
         """
-        density_discrete = interpolate(density, self.function_space)
+        density_discrete = interpolate(density, self.function_space())
         density = self.connection.from_firedrake(density_discrete)
         potential = self.potential_operator(density)
         return self.connection.to_firedrake(potential, out=out)
@@ -177,29 +117,66 @@ class PotentialEvaluator:
         """
         Evaluate P(self.density) into self
         """
-        return self._eval_potential_operator(self.density, out=self.potential)
+        return self._eval_potential_operator(self.density, out=self)
 
     def _compute_derivatives(self):
         """
         Return a function
         Derivative(P, self.derivatives, self.density)
         """
-        # FIXME : Assumes derivatives are Jacobian
+        # FIXME : Assumes only one ufl operand, is that okay?
+        assert len(self.ufl_operands) == 1
+        assert self.ufl_operands[0] is self.density
+        assert len(self.derivatives) == 1
+        # Derivative(P, (0,), self.density)(density_star)
+        #  = P(self.density)
+        if self.derivatives == (0,):
+            return lambda density_star, out=None: \
+                self._eval_potential_operator(self.density, out=out)
+        # P is linear, so the nth Gateaux derivative
+        # Derivative(P, (n,), u)(u*) = P(u*)
+        #
+        # d/dx (P \circ u)(v)
+        #  = lim_{t->0} (P(u(v+tx)) - P(u)) / t
+        #  \approx lim_{t->0} (P(u(v) + t du/dx - P(u(v))) / t
+        #  = P(du/dx)
+        #
+        # So d^n/dx^n( P \circ u ) = P(d^nu/dx^n)
         return self._eval_potential_operator
 
-    def _evaluate_action(self, args):
+    def _evaluate_action(self, *args):
         """
         Evaluate derivatives of layer potential at action coefficients.
         i.e. Derivative(P, self.derivatives, self.density) evaluated at
         the action coefficients and store into self
         """
-        if len(args) == 0:
+        assert len(args) == 1  # sanity check
+        # Either () or (density_star,)
+        density_star = args[0]
+        assert len(density_star) in [0, 1]  # sanity check
+        # Evaluate Derivative(P, self.derivatives, self.density) at density_star
+        if len(density_star) == 0:
             return self._evaluate()
 
         # FIXME: Assumes just taking Jacobian
-        assert len(args) == 1
+        density_star, = density_star
         operator = self._compute_derivatives()
-        return operator(*args, out=self.potential)
+        return operator(density_star, out=self)
+
+    def _evaluate_adjoint_action(self, *args):
+        """
+        Operator is self-adjoint, so just evaluate action
+        """
+        return self._evaluate_action(*args)
+
+    def evaluate_adj_component_control(self, x, idx):
+        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
+        dN = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
+        return dN._evaluate_adjoint_action((x.function,)).vector()
+
+    def evaluate_adj_component(self, x, idx):
+        print(x, type(x))
+        raise NotImplementedError
 
 
 class PotentialEvaluationLibraryConnection:
@@ -260,8 +237,9 @@ class PotentialEvaluationLibraryConnection:
             if shape is None or len(shape) == 0:
                 dg_function_space = FunctionSpace(mesh, "DG", degree)
             elif len(shape) == 1:
+                dim = shape[0]
                 dg_function_space = VectorFunctionSpace(mesh, "DG", degree,
-                                                        dim=shape)
+                                                        dim=dim)
             else:
                 dg_function_space = TensorFunctionSpace(mesh, "DG", degree,
                                                         shape=shape)
