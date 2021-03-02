@@ -1,3 +1,5 @@
+import numpy as np
+
 from firedrake.potential_evaluation import \
     Potential, PotentialEvaluationLibraryConnection
 from firedrake import project
@@ -221,9 +223,30 @@ def PytentialOperation(actx,
     from pytential import bind
     pyt_op = bind((qbx, tgt_discr), unbound_op)
 
+    # Import for type-checks
+    from meshmode.dof_array import DOFArray
+
     # build bound operator that just takes density as argument
     def bound_op_with_kwargs(density_arg):
-        return pyt_op(**{density_name: density_arg})
+        """
+        Apply operator to density_arg, or each DOFArray inside of
+        the density_arg
+        """
+        # If given a DOFArray, compute on it
+        if isinstance(density_arg, DOFArray):
+            return pyt_op(**{density_name: density_arg})
+        # TODO: Do we need these? may make things slower
+        # type checks
+        assert isinstance(density_arg, np.ndarray)
+        assert density_arg.dtype == np.object
+        # Otherwise, compute for each multi-index
+        result = np.empty(shape=density_arg.shape,
+                          dtype=np.object)
+        for multi_index in np.ndindex(density_arg.shape):
+            # TODO: Probably should remove this
+            assert isinstance(density_arg[multi_index], DOFArray)
+            result[multi_index] = pyt_op(**{density_name: density_arg[multi_index]})
+        return result
 
     # Now build and return Potential object
     operator_data = {'connection': meshmode_connection,
