@@ -3,6 +3,30 @@ import numpy as np
 from firedrake.potential_evaluation import \
     Potential, PotentialEvaluationLibraryConnection
 from firedrake import project
+from firedrake.functionspacedata import cached
+
+
+@cached
+def _build_connection_from_firedrake(mesh, key,
+                                     actx,
+                                     function_space,
+                                     restrict_to_boundary,
+                                     **meshmode_connection_kwargs):
+    """
+    Build connection from firedrake to meshmode and cache on mesh based on key.
+
+    :arg mesh: the mesh to cache on
+    :arg key: (function space ufl element,
+               restrict_to_boundary,
+               frozenset(meshmode_connection_kwargs.items()))
+    Other args are just passed to
+    :func:`meshmode.interop.firedrake.build_connection_from_firedrake`
+    """
+    from meshmode.interop.firedrake import build_connection_from_firedrake
+    return build_connection_from_firedrake(actx,
+                                           function_space,
+                                           restrict_to_boundary=restrict_to_boundary,
+                                           **meshmode_connection_kwargs)
 
 
 class MeshmodeConnection(PotentialEvaluationLibraryConnection):
@@ -62,11 +86,17 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
             assert potential_source_and_target.get_source_dimension() == tdim - 1
             src_bdy = potential_source_and_target.get_source_id()
 
-        from meshmode.interop.firedrake import build_connection_from_firedrake
-        src_conn = build_connection_from_firedrake(actx,
-                                                   self.dg_function_space,
-                                                   restrict_to_boundary=src_bdy,
-                                                   **meshmode_connection_kwargs)
+        # Build source connection to (or retrieve cached connection from mesh)
+        mesh = self.dg_function_space.mesh()
+        key = (self.dg_function_space.ufl_element(),
+               src_bdy,
+               frozenset(meshmode_connection_kwargs.items()))
+        src_conn = _build_connection_from_firedrake(mesh, key,
+                                                    actx,
+                                                    self.dg_function_space,
+                                                    restrict_to_boundary=src_bdy,
+                                                    **meshmode_connection_kwargs)
+
         # If source is a boundary, build a connection to restrict it to the
         # boundary
         restrict_conn = None
@@ -103,18 +133,16 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
             assert potential_source_and_target.get_target_dimension() == tdim - 1
             tgt_bdy = potential_source_and_target.get_target_id()
 
-        # Can we re-use the source connection?
-        src_dim = potential_source_and_target.get_source_dimension()
-        tgt_dim = potential_source_and_target.get_target_dimension()
-        if tgt_bdy == src_bdy and src_dim == tgt_dim:
-            tgt_conn = src_conn
-        else:
-            # If not, build a new one
-            tgt_conn = build_connection_from_firedrake(
-                actx,
-                self.dg_function_space,
-                restrict_to_boundary=tgt_bdy,
-                **meshmode_connection_kwargs)
+        # Build target connection to (or retrieve cached connection from mesh)
+        mesh = self.dg_function_space.mesh()
+        key = (self.dg_function_space.ufl_element(),
+               tgt_bdy,
+               frozenset(meshmode_connection_kwargs.items()))
+        tgt_conn = _build_connection_from_firedrake(mesh, key,
+                                                    actx,
+                                                    self.dg_function_space,
+                                                    restrict_to_boundary=tgt_bdy,
+                                                    **meshmode_connection_kwargs)
 
         # store computing context
         self.actx = actx
