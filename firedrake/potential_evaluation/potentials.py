@@ -1,3 +1,8 @@
+"""
+User-facing functions to create layer potentials.
+
+Produces a Potential either through volumential or pytential
+"""
 from firedrake.functionspaceimpl import WithGeometry
 
 
@@ -86,6 +91,7 @@ def _layer_potential(layer_potential_sym,
     unbound_op = layer_potential_sym(kernel,
                                      sym.var("density"),
                                      **op_kwargs)
+
     # make sure we got an actx during validation
     assert 'actx' in kwargs
     actx = kwargs['actx']
