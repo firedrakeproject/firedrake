@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, lru_cache
 from itertools import chain
 import numpy as np
 
@@ -222,18 +222,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        # Use matrix-free injection of the initial state
-        # FIXME this Mat could be the same one used for the updates after the first FAS cycle,
-        # which we create via setCreateInjection.
-        # Maybe we could attach the one from getFASInjection(level) when we call add_hook?
-        injection = prolongation_matrix_matfree(cV, fV, [], [])
-
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
-
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
-
         # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
@@ -291,53 +279,43 @@ class PMGBase(PCSNESBase):
         except ValueError:
             pass
 
+        # Injection of the initial state
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        injection = self.create_injection(cdm, fdm)
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+
         return cdm
 
-    def create_interpolation(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
 
-        cbcs = cctx._problem.bcs
-        fbcs = fctx._problem.bcs
-        fbcs = []
+        cbcs = cctx._problem.bcs if cbcs else []
+        fbcs = fctx._problem.bcs if fbcs else []
 
-        prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
+        if mat_type == "matfree":
             I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
-        elif mattype == "aij":
+        elif mat_type == "aij":
             I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
         else:
             raise ValueError("Unknown matrix type")
+        return I
+
+    def create_interpolation(self, dmc, dmf):
+        prefix = dmc.getOptionsPrefix()
+        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mattype, True, False)
         return I, None
 
     def create_injection(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-
-        cbcs = cctx._problem.bcs
-        fbcs = fctx._problem.bcs
-        cbcs = []
-        fbcs = []
-
-        prefix = self.ppc.getOptionsPrefix()
+        prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
-            I = prolongation_matrix_matfree(cV, fV, cbcs, fbcs)
-        elif mattype == "aij":
-            I = prolongation_matrix_aij(cV, fV, cbcs, fbcs)
-        else:
-            raise ValueError("Unknown matrix type")
-
-        return I
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mattype, False, False)
 
     def view(self, pc, viewer=None):
         if viewer is None:
@@ -499,6 +477,48 @@ def tensor_product_space_query(V):
     return use_tensorproduct, N, family, variant
 
 
+def get_line_element(V):
+    # Return the corresponding Line element for CG / DG
+    from FIAT.reference_element import UFCInterval
+    from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+    assert use_tensorproduct
+    cell = UFCInterval()
+    if family <= {"Q", "Lagrange"}:
+        if variant == "equispaced":
+            element = lagrange.Lagrange(cell, N)
+        else:
+            element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
+    elif family <= {"DQ", "Discontinuous Lagrange"}:
+        if variant == "equispaced":
+            element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
+        else:
+            element = gauss_legendre.GaussLegendre(cell, N)
+    else:
+        raise ValueError("Don't know how to get fiat element for %r" % family)
+
+    return element
+
+
+def get_line_nodes(V):
+    # Return the corresponding nodes in the Line for CG / DG
+    from FIAT.reference_element import UFCInterval
+    from FIAT import quadrature
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+    assert use_tensorproduct
+    cell = UFCInterval()
+    if variant == "equispaced":
+        return cell.make_points(1, 0, N+1)
+    elif family <= {"Q", "Lagrange"}:
+        rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
+        return rule.get_points()
+    elif family <= {"DQ", "Discontinuous Lagrange"}:
+        rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
+        return rule.get_points()
+    else:
+        raise NotImplementedError("Don't know how to get nodes for %r" % family)
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
@@ -521,9 +541,9 @@ class StandaloneInterpolationMatrix(object):
         tc, _, _, _ = tensor_product_space_query(Vc)
 
         if tf and tc:
-            self.make_blas_kernels(Vf, Vc)
+            self.prolong_kernel, self.restrict_kernel = self.make_blas_kernels(Vf, Vc)
         else:
-            self.make_kernels(Vf, Vc)
+            self.prolong_kernel, self.restrict_kernel = self.make_kernels(Vf, Vc)
         return
 
     def make_kernels(self, Vf, Vc):
@@ -532,7 +552,7 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for structure-preserving tfsc kernels.
         """
-        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+        prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -552,7 +572,8 @@ class StandaloneInterpolationMatrix(object):
                    Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
         }}
         """
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        return prolong_kernel, restrict_kernel
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
@@ -562,7 +583,9 @@ class StandaloneInterpolationMatrix(object):
         ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
         return op2.Kernel(ast, ast.name)
 
-    def make_blas_kernels(self, Vf, Vc):
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def make_blas_kernels(Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
@@ -573,8 +596,8 @@ class StandaloneInterpolationMatrix(object):
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
         ndim = Vf.ufl_domain().topological_dimension()
-        celem = self.get_fiat_element(Vc)
-        nodes = self.get_fiat_nodes(Vf)
+        celem = get_line_element(Vc)
+        nodes = get_line_nodes(Vf)
         basis = celem.tabulate(0, nodes)
         Jhat = basis[(0,)]
 
@@ -715,50 +738,9 @@ class StandaloneInterpolationMatrix(object):
         """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-
-    @staticmethod
-    def get_fiat_element(V):
-        # Return the corresponding Line element for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if family <= {"Q", "Lagrange"}:
-            if variant == "equispaced":
-                element = lagrange.Lagrange(cell, N)
-            else:
-                element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            if variant == "equispaced":
-                element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
-            else:
-                element = gauss_legendre.GaussLegendre(cell, N)
-        else:
-            raise ValueError("Don't know how to get fiat element for %r" % family)
-
-        return element
-
-    @staticmethod
-    def get_fiat_nodes(V):
-        # Return the corresponding nodes in the Line for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import quadrature
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if variant == "equispaced":
-            return cell.make_points(1, 0, N+1)
-        elif family <= {"Q", "Lagrange"}:
-            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        else:
-            raise NotImplementedError("Don't know how to get nodes for %r" % family)
+        prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+        return prolong_kernel, restrict_kernel
 
     @staticmethod
     def multiplicity(V):
