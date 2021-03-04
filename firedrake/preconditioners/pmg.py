@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, lru_cache
 from itertools import chain
 import numpy as np
 
@@ -293,51 +293,33 @@ class PMGBase(PCSNESBase):
 
         return cdm
 
-    def create_interpolation(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
 
-        cbcs = cctx._problem.bcs
-        fbcs = fctx._problem.bcs
-        fbcs = []
+        cbcs = cctx._problem.bcs if cbcs else []
+        fbcs = fctx._problem.bcs if fbcs else []
 
-        prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
+        if mat_type == "matfree":
             I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
-        elif mattype == "aij":
+        elif mat_type == "aij":
             I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
         else:
             raise ValueError("Unknown matrix type")
+        return I
+
+    def create_interpolation(self, dmc, dmf):
+        prefix = dmc.getOptionsPrefix()
+        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mattype, True, False)
         return I, None
 
     def create_injection(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-
-        cbcs = cctx._problem.bcs
-        fbcs = fctx._problem.bcs
-        cbcs = []
-        fbcs = []
-
-        prefix = self.ppc.getOptionsPrefix()
+        prefix = dmc.getOptionsPrefix()
         mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
-            I = prolongation_matrix_matfree(cV, fV, cbcs, fbcs)
-        elif mattype == "aij":
-            I = prolongation_matrix_aij(cV, fV, cbcs, fbcs)
-        else:
-            raise ValueError("Unknown matrix type")
-
-        return I
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mattype, False, False)
 
     def view(self, pc, viewer=None):
         if viewer is None:
