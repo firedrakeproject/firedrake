@@ -222,18 +222,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        # Use matrix-free injection of the initial state
-        # FIXME this Mat could be the same one used for the updates after the first FAS cycle,
-        # which we create via setCreateInjection.
-        # Maybe we could attach the one from getFASInjection(level) when we call add_hook?
-        injection = prolongation_matrix_matfree(cV, fV, [], [])
-
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
-
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
-
         # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
@@ -282,6 +270,15 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
+        # Injection of the initial state
+        injection = self.create_injection(cdm, fdm)
+
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
         # use geometric multigrid for the p-coarse problem
@@ -305,21 +302,21 @@ class PMGBase(PCSNESBase):
         if mat_type == "matfree":
             I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
         elif mat_type == "aij":
-            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
+            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs))
         else:
             raise ValueError("Unknown matrix type")
         return I
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mattype, True, False)
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
         return I, None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mattype, False, False)
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
 
     def view(self, pc, viewer=None):
         if viewer is None:
