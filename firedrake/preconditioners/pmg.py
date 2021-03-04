@@ -573,8 +573,8 @@ class StandaloneInterpolationMatrix(object):
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
         ndim = Vf.ufl_domain().topological_dimension()
-        celem = self.get_fiat_element(Vc)
-        nodes = self.get_fiat_nodes(Vf)
+        celem = self.get_line_element(Vc)
+        nodes = self.get_line_nodes(Vf)
         basis = celem.tabulate(0, nodes)
         Jhat = basis[(0,)]
 
@@ -719,7 +719,7 @@ class StandaloneInterpolationMatrix(object):
         self.restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
 
     @staticmethod
-    def get_fiat_element(V):
+    def get_line_element(V):
         # Return the corresponding Line element for CG / DG
         from FIAT.reference_element import UFCInterval
         from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
@@ -742,7 +742,7 @@ class StandaloneInterpolationMatrix(object):
         return element
 
     @staticmethod
-    def get_fiat_nodes(V):
+    def get_line_nodes(V):
         # Return the corresponding nodes in the Line for CG / DG
         from FIAT.reference_element import UFCInterval
         from FIAT import quadrature
