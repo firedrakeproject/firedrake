@@ -1181,7 +1181,6 @@ def build_and_install_slepc():
                     check_call(["git", "remote", "set-url", "origin", new_remote])
                     check_call(["git", "fetch", "-p", "origin"])
                     check_call(["git", "checkout", "firedrake"])
-                    slepc4py_changed = True
         else:
             log.info("Cloning slepc4py from %s" % url)
             git_clone(url)
