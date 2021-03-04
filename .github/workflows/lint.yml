@@ -26,3 +26,12 @@ jobs:
       - name: Lint
         run: |
           make lint
+      - name: Install bibtex linter
+        run: |
+          pip install bibtexparser
+      - name: Check bibtex
+        run: |
+          for bibfile in docs/source/_static/*.bib; do
+              echo "Checking $(basename $bibfile) for validation errors"
+              python3 scripts/firedrake-preprocess-bibtex --validate $bibfile
+          done
