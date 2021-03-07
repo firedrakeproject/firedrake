@@ -157,8 +157,14 @@ void apply_cholesky(double *__restrict__ z,
     return wnoise
 
 
-def PaddedMesh(constructor, *args, **kwargs):
-
+def PaddedMesh(constructor, *args, pad=0.2, **kwargs):
+    r"""A mesh as specified and an additional mesh with padding on all
+    of its boundaries.
+    :arg constructor: The utility function used to construct a a mesh
+    :arg args: Arguments used to construct the mesh
+    :arg pad: Padding to add to all boundaries
+    :arg kwargs: Additional keyword arguments used for constructing the mesh
+    """
     # Enumerate different types of supported meshes
     supported_1D_constructors = [IntervalMesh, UnitIntervalMesh]
     supported_2D_constructors = [RectangleMesh, SquareMesh, UnitSquareMesh]
@@ -196,7 +202,7 @@ def PaddedMesh(constructor, *args, **kwargs):
         return aN, aL, shift
 
     # Remove the pad keyword and construct the original mesh
-    pad = kwargs.pop('pad')
+    # ~ pad = kwargs.pop('pad')
     mesh = constructor(*args, **kwargs)
 
     # Gather the size and number of cells arguments into a dict
@@ -279,7 +285,7 @@ def PaddedMesh(constructor, *args, **kwargs):
 
 def TrimFunction(f, mesh):
     r"""Really don't like using this function, but can't think of better method
-    Cuts a function to the provided mesh
+    Cuts a function to the provided mesh, doesn't work in parallel
     """
     V = f.ufl_function_space()
 
@@ -290,7 +296,7 @@ def TrimFunction(f, mesh):
     ho_coords = Function(coordspace)
     ho_coords.interpolate(as_vector(SpatialCoordinate(mesh)))
 
-    g.dat.data[:] = f.at(ho_coords.dat.data)
+    g.dat.data[:] = f.at(ho_coords.dat.data, tolerance=1e-8)
     return g
 
 
@@ -339,10 +345,12 @@ class GaussianRF:
         if self.mesh.coordinates.exterior_facet_node_map().values.size != 0 and V_aux is None:
             warning(
                 r"""The mesh that the provided function space is defined on
-has a boundary, but no auxilliary mesh has been provided. To prevent boundary
-pollution effects you should provide a function space defined on a mesh that
-is at least the correlation length larger on all boundary edges to avoid
-boundary pollution effects.
+has a boundary, but no auxiliary function space has been provided. To
+prevent boundary pollution effects you should provide a function space V_aux
+defined on a mesh that is at least the correlation length larger on all
+boundary edges to avoid boundary pollution effects. The utility function
+PaddedMesh is provided to gennerate such meshes for some of Firedrake's
+utility meshes.
                 """)
         self.trueV = V
         self.V = V_aux if V_aux is not None else V
@@ -361,7 +369,9 @@ boundary pollution effects.
         sigma_hat2 /= gamma(self.nu + self.dim/2)
         sigma_hat2 *= (2/np.pi)**(self.dim/2)
         sigma_hat2 *= self.lambd**(-self.dim)
-        self.eta = self.sigma/np.sqrt(sigma_hat2)
+        # The factor of 0.5 doesn't appear in the paper, but numerical
+        # experiments show sample variance is out by a factor 2
+        self.eta = 0.5*self.sigma/np.sqrt(sigma_hat2)
 
         # Setup RNG if provided
         self.rng = rng
@@ -498,7 +508,8 @@ class LogGaussianRF(GaussianRF):
     - Both `mu` and `sigma`, which the expected value and variance of the logarithm of the random field respectively.
     - Both `mean` and `std_dev`, which specify the distribution of the random field respectively.
     """)
-        super().__init__(V, mu, sigma, smoothness, correlation_length, rng=None, V_aux=None)
+        super().__init__(V, mu, sigma, smoothness, correlation_length,
+                         rng=rng, solver_parameters=solver_parameters, V_aux=V_aux)
 
     def sample(self, rng=None):
         r"""Returns a realisation of a LGRF with parameters specified
@@ -506,6 +517,6 @@ class LogGaussianRF(GaussianRF):
             random numbers, used for seeding the distribution, will override
             the generator specified at initialisation for the given sample.
         """
-        super().sample(rng)
-        self.u_h.dat.data[:] = np.exp(self.u_h.dat.data)
-        return self.u_h
+        sample = super().sample(rng)
+        sample.dat.data[:] = np.exp(sample.dat.data)
+        return sample
