@@ -1,7 +1,7 @@
 import functools
 import operator
 from collections import OrderedDict, defaultdict, namedtuple
-from enum import Enum, IntEnum
+from enum import IntEnum
 from itertools import chain
 
 import firedrake
@@ -15,9 +15,6 @@ from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
-
-from firedrake.petsc import PETSc
-PETSc.Sys.popErrorHandler()
 
 
 __all__ = ("assemble",)
@@ -36,47 +33,40 @@ _AssemblyOpts = namedtuple("_AssemblyOpts", ["diagonal",
                                              "sub_mat_type",
                                              "appctx",
                                              "options_prefix"])
-"""Container to hold immutable assembly options.
-
-.. note::
-    When we stop supporting Python 3.6 it may be good to add the :arg defaults:
-    argument to this.
-"""
+"""Container to hold immutable assembly options."""
 
 
 @annotate_assemble
 def assemble(expr, *args, **kwargs):
-    # TODO: Add warning that caching on compiler params is not done.
-    r"""Evaluate expr.
+    """Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-            a :class:`~slate.TensorBase` expression.
-    :arg tensor: an existing tensor object to place the result in
-         (optional).
-    :arg bcs: a list of boundary conditions to apply (optional).
-    :arg form_compiler_parameters: (optional) dict of parameters to pass to
-         the form compiler.  Ignored if not assembling a
-         :class:`~ufl.classes.Form`.  Any parameters provided here will be
-         overridden by parameters set on the :class:`~ufl.classes.Measure` in the
-         form.  For example, if a ``quadrature_degree`` of 4 is
-         specified in this argument, but a degree of 3 is requested in
-         the measure, the latter will be used.
-    :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
-         assembled -- either as a monolithic matrix ('aij' or 'baij'), a block matrix
-         ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
-         actions ('matfree').  If not supplied, the default value in
-         ``parameters["default_matrix_type"]`` is used.  BAIJ differs
-         from AIJ in that only the block sparsity rather than the dof
-         sparsity is constructed.  This can result in some memory
-         savings, but does not work with all PETSc preconditioners.
-         BAIJ matrices only make sense for non-mixed matrices.
-    :arg sub_mat_type: (optional) string indicating the matrix type to
-         use *inside* a nested block matrix.  Only makes sense if
-         ``mat_type`` is ``nest``.  May be one of 'aij' or 'baij'.  If
-         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
-    :arg appctx: Additional information to hang on the assembled
-         matrix if an implicit matrix is requested (mat_type "matfree").
-    :arg options_prefix: PETSc options prefix to apply to matrices.
+        a :class:`~slate.TensorBase` expression.
+    :arg tensor: (optional) an existing tensor object to place the result in.
+    :arg bcs: (optional) an iterable of boundary conditions to apply.
+    :kwarg form_compiler_parameters: (optional) a dict of parameters to pass to
+        the form compiler. Ignored if not assembling a
+        :class:`~ufl.classes.Form`. Any parameters provided here will be
+        overridden by parameters set on the :class:`~ufl.classes.Measure` in the
+        form.  For example, if a ``quadrature_degree`` of 4 is
+        specified in this argument, but a degree of 3 is requested in
+        the measure, the latter will be used.
+    :kwarg mat_type: (optional) string indicating how a 2-form (matrix) should be
+        assembled -- either as a monolithic matrix (``'aij'`` or ``'baij'``),
+        a block matrix (``'nest'``), or left as a :class:`.ImplicitMatrix` giving
+        matrix-free actions (``'matfree'``).  If not supplied, the default value in
+        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
+        from AIJ in that only the block sparsity rather than the dof
+        sparsity is constructed.  This can result in some memory
+        savings, but does not work with all PETSc preconditioners.
+        BAIJ matrices only make sense for non-mixed matrices.
+    :kwarg sub_mat_type: (optional) string indicating the matrix type to
+        use *inside* a nested block matrix.  Only makes sense if
+        ``mat_type`` is ``nest``.  May be one of ``'aij'`` or ``'baij'``.  If
+        not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
+    :kwarg appctx: (optional) additional information to hang on the assembled
+        matrix if an implicit matrix is requested (mat_type "matfree").
+    :kwarg options_prefix: (optional) PETSc options prefix to apply to matrices.
 
     If expr is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -84,7 +74,7 @@ def assemble(expr, *args, **kwargs):
     for 2-forms. Similarly if it is a Slate tensor expression.
 
     If expr is an expression other than a form, it will be evaluated
-    pointwise on the :class:`.Function`\s in the expression. This will
+    pointwise on the :class:`.Function`s in the expression. This will
     only succeed if all the Functions are on the same
     :class:`.FunctionSpace`.
 
@@ -97,6 +87,12 @@ def assemble(expr, *args, **kwargs):
     will be set to 0 and the diagonal entries to 1. If ``expr`` is a
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
+
+    .. note::
+        To reduce the cost of repeated calls to :func:`assemble`, the generated
+        :class:`op2.ParLoop` is cached on :arg expr:. This means that modifying
+        ``kwargs`` such as :arg mat_type: between repeated assembly of the same
+        form will not work.
     """
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return assemble_form(expr, *args, **kwargs)
@@ -106,24 +102,32 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-def assemble_form(expr, tensor=None, bcs=None, *, 
-                  diagonal=False, 
-                  assembly_type="solution", 
-                  form_compiler_parameters=None, 
-                  mat_type=None, 
-                  sub_mat_type=None, 
-                  appctx=None, 
+def assemble_form(expr, tensor=None, bcs=None, *,
+                  diagonal=False,
+                  assembly_type="solution",
+                  form_compiler_parameters=None,
+                  mat_type=None,
+                  sub_mat_type=None,
+                  appctx=None,
                   options_prefix=None,
                   nest=None):
-    """???
+    """Assemble an expression.
+
+    :arg expr: a :class:`~ufl.classes.Form` or a :class:`~slate.TensorBase`
+        expression.
+
+    See :func:`assemble` for a description of the possible additional arguments.
     """
     if nest:
         raise ValueError("Can't use 'nest', set 'mat_type' instead")
     if assembly_type not in ("solution", "residual"):
         raise ValueError("assembly_type must be either 'solution' or 'residual'")
 
+    # Do some setup of the arguments and wrap them in a namedtuple.
     bcs = solving._extract_bcs(bcs)
-    opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters, 
+    mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type,
+                                           expr.arguments())
+    opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters,
                          mat_type, sub_mat_type, appctx, options_prefix)
 
     assembly_rank = _get_assembly_rank(expr, diagonal)
@@ -150,7 +154,7 @@ def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
     """
     opts = _AssemblyOpts(diagonal=False,
                          assembly_type=None,
-                         fc_params = form_compiler_parameters,
+                         fc_params=form_compiler_parameters,
                          mat_type=mat_type,
                          sub_mat_type=sub_mat_type,
                          appctx=appctx,
@@ -173,14 +177,21 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
     """
     if tensor is None:
         raise ValueError("Have to provide tensor to write to")
-    return functools.partial(assemble, expr, tensor, bcs, 
-                             form_compiler_parameters=form_compiler_parameters, 
-                             mat_type=mat_type, 
+    return functools.partial(assemble, expr, tensor, bcs,
+                             form_compiler_parameters=form_compiler_parameters,
+                             mat_type=mat_type,
                              sub_mat_type=sub_mat_type,
                              assembly_type="residual")
 
 
 def _get_assembly_rank(expr, diagonal):
+    """Return the assembly rank.
+
+    :arg expr: The expression being assembled.
+    :arg diagonal: If assembling a matrix is it diagonal?
+
+    :returns: The appropriate :class:`_AssemblyRank`.
+    """
     rank = len(expr.arguments())
     if diagonal:
         assert rank == 2
@@ -195,6 +206,15 @@ def _get_assembly_rank(expr, diagonal):
 
 
 def _assemble_scalar(expr, scalar, bcs, opts):
+    """Assemble a scalar.
+
+    :arg expr: The expression being assembled.
+    :arg scalar: The scalar to write to (must be ``None``).
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+
+    :returns: The resulting :class:`float`.
+    """
     if len(expr.arguments()) != 0:
         raise ValueError("Can't assemble a 0-form with arguments")
     if scalar:
@@ -206,6 +226,15 @@ def _assemble_scalar(expr, scalar, bcs, opts):
 
 
 def _assemble_vector(expr, vector, bcs, opts):
+    """Assemble a vector.
+
+    :arg expr: The expression being assembled.
+    :arg vector: The vector to write to (may be ``None``).
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+
+    :returns: The assembled :class:`firedrake.Function`.
+    """
     if opts.diagonal:
         test, trial = expr.arguments()
         if test.function_space() != trial.function_space():
@@ -228,6 +257,15 @@ def _assemble_vector(expr, vector, bcs, opts):
 
 
 def _assemble_matrix(expr, matrix, bcs, opts):
+    """Assemble a matrix.
+
+    :arg expr: The expression being assembled.
+    :arg matrix: The matrix to write to (may be ``None``).
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+
+    :returns: The assembled :class:`.Matrix` or :class:`.ImplicitMatrix`.
+    """
     if matrix:
         if opts.mat_type != "matfree":
             matrix.M.zero()
@@ -245,32 +283,32 @@ def _assemble_matrix(expr, matrix, bcs, opts):
 
 
 def _make_scalar():
+    """Return a scalar.
+
+    :returns: An empty :class:`op2.Global`.
+    """
     return op2.Global(1, [0.0], dtype=utils.ScalarType)
 
 
 def _make_vector(test):
+    """Return a vector.
+
+    :arg test: The :class:`.FunctionSpace` the function is defined for.
+
+    :returns: An empty :class:`.Function`.
+    """
     return firedrake.Function(test.function_space())
 
 
 def _make_matrix(expr, bcs, opts):
     """Get a matrix for the assembly of expr.
+    :arg expr: The expression being assembled.
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
 
-    :arg mat_type, sub_mat_type: See :func:`_get_mat_type`.
-    :arg bcs: Boundary conditions.
-    :arg options_prefix: Optional PETSc options prefix.
-    :arg tensor: An optional already allocated matrix for this expr.
-    :arg appctx: User application data.
-    :arg form_compiler_parameters: Any parameters for the form compiler.
-
-    :raises ValueError: In case of problems.
-    :returns: a 3-tuple ``(tensor, zeros, callable)``. zeros is a
-       (possibly empty) iterable of zero-argument functions to zero the returned
-       tensor, callable is a function of zero arguments that returns
-       the tensor.
+    :returns: An empty :class:`.Matrix` or :class:`.ImplicitMatrix`.
     """
-    mat_type, sub_mat_type = _get_mat_type(opts.mat_type, opts.sub_mat_type,
-                                          expr.arguments())
-    matfree = mat_type == "matfree"
+    matfree = opts.mat_type == "matfree"
     arguments = expr.arguments()
     if bcs is None:
         bcs = ()
@@ -288,13 +326,13 @@ def _make_matrix(expr, bcs, opts):
     for bc in bcs:
         integral_types.update(integral.integral_type()
                               for integral in bc.integrals())
-    nest = mat_type == "nest"
+    nest = opts.mat_type == "nest"
     if nest:
-        baij = sub_mat_type == "baij"
+        baij = opts.sub_mat_type == "baij"
     else:
-        baij = mat_type == "baij"
+        baij = opts.mat_type == "baij"
 
-    if any(len(a.function_space()) > 1 for a in arguments) and mat_type == "baij":
+    if any(len(a.function_space()) > 1 for a in arguments) and opts.mat_type == "baij":
         raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
     get_cell_map = operator.methodcaller("cell_node_map")
@@ -334,33 +372,43 @@ def _make_matrix(expr, bcs, opts):
         raise ValueError("Monolithic matrix assembly not supported for systems "
                          "with R-space blocks")
 
-    return matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
+    return matrix.Matrix(expr, bcs, opts.mat_type, sparsity, ScalarType,
                          options_prefix=opts.options_prefix)
 
 
 def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
+    """Assemble an expression.
+
+    :arg expr: The expression to be assembled.
+    :arg tensor: The tensor to write to.
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+    :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
+    """
     # We cache the parloops on the form but keep track of the tensor. If the
     # tensor is changed then we need to regenerate the parloop (until parloops
     # stop depending on data).
     # When we generate a new parloop the old one is removed from the cache to
     # prevent leaking memory.
-    cache_key = "parloops"
-    if cache_key in expr._cache:
-        cached_tensor, parloops = expr._cache[cache_key]
-        if cached_tensor is not tensor:
-            parloops = None
-            del expr._cache[cache_key]
-    else:
-        parloops = None
+    parloops = None
+    if isinstance(expr, ufl.form.Form):
+        cache_key = "parloops"
+        if cache_key in expr._cache:
+            cached_tensor, cached_parloops = expr._cache[cache_key]
+            if cached_tensor is tensor:
+                parloops = cached_parloops
+            else:
+                del expr._cache[cache_key]
 
     if not parloops:
         parloops = _make_parloops(expr, tensor, bcs, opts, assembly_rank)
-        expr._cache[cache_key] = (tensor, parloops)
+        if isinstance(expr, ufl.form.Form):
+            expr._cache[cache_key] = (tensor, parloops)
     for parloop in parloops:
         parloop.compute()
 
     dir_bcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
-    _apply_dirichlet_bcs(expr, tensor, dir_bcs, opts, assembly_rank)
+    _apply_dirichlet_bcs(tensor, dir_bcs, opts, assembly_rank)
 
     eq_bcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
     if eq_bcs and opts.diagonal:
@@ -451,7 +499,7 @@ def _vector_arg(access, get_map, i, *, function, V):
 
 
 def _matrix_arg(access, get_map, row, col, *,
-               all_bcs, matrix, Vrow, Vcol):
+                all_bcs, matrix, Vrow, Vcol):
     """Obtain an op2.Arg for insertion into the given matrix.
 
     :arg access: Access descriptor.
@@ -470,7 +518,7 @@ def _matrix_arg(access, get_map, row, col, *,
         maprow = get_map(Vrow)
         mapcol = get_map(Vcol)
         lgmaps, unroll = zip(*(_collect_lgmaps(matrix, all_bcs,
-                                              Vrow, Vcol, i, j)
+                                               Vrow, Vcol, i, j)
                                for i, j in numpy.ndindex(matrix.block_shape)))
         return matrix.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
                         unroll_map=any(unroll))
@@ -479,26 +527,18 @@ def _matrix_arg(access, get_map, row, col, *,
         maprow = get_map(Vrow[row])
         mapcol = get_map(Vcol[col])
         lgmaps, unroll = _collect_lgmaps(matrix, all_bcs,
-                                        Vrow, Vcol, row, col)
+                                         Vrow, Vcol, row, col)
         return matrix.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
                                   unroll_map=unroll)
 
 
-def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
+def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
     """Apply boundary conditions to a tensor.
 
     :arg tensor: The tensor.
-    :arg bcs; The boundary conditions.
+    :arg bcs: The boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
     :arg assembly_rank: are we doing a scalar, vector, or matrix.
-    :arg form_compiler_parameters: parameters for the form compiler
-        (used for EquationBCs).
-    :arg mat_type, sub_mat_type: matrix type arguments for EquationBCs
-       (see :func:`_get_mat_type`).
-    :arg appctx: User application context (for EquationBCs).
-    :arg diagonal: Is this application of bcs to a vector really
-        applying bcs to the diagonal of a matrix?
-    :arg assemble_now: Will assembly happen right away?
-    :returns: generator of zero-argument callables for applying the bcs.
     """
     if assembly_rank == _AssemblyRank.MATRIX:
         op2tensor = tensor.M
@@ -547,28 +587,16 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
 
 @utils.known_pyop2_safe
 def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
-    r"""Assemble the form or Slate expression expr and return a Firedrake object
-    representing the result. This will be a :class:`float` for 0-forms/rank-0
-    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
-    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
+    """Create some parloops.
 
-    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.EquationBCSplit`\s to be applied.
-    :arg tensor: An existing tensor object into which the form should be
-        assembled. If this is not supplied, a new tensor will be created for
-        the purpose.
-    :arg form_compiler_parameters: (optional) dict of parameters to pass to
-        the form compiler.
-    :arg mat_type: (optional) type for assembled matrices, one of
-        "nest", "aij", "baij", or "matfree".
-    :arg sub_mat_type: (optional) type for assembled sub matrices
-        inside a "nest" matrix.  One of "aij" or "baij".
-    :arg appctx: Additional information to hang on the assembled
-         matrix if an implicit matrix is requested (mat_type "matfree").
-    :arg options_prefix: An options prefix for the PETSc matrix
-        (ignored if not assembling a bilinear form).
+    :arg expr: The expression to be assembled.
+    :arg tensor: The tensor to write to.
+    :arg bcs: Iterable of boundary conditions.
+    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+    :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
+
+    :returns: A tuple of the generated :class:`pyop2.ParLoop` objects.
     """
-    mat_type, sub_mat_type = _get_mat_type(opts.mat_type, opts.sub_mat_type,
-                                          expr.arguments())
     if opts.fc_params:
         form_compiler_parameters = opts.fc_params.copy()
     else:
@@ -610,7 +638,7 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
-        if diagonal:
+        if opts.diagonal:
             raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
     else:
