@@ -23,7 +23,7 @@ PETSc.Sys.popErrorHandler()
 __all__ = ("assemble",)
 
 
-class AssemblyRank(IntEnum):
+class _AssemblyRank(IntEnum):
     SCALAR = 0
     VECTOR = 1
     MATRIX = 2
@@ -36,6 +36,12 @@ _AssemblyOpts = namedtuple("_AssemblyOpts", ["diagonal",
                                              "sub_mat_type",
                                              "appctx",
                                              "options_prefix"])
+"""Container to hold immutable assembly options.
+
+.. note::
+    When we stop supporting Python 3.6 it may be good to add the :arg defaults:
+    argument to this.
+"""
 
 
 @annotate_assemble
@@ -121,11 +127,11 @@ def assemble_form(expr, tensor=None, bcs=None, *,
                          mat_type, sub_mat_type, appctx, options_prefix)
 
     assembly_rank = _get_assembly_rank(expr, diagonal)
-    if assembly_rank == AssemblyRank.SCALAR:
+    if assembly_rank == _AssemblyRank.SCALAR:
         return _assemble_scalar(expr, tensor, bcs, opts)
-    elif assembly_rank == AssemblyRank.VECTOR:
+    elif assembly_rank == _AssemblyRank.VECTOR:
         return _assemble_vector(expr, tensor, bcs, opts)
-    elif assembly_rank == AssemblyRank.MATRIX:
+    elif assembly_rank == _AssemblyRank.MATRIX:
         return _assemble_matrix(expr, tensor, bcs, opts)
     else:
         raise AssertionError
@@ -178,13 +184,13 @@ def _get_assembly_rank(expr, diagonal):
     rank = len(expr.arguments())
     if diagonal:
         assert rank == 2
-        return AssemblyRank.VECTOR
+        return _AssemblyRank.VECTOR
     if rank == 0:
-        return AssemblyRank.SCALAR
+        return _AssemblyRank.SCALAR
     if rank == 1:
-        return AssemblyRank.VECTOR
+        return _AssemblyRank.VECTOR
     if rank == 2:
-        return AssemblyRank.MATRIX
+        return _AssemblyRank.MATRIX
     raise AssertionError
 
 
@@ -195,7 +201,7 @@ def _assemble_scalar(expr, scalar, bcs, opts):
         raise ValueError("Can't assemble 0-form into existing tensor")
 
     scalar = _make_scalar()
-    _assemble_expr(expr, scalar, bcs, opts, AssemblyRank.SCALAR)
+    _assemble_expr(expr, scalar, bcs, opts, _AssemblyRank.SCALAR)
     return scalar.data[0]
 
 
@@ -217,7 +223,7 @@ def _assemble_vector(expr, vector, bcs, opts):
     if any(isinstance(bc, EquationBC) for bc in bcs):
         bcs = tuple(bc.extract_form("F") for bc in bcs)
 
-    _assemble_expr(expr, vector, bcs, opts, AssemblyRank.VECTOR)
+    _assemble_expr(expr, vector, bcs, opts, _AssemblyRank.VECTOR)
     return vector
 
 
@@ -233,7 +239,7 @@ def _assemble_matrix(expr, matrix, bcs, opts):
     if opts.mat_type == "matfree":
         matrix.assemble()
     else:
-        _assemble_expr(expr, matrix, bcs, opts, AssemblyRank.MATRIX)
+        _assemble_expr(expr, matrix, bcs, opts, _AssemblyRank.MATRIX)
         matrix.M.assemble()
     return matrix
 
@@ -360,7 +366,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     if eq_bcs and opts.diagonal:
         raise NotImplementedError("Diagonal assembly and EquationBC not supported")
     for bc in eq_bcs:
-        if assembly_rank == AssemblyRank.VECTOR:
+        if assembly_rank == _AssemblyRank.VECTOR:
             bc.zero(tensor)
         _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank)
 
@@ -494,7 +500,7 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
     :arg assemble_now: Will assembly happen right away?
     :returns: generator of zero-argument callables for applying the bcs.
     """
-    if assembly_rank == AssemblyRank.MATRIX:
+    if assembly_rank == _AssemblyRank.MATRIX:
         op2tensor = tensor.M
         shape = tuple(len(a.function_space()) for a in tensor.a.arguments())
         for bc in bcs:
@@ -522,7 +528,7 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
                     op2tensor[i, j].set_local_diagonal_entries(nodes)
                 else:
                     raise RuntimeError("Unhandled BC case")
-    elif assembly_rank == AssemblyRank.VECTOR:
+    elif assembly_rank == _AssemblyRank.VECTOR:
         for bc in bcs:
             if opts.assembly_type == "solution":
                 if opts.diagonal:
@@ -533,7 +539,7 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
                 bc.zero(tensor)
             else:
                 raise AssertionError
-    elif assembly_rank == AssemblyRank.SCALAR:
+    elif assembly_rank == _AssemblyRank.SCALAR:
         pass
     else:
         raise AssertionError
@@ -582,14 +588,14 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
         if domain is not None and domain.topology != topology:
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
-    if assembly_rank == AssemblyRank.MATRIX:
+    if assembly_rank == _AssemblyRank.MATRIX:
         test, trial = expr.arguments()
         create_op2arg = functools.partial(_matrix_arg,
                                           all_bcs=tuple(chain(*bcs)),
                                           matrix=tensor,
                                           Vrow=test.function_space(),
                                           Vcol=trial.function_space())
-    elif assembly_rank == AssemblyRank.VECTOR:
+    elif assembly_rank == _AssemblyRank.VECTOR:
         if opts.diagonal:
             # actually a 2-form but throw away the trial space
             test, _ = expr.arguments()
@@ -634,9 +640,9 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
         m = domains[domain_number]
         subdomain_data = expr.subdomain_data()[m]
         # Find argument space indices
-        if assembly_rank == AssemblyRank.MATRIX:
+        if assembly_rank == _AssemblyRank.MATRIX:
             i, j = indices
-        elif assembly_rank == AssemblyRank.VECTOR:
+        elif assembly_rank == _AssemblyRank.VECTOR:
             i, = indices
         else:
             assert len(indices) == 0
@@ -687,9 +693,9 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
         # Output argument
-        if assembly_rank == AssemblyRank.MATRIX:
+        if assembly_rank == _AssemblyRank.MATRIX:
             tensor_arg = create_op2arg(op2.INC, get_map, i, j)
-        elif assembly_rank == AssemblyRank.VECTOR:
+        elif assembly_rank == _AssemblyRank.VECTOR:
             tensor_arg = create_op2arg(op2.INC, get_map, i)
         else:
             tensor_arg = create_op2arg(op2.INC)
