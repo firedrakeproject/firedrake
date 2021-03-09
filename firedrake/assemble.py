@@ -131,6 +131,49 @@ def assemble_form(expr, tensor=None, bcs=None, *,
         raise AssertionError
 
 
+def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
+                    mat_type=None, sub_mat_type=None, appctx={},
+                    options_prefix=None):
+    r"""Allocate a matrix given an expression.
+
+    To be used with :func:`create_assembly_callable`.
+
+    .. warning::
+
+       Do not use this function unless you know what you're doing.
+    """
+    opts = _AssemblyOpts(diagonal=False,
+                         assembly_type=None,
+                         fc_params = form_compiler_parameters,
+                         mat_type=mat_type,
+                         sub_mat_type=sub_mat_type,
+                         appctx=appctx,
+                         options_prefix=options_prefix)
+    return _make_matrix(expr, bcs, opts)
+
+
+def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
+                             mat_type=None, sub_mat_type=None,
+                             diagonal=False):
+    r"""Create a callable object than be used to assemble expr into a tensor.
+
+    This is really only designed to be used inside residual and
+    jacobian callbacks, since it always assembles back into the
+    initially provided tensor.  See also :func:`allocate_matrix`.
+
+    .. warning::
+
+       Really do not use this function unless you know what you're doing.
+    """
+    if tensor is None:
+        raise ValueError("Have to provide tensor to write to")
+    return functools.partial(assemble, expr, tensor, bcs, 
+                             form_compiler_parameters=form_compiler_parameters, 
+                             mat_type=mat_type, 
+                             sub_mat_type=sub_mat_type,
+                             assembly_type="residual")
+
+
 def _get_assembly_rank(expr, diagonal):
     rank = len(expr.arguments())
     if diagonal:
@@ -206,7 +249,7 @@ def _make_vector(test):
 def _make_matrix(expr, bcs, opts):
     """Get a matrix for the assembly of expr.
 
-    :arg mat_type, sub_mat_type: See :func:`get_mat_type`.
+    :arg mat_type, sub_mat_type: See :func:`_get_mat_type`.
     :arg bcs: Boundary conditions.
     :arg options_prefix: Optional PETSc options prefix.
     :arg tensor: An optional already allocated matrix for this expr.
@@ -219,7 +262,7 @@ def _make_matrix(expr, bcs, opts):
        tensor, callable is a function of zero arguments that returns
        the tensor.
     """
-    mat_type, sub_mat_type = get_mat_type(opts.mat_type, opts.sub_mat_type,
+    mat_type, sub_mat_type = _get_mat_type(opts.mat_type, opts.sub_mat_type,
                                           expr.arguments())
     matfree = mat_type == "matfree"
     arguments = expr.arguments()
@@ -322,7 +365,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
         _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank)
 
 
-def get_mat_type(mat_type, sub_mat_type, arguments):
+def _get_mat_type(mat_type, sub_mat_type, arguments):
     """Provide defaults and validate matrix-type selection.
 
     :arg mat_type: PETSc matrix type for the assembled matrix.
@@ -347,50 +390,7 @@ def get_mat_type(mat_type, sub_mat_type, arguments):
     return mat_type, sub_mat_type
 
 
-def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
-                    mat_type=None, sub_mat_type=None, appctx={},
-                    options_prefix=None):
-    r"""Allocate a matrix given an expression.
-
-    To be used with :func:`create_assembly_callable`.
-
-    .. warning::
-
-       Do not use this function unless you know what you're doing.
-    """
-    opts = _AssemblyOpts(diagonal=False,
-                         assembly_type=None,
-                         fc_params = form_compiler_parameters,
-                         mat_type=mat_type,
-                         sub_mat_type=sub_mat_type,
-                         appctx=appctx,
-                         options_prefix=options_prefix)
-    return _make_matrix(expr, bcs, opts)
-
-
-def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
-                             mat_type=None, sub_mat_type=None,
-                             diagonal=False):
-    r"""Create a callable object than be used to assemble expr into a tensor.
-
-    This is really only designed to be used inside residual and
-    jacobian callbacks, since it always assembles back into the
-    initially provided tensor.  See also :func:`allocate_matrix`.
-
-    .. warning::
-
-       Really do not use this function unless you know what you're doing.
-    """
-    if tensor is None:
-        raise ValueError("Have to provide tensor to write to")
-    return functools.partial(assemble, expr, tensor, bcs, 
-                             form_compiler_parameters=form_compiler_parameters, 
-                             mat_type=mat_type, 
-                             sub_mat_type=sub_mat_type,
-                             assembly_type="residual")
-
-
-def collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
+def _collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
     """Obtain local to global maps for matrix insertion in the
     presence of boundary conditions.
 
@@ -425,41 +425,7 @@ def collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
     return (rlgmap, clgmap), unroll
 
 
-def matrix_arg(access, get_map, row, col, *,
-               all_bcs, matrix, Vrow, Vcol):
-    """Obtain an op2.Arg for insertion into the given matrix.
-
-    :arg access: Access descriptor.
-    :arg get_map: callable of one argument that obtains Maps from
-        functionspaces.
-    :arg row, col: row (column) of block matrix we are assembling (may be None for
-        direct insertion into mixed matrices). Either both or neither
-        must be None.
-    :arg all_bcs: tuple of boundary conditions involved in assembly.
-    :arg matrix: the matrix to obtain the argument for.
-    :arg Vrow, Vcol: function spaces for the row and column space.
-    :raises AssertionError: on invalid arguments
-    :returns: an op2.Arg.
-    """
-    if row is None and col is None:
-        maprow = get_map(Vrow)
-        mapcol = get_map(Vcol)
-        lgmaps, unroll = zip(*(collect_lgmaps(matrix, all_bcs,
-                                              Vrow, Vcol, i, j)
-                               for i, j in numpy.ndindex(matrix.block_shape)))
-        return matrix.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
-                        unroll_map=any(unroll))
-    else:
-        assert row is not None and col is not None
-        maprow = get_map(Vrow[row])
-        mapcol = get_map(Vcol[col])
-        lgmaps, unroll = collect_lgmaps(matrix, all_bcs,
-                                        Vrow, Vcol, row, col)
-        return matrix.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
-                                  unroll_map=unroll)
-
-
-def vector_arg(access, get_map, i, *, function, V):
+def _vector_arg(access, get_map, i, *, function, V):
     """Obtain an op2.Arg for insertion into given Function.
 
     :arg access: access descriptor.
@@ -478,6 +444,40 @@ def vector_arg(access, get_map, i, *, function, V):
         return function.dat[i](access, map_)
 
 
+def _matrix_arg(access, get_map, row, col, *,
+               all_bcs, matrix, Vrow, Vcol):
+    """Obtain an op2.Arg for insertion into the given matrix.
+
+    :arg access: Access descriptor.
+    :arg get_map: callable of one argument that obtains Maps from
+        functionspaces.
+    :arg row, col: row (column) of block matrix we are assembling (may be None for
+        direct insertion into mixed matrices). Either both or neither
+        must be None.
+    :arg all_bcs: tuple of boundary conditions involved in assembly.
+    :arg matrix: the matrix to obtain the argument for.
+    :arg Vrow, Vcol: function spaces for the row and column space.
+    :raises AssertionError: on invalid arguments
+    :returns: an op2.Arg.
+    """
+    if row is None and col is None:
+        maprow = get_map(Vrow)
+        mapcol = get_map(Vcol)
+        lgmaps, unroll = zip(*(_collect_lgmaps(matrix, all_bcs,
+                                              Vrow, Vcol, i, j)
+                               for i, j in numpy.ndindex(matrix.block_shape)))
+        return matrix.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
+                        unroll_map=any(unroll))
+    else:
+        assert row is not None and col is not None
+        maprow = get_map(Vrow[row])
+        mapcol = get_map(Vcol[col])
+        lgmaps, unroll = _collect_lgmaps(matrix, all_bcs,
+                                        Vrow, Vcol, row, col)
+        return matrix.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
+                                  unroll_map=unroll)
+
+
 def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
     """Apply boundary conditions to a tensor.
 
@@ -487,7 +487,7 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
     :arg form_compiler_parameters: parameters for the form compiler
         (used for EquationBCs).
     :arg mat_type, sub_mat_type: matrix type arguments for EquationBCs
-       (see :func:`get_mat_type`).
+       (see :func:`_get_mat_type`).
     :arg appctx: User application context (for EquationBCs).
     :arg diagonal: Is this application of bcs to a vector really
         applying bcs to the diagonal of a matrix?
@@ -539,19 +539,67 @@ def _apply_dirichlet_bcs(expr, tensor, bcs, opts, assembly_rank):
         raise AssertionError
 
 
-def _make_parloop_inner(expr, create_op2arg, *, assembly_rank, diagonal,
-                        form_compiler_parameters):
-    """Create parallel loops for assembly of expr.
+@utils.known_pyop2_safe
+def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
+    r"""Assemble the form or Slate expression expr and return a Firedrake object
+    representing the result. This will be a :class:`float` for 0-forms/rank-0
+    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
+    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
-    :arg expr: The expression to assemble.
-    :arg create_op2arg: callable that creates the Arg corresponding to
-        the output tensor.
-    :arg assembly_rank: are we assembling a scalar, vector, or matrix?
-    :arg diagonal: For matrices are we actually assembling the
-        diagonal into a vector?
-    :arg form_compiler_parameters: parameters to pass to the form
-        compiler.
-    :returns: a generator of op2.ParLoop objects."""
+    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.EquationBCSplit`\s to be applied.
+    :arg tensor: An existing tensor object into which the form should be
+        assembled. If this is not supplied, a new tensor will be created for
+        the purpose.
+    :arg form_compiler_parameters: (optional) dict of parameters to pass to
+        the form compiler.
+    :arg mat_type: (optional) type for assembled matrices, one of
+        "nest", "aij", "baij", or "matfree".
+    :arg sub_mat_type: (optional) type for assembled sub matrices
+        inside a "nest" matrix.  One of "aij" or "baij".
+    :arg appctx: Additional information to hang on the assembled
+         matrix if an implicit matrix is requested (mat_type "matfree").
+    :arg options_prefix: An options prefix for the PETSc matrix
+        (ignored if not assembling a bilinear form).
+    """
+    mat_type, sub_mat_type = _get_mat_type(opts.mat_type, opts.sub_mat_type,
+                                          expr.arguments())
+    if opts.fc_params:
+        form_compiler_parameters = opts.fc_params.copy()
+    else:
+        form_compiler_parameters = {}
+
+    try:
+        topology, = set(d.topology for d in expr.ufl_domains())
+    except ValueError:
+        raise NotImplementedError("All integration domains must share a mesh topology")
+    for m in expr.ufl_domains():
+        # Ensure mesh is "initialised" (could have got here without
+        # building a functionspace (e.g. if integrating a constant)).
+        m.init()
+
+    for o in chain(expr.arguments(), expr.coefficients()):
+        domain = o.ufl_domain()
+        if domain is not None and domain.topology != topology:
+            raise NotImplementedError("Assembly with multiple meshes not supported.")
+
+    if assembly_rank == AssemblyRank.MATRIX:
+        test, trial = expr.arguments()
+        create_op2arg = functools.partial(_matrix_arg,
+                                          all_bcs=tuple(chain(*bcs)),
+                                          matrix=tensor,
+                                          Vrow=test.function_space(),
+                                          Vcol=trial.function_space())
+    elif assembly_rank == AssemblyRank.VECTOR:
+        if opts.diagonal:
+            # actually a 2-form but throw away the trial space
+            test, _ = expr.arguments()
+        else:
+            test, = expr.arguments()
+        create_op2arg = functools.partial(_vector_arg, function=tensor,
+                                          V=test.function_space())
+    else:
+        create_op2arg = tensor
+
     coefficients = expr.coefficients()
     domains = expr.ufl_domains()
 
@@ -560,7 +608,7 @@ def _make_parloop_inner(expr, create_op2arg, *, assembly_rank, diagonal,
             raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
     else:
-        kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
+        kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=opts.diagonal)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -676,84 +724,3 @@ def _make_parloop_inner(expr, create_op2arg, *, assembly_rank, diagonal,
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
     return tuple(parloops)
-
-
-@utils.known_pyop2_safe
-def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
-    r"""Assemble the form or Slate expression expr and return a Firedrake object
-    representing the result. This will be a :class:`float` for 0-forms/rank-0
-    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
-    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
-
-    :arg bcs: A tuple of :class`.DirichletBC`\s and/or :class`.EquationBCSplit`\s to be applied.
-    :arg tensor: An existing tensor object into which the form should be
-        assembled. If this is not supplied, a new tensor will be created for
-        the purpose.
-    :arg form_compiler_parameters: (optional) dict of parameters to pass to
-        the form compiler.
-    :arg mat_type: (optional) type for assembled matrices, one of
-        "nest", "aij", "baij", or "matfree".
-    :arg sub_mat_type: (optional) type for assembled sub matrices
-        inside a "nest" matrix.  One of "aij" or "baij".
-    :arg appctx: Additional information to hang on the assembled
-         matrix if an implicit matrix is requested (mat_type "matfree").
-    :arg options_prefix: An options prefix for the PETSc matrix
-        (ignored if not assembling a bilinear form).
-    """
-    mat_type, sub_mat_type = get_mat_type(opts.mat_type, opts.sub_mat_type,
-                                          expr.arguments())
-    if opts.fc_params:
-        form_compiler_parameters = opts.fc_params.copy()
-    else:
-        form_compiler_parameters = {}
-
-    try:
-        topology, = set(d.topology for d in expr.ufl_domains())
-    except ValueError:
-        raise NotImplementedError("All integration domains must share a mesh topology")
-    for m in expr.ufl_domains():
-        # Ensure mesh is "initialised" (could have got here without
-        # building a functionspace (e.g. if integrating a constant)).
-        m.init()
-
-    for o in chain(expr.arguments(), expr.coefficients()):
-        domain = o.ufl_domain()
-        if domain is not None and domain.topology != topology:
-            raise NotImplementedError("Assembly with multiple meshes not supported.")
-
-    if assembly_rank == AssemblyRank.MATRIX:
-        test, trial = expr.arguments()
-        # tensor, zeros, result = get_matrix(expr, mat_type, sub_mat_type,
-        #                                    bcs=bcs, options_prefix=options_prefix,
-        #                                    tensor=tensor,
-        #                                    appctx=appctx,
-        #                                    form_compiler_parameters=form_compiler_parameters)
-        # intercept matrix-free matrices here
-        # if mat_type == "matfree":
-        #     if tensor.a.arguments() != expr.arguments():
-        #         raise ValueError("Form's arguments do not match provided result "
-        #                          "tensor")
-        #     tensor.assemble()
-        #     # yield result
-        #     return
-
-        create_op2arg = functools.partial(matrix_arg,
-                                          all_bcs=tuple(chain(*bcs)),
-                                          matrix=tensor,
-                                          Vrow=test.function_space(),
-                                          Vcol=trial.function_space())
-    elif assembly_rank == AssemblyRank.VECTOR:
-        if opts.diagonal:
-            # actually a 2-form but throw away the trial space
-            test, _ = expr.arguments()
-        else:
-            test, = expr.arguments()
-        create_op2arg = functools.partial(vector_arg, function=tensor,
-                                          V=test.function_space())
-    else:
-        create_op2arg = tensor
-
-    return _make_parloop_inner(expr, create_op2arg,
-                               assembly_rank=assembly_rank,
-                               diagonal=opts.diagonal,
-                               form_compiler_parameters=form_compiler_parameters)
