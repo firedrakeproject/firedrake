@@ -117,7 +117,6 @@ def assemble_form(expr, tensor=None, bcs=None, *,
         raise ValueError("assembly_type must be either 'solution' or 'residual'")
 
     bcs = solving._extract_bcs(bcs)
-
     opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters, 
                          mat_type, sub_mat_type, appctx, options_prefix)
 
@@ -170,6 +169,11 @@ def _assemble_vector(expr, vector, bcs, opts):
         vector.dat.zero()
     else:
         vector = _make_vector(test)
+
+    # Might have gotten here without EquationBC objects preprocessed.
+    if any(isinstance(bc, EquationBC) for bc in bcs):
+        bcs = tuple(bc.extract_form("F") for bc in bcs)
+
     _assemble_expr(expr, vector, bcs, opts, AssemblyRank.VECTOR)
     return vector
 
@@ -286,7 +290,6 @@ def _make_matrix(expr, bcs, opts):
 
 
 def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
-    bcs = _preprocess_bcs(bcs)
     # We cache the parloops on the form but keep track of the tensor. If the
     # tensor is changed then we need to regenerate the parloop (until parloops
     # stop depending on data).
@@ -317,33 +320,6 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
         if assembly_rank == AssemblyRank.VECTOR:
             bc.zero(tensor)
         _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank)
-
-
-def _preprocess_bcs(bcs):
-    # Might have gotten here without `EquationBC` objects preprocessed.
-    bcs_copy = list(bcs)
-    for i, bc in enumerate(bcs_copy):
-        if isinstance(bc, EquationBC):
-            bcs_copy[i] = bc.extract_form("F")
-    return tuple(bcs_copy)
-# def _preprocess_bcs(bcs):
-#     """Make sure that all boundary conditions are in the correct format."""
-#     if not bcs:
-#         return ()
-
-#     new_bcs = []
-#     for bc in bcs:
-#         if isinstance(bc, DirichletBC):
-#             pass
-#         elif isinstance(bc, EquationBC):
-#             bc = bc.extract_form("F")
-#             bc.bcs = _preprocess_bcs(bc.bcs)
-#         elif isinstance(bc, EquationBCSplit):
-#             bc.bcs = _preprocess_bcs(bc.bcs)
-#         else:
-#             raise AssertionError
-#         new_bcs.append(bc)
-#     return tuple(new_bcs)
 
 
 def get_mat_type(mat_type, sub_mat_type, arguments):
