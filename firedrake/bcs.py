@@ -234,6 +234,13 @@ class BCBase(object):
 class DirichletBC(BCBase, DirichletBCMixin):
     r'''Implementation of a strong Dirichlet boundary condition.
 
+    .. note:
+
+       This uses facet markers in the domain, so may be used to
+       applied strong boundary conditions to interior facets (if they
+       have an appropriate mesh marker). The "on_boundary" string only
+       applies to the exterior boundaries of the domain.
+
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
@@ -251,6 +258,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg method: the method for determining boundary nodes.
         DEPRECATED. The only way boundary nodes are identified is by
         topological association.
+
     '''
 
     @DirichletBCMixin._ad_annotate_init

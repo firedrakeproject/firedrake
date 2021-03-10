@@ -294,7 +294,9 @@ def test_numbering_two_d_bigger():
     for faces, val in [((11, 13), 1),
                        ((14, 20), 2),
                        ((16, ), 3),
-                       ((17, 18, 19), 4)]:
+                       ((17, 18, 19), 4),
+                       # This one is an interior face
+                       ((12, ), 5)]:
         for face in faces:
             dm.setLabelValue("Face Sets", face, val)
 
@@ -342,6 +344,10 @@ def test_numbering_two_d_bigger():
 
     assert numpy.equal(DirichletBC(V, 0, 4).nodes,
                        [12, 13, 14, 15, 16, 17, 18, 19, 20]).all()
+
+    # Interior face between base plex cells 0 and 1.
+    assert numpy.equal(DirichletBC(V, 0, 5).nodes,
+                       [4, 5, 8, 9]).all()
 
 
 def test_numbering_quad():

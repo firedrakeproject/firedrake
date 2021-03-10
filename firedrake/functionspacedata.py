@@ -297,18 +297,23 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 
 
 @cached
-def get_boundary_nodes(mesh, key, V):
+def get_facet_closure_nodes(mesh, key, V):
+    """Function space nodes in the closure of facets with a given
+    marker.
+    :arg mesh: Mesh to cache on
+    :arg key: (edofs, sub_domain) tuple
+    :arg V: function space.
+    :returns: numpy array of unique nodes in the closure of facets
+       with provided markers (both interior and exterior)."""
     _, sub_domain = key
-    indices = dmcommon.boundary_nodes(V, sub_domain)
-    # We need a halo exchange to determine all bc nodes.
-    # Should be improved by doing this on the DM topology once.
-    d = op2.Dat(V.dof_dset.set, dtype=IntType)
-    d.data_with_halos[indices] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy where returns an int64
-    return indices.astype(IntType)
+    if sub_domain not in {"on_boundary", "top", "bottom"}:
+        valid = set(mesh.interior_facets.unique_markers)
+        valid |= set(mesh.exterior_facets.unique_markers)
+        invalid = set(sub_domain) - valid
+        if invalid:
+            raise LookupError(f"BC construction got invalid markers {invalid}. "
+                              f"Valid markers are '{valid}'")
+    return dmcommon.facet_closure_nodes(V, sub_domain)
 
 
 def get_max_work_functions(V):
@@ -433,7 +438,7 @@ class FunctionSpaceData(object):
             else:
                 sdkey = as_tuple(sub_domain)
             key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
-            return get_boundary_nodes(V.mesh(), key, V)
+            return get_facet_closure_nodes(V.mesh(), key, V)
 
     def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to

@@ -900,89 +900,81 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def boundary_nodes(V, sub_domain):
-    """Extract boundary nodes from a function space..
+def facet_closure_nodes(V, sub_domain):
+    """Extract nodes in the closure of facets with a given marker.
+
+    This works fine for interior as well as exterior facets.
 
     :arg V: the function space
-    :arg sub_domain: a mesh marker selecting the part of the boundary
-        (may be "on_boundary" indicating the entire boundary).
-    :returns: a numpy array of unique nodes on the boundary of the
-        requested subdomain.
+    :arg sub_domain: a tuple of mesh markers selecting the facets, or
+        the magic string "on_boundary" indicating the entire boundary.
+    :returns: a numpy array of unique nodes in the closure of facets
+        with the given marker.
     """
     cdef:
-        np.ndarray[np.int32_t, ndim=2, mode="c"] local_nodes
-        np.ndarray[PetscInt, ndim=1, mode="c"] offsets
-        np.ndarray[np.uint32_t, ndim=1, mode="c"] local_facets
+        PETSc.Section sec = V.dm.getSection()
+        PETSc.DM dm = V.mesh().topology_dm
+        PetscInt nnodes, p, i, dof, offset, n, j, d
+        np.ndarray[PetscInt, ndim=1, mode="c"] points
         np.ndarray[PetscInt, ndim=1, mode="c"] nodes
-        np.ndarray[PetscInt, ndim=2, mode="c"] facet_node_list
-        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        np.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
-        int f, i, j, dof, facet, idx
-        int nfacet, nlocal, layers
-        PetscInt local_facet
-        PetscInt offset
-        bint all_facets
-        bint variable, extruded
-
-    mesh = V.mesh()
-    variable = mesh.variable_layers
-    extruded = mesh.cell_set._extruded
-
-    facet_dim = mesh.facet_dimension()
-    boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
-
-    local_nodes = np.empty((len(boundary_dofs),
-                            len(boundary_dofs[0])),
-                           dtype=np.int32)
-    for k, v in boundary_dofs.items():
-        local_nodes[k, :] = v
-
-    facets = V.mesh().exterior_facets
-    local_facets = facets.local_facet_dat.data_ro_with_halos
-    nlocal = local_nodes.shape[1]
-
     if sub_domain == "on_boundary":
-        subset = facets.set
-        all_facets = True
+        label = "exterior_facets"
+        sub_domain = (1, )
     else:
-        all_facets = False
-        subset = facets.subset(sub_domain)
-        facet_indices = subset.indices
+        label = FACE_SETS_LABEL
+        if V.mesh().variable_layers:
+            # We can't use the generic code in this case because we
+            # need to manually take closure of facets on each external
+            # face (rather than using the label completion and section
+            # information).
+            # The reason for this is that (for example) a stack of
+            # vertices may extend higher than the faces
+            #
+            #            Y---.
+            #            |   |
+            #    .---x---x---.
+            #    |   | O |
+            #    .---x---x
+            #    |   |
+            #    .---Y
+            #
+            # BCs on the facet marked with 'O' should produce 4 values
+            # for a P1 field (marked X). But if we just include
+            # everything from the sections we'd get 6: additionally we
+            # see the points marked Y.
+            from firedrake.cython import extrusion_numbering as extnum
+            return extnum.facet_closure_nodes(V, sub_domain)
 
-    nfacet = subset.total_size
-    offsets = V.offset
-    facet_node_list = V.exterior_facet_node_map().values_with_halo
+    if not dm.hasLabel(label) or all(dm.getStratumSize(label, marker)
+                                     for marker in sub_domain) == 0:
+        return np.empty(0, dtype=IntType)
 
-    if variable:
-        layer_extents = subset.layers_array
-        maxsize = local_nodes.shape[1] * np.sum((layer_extents[:, 1] - layer_extents[:, 0]) - 1)
-    elif extruded:
-        layers = subset.layers
-        maxsize = local_nodes.shape[1] * nfacet * (layers - 1)
-    else:
-        layers = 2
-        offset = 0
-        maxsize = local_nodes.shape[1] * nfacet
+    nnodes = 0
+    for marker in sub_domain:
+        n = dm.getStratumSize(label, marker)
+        if n == 0:
+            continue
+        points = dm.getStratumIS(label, marker).indices
+        for i in range(n):
+            p = points[i]
+            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+            nnodes += dof
 
-    nodes = np.empty(maxsize, dtype=IntType)
-    idx = 0
-    for f in range(nfacet):
-        if all_facets:
-            facet = f
-        else:
-            facet = facet_indices[f]
-        local_facet = local_facets[facet]
-        if variable:
-            layers = layer_extents[f, 1] - layer_extents[f, 0]
-        for i in range(nlocal):
-            dof = local_nodes[local_facet, i]
-            for j in range(layers - 1):
-                if extruded:
-                    offset = j * offsets[dof]
-                nodes[idx] = facet_node_list[facet, dof] + offset
-                idx += 1
-
-    assert idx == nodes.shape[0]
+    nodes = np.empty(nnodes, dtype=IntType)
+    j = 0
+    for marker in sub_domain:
+        n = dm.getStratumSize(label, marker)
+        if n == 0:
+            continue
+        points = dm.getStratumIS(label, marker).indices
+        for i in range(n):
+            p = points[i]
+            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+            CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
+            for d in range(dof):
+                nodes[j] = offset + d
+                j += 1
+    assert j == nnodes
     return np.unique(nodes)
 
 
