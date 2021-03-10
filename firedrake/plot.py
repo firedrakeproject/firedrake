@@ -16,7 +16,7 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
 from firedrake.mesh import MeshGeometry
 
 __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
-           "quiver", "streamplot"]
+           "quiver", "streamplot", "FunctionPlotter"]
 
 
 def toreal(array, component):
