@@ -35,14 +35,8 @@ class BCBase(object):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes. The default is
-        "topological", indicating that nodes topologically associated with a
-        boundary facet will be included. The alternative value is "geometric",
-        which indicates that nodes associated with basis functions which do not
-        vanish on the boundary will be included. This can be used to impose
-        strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
     '''
-    def __init__(self, V, sub_domain, method="topological"):
+    def __init__(self, V, sub_domain):
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
@@ -51,9 +45,6 @@ class BCBase(object):
         self._function_space = V
         self.comm = V.comm
         self.sub_domain = sub_domain
-        if method not in ["topological", "geometric"]:
-            raise ValueError("Unknown boundary condition method %s" % method)
-        self.method = method
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -151,7 +142,7 @@ class BCBase(object):
         bcnodes = []
         for s in sub_d:
             if isinstance(s, str):
-                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s, self.method)))
+                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
             else:
                 # s is of one of the following formats:
                 # facet: (i, )
@@ -166,7 +157,7 @@ class BCBase(object):
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
-                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss, self.method)))
+                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
         return np.concatenate(bcnodes)
@@ -257,17 +248,24 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes. The default is
-        "topological", indicating that nodes topologically associated with a
-        boundary facet will be included. The alternative value is "geometric",
-        which indicates that nodes associated with basis functions which do not
-        vanish on the boundary will be included. This can be used to impose
-        strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
+    :arg method: the method for determining boundary nodes.
+        DEPRECATED. The only way boundary nodes are identified is by
+        topological association.
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, method="topological"):
-        super().__init__(V, sub_domain, method=method)
+    def __init__(self, V, g, sub_domain, method=None):
+        if method == "geometric":
+            raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
+        if method not in {None, "topological"}:
+            raise ValueError(f"Unhandled boundary condition method '{method}'")
+        if method is not None:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter('always', DeprecationWarning)
+                warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
+                              DeprecationWarning)
+        super().__init__(V, sub_domain)
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
                              "Apply to the components by indexing the space with .sub(...)")
@@ -286,7 +284,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             self._function_arg_update()
         return self._function_arg
 
-    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, method=None, use_split=False):
+    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False):
         fs = self.function_space()
         if V is None:
             V = fs
@@ -294,8 +292,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
             g = self._original_arg
         if sub_domain is None:
             sub_domain = self.sub_domain
-        if method is None:
-            method = self.method
         if field is not None:
             assert V is not None, "`V` can not be `None` when `field` is not `None`"
             V = self.as_subspace(field, V, use_split)
@@ -307,9 +303,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
            (V.parent is None or V.parent.parent == fs.parent.parent) and \
            (V.parent is None or V.parent.index == fs.parent.index) and \
            g == self._original_arg and \
-           sub_domain == self.sub_domain and method == self.method:
+           sub_domain == self.sub_domain:
             return self
-        return type(self)(V, g, sub_domain, method=method)
+        return type(self)(V, g, sub_domain)
 
     @function_arg.setter
     def function_arg(self, g):
@@ -441,14 +437,13 @@ class EquationBC(object):
     :param Jp: a form used for preconditioning the linear system,
         optional, if not supplied then the Jacobian itself
         will be used.
-    :arg method: see :class:`.DirichletBC` (optional)
     :arg V: the :class:`.FunctionSpace` on which
         the equation boundary condition is applied (optional)
     :arg is_linear: this flag is used only with the `reconstruct` method
     :arg Jp_eq_J: this flag is used only with the `reconstruct` method
     '''
 
-    def __init__(self, *args, bcs=None, J=None, Jp=None, method="topological", V=None, is_linear=False, Jp_eq_J=False):
+    def __init__(self, *args, bcs=None, J=None, Jp=None, V=None, is_linear=False, Jp_eq_J=False):
         from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
             # initial construction from equation
@@ -487,9 +482,9 @@ class EquationBC(object):
             # Argument checking
             check_pde_args(F, J, Jp)
             # EquationBCSplit objects for `F`, `J`, and `Jp`
-            self._F = EquationBCSplit(F, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in bcs], method=method, V=V)
-            self._J = EquationBCSplit(J, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in bcs], method=method, V=V)
-            self._Jp = EquationBCSplit(Jp, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in bcs], method=method, V=V)
+            self._F = EquationBCSplit(F, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in bcs], V=V)
+            self._J = EquationBCSplit(J, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in bcs], V=V)
+            self._Jp = EquationBCSplit(Jp, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in bcs], V=V)
         elif all(isinstance(args[i], EquationBCSplit) for i in range(3)):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
@@ -533,12 +528,11 @@ class EquationBCSplit(BCBase):
     :arg sub_domain: see :class:`.DirichletBC`.
     :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
         to be applied to this boundary condition equation (optional)
-    :arg method: see :class:`.DirichletBC` (optional)
     :arg V: the :class:`.FunctionSpace` on which
         the equation boundary condition is applied (optional)
     '''
 
-    def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
+    def __init__(self, form, u, sub_domain, bcs=None, V=None):
         # This nested structure will enable recursive application of boundary conditions.
         #
         # def _assemble(..., bcs, ...)
@@ -551,7 +545,7 @@ class EquationBCSplit(BCBase):
         self.u = u
         if V is None:
             V = self.f.arguments()[0].function_space()
-        super(EquationBCSplit, self).__init__(V, sub_domain, method=method)
+        super(EquationBCSplit, self).__init__(V, sub_domain)
         # overwrite bcs
         self.bcs = bcs or []
         for bc in self.bcs:
@@ -602,10 +596,10 @@ class EquationBCSplit(BCBase):
         if action_x is not None:
             assert len(form.arguments()) == 2, "rank of self.f must be 2 when using action_x parameter"
             form = ufl_expr.action(form, action_x)
-        ebc = EquationBCSplit(form, subu, self.sub_domain, method=self.method, V=W)
+        ebc = EquationBCSplit(form, subu, self.sub_domain, V=W)
         for bc in self.bcs:
             if isinstance(bc, DirichletBC):
-                ebc.add(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=use_split))
+                ebc.add(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=use_split))
             elif isinstance(bc, EquationBCSplit):
                 bc_temp = bc.reconstruct(field=field, V=V, subu=subu, u=u, row_field=row_field, col_field=col_field, action_x=action_x, use_split=use_split)
                 # Due to the "if index", bc_temp can be None

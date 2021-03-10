@@ -874,13 +874,12 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def boundary_nodes(V, sub_domain, method):
+def boundary_nodes(V, sub_domain):
     """Extract boundary nodes from a function space..
 
     :arg V: the function space
     :arg sub_domain: a mesh marker selecting the part of the boundary
         (may be "on_boundary" indicating the entire boundary).
-    :arg method: how to identify boundary dofs on the reference cell.
     :returns: a numpy array of unique nodes on the boundary of the
         requested subdomain.
     """
@@ -904,10 +903,7 @@ def boundary_nodes(V, sub_domain, method):
     extruded = mesh.cell_set._extruded
 
     facet_dim = mesh.facet_dimension()
-    if method == "topological":
-        boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
-    elif method == "geometric":
-        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
+    boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
 
     local_nodes = np.empty((len(boundary_dofs),
                             len(boundary_dofs[0])),

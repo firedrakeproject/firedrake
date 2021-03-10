@@ -214,8 +214,7 @@ class PMGBase(PCSNESBase):
                 cbc_value = self.coarsen_bc_value(bc, cV_)
                 if type(bc) == firedrake.DirichletBC:
                     cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                      bc.sub_domain,
-                                                      method=bc.method))
+                                                      bc.sub_domain))
                 else:
                     raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
             return cbcs

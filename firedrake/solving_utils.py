@@ -379,7 +379,7 @@ class _SNESContext(object):
             bcs = []
             for bc in problem.bcs:
                 if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
+                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
                     bc_temp = bc.reconstruct(field, V, subu, u)
                 if bc_temp is not None:

@@ -35,12 +35,7 @@ def test_mismatch_layers_array():
         ExtrudedMesh(mesh, [[0, 2], [1, 1]])
 
 
-@pytest.fixture(params=["topological", "geometric"])
-def bc_method(request):
-    return request.param
-
-
-def test_numbering_one_d_P1(bc_method):
+def test_numbering_one_d_P1():
     #      7----10
     #      |    |
     #      |    |
@@ -71,8 +66,8 @@ def test_numbering_one_d_P1(bc_method):
                        [[3, 4, 0, 1],
                         [8, 9, 5, 6]]).all()
 
-    bc_left = DirichletBC(V, 0, 1, method=bc_method)
-    bc_right = DirichletBC(V, 0, 2, method=bc_method)
+    bc_left = DirichletBC(V, 0, 1)
+    bc_right = DirichletBC(V, 0, 2)
 
     assert numpy.equal(bc_left.nodes,
                        [0, 1, 2]).all()
@@ -80,8 +75,8 @@ def test_numbering_one_d_P1(bc_method):
     assert numpy.equal(bc_right.nodes,
                        [8, 9, 10]).all()
 
-    bc_bottom = DirichletBC(V, 0, "bottom", method=bc_method)
-    bc_top = DirichletBC(V, 0, "top", method=bc_method)
+    bc_bottom = DirichletBC(V, 0, "bottom")
+    bc_top = DirichletBC(V, 0, "top")
 
     assert numpy.equal(bc_bottom.nodes,
                        [0, 3, 4, 5, 8]).all()
@@ -267,7 +262,7 @@ def test_numbering_two_d_P2BxP1():
                         40, 41]).all()
 
 
-def test_numbering_two_d_bigger(bc_method):
+def test_numbering_two_d_bigger():
     #
     #    Top view, plex points
     #       6           9
@@ -319,8 +314,8 @@ def test_numbering_two_d_bigger(bc_method):
                         [13, 14, 15, 16, 17, 18],
                         [5, 6, 12, 13, 19, 20]]).all()
 
-    bc_bottom = DirichletBC(V, 0, "bottom", method=bc_method)
-    bc_top = DirichletBC(V, 0, "top", method=bc_method)
+    bc_bottom = DirichletBC(V, 0, "bottom")
+    bc_top = DirichletBC(V, 0, "top")
 
     assert numpy.equal(bc_bottom.nodes,
                        [0, 3, 4, 5, 7, 8, 11, 12, 13, 15, 17, 19]).all()
@@ -328,28 +323,28 @@ def test_numbering_two_d_bigger(bc_method):
     assert numpy.equal(bc_top.nodes,
                        [2, 5, 6, 9, 10, 13, 14, 16, 18, 20]).all()
 
-    bc_side = DirichletBC(V, 0, "on_boundary", method=bc_method)
+    bc_side = DirichletBC(V, 0, "on_boundary")
 
     assert numpy.equal(bc_side.nodes,
                        numpy.arange(21)).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 1, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 1).nodes,
                        [0, 1, 2, 3, 4, 5, 7, 8, 9]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 2, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 2).nodes,
                        [5, 6, 8, 9, 10, 11, 12, 13, 19, 20]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 3, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 3).nodes,
                        [13, 14, 15, 16]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 3, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 3).nodes,
                        [13, 14, 15, 16]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 4, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 4).nodes,
                        [12, 13, 14, 15, 16, 17, 18, 19, 20]).all()
 
 
-def test_numbering_quad(bc_method):
+def test_numbering_quad():
     # Number of cells in each column.
     #               Side 4
     #         +-------+-------+
@@ -372,22 +367,22 @@ def test_numbering_quad(bc_method):
                         [3, 4, 6, 7, 17, 18, 19, 20],
                         [6, 7, 12, 13, 19, 20, 22, 23]]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, "bottom", method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, "bottom").nodes,
                        [0, 3, 6, 9, 12, 15, 17, 19, 22]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, "top", method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, "top").nodes,
                        [2, 4, 5, 7, 8, 10, 11, 13, 14, 16, 18, 20, 21, 24]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 1, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 1).nodes,
                        [0, 1, 2, 3, 4, 5, 17, 18]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 2, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 2).nodes,
                        [12, 13, 14, 15, 16, 22, 23, 24]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 3, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 3).nodes,
                        [0, 1, 2, 9, 10, 11, 15, 16]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 4, method=bc_method).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 4).nodes,
                        [17, 18, 19, 20, 21, 22, 23, 24]).all()
 
 
