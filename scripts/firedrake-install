@@ -16,7 +16,8 @@ from glob import iglob
 from itertools import chain
 import re
 
-osname = platform.uname()[0]
+osname = platform.uname().system
+arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
@@ -513,8 +514,25 @@ class pipargs(object):
         pipinstall = self.save
 
 
-pyinstall = [python, "setup.py", "install"]
+def check_call(arguments):
+    try:
+        log.debug("Running command '%s'", " ".join(arguments))
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output.decode())
+        raise
 
+
+def check_output(args):
+    try:
+        log.debug("Running command '%s'", " ".join(args))
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output.decode())
+        raise
+
+
+pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -596,7 +614,8 @@ elif options.get("with_blas") is not None:
     else:
         petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
 elif osname == "Darwin":
-    mac_blas = "/usr/local/opt/openblas"
+    brew_prefix = check_output(['brew', '--prefix'])[:-1]
+    mac_blas = brew_prefix+"/opt/openblas"
     petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
     petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
     petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
@@ -608,24 +627,6 @@ if mode == "update" and petsc_int_type_changed:
 
 if mode == "update" and petsc_complex_type_changed:
     log.warning("""Force rebuilding all packages because PETSc scalar type changed between real and complex""")
-
-
-def check_call(arguments):
-    try:
-        log.debug("Running command '%s'", " ".join(arguments))
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
-    except subprocess.CalledProcessError as e:
-        log.debug(e.output.decode())
-        raise
-
-
-def check_output(args):
-    try:
-        log.debug("Running command '%s'", " ".join(args))
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
-    except subprocess.CalledProcessError as e:
-        log.debug(e.output.decode())
-        raise
 
 
 def brew_install(name, options=None):
@@ -1406,7 +1407,7 @@ if mode == "install" or not args.update_script:
                     brew_install(package)
 
             if args.with_blas is None and mode == "install":
-                blas_location = "/usr/local/opt/openblas"
+                blas_location = brew_prefix+"/opt/openblas"
                 config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1536,7 +1537,12 @@ if mode == "install":
     if sys.version_info[:2] == (3, 9):
         source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20210113/"
         if osname == "Darwin":
-            source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+            if arch == "arm64":
+                source += " vtk-9.0.1-cp39-cp39-macosx_11_0_arm64.whl"
+            elif arch == "x86_64":
+                source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+            else:
+                log.error("unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
             source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
         log.info("Pip installing VTK for Python 3.9 to venv")
