@@ -1727,6 +1727,12 @@ Please consider updating your PETSc manually.
         install("loopy/")
         packages.remove("loopy")
 
+    try:
+        log.info("Attempting to install symengine")
+        run_pip_install(["symengine"])
+    except subprocess.CalledProcessError:
+        log.info("Symengine installation failed, this is NOT FATAL.")
+
     with pipargs("--no-deps"):
         try:
             packages.remove("PyOP2")
