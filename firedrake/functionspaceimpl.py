@@ -235,6 +235,19 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def boundary_nodes(self, sub_domain):
+        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        # Have to replicate the definition from FunctionSpace because
+        # we want to access the DM on the WithGeometry object.
+        return self._shared_data.boundary_nodes(self, sub_domain)
+
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
