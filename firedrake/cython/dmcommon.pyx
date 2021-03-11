@@ -833,11 +833,11 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
     facet_nodes = np.full(shape, -1, dtype=IntType)
 
+    get_chart(dm.dm, &pStart, &pEnd)
     label = label.encode()
     CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
-    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+    CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
-    get_chart(dm.dm, &pStart, &pEnd)
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
 
@@ -971,13 +971,14 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     :arg label_boundary: if False, don't label the boundary faces
          (they must have already been labelled)."""
     cdef:
-        PetscInt fStart, fEnd, facet
+        PetscInt fStart, fEnd, facet, pStart, pEnd
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
+    get_chart(plex.dm, &pStart, &pEnd)
     plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
 
@@ -987,7 +988,7 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
 
-    CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
+    CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
         # Not marked, must be interior
@@ -1017,7 +1018,7 @@ def cell_facet_labeling(PETSc.DM plex,
     """
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
-        PetscInt f, fstart, fend, point, marker
+        PetscInt f, fstart, fend, point, marker, pstart, pend
         PetscBool is_exterior
         const PetscInt *facets
         DMLabel exterior = NULL, subdomain = NULL
@@ -1026,13 +1027,15 @@ def cell_facet_labeling(PETSc.DM plex,
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
     nclosure = cell_closures.shape[1]
     get_height_stratum(plex.dm, 0, &cstart, &cend)
+    # FIXME: wrong for mixed element meshes
     nfacet = plex.getConeSize(cstart)
     get_height_stratum(plex.dm, 1, &fstart, &fend)
     cell_facets = np.full((cend - cstart, nfacet, 2), -1, dtype=cell_to_facets_dtype)
 
+    get_chart(plex.dm, &pstart, &pend)
     CHKERR(DMGetLabel(plex.dm, "exterior_facets".encode(), &exterior))
     CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &subdomain))
-    CHKERR(DMLabelCreateIndex(exterior, fstart, fend))
+    CHKERR(DMLabelCreateIndex(exterior, pstart, pend))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -1234,7 +1237,7 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     :returns: A numpy array (possibly empty) of the cell ids.
     """
     cdef:
-        PetscInt i, cEnd, offset, c
+        PetscInt i, j, n, offset, c, cStart, cEnd, ncells
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
@@ -1257,13 +1260,26 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     if subdomain_id not in vals:
         return np.empty(0, dtype=IntType)
 
+    n = dm.getStratumSize(CELL_SETS_LABEL, subdomain_id)
+    if n == 0:
+        return np.empty(0, dtype=IntType)
     indices = dm.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
-    cells = np.empty(indices.shape[0], dtype=IntType)
-    cEnd = indices.shape[0]
-    for i in range(cEnd):
+    ncells = 0
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    for i in range(n):
         c = indices[i]
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
-        cells[i] = offset
+        if cStart <= c < cEnd:
+            ncells += 1
+    if ncells == 0:
+        return np.empty(0, dtype=IntType)
+    cells = np.empty(ncells, dtype=IntType)
+    j = 0
+    for i in range(n):
+        c = indices[i]
+        if cStart <= c < cEnd:
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
+            cells[j] = offset
+            j += 1
     return cells
 
 
@@ -1342,7 +1358,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
     CHKERR(DMGetLabel(plex.dm, <const char*>label, &lbl_facets))
-    CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
+    CHKERR(DMLabelCreateIndex(lbl_facets, pStart, pEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=IntType)
     facet_classes = [0, 0, 0]
@@ -2492,7 +2508,7 @@ def set_adjacency_callback(PETSc.DM dm not None):
     This is used during DMPlexDistributeOverlap to determine where to
     grow the halos."""
     cdef:
-        PetscInt fStart, fEnd, p
+        PetscInt pStart, pEnd, p
         DMLabel label = NULL
         PETSc.SF sf
         PetscInt nleaves
@@ -2508,10 +2524,10 @@ def set_adjacency_callback(PETSc.DM dm not None):
         CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
         dm.createLabel("ghost_region")
         CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
-        get_chart(dm.dm, &fStart, &fEnd)
+        get_chart(dm.dm, &pStart, &pEnd)
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(label, ilocal[p], 1))
-        CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
+        CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
 
 

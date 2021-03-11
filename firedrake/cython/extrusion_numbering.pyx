@@ -393,11 +393,11 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
+    pStart, pEnd = dm.getChart()
     if label is not None:
         label = label.encode()
         CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
-        CHKERR(DMLabelCreateIndex(clabel, hStart, hEnd))
-    pStart, pEnd = dm.getChart()
+        CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     for p in range(pStart, pEnd):
         point = renumbering[p]
