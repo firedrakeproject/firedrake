@@ -221,6 +221,33 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+def count_labelled_points(PETSc.DM dm, name,
+                          PetscInt start, PetscInt end):
+    """Return the number of points in the chart [start, end)
+    that are marked by the given label.
+
+    .. note::
+
+       This destroys any index on the label.
+
+    :arg dm: The DM containing the label
+    :arg name: The label name.
+    :arg start: The smallest point to consider.
+    :arg end: One past the largest point to consider."""
+    cdef PetscInt pStart, pEnd, p, n
+    cdef PetscBool has_point
+    cdef DMLabel label
+    get_chart(dm.dm, &pStart, &pEnd)
+    CHKERR(DMGetLabel(dm.dm, name.encode(), &label))
+    CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
+    n = 0
+    for p in range(start, end):
+        CHKERR(DMLabelHasPoint(label, p, &has_point))
+        if has_point:
+            n += 1
+    CHKERR(DMLabelDestroyIndex(label))
+    return n
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
@@ -827,15 +854,14 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
     ndof = cell_nodes.shape[1]
 
-    nfacet = dm.getStratumSize(label, 1)
+    get_chart(dm.dm, &pStart, &pEnd)
+    nfacet = count_labelled_points(dm, label, fStart, fEnd)
     shape = {"interior_facets": (nfacet, ndof*2),
              "exterior_facets": (nfacet, ndof)}[label]
 
     facet_nodes = np.full(shape, -1, dtype=IntType)
 
-    get_chart(dm.dm, &pStart, &pEnd)
-    label = label.encode()
-    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
+    CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
     CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
@@ -1347,7 +1373,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     """
     cdef:
         PetscInt dim, fi, ci, nfacets, nclass, lbl_val, o, f, fStart, fEnd
-        PetscInt pStart, pEnd
+        PetscInt pStart, pEnd, i, n
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         PetscBool has_point, is_class
@@ -1357,13 +1383,13 @@ def get_facets_by_class(PETSc.DM plex, label,
     dim = get_topological_dimension(plex)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
-    CHKERR(DMGetLabel(plex.dm, <const char*>label, &lbl_facets))
-    CHKERR(DMLabelCreateIndex(lbl_facets, pStart, pEnd))
-    nfacets = plex.getStratumSize(label, 1)
+    nfacets = count_labelled_points(plex, label, fStart, fEnd)
     facets = np.empty(nfacets, dtype=IntType)
     facet_classes = [0, 0, 0]
     fi = 0
 
+    CHKERR(DMGetLabel(plex.dm, label.encode(), &lbl_facets))
+    CHKERR(DMLabelCreateIndex(lbl_facets, pStart, pEnd))
     for i, op2class in enumerate([b"pyop2_core",
                                   b"pyop2_owned",
                                   b"pyop2_ghost"]):

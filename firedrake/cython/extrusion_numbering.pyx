@@ -187,6 +187,7 @@ import cython
 import firedrake.extrusion_utils as eutils
 import numpy
 from firedrake.petsc import PETSc
+from firedrake.cython.dmcommon import count_labelled_points
 from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
@@ -384,21 +385,20 @@ def entity_layers(mesh, height, label=None):
     dm = mesh.topology_dm
 
     hStart, hEnd = dm.getHeightStratum(height)
+    pStart, pEnd = dm.getChart()
     if label is None:
         size = hEnd - hStart
     else:
-        size = dm.getStratumSize(label, 1)
+        size = count_labelled_points(dm, label, hStart, hEnd)
 
     layers = numpy.zeros((size, 2), dtype=IntType)
 
     layer_extents = mesh.layer_extents
     offset = 0
-    pStart, pEnd = dm.getChart()
-    if label is not None:
-        label = label.encode()
-        CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
-        CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    if label is not None:
+        CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
+        CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
     for p in range(pStart, pEnd):
         point = renumbering[p]
         if hStart <= point < hEnd:
