@@ -738,6 +738,7 @@ class MeshTopology(AbstractMeshTopology):
             del self._callback
             if self.comm.size > 1:
                 add_overlap()
+            dmcommon.complete_facet_labels(self.topology_dm)
 
             if reorder:
                 with timed_region("Mesh: reorder"):

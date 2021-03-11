@@ -1022,6 +1022,18 @@ def label_facets(PETSc.DM plex, label_boundary=True):
             CHKERR(DMLabelSetValue(lbl_int, facet, 1))
     CHKERR(DMLabelDestroyIndex(lbl_ext))
 
+
+def complete_facet_labels(PETSc.DM dm):
+    """Transfer label values from the facet labels to everything in
+    the closure of the facets."""
+    cdef PETSc.DMLabel label
+
+    for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
+        if dm.hasLabel(name):
+            label = dm.getLabel(name)
+            CHKERR( DMPlexLabelComplete(dm.dm, label.dmlabel) )
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def cell_facet_labeling(PETSc.DM plex,
