@@ -9,7 +9,7 @@ from matplotlib.path import Path
 from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
-from scipy.special import comb
+from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
@@ -690,9 +690,10 @@ def _bezier_calculate_points(function):
     # TODO: Revise this when FInAT gets dual evaluation
     basis = Q.finat_element.fiat_equivalent.dual_basis()
     for i in range(deg + 1):
+        coeff = factorial(deg) / (factorial(i) * factorial(deg - i))
         for j in range(deg + 1):
             x = list(basis[j].get_point_dict().keys())[0][0]
-            M[i, j] = comb(deg, i) * (x ** i) * (1 - x) ** (deg - i)
+            M[i, j] = coeff * (x ** i) * (1 - x) ** (deg - i)
 
     M_inv = np.linalg.inv(M)
     cell_node_list = Q.cell_node_list
