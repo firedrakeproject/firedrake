@@ -1,7 +1,7 @@
 import functools
 import operator
 from collections import OrderedDict, defaultdict, namedtuple
-from enum import IntEnum
+from enum import IntEnum, auto
 from itertools import chain
 
 import firedrake
@@ -26,6 +26,11 @@ class _AssemblyRank(IntEnum):
     MATRIX = 2
 
 
+class _AssemblyType(IntEnum):
+    SOLUTION = auto()
+    RESIDUAL = auto()
+
+
 _AssemblyOpts = namedtuple("_AssemblyOpts", ["diagonal",
                                              "assembly_type",
                                              "fc_params",
@@ -38,7 +43,7 @@ _AssemblyOpts = namedtuple("_AssemblyOpts", ["diagonal",
 
 @annotate_assemble
 def assemble(expr, *args, **kwargs):
-    """Evaluate expr.
+    r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
         a :class:`~slate.TensorBase` expression.
@@ -52,8 +57,8 @@ def assemble(expr, *args, **kwargs):
         specified in this argument, but a degree of 3 is requested in
         the measure, the latter will be used.
     :kwarg mat_type: (optional) string indicating how a 2-form (matrix) should be
-        assembled -- either as a monolithic matrix (``'aij'`` or ``'baij'``),
-        a block matrix (``'nest'``), or left as a :class:`.ImplicitMatrix` giving
+        assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
+        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
         matrix-free actions (``'matfree'``).  If not supplied, the default value in
         ``parameters["default_matrix_type"]`` is used.  BAIJ differs
         from AIJ in that only the block sparsity rather than the dof
@@ -62,10 +67,10 @@ def assemble(expr, *args, **kwargs):
         BAIJ matrices only make sense for non-mixed matrices.
     :kwarg sub_mat_type: (optional) string indicating the matrix type to
         use *inside* a nested block matrix.  Only makes sense if
-        ``mat_type`` is ``nest``.  May be one of ``'aij'`` or ``'baij'``.  If
+        ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
     :kwarg appctx: (optional) additional information to hang on the assembled
-        matrix if an implicit matrix is requested (mat_type "matfree").
+        matrix if an implicit matrix is requested (mat_type ``"matfree"``).
     :kwarg options_prefix: (optional) PETSc options prefix to apply to matrices.
 
     If expr is a :class:`~ufl.classes.Form` then this evaluates the corresponding
@@ -74,7 +79,7 @@ def assemble(expr, *args, **kwargs):
     for 2-forms. Similarly if it is a Slate tensor expression.
 
     If expr is an expression other than a form, it will be evaluated
-    pointwise on the :class:`.Function`s in the expression. This will
+    pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
     :class:`.FunctionSpace`.
 
@@ -90,8 +95,8 @@ def assemble(expr, *args, **kwargs):
 
     .. note::
         To reduce the cost of repeated calls to :func:`assemble`, the generated
-        :class:`op2.ParLoop` is cached on :arg expr:. This means that modifying
-        ``kwargs`` such as :arg mat_type: between repeated assembly of the same
+        parloops are cached on ``expr``. This means that modifying
+        ``kwargs`` such as ``mat_type`` between repeated assembly of the same
         form will not work.
     """
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
@@ -120,11 +125,15 @@ def assemble_form(expr, tensor=None, bcs=None, *,
     """
     if nest:
         raise ValueError("Can't use 'nest', set 'mat_type' instead")
-    if assembly_type not in ("solution", "residual"):
-        raise ValueError("assembly_type must be either 'solution' or 'residual'")
 
     # Do some setup of the arguments and wrap them in a namedtuple.
     bcs = solving._extract_bcs(bcs)
+    if assembly_type == "solution":
+        assembly_type = _AssemblyType.SOLUTION
+    elif assembly_type == "residual":
+        assembly_type = _AssemblyType.RESIDUAL
+    else:
+        raise ValueError("assembly_type must be either 'solution' or 'residual'")
     mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type,
                                            expr.arguments())
     opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters,
@@ -570,12 +579,12 @@ def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
                     raise RuntimeError("Unhandled BC case")
     elif assembly_rank == _AssemblyRank.VECTOR:
         for bc in bcs:
-            if opts.assembly_type == "solution":
+            if opts.assembly_type == _AssemblyType.SOLUTION:
                 if opts.diagonal:
                     bc.set(tensor, 1)
                 else:
                     bc.apply(tensor)
-            elif opts.assembly_type == "residual":
+            elif opts.assembly_type == _AssemblyType.RESIDUAL:
                 bc.zero(tensor)
             else:
                 raise AssertionError
