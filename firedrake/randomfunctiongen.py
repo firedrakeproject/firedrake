@@ -1,12 +1,15 @@
 """
+Overview
+========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
 and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
-**Generator**
+Generator
+---------
 
-:class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
+A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
 and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
 
@@ -25,17 +28,19 @@ Example:
     # prints:
     # [0.0075147 0.40893448 0.18390776 0.46192167 0.20055854 0.02231147 0.47424777 0.24177973 0.55937075]
 
-**BitGenerator**
+BitGenerator
+------------
 
-:class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
-A :class:`.BitGenerator` takes an additional keyword argument `comm` (=`pyop2.mpi.COMM_WORLD` by default).
-If `comm.Get_rank() > 1`, :class:`.PCG64` or :class:`.Philox` must be used, as these bit generators are known to be prallel-safe.
+A :class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
+A :class:`.BitGenerator` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
+If ``comm.Get_rank() > 1``, :class:`.PCG64` or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
 
-*PCG64*
+PCG64
+~~~~~
 
 :class:`.PCG64` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
-If `seed` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the `seed` as the following before
+If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
+To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
 .. code-block:: python3
@@ -47,7 +52,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    `inc` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset "state" after construction as:
+    ``inc`` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -56,10 +61,11 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
         state['state'] = {'state': seed, 'inc': inc}
         pcg.state = state
 
-*Philox*
+Philox
+~~~~~~
 
 :class:`.Philox` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
-If `key` keyword is not provided by the user, :class:`.Philox` computes the default key as:
+If the ``key`` keyword is not provided by the user, :class:`.Philox` computes a default key as:
 
 .. code-block:: python3
 

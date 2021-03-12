@@ -23,9 +23,9 @@ class PMGPC(PCBase):
 
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
-    PETSc PC of type MG and with options prefix 'pmg_'. The
-    relaxation to apply on every p-level is described by 'pmg_mg_levels_',
-    and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
+    PETSc PC of type MG and with options prefix ``pmg_``. The
+    relaxation to apply on every p-level is described by ``pmg_mg_levels_``,
+    and the coarse solve by ``pmg_mg_coarse_``. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
     An example chaining p-MG, GMG and AMG is given in the tests.
 
@@ -35,7 +35,7 @@ class PMGPC(PCBase):
     should be the coarsest one of the hierarchy).
 
     The default coarsen_element is to perform power-of-2 reduction
-    of the polynomial degree. For mixed systems a `NotImplementedError`
+    of the polynomial degree. For mixed systems a ``NotImplementedError``
     is raised, as I don't know how to make a sensible default for this.
     It is expected that many (most?) applications of this preconditioner
     will subclass :class:`PMGPC` to override `coarsen_element`.

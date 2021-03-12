@@ -80,7 +80,7 @@ source/teaminactive.rst: source/team.py
 	cd source; python team.py teaminactive.rst
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake '$(PWD)/../firedrake/cython/*.so'
+	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*

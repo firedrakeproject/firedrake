@@ -64,11 +64,13 @@ class Expression(ufl.Coefficient):
 
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
-        r"""
-        C string expressions have now been removed from Firedrake, so passing ``code`` into this constructor will trigger an exception.
-        :param kwargs: user-defined values that are accessible in the
-                       Expression code.  These values maybe updated by
-                       accessing the property of the same name.
+        r"""C string expressions have now been removed from Firedrake, so
+        passing ``code`` into this constructor will trigger an
+        exception.
+
+        :arg kwargs: user-defined values that are accessible in the
+             Expression code.  These values maybe updated by
+             accessing the property of the same name.
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         if code is not None:
