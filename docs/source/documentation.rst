@@ -118,3 +118,4 @@ element systems.
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
    Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>
    Linear mixed fluid-structure interaction system.<demos/linear_fluid_structure_interaction.py>
+   Mass lumping for a high order spectral wave equation.<demos/higher_order_mass_lumping.py>
