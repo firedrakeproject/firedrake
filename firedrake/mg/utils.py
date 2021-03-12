@@ -134,7 +134,9 @@ def physical_node_locations(V):
         assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
         element = element.sub_elements()[0]
     mesh = V.mesh()
-    cache = mesh._shared_data_cache["hierarchy_physical_node_locations"]
+    # This is a defaultdict, so the first time we access the key we
+    # get a fresh dict for the cache.
+    cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
     key = element
     try:
         return cache[key]

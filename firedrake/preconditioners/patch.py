@@ -183,7 +183,7 @@ def matrix_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
+        iterset = op2.Subset(iterset, [])
         mod = seq.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
@@ -275,7 +275,7 @@ def residual_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
+        iterset = op2.Subset(iterset, [])
         mod = seq.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
