@@ -20,6 +20,9 @@ from pyop2.exceptions import MapValueError, SparsityFormatError
 __all__ = ("assemble",)
 
 
+from firedrake.petsc import PETSc
+PETSc.Sys.popErrorHandler()
+
 class _AssemblyRank(IntEnum):
     SCALAR = 0
     VECTOR = 1
@@ -394,25 +397,15 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     :arg opts: :class:`_AssemblyOpts` containing the assembly options.
     :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
     """
-    # We cache the parloops on the form but keep track of the tensor. If the
-    # tensor is changed then we need to regenerate the parloop (until parloops
-    # stop depending on data).
-    # When we generate a new parloop the old one is removed from the cache to
-    # prevent leaking memory.
-    parloops = None
-    if isinstance(expr, ufl.form.Form):
-        cache_key = "parloops"
-        if cache_key in expr._cache:
-            cached_tensor, cached_parloops = expr._cache[cache_key]
-            if cached_tensor is tensor:
-                parloops = cached_parloops
-            else:
-                del expr._cache[cache_key]
+    # TODO: Add to Slate.
+    parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
+    cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
+    parloops = cached_parloops if cached_init_args == parloop_init_args else None
 
     if not parloops:
-        parloops = _make_parloops(expr, tensor, bcs, opts, assembly_rank)
-        if isinstance(expr, ufl.form.Form):
-            expr._cache[cache_key] = (tensor, parloops)
+        parloops = _make_parloops(*parloop_init_args)
+        expr._cache["parloops"] = (parloop_init_args, parloops)
+
     for parloop in parloops:
         parloop.compute()
 
@@ -595,19 +588,20 @@ def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
 
 
 @utils.known_pyop2_safe
-def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
+def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     """Create some parloops.
 
     :arg expr: The expression to be assembled.
     :arg tensor: The tensor to write to.
     :arg bcs: Iterable of boundary conditions.
-    :arg opts: :class:`_AssemblyOpts` containing the assembly options.
+    :arg diagonal: If assembling a matrix is it diagonal?
+    :arg fc_params: The form compiler parameters.
     :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
 
     :returns: A tuple of the generated :class:`pyop2.ParLoop` objects.
     """
-    if opts.fc_params:
-        form_compiler_parameters = opts.fc_params.copy()
+    if fc_params:
+        form_compiler_parameters = fc_params.copy()
     else:
         form_compiler_parameters = {}
 
@@ -633,7 +627,7 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
                                           Vrow=test.function_space(),
                                           Vcol=trial.function_space())
     elif assembly_rank == _AssemblyRank.VECTOR:
-        if opts.diagonal:
+        if diagonal:
             # actually a 2-form but throw away the trial space
             test, _ = expr.arguments()
         else:
@@ -647,11 +641,11 @@ def _make_parloops(expr, tensor, bcs, opts, assembly_rank):
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
-        if opts.diagonal:
+        if diagonal:
             raise NotImplementedError("Diagonal + slate not supported")
         kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
     else:
-        kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=opts.diagonal)
+        kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
