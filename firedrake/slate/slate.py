@@ -115,6 +115,10 @@ class TensorBase(object, metaclass=ABCMeta):
 
     _id = count()
 
+    def __init__(self, *_):
+        # A cache to stash results in. Mirrors :class:`ufl.form.Form`.
+        self._cache = {}
+
     @cached_property
     def id(self):
         return next(TensorBase._id)

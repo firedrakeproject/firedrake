@@ -20,9 +20,6 @@ from pyop2.exceptions import MapValueError, SparsityFormatError
 __all__ = ("assemble",)
 
 
-from firedrake.petsc import PETSc
-PETSc.Sys.popErrorHandler()
-
 class _AssemblyRank(IntEnum):
     SCALAR = 0
     VECTOR = 1
@@ -116,7 +113,7 @@ def assemble_form(expr, tensor=None, bcs=None, *,
                   form_compiler_parameters=None,
                   mat_type=None,
                   sub_mat_type=None,
-                  appctx=None,
+                  appctx={},
                   options_prefix=None,
                   nest=None):
     """Assemble an expression.
@@ -175,8 +172,7 @@ def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
 
 
 def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
-                             mat_type=None, sub_mat_type=None,
-                             diagonal=False):
+                             mat_type=None, sub_mat_type=None, diagonal=False):
     r"""Create a callable object than be used to assemble expr into a tensor.
 
     This is really only designed to be used inside residual and
@@ -189,10 +185,13 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
     """
     if tensor is None:
         raise ValueError("Have to provide tensor to write to")
-    return functools.partial(assemble, expr, tensor, bcs,
+    return functools.partial(assemble, expr,
+                             tensor=tensor,
+                             bcs=bcs,
                              form_compiler_parameters=form_compiler_parameters,
                              mat_type=mat_type,
                              sub_mat_type=sub_mat_type,
+                             diagonal=diagonal,
                              assembly_type="residual")
 
 
@@ -397,7 +396,6 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     :arg opts: :class:`_AssemblyOpts` containing the assembly options.
     :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
     """
-    # TODO: Add to Slate.
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
     parloops = cached_parloops if cached_init_args == parloop_init_args else None
