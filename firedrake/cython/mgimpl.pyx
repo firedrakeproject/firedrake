@@ -110,7 +110,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
     cdef:
         np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
         np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
-        PetscInt i, j, k, node, layer, layers
+        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
