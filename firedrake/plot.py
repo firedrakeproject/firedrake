@@ -1,6 +1,7 @@
 import enum
 import math
 import numpy as np
+import numpy.random as randomgen
 import matplotlib.pyplot as plt
 import matplotlib.colors
 import matplotlib.patches
@@ -559,8 +560,6 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`
     """
-    import randomgen
-
     if function.ufl_shape != (2,):
         raise ValueError("Streamplot only defined for 2D vector fields!")
 
@@ -595,7 +594,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     start_points = np.vstack((X.ravel(), Y.ravel())).T
 
     # Randomly shuffle the start points
-    generator = randomgen.MT19937(seed).generator
+    generator = randomgen.Generator(randomgen.MT19937(seed))
     for x in generator.permutation(np.array(start_points)):
         streamplotter.add_streamline(x)
 

@@ -5,7 +5,6 @@ pytest-xdist
 ipython
 matplotlib
 pylint
-randomgen==1.16.4
 vtk==9.0.1
 pkgconfig
 cached_property
