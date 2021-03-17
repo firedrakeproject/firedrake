@@ -65,13 +65,12 @@ def test_replay(op, order):
             assert np.isclose(rf_s(t_orig), assemble(f(zero)*dx))
             assert np.isclose(rf_t(s_orig), assemble(f(zero)*dx))
         elif op == 'imul':
-            if order == 1:
-                pytest.xfail("""
-                Augmented multiplication is a pointwise operation,
-                meaning it is not the same as multiplying the field.
-                """)
-            assert np.isclose(rf_s(t_orig), assemble(f(t_orig**2)*dx))
-            assert np.isclose(rf_t(s_orig), assemble(f(s_orig**2)*dx))
+            ss = s_orig.copy(deepcopy=True)
+            ss *= ss
+            tt = t_orig.copy(deepcopy=True)
+            tt *= tt
+            assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
+            assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
         elif op == 'idiv':
             one = Constant(1.0, domain=mesh)
             assert np.isclose(rf_s(t_orig), assemble(f(one)*dx))
