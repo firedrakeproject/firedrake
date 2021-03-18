@@ -8,12 +8,17 @@ def op(request):
     return request.param
 
 
-@pytest.fixture(params=[1, 2, 3])
+@pytest.fixture(params=[1, 2])
 def order(request):
     return request.param
 
 
-def test_replay(op, order):
+@pytest.fixture(params=[2, -1])
+def power(request):
+    return request.param
+
+
+def test_replay(op, order, power):
     """
     Given source and target functions of some `order`,
     verify that replaying the tape associated with the
@@ -45,7 +50,7 @@ def test_replay(op, order):
         raise ValueError("Operator '{:s}' not recognised".format(op))
 
     # Construct some nontrivial reduced functional
-    f = lambda X: X**2
+    f = lambda X: X**power
     J = assemble(f(t)*dx)
     rf_s = ReducedFunctional(J, control_s)
     rf_t = ReducedFunctional(J, control_t)
@@ -57,24 +62,22 @@ def test_replay(op, order):
         assert np.isclose(rf_t(t_orig), rf_t(t_orig))
 
         # Check for consistency with different input
+        ss = s_orig.copy(deepcopy=True)
+        tt = t_orig.copy(deepcopy=True)
         if op == 'iadd':
-            assert np.isclose(rf_s(t_orig), assemble(f(2*t_orig)*dx))
-            assert np.isclose(rf_t(s_orig), assemble(f(2*s_orig)*dx))
+            ss += ss
+            tt += tt
         elif op == 'isub':
-            zero = Constant(0.0, domain=mesh)
-            assert np.isclose(rf_s(t_orig), assemble(f(zero)*dx))
-            assert np.isclose(rf_t(s_orig), assemble(f(zero)*dx))
+            ss -= ss
+            tt -= tt
         elif op == 'imul':
-            ss = s_orig.copy(deepcopy=True)
             ss *= ss
-            tt = t_orig.copy(deepcopy=True)
             tt *= tt
-            assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
-            assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
         elif op == 'idiv':
-            one = Constant(1.0, domain=mesh)
-            assert np.isclose(rf_s(t_orig), assemble(f(one)*dx))
-            assert np.isclose(rf_t(s_orig), assemble(f(one)*dx))
+            ss /= ss
+            tt /= tt
+        assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
+        assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
 
     # Clear tape
     tape = get_working_tape()
