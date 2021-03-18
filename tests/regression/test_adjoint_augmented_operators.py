@@ -1,6 +1,23 @@
 from firedrake import *
-from firedrake_adjoint import *
 import pytest
+from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, pause_annotation
+
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_exit_annotation():
+    yield
+    # Since importing firedrake_adjoint modifies a global variable, we need to
+    # pause annotations at the end of the module
+    annotate = annotate_tape()
+    if annotate:
+        pause_annotation()
 
 
 @pytest.fixture(params=['iadd', 'isub', 'imul', 'idiv'])
@@ -18,6 +35,7 @@ def power(request):
     return request.param
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_replay(op, order, power):
     """
     Given source and target functions of some `order`,
@@ -25,6 +43,7 @@ def test_replay(op, order, power):
     augmented operators +=, -=, *= and /= gives the same
     result as a hand derivation.
     """
+    from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(4, 4)
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", order)
@@ -78,7 +97,3 @@ def test_replay(op, order, power):
             tt /= tt
         assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
         assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
-
-    # Clear tape
-    tape = get_working_tape()
-    tape.clear_tape()
