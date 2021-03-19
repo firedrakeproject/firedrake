@@ -227,6 +227,8 @@ honoured.""",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
+    parser.add_argument("--use-existing-spack", action="store_true",
+                        help="Use an existing (and active) Spack installation instead of letting us build it for you.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--minimal-petsc", action="store_true",
                        help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
@@ -766,6 +768,22 @@ def git_update(name, url=None):
         check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
+
+
+def install_spack():
+    git_clone("https://github.com/spack/spack.git@develop")
+
+
+def run_spack(args):
+    if args.use_existing_spack:
+        spack = "spack"
+    else:
+        spack = f"{firedrake_env}/src/spack/bin/spack"
+    check_call([spack] + args)
+
+
+def run_spack_install(args):
+    run_spack(["install"] + args)
 
 
 def run_pip(args):
@@ -1526,6 +1544,15 @@ if mode == "install":
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
+
+    if args.use_existing_spack:
+        try:
+            check_call(["spack", "--version"])
+        except:
+            quit("--use-existing-spack is specified but we cannot find it on your "
+                "PATH. Please check that your install works properly.")
+    else:
+        install_spack()
 
     # Pre-install requested packages
     if args.pip_packages is not None:
