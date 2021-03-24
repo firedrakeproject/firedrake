@@ -144,10 +144,10 @@ def expr(request, A, A2, A3, f, f2):
 
 
 def test_new_slateoptpass(expr):
-        print("Test is running for expresion " + str(expr))
-        tmp = assemble(expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
-        tmp_opt = assemble(expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-        assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
+    print("Test is running for expresion " + str(expr))
+    tmp = assemble(expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    tmp_opt = assemble(expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
 
 
 def test_temporary_test_for_reallifeschur():
