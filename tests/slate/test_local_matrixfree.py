@@ -214,7 +214,7 @@ def test_temporary_test_for_reallifeschur():
         A = assemble(matfree_schur_wv)
     try:
         # Solve the system in a global only matrix-free manner
-            solve(a == L, w, bcs=bcs, solver_parameters=params)
+        solve(a == L, w, bcs=bcs, solver_parameters=params)
     except static_condensation.hybridization.CheckSchurComplement as e: 
         # NON-LOCAL matrix-free form for schur complement is delivered by the exception
         schur = e.expression
