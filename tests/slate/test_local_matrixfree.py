@@ -149,7 +149,8 @@ def test_new_slateoptpass(expr):
         tmp_opt = assemble(expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
 
-def temporary_test_for_reallifeschur():
+
+def test_temporary_test_for_reallifeschur():
     # Create a mesh
     mesh = UnitSquareMesh(6, 6)
     U = FunctionSpace(mesh, "RT", 1)
@@ -192,25 +193,35 @@ def temporary_test_for_reallifeschur():
                       'hybridization': {'ksp_type': 'cg',
                                         'pc_type': 'none',
                                         'ksp_rtol': 1e-8,
-                                        'mat_type': 'matfree'
+                                        'mat_type': 'matfree',
+                                        'local_matfree': False,
                                         'throw_the_schur': True}}
+
+    import ufl.algorithms as ufl_alg
+    f = Function(W)
+    f.assign(Constant(2))
+    A = None
+    B = None
     try:
+        # Solve the system in a local matrix-free manner
         solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
-    except Exception as e:
-        matfree_schur = e.expression.action
+    except static_condensation.hybridization.CheckSchurComplement as e:
+        # local matrix-free form for schur complement is delivered by the exception
+        matfree_schur = e.expression
         u, = matfree_schur._coefficients
-        import ufl.algorithms as ufl_alg
-        f = Function(W)
-        f.assign(Constant(2))
+        # apply the LOCAL matrix-free schur action to a known function
         matfree_schur_wv = ufl_alg.replace(matfree_schur, {u: f})
         A = assemble(matfree_schur_wv)
-        try:
+    try:
+        # Solve the system in a global only matrix-free manner
             solve(a == L, w, bcs=bcs, solver_parameters=params)
-        except Exception as e:
-            schur = e.expression.action
-            u, = schur._coefficients
-            schur_wv = ufl_alg.replace(schur, {u: f})
-            B = assemble(schur_wv)
-
-            for a,b in zip(A.dat.data, B.dat.data):
-                assert np.allclose(a,b)
+    except static_condensation.hybridization.CheckSchurComplement as e: 
+        # NON-LOCAL matrix-free form for schur complement is delivered by the exception
+        schur = e.expression
+        u, = schur._coefficients
+        # apply the NON-LOCAL matrix-free schur action to a known function
+        schur_wv = ufl_alg.replace(schur, {u: f})
+        B = assemble(schur_wv)
+        # compare local to non-local action of schur complement on a function
+    for a,b in zip(A.dat.data, B.dat.data):
+        assert np.allclose(a,b)
