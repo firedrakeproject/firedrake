@@ -105,10 +105,11 @@ def f2(dg, mymesh):
                         "A+A+A2",
                         "A+A2+A",
                         "A+A2-A",
+                        "A.inv",
                         "A*A.inv",
                         "A.inv*A",
                         "A2*A.inv",
-                        "A2.inv*A",
+                        "A.inv*A2",
                         "A2*A.inv*A",
                         "A+A-A2*A.inv*A",
                         "advection"])
@@ -127,17 +128,19 @@ def expr(request, A, A2, A3, f, f2):
         return (A-A+A2)*f
     elif request.param == "A*A.inv":
         return (A*A.inv)*f
+    elif request.param == "A.inv":
+        return (A.inv)*f
     elif request.param == "A.inv*A":
         return (A.inv*A)*f
     elif request.param == "A2*A.inv":
         return (A2*A.inv)*f
-    elif request.param == "A2.inv*A":
-        return (A2.inv*A)*f
+    elif request.param == "A.inv*A2":
+        return (A.inv*A2)*f
     elif request.param == "A2*A.inv*A":
         return (A2*A.inv*A)*f
     elif request.param == "A-A.inv*A":
         return (A-A.inv*A)*f
-    elif request.param == "A+A2*A.inv*A":
+    elif request.param == "A+A-A2*A.inv*A":
         return (A+A-A2*A.inv*A)*f
     elif request.param == "advection":
         return A3*f2
