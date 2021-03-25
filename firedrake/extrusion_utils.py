@@ -21,7 +21,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
          coordinates from.
     :arg ext_coords: a :class:`~.Function` to write the extruded
          coordinates into.
-    :arg layer_height: an equi-spaced height for each layer.
+    :arg layer_height: the height for each layer.  Either a scalar,
+         where layers will be equi-spaced at the specified height, or a
+         1D array of variable layer heights to use through the extrusion.
     :arg extrusion_type: the type of extrusion to use.  Predefined
          options are either "uniform" (creating equi-spaced layers by
          extruding in the (n+1)dth direction), "radial" (creating
@@ -46,7 +48,18 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
         raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
-    layer_height = op2.Global(1, layer_height, dtype=RealType)
+
+    layer_height = numpy.atleast_1d(numpy.array(layer_height, dtype=RealType))
+
+    if layer_height.ndim > 1:
+        raise RuntimeError('Extrusion layer height should be 1d or scalar')
+
+    if layer_height.size > 1:
+        layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
+
+    layer_heights = layer_height.size
+    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType)
+
     if kernel is not None:
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
@@ -63,11 +76,17 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data = []
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
-    data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=()))
+    data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=(layer_heights,)))
     data.append(lp.ValueArg('layer'))
     base_coord_dim = base_coords.function_space().value_size
     # Deal with tensor product cells
     adim = len(ext_shape) - 2
+
+    # handle single or variable layer heights
+    if layer_heights == 1:
+        height_var = "layer_height[0] * (layer + l)"
+    else:
+        height_var = "layer_height[layer + l]"
 
     def _get_arity_axis_inames(_base):
         return tuple(_base + str(i) for i in range(adim))
@@ -86,9 +105,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(('c', 'l'), (base_coord_dim, 2)))
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
-        ext_coords[{dd}, l, {base_coord_dim}] = layer_height[0] * (layer + l)
+        ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
         """.format(dd=', '.join(dd),
-                   base_coord_dim=base_coord_dim)
+                   base_coord_dim=base_coord_dim,
+                   hv=height_var)
         ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_uniform_extrusion", target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial':
@@ -104,9 +124,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             tt[{dd}] = tt[{dd}] + bc[{dd}] * bc[{dd}]
         end
         tt[{dd}] = sqrt(tt[{dd}])
-        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + base_coords[{dd}, c] * layer_height[0] * (layer+l) / tt[{dd}]
+        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + base_coords[{dd}, c] * ({hv}) / tt[{dd}]
         """.format(RealType=RealType,
-                   dd=', '.join(dd))
+                   dd=', '.join(dd),
+                   hv=height_var)
         ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_extrusion", target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial_hedgehog':
@@ -176,11 +197,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         end
         norm = sqrt(norm)
         norm = -norm if dot < 0 else norm
-        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * layer_height[dd] * (layer + l) / norm
+        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * ({hv}) / norm
         """.format(RealType=RealType,
                    dd=', '.join(dd),
                    _dd=', '.join(_dd),
-                   ninst=n_dict[tdim][adim])
+                   ninst=n_dict[tdim][adim],
+                   hv=height_var)
         ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_hedgehog_extrusion", target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     else:
