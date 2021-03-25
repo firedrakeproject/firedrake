@@ -9,7 +9,6 @@ from ufl import as_ufl, UFLException, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
-from pyop2.profiling import timed_function
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
 
@@ -21,6 +20,7 @@ from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.petsc import PETSc
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -371,7 +371,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         self.function_arg = val
         self._original_arg = val
 
-    @timed_function('ApplyBC')
+    @PETSc.Log.EventDecorator('ApplyBC')
     @DirichletBCMixin._ad_annotate_apply
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.

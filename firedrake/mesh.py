@@ -15,7 +15,6 @@ from firedrake.utils import IntType, RealType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
@@ -383,7 +382,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
 
-    @timed_function("CreateMesh")
+    @PETSc.Log.EventDecorator("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -642,7 +641,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
-    @timed_function("CreateMesh")
+    @PETSc.Log.EventDecorator("CreateMesh")
     def __init__(self, plex, name, reorder, distribution_parameters):
         """Half-initialise a mesh topology.
 
@@ -741,7 +740,7 @@ class MeshTopology(AbstractMeshTopology):
             dmcommon.complete_facet_labels(self.topology_dm)
 
             if reorder:
-                with timed_region("Mesh: reorder"):
+                with PETSc.Log.Event("Mesh: reorder"):
                     old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
@@ -751,7 +750,7 @@ class MeshTopology(AbstractMeshTopology):
             self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: numbering"):
+            with PETSc.Log.Event("Mesh: numbering"):
                 dmcommon.mark_entity_classes(self.topology_dm)
                 self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
                 self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
@@ -1211,7 +1210,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             del self._callback
 
             # Mark OP2 entities and derive the resulting Swarm numbering
-            with timed_region("Mesh: numbering"):
+            with PETSc.Log.Event("Mesh: numbering"):
                 dmcommon.mark_entity_classes(self.topology_dm)
                 self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
@@ -1604,7 +1603,7 @@ def make_mesh_from_coordinates(coordinates):
     return mesh
 
 
-@timed_function("CreateMesh")
+@PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1743,7 +1742,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@timed_function("CreateExtMesh")
+@PETSc.Log.EventDecorator("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
     """Build an extruded mesh from an input mesh
 

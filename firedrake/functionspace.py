@@ -7,9 +7,9 @@ backwards-compatibility, argument checking, and dispatch.
 import ufl
 
 from pyop2.utils import flatten
-from pyop2.profiling import timed_function
 
 from firedrake import functionspaceimpl as impl
+from firedrake.petsc import PETSc
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
@@ -96,7 +96,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-@timed_function("CreateFunctionSpace")
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
