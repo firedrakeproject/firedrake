@@ -184,14 +184,19 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
-    print(loopy_merged)
 
-    # loopykernel = op2.Kernel(loopy_merged, loopy_merged.name)
+    # loopykernel = op2.Kernel(loopy_merged, loopy_merged.name,
+    #                          include_dirs=BLASLAPACK_INCLUDE.split(),
+    #                          ldargs=BLASLAPACK_LIB.split(),
+    #                          opts=tsfc_parameters)
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
     code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
-    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+    loopykernel = op2.Kernel(code, loopy_merged.name,
+                             include_dirs=BLASLAPACK_INCLUDE.split(),
+                             ldargs=BLASLAPACK_LIB.split(),
+                             opts=tsfc_parameters)
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
