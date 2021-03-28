@@ -210,7 +210,7 @@ def test_temporary_test_for_reallifeschur():
         solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
     except static_condensation.hybridization.CheckSchurComplement as e:
         # local matrix-free form for schur complement is delivered by the exception
-        matfree_schur = e.expression
+        matfree_schur = e.expression.action
         u, = matfree_schur._coefficients
         # apply the LOCAL matrix-free schur action to a known function
         matfree_schur_wv = ufl_alg.replace(matfree_schur, {u: f})
@@ -220,7 +220,7 @@ def test_temporary_test_for_reallifeschur():
         solve(a == L, w, bcs=bcs, solver_parameters=params)
     except static_condensation.hybridization.CheckSchurComplement as e: 
         # NON-LOCAL matrix-free form for schur complement is delivered by the exception
-        schur = e.expression
+        schur = e.expression.action
         u, = schur._coefficients
         # apply the NON-LOCAL matrix-free schur action to a known function
         schur_wv = ufl_alg.replace(schur, {u: f})
