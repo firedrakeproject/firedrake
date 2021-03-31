@@ -14,6 +14,7 @@ import pprint
 import shlex
 from glob import iglob
 from itertools import chain
+from functools import partial
 import re
 
 osname = platform.uname().system
@@ -97,9 +98,12 @@ else:
 
 # Set up logging
 # Log to file at DEBUG level
-if ("-h" in sys.argv) or ("--help" in sys.argv):
-    # Don't log if help displayed to avoid overwriting an existing log
-    logfile = os.devnull
+infoargs = ["-h", "--help", "--install-help", "--show-dependencies", "--show-petsc-configure-options"]
+for arg in infoargs:
+    if arg in sys.argv:
+        # Don't log if help or info displayed to avoid overwriting an existing log
+        logfile = os.devnull
+        break
 else:
     logfile = os.path.join(logfile_directory, 'firedrake-%s.log' % mode)
 logging.basicConfig(level=logging.DEBUG,
@@ -194,9 +198,8 @@ def resolve_doi_branches(doi):
 
 
 if mode == "install":
-    # Handle command line arguments.
-    parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
-                            epilog="""The install process has three steps.
+    help_description = "Install firedrake and its dependencies."
+    help_epilog = """The install process has three steps.
 
 1. Any required system packages are installed using brew (MacOS) or apt (Ubuntu
    and similar Linux systems). On a Linux system without apt, the installation
@@ -214,120 +217,12 @@ parameter given to --venv-name) and installs inside that venv.
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
 in the PETSC_CONFIGURE_OPTIONS environment variable will be
-honoured.""",
-                            formatter_class=RawDescriptionHelpFormatter)
-
-    parser.add_argument("--slepc", action="store_true",
-                        help="Install SLEPc along with PETSc.")
-    parser.add_argument("--opencascade", action="store_true",
-                        help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true",
-                        help="Install TinyASM as backend for ASMPatchPC.")
-    parser.add_argument("--disable-ssh", action="store_true",
-                        help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
-    parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
-                        help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
-    parser.add_argument("--use-existing-spack", action="store_true",
-                        help="Use an existing (and active) Spack installation instead of letting us build it for you.")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--minimal-petsc", action="store_true",
-                       help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
-    group.add_argument("--with-parmetis", action="store_true",
-                       help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--honour-petsc-dir", action="store_true",
-                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
-                       default="int32", type=str,
-                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
-
-    parser.add_argument("--honour-pythonpath", action="store_true",
-                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
-    parser.add_argument("--rebuild-script", action="store_true",
-                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
-    parser.add_argument("--doi", type=str, nargs=1,
-                        help="Install a set of components matching a particular Zenodo DOI. The record should have been created with firedrake-zenodo.")
-    # Used for testing if Zenodo broke the API
-    # Tries to resolve to a known DOI and immediately exits.
-    parser.add_argument("--test-doi-resolution", action="store_true",
-                        help=argparse.SUPPRESS)
-    parser.add_argument("--package-branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
-                        help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
-    parser.add_argument("--mpicc", type=str,
-                        action="store", default=None,
-                        help="C compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
-    parser.add_argument("--mpicxx", type=str,
-                        action="store", default=None,
-                        help="C++ compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
-    parser.add_argument("--mpif90", type=str,
-                        action="store", default=None,
-                        help="Fortran compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
-    parser.add_argument("--mpiexec", type=str,
-                        action="store", default=None,
-                        help="MPI launcher. If not set, MPICH will be downloaded and used.")
-    parser.add_argument("--show-petsc-configure-options", action="store_true",
-                        help="Print out the configure options passed to PETSc and exit")
-    parser.add_argument("--show-dependencies", action="store_true",
-                        help="Print out the package manager used and packages installed/required.")
-    parser.add_argument("--venv-name", default="firedrake",
-                        type=str, action="store",
-                        help="Name of the venv to create and the name of the install directory relative to this install script (default is 'firedrake' with directory ./firedrake)")
-    parser.add_argument("--install", action="append", dest="packages",
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
-    parser.add_argument("--pip-install", action="append", dest="pip_packages",
-                        help="Pip install additional packages into the venv")
-    parser.add_argument("--install-help", action="store_true",
-                        help="Provide information on packages which can be installed using shortcut names.")
-    parser.add_argument("--cache-dir", type=str,
-                        action="store",
-                        help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
-    parser.add_argument("--complex", action="store_true",
-                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
-    parser.add_argument("--documentation-dependencies", action="store_true",
-                        help="Install the dependencies required to build the documentation")
-    parser.add_argument("--remove-build-files", action="store_true",
-                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
-                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
-
-    args = parser.parse_args()
-
-    # If the user has set any MPI info, they must set them all
-    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
-        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
-            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
-            sys.exit(1)
-
-    if args.package_branch:
-        branches = {package.lower(): branch for package, branch in args.package_branch}
-    if args.test_doi_resolution:
-        actual = resolve_doi_branches("10.5281/zenodo.1322546")
-        expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
-                  'finat': 'aa74fd499304c8363a4520555fd62ef21e8e5e1f',
-                  'fiat': '184601a46c24fb5cbf8fd7961d22b16dd26890e7',
-                  'firedrake': '6a30b64da01eb587dcc0e04e8e6b84fe4839bdb7',
-                  'petsc': '413f72f04f5cb0a010c85e03ed029573ff6d4c63',
-                  'petsc4py': 'ac2690070a80211dfdbab04634bdb3496c14ca0a',
-                  'tsfc': 'fe9973eaacaa205fd491cd1cc9b3743b93a3d076',
-                  'ufl': 'c5eb7fbe89c1091132479c081e6fa9c182191dcc',
-                  'pyop2': '741a21ba9a62cb67c0aa300a2e199436ea8cb61c'}
-        if actual != expect:
-            log.error("Unable to resolve DOI correctly.")
-            log.error("You'll need to figure out how Zenodo have changed their API.")
-            sys.exit(1)
-        else:
-            log.info("DOI resolution test passed.")
-            sys.exit(0)
-    if args.doi:
-        branches = resolve_doi_branches(args.doi[0])
-
-    args.prefix = False  # Disabled as untested
-    args.packages = args.packages or []
-
-    config = FiredrakeConfiguration(args)
+honoured."""
+    config = FiredrakeConfiguration()
 else:
-    # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
+    # mode == "update"
+    help_description = "Update this firedrake install to the latest versions of all packages."
+    help_epilog = None
     try:
         with open(os.path.join(os.environ["VIRTUAL_ENV"],
                                ".configuration.json"), "r") as f:
@@ -341,77 +236,203 @@ else:
         if config is None:
             raise InstallError("Failed to find existing Firedrake configuration")
 
-    parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
-                            formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument("--no-update-script", action="store_false", dest="update_script",
-                        help="Do not update script before updating Firedrake.")
-    parser.add_argument("--rebuild", action="store_true",
-                        help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
-    parser.add_argument("--rebuild-script", action="store_true",
+
+# Handle command line arguments.
+parser = ArgumentParser(description=help_description,
+                        epilog=help_epilog,
+                        formatter_class=RawDescriptionHelpFormatter)
+
+# Install options
+parser.add_argument("--tinyasm",
+                    action="store_true",
+                    default=config["options"].get("tinyasm", False),
+                    help="Install TinyASM as backend for ASMPatchPC.")
+parser.add_argument("--honour-pythonpath",
+                    action="store_true",
+                    default=config["options"].get("honour_pythonpath", False),
+                    help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
+parser.add_argument("--package-branch", type=str,
+                    nargs=2,
+                    action="append",
+                    metavar=("PACKAGE", "BRANCH"),
+                    help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
+parser.add_argument("--verbose", "-v",
+                    action="store_true",
+                    help="Produce more verbose debugging output.")
+parser.add_argument("--show-dependencies",
+                    action="store_true",
+                    help="Print out the package manager used and packages installed/required.")
+parser.add_argument("--install",
+                    action="append",
+                    dest="packages",
+                    help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install-help.")
+parser.add_argument("--pip-install",
+                    action="append",
+                    dest="pip_packages",
+                    help="Pip install additional packages into the venv")
+parser.add_argument("--install-help",
+                    action="store_true",
+                    help="Provide information on packages which can be installed using shortcut names.")
+parser.add_argument("--cache-dir",
+                    type=str,
+                    action="store",
+                    help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
+parser.add_argument("--documentation-dependencies",
+                    action="store_true",
+                    help="Install the dependencies required to build the documentation")
+# PETSc options
+parser.add_argument("--honour-petsc-dir",
+                    action="store_true",
+                    help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+parser.add_argument("--minimal-petsc",
+                    action="store_true",
+                    help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
+parser.add_argument("--slepc",
+                    action="store_true",
+                    default=config["options"].get("slepc", False),
+                    help="Install SLEPc along with PETSc.")
+parser.add_argument("--opencascade",
+                    action="store_true",
+                    default=config["options"].get("opencascade", False),
+                    help="Install OpenCASCADE for CAD integration.")
+parser.add_argument("--show-petsc-configure-options",
+                    action="store_true",
+                    help="Print out the configure options passed to PETSc and exit")
+parser.add_argument("--remove-build-files",
+                    action="store_true",
+                    help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
+parser.add_argument("--with-blas",
+                    default=config["options"].get("with_blas"),
+                    help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+parser.add_argument("--with-parmetis",
+                    action="store_true",
+                    help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
+parser.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                    default="int32", type=str,
+                    help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+# Complex install group
+complex_group = parser.add_mutually_exclusive_group()
+complex_group.add_argument("--complex",
+                           action="store_true",
+                           help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
+complex_group.add_argument("--real",
+                           action="store_true",
+                           help="Updates to the real version of Firedrake; rebuilds PETSc in real mode.")
+
+
+# Some options are exclusive to install or update mode:
+if mode == "install":
+    parser.add_argument("--disable-ssh",
+                        action="store_true",
+                        help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
+    parser.add_argument("--no-package-manager",
+                        action='store_false',
+                        dest="package_manager",
+                        help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
+    parser.add_argument("--use-existing-spack",
+                        action="store_true",
+                        help="Use an existing (and active) Spack installation instead of letting us build it for you.")
+    # MPI options
+    parser.add_argument("--mpicc",
+                        type=str,
+                        action="store",
+                        default=None,
+                        help="C compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpicxx",
+                        type=str,
+                        action="store",
+                        default=None,
+                        help="C++ compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpif90",
+                        type=str,
+                        action="store",
+                        default=None,
+                        help="Fortran compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpiexec",
+                        type=str,
+                        action="store",
+                        default=None,
+                        help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--venv-name",
+                        default="firedrake",
+                        type=str,
+                        action="store",
+                        help="Name of the venv to create and the name of the install directory relative to this install script (default is 'firedrake' with directory ./firedrake)")
+    # Zenodo options
+    parser.add_argument("--doi",
+                        type=str,
+                        nargs=1,
+                        help="Install a set of components matching a particular Zenodo DOI. The record should have been created with firedrake-zenodo.")
+    # Used for testing if Zenodo broke the API
+    # Tries to resolve to a known DOI and immediately exits.
+    parser.add_argument("--test-doi-resolution",
+                        action="store_true",
+                        help=argparse.SUPPRESS)
+else:
+    parser.add_argument("--rebuild-script",
+                        action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
-    parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
-                        help="Install SLEPc along with PETSc")
-    parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
-                        help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
-                        help="Install TinyASM as backend for ASMPatchPC.")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--honour-petsc-dir", action="store_true",
-                       default=config["options"].get("honour_petsc_dir", False),
-                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
-                       default="int32", type=str,
-                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
-
-    parser.add_argument("--honour-pythonpath", action="store_true", default=config["options"].get("honour_pythonpath", False),
-                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
-    parser.add_argument("--clean", action='store_true',
+    parser.add_argument("--no-update-script",
+                        action="store_false",
+                        dest="update_script",
+                        help="Do not update script before updating Firedrake.")
+    parser.add_argument("--rebuild",
+                        action="store_true",
+                        help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--clean",
+                        action='store_true',
                         help="Delete any remnants of obsolete Firedrake components.")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
-    parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install-help.")
-    parser.add_argument("--pip-install", action="append", dest="pip_packages",
-                        help="Pip install additional packages into the venv")
-    parser.add_argument("--install-help", action="store_true",
-                        help="Provide information on packages which can be installed using shortcut names.")
-    parser.add_argument("--cache-dir", type=str,
-                        action="store", default=config["options"].get("cache_dir", ""),
-                        help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
-    complex_group = parser.add_mutually_exclusive_group()
-    complex_group.add_argument("--complex", action="store_true",
-                               help="Updates to the complex version of Firedrake; rebuilds PETSc in complex mode.")
-    complex_group.add_argument("--real", action="store_true",
-                               help="Updates to the real version of Firedrake; rebuilds PETSc in real mode.")
-    parser.add_argument("--documentation-dependencies", action="store_true",
-                        help="Install the dependencies required to build the documentation")
-    parser.add_argument("--show-dependencies", action="store_true",
-                        help="Print out the package manager used and packages installed/required.")
-    parser.add_argument("--remove-build-files", action="store_true",
-                        help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
-                        help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
 
-    args = parser.parse_args()
+args = parser.parse_args()
 
-    args.packages = list(set(args.packages))  # remove duplicates
+# If the user has set any MPI info, they must set them all
+if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
+    if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
+        log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
+        sys.exit(1)
 
-    petsc_int_type_changed = False
-    if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
-        petsc_int_type_changed = True
-        args.rebuild = True
-    if config["options"].get("with_blas") is not None and \
-       config["options"].get("with_blas") != args.with_blas:
-        args.rebuild = True
+if args.package_branch:
+    branches = {package.lower(): branch for package, branch in args.package_branch}
+if args.test_doi_resolution:
+    actual = resolve_doi_branches("10.5281/zenodo.1322546")
+    expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
+              'finat': 'aa74fd499304c8363a4520555fd62ef21e8e5e1f',
+              'fiat': '184601a46c24fb5cbf8fd7961d22b16dd26890e7',
+              'firedrake': '6a30b64da01eb587dcc0e04e8e6b84fe4839bdb7',
+              'petsc': '413f72f04f5cb0a010c85e03ed029573ff6d4c63',
+              'petsc4py': 'ac2690070a80211dfdbab04634bdb3496c14ca0a',
+              'tsfc': 'fe9973eaacaa205fd491cd1cc9b3743b93a3d076',
+              'ufl': 'c5eb7fbe89c1091132479c081e6fa9c182191dcc',
+              'pyop2': '741a21ba9a62cb67c0aa300a2e199436ea8cb61c'}
+    if actual != expect:
+        log.error("Unable to resolve DOI correctly.")
+        log.error("You'll need to figure out how Zenodo have changed their API.")
+        sys.exit(1)
+    else:
+        log.info("DOI resolution test passed.")
+        sys.exit(0)
+if args.doi:
+    branches = resolve_doi_branches(args.doi[0])
 
-    petsc_complex_type_changed = False
-    previously_complex = config["options"].get("complex", False)
-    now_complex = not args.real and (args.complex or previously_complex)
-    if previously_complex != now_complex:
-        petsc_complex_type_changed = True
-        args.rebuild = True
-    args.complex = now_complex
+petsc_int_type_changed = False
+if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
+    petsc_int_type_changed = True
+    args.rebuild = True
+if config["options"].get("with_blas") is not None and \
+   config["options"].get("with_blas") != args.with_blas:
+    args.rebuild = True
 
-    config = deep_update(config, FiredrakeConfiguration(args))
+petsc_complex_type_changed = False
+previously_complex = config["options"].get("complex", False)
+now_complex = not args.real and (args.complex or previously_complex)
+if previously_complex != now_complex:
+    petsc_complex_type_changed = True
+    args.rebuild = True
+args.complex = now_complex
+
+args.packages = list(set(args.packages)) if args.packages else []  # remove duplicates
+
+config = deep_update(config, FiredrakeConfiguration(args))
 
 if args.install_help:
     help_string = """
@@ -516,22 +537,19 @@ class pipargs(object):
         pipinstall = self.save
 
 
-def check_call(arguments):
+def check_call(arguments, logcall=True):
     try:
         log.debug("Running command '%s'", " ".join(arguments))
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
+        output = subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode()
+        if logcall:
+            log.debug(output)
+        return output
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
         raise
 
 
-def check_output(args):
-    try:
-        log.debug("Running command '%s'", " ".join(args))
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
-    except subprocess.CalledProcessError as e:
-        log.debug(e.output.decode())
-        raise
+check_output = partial(check_call, logcall=False)
 
 
 pyinstall = [python, "setup.py", "install"]
@@ -574,6 +592,9 @@ if not options["minimal_petsc"]:
     if options.get("with_parmetis", None):
         # Non-free license.
         petsc_options.add("--download-parmetis")
+elif options.get("with_parmetis", None):
+    petsc_options.add("--download-metis")
+    petsc_options.add("--download-parmetis")
 
 if options["petsc_int_type"] == "int32":
     # Sparse direct solver
@@ -797,10 +818,6 @@ def run_pip_install(pipargs):
     with environment(**blas):
         pipargs = ["-vvv"] + pipargs
         check_call(pipinstall + pipargs)
-
-
-def run_cmd(args):
-    check_call(args)
 
 
 def get_requirements(reqfname):
@@ -1242,7 +1259,7 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if args.rebuild_script:
+if (mode == "update") and (args.rebuild_script):
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
 
     build_update_script()
@@ -1330,6 +1347,8 @@ if mode == "install" or not args.update_script:
                              "cmake",
                              "libtool",
                              "boost"]
+        if args.opencascade:
+            required_packages.append("opencascade")
         if args.with_blas is None and mode == "install":
             required_packages.append("openblas")
     elif osname == "Linux":
