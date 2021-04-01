@@ -15,6 +15,9 @@ from pyop2.datatypes import ScalarType
 
 __all__ = ("VolumePotential",)
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class VolumePotential(AbstractExternalOperator):
     r"""
@@ -68,18 +71,40 @@ class VolumePotential(AbstractExternalOperator):
     _external_operator_type = 'GLOBAL'
 
     def __init__(self, *operands, **kwargs):
-        self.operands = operands
-        self.kwargs = kwargs
-        AbstractExternalOperator.__init__(self, operands[0], **kwargs)
-
-
-        # Build a broken version of input function space
         fs = kwargs["function_space"]
         fsdg = FunctionSpace(fs.mesh(), "DG", fs.ufl_element().degree())
 
-        self.evaluator_kwargs = kwargs.copy()
-        self.evaluator_kwargs["function_space"] = fsdg
-        
+        AbstractExternalOperator.__init__(self, operands[0], **kwargs)
+
+        op_data = kwargs["operator_data"]
+
+        if isinstance(op_data, dict):
+            evaluator_kwargs = kwargs.copy()
+            evaluator_kwargs["function_space"] = fsdg
+
+            required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
+                             'm_order', 'dataset_filename')
+            optional_keys = ('grp_factory', 'q_order', 'force_direct_evaluation',
+                             'fmm_kwargs', 'root_extent',
+                             'table_compute_method', 'table_kwargs')
+            permissible_keys = required_keys + optional_keys
+            if not all(key in op_data for key in required_keys):
+                raise ValueError("operator_data is missing one of the required keys: %s" % str(required_keys))
+            if not all(key in permissible_keys for key in op_data):
+                raise ValueError("operator_data contains an unexpected key. All "
+                                 "keys must be one of %s." % (permissible_keys,))
+
+            self._evaluator = VolumePotentialEvaluator(self, *operands, **evaluator_kwargs)
+            kwargs["operator_data"] = self._evaluator
+            self.operator_data = self._evaluator
+        elif isinstance(op_data, VolumePotentialEvaluator):
+            self._evaluator = op_data
+        else:
+            1/0
+
+        self.operands = operands
+        self.kwargs = kwargs
+            
         # Validate input
         # print(len(self.operands), self.derivatives)
         # assert self.derivatives == (0,), \
@@ -92,25 +117,11 @@ class VolumePotential(AbstractExternalOperator):
         # if operand.function_space().shape != tuple():
         #     raise ValueError(":arg:`operand` must be a function with shape (),"
         #                      " not %s." % operand.function_space().shape)
-        operator_data = kwargs["operator_data"]
-        assert isinstance(operator_data, dict)
-        required_keys = ('kernel', 'kernel_type', 'cl_ctx', 'queue', 'nlevels',
-                         'm_order', 'dataset_filename')
-        optional_keys = ('grp_factory', 'q_order', 'force_direct_evaluation',
-                         'fmm_kwargs', 'root_extent',
-                         'table_compute_method', 'table_kwargs',
-                         )
-        permissible_keys = required_keys + optional_keys
-        if not all(key in operator_data for key in required_keys):
-            raise ValueError("operator_data is missing one of the required "
-                             "keys: %s" % required_keys)
-        if not all(key in permissible_keys for key in operator_data):
-            raise ValueError("operator_data contains an unexpected key. All "
-                             "keys must be one of %s." % (permissible_keys,))
         
-    @cached_property
-    def _evaluator(self):
-        return VolumePotentialEvaluator(self, *self.operands, **self.evaluator_kwargs)
+    # @cached_property
+    # def _evaluator(self):
+    #     print("ARGH making new VolumePotentialEvaluator ************************")
+    #     return VolumePotentialEvaluator(self, *self.operands, **self.evaluator_kwargs)
 
     def _evaluate(self, continuity_tolerance=None):
         1/0
@@ -136,6 +147,7 @@ class VolumePotential(AbstractExternalOperator):
     
 class VolumePotentialEvaluator:
     def __init__(self, vp, *operands, **kwargs):
+        print("Gee, building an evaluator!")
         self.vp = vp
         operand = operands[0]
 
@@ -265,6 +277,8 @@ class VolumePotentialEvaluator:
         self.fd_pot = Function(self.dg_function_space)
         self.fd_pot_cg = Function(vp.function_space())
 
+        print("Swell, done building the evaluator")
+
 
     def _evaluate(self, continuity_tolerance=None):
         """
@@ -308,7 +322,7 @@ class VolumePotentialEvaluator:
         # pass flattened operand into volumential interpolator
         from volumential.interpolation import interpolate_from_meshmode
         volumential_src_vals = \
-            interpolate_from_meshmode(self.queue,
+            interpolate_from_meshmode(self.actx,
                                       meshmode_src_vals,
                                       self.to_volumential_lookup,
                                       order="user")  # user order is more intuitive
@@ -366,7 +380,7 @@ class VolumePotentialEvaluator:
             order = "user"
         else:
             order = "tree"
-        meshmode_pot_vals = interpolate_to_meshmode(self.queue,
+        meshmode_pot_vals = interpolate_to_meshmode(self.actx,
                                                     pot,
                                                     self.from_volumential_lookup,
                                                     order=order)
