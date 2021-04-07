@@ -81,9 +81,10 @@ _deprecated_attributes = ['RandomGenerator', ]
 
 __all__ = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)] + _deprecated_attributes
 
-
-_known_attributes = ['beta', 'binomial', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf', 'Generator', 'RandomState', 'SeedSequence', 'MT19937', 'Philox', 'PCG64', 'SFC64', 'default_rng', 'BitGenerator']
-_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+# >>> [name for name, _ in inspect.getmembers(numpy.random) if not name.startswith('_')]
+_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+# >>> [name for name, _ in inspect.getmembers(numpy.random.Generator) if not name.startswith('_')]
+_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 
 
 def __getattr__(module_attr):
@@ -240,7 +241,7 @@ def __getattr__(module_attr):
                 continue
             elif class_attr in ['bit_generator', ]:
                 continue
-            elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation']:
+            elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation', 'permuted']:
                 # These methods are not to be used with V.
                 # class_attr is mutable, so we have to wrap func with
                 # another function to lock the value of class_attr
@@ -344,7 +345,7 @@ def __getattr__(module_attr):
                  "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
         _Wrapper = type(module_attr, (_Base,), _dict)
         return _Wrapper
-    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'default_rng', 'get_state', 'seed', 'set_state']:
+    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'bit_generator', 'default_rng', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
         return getattr(randomgen, module_attr)
     elif not module_attr.startswith('_'):
         # module_attr not in _known_attributes + _deprecated_attributes
