@@ -18,7 +18,7 @@ def expected(mesh):
     if mesh.geometric_dimension() == 2:
         return [5, 5, 5]
     elif mesh.geometric_dimension() == 3:
-        return [5, 6, 6]
+        return [6, 6, 6]
 
 
 def test_p_independence(mesh, expected):
@@ -34,6 +34,8 @@ def test_p_independence(mesh, expected):
         L = inner(Constant(1), v)*dx
 
         subs = ("on_boundary",)
+        if mesh.topological_dimension() == 3:
+            subs += ("top", "bottom")
         bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
 
         uh = Function(V)
