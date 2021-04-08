@@ -199,7 +199,7 @@ class PMGBase(PCSNESBase):
         def coarsen_form(form, Nf, Nc, replace_d):
             # Coarsen a form, by replacing the solution, test and trial functions, and
             # reconstructing each integral with a corsened quadrature degree.
-            # If form is None, then return form.
+            # If form is not a Form, then return form.
             return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
                          for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
 
@@ -301,21 +301,21 @@ class PMGBase(PCSNESBase):
         if mat_type == "matfree":
             I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
         elif mat_type == "aij":
-            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
+            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs))
         else:
             raise ValueError("Unknown matrix type")
         return I
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mattype, True, False)
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
         return I, None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mattype, False, False)
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
 
     def view(self, pc, viewer=None):
         if viewer is None:
@@ -741,6 +741,48 @@ class StandaloneInterpolationMatrix(object):
         prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         return prolong_kernel, restrict_kernel
+
+    @staticmethod
+    def get_line_element(V):
+        # Return the corresponding Line element for CG / DG
+        from FIAT.reference_element import UFCInterval
+        from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
+        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+        assert use_tensorproduct
+        cell = UFCInterval()
+        if family <= {"Q", "Lagrange"}:
+            if variant == "equispaced":
+                element = lagrange.Lagrange(cell, N)
+            else:
+                element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
+        elif family <= {"DQ", "Discontinuous Lagrange"}:
+            if variant == "equispaced":
+                element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
+            else:
+                element = gauss_legendre.GaussLegendre(cell, N)
+        else:
+            raise ValueError("Don't know how to get fiat element for %r" % family)
+
+        return element
+
+    @staticmethod
+    def get_line_nodes(V):
+        # Return the corresponding nodes in the Line for CG / DG
+        from FIAT.reference_element import UFCInterval
+        from FIAT import quadrature
+        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+        assert use_tensorproduct
+        cell = UFCInterval()
+        if variant == "equispaced":
+            return cell.make_points(1, 0, N+1)
+        elif family <= {"Q", "Lagrange"}:
+            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
+            return rule.get_points()
+        elif family <= {"DQ", "Discontinuous Lagrange"}:
+            rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
+            return rule.get_points()
+        else:
+            raise NotImplementedError("Don't know how to get nodes for %r" % family)
 
     @staticmethod
     def multiplicity(V):
