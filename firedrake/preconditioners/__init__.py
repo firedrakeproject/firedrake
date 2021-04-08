@@ -9,3 +9,4 @@ from firedrake.preconditioners.gtmg import *       # noqa: F401
 from firedrake.preconditioners.pmg import *        # noqa: F401
 from firedrake.preconditioners.hypre_ams import *  # noqa: F401
 from firedrake.preconditioners.hypre_ads import *  # noqa: F401
+from firedrake.preconditioners.fdm import *        # noqa: F401
