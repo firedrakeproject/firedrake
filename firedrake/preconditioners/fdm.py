@@ -600,7 +600,7 @@ class FDMPC(PCBase):
             return;
         }}
 
-        void mult_diag(PetscBLASInt m, PetscBLASInt n, 
+        void mult_diag(PetscBLASInt m, PetscBLASInt n,
                        PetscScalar *A, PetscScalar *B, PetscScalar *C){{
             for({IntType_c} j=0; j<n; j++)
                 for({IntType_c} i=0; i<m; i++)
