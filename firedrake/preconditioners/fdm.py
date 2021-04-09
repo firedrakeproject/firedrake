@@ -145,6 +145,27 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
+    @staticmethod
+    def index_bcs(x, pshape, bc, val):
+        xshape = x.shape
+        x.shape = pshape
+        if bc[0] == 1:
+            x[0, :, :] = val
+        if bc[1] == 1:
+            x[-1, :, :] = val
+        if pshape[1] > 1:
+            if bc[2] == 1:
+                x[:, 0, :] = val
+            if bc[3] == 1:
+                x[:, -1, :] = val
+        if pshape[2] > 1:
+            if bc[4] == 1:
+                x[:, :, 0] = val
+            if bc[5] == 1:
+                x[:, :, -1] = val
+        x.shape = xshape
+        return
+
     def assemble_stencil(self, A, V, Gq, Bq, N, bcflags):
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
@@ -156,25 +177,7 @@ class FDMPC(PCBase):
         ndim = V.mesh().topological_dimension()
         ncell = V.cell_node_list.shape[1]
         nx = N + 1
-
-        def index_bcs(x, bc, val):
-            xshape = x.shape
-            x.shape = (nx, nx, 1) if ndim == 2 else (nx,)*ndim
-            if bc[0] == 1:
-                x[0, :, :] = val
-            if bc[1] == 1:
-                x[-1, :, :] = val
-            if bc[2] == 1:
-                x[:, 0, :] = val
-            if bc[3] == 1:
-                x[:, -1, :] = val
-            if ndim > 2:
-                if bc[4] == 1:
-                    x[:, :, 0] = val
-                if bc[5] == 1:
-                    x[:, :, -1] = val
-            x.shape = xshape
-            return
+        pshape = ((nx,)*ndim) + ((1,)*(3-ndim))
 
         self.stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here
@@ -209,7 +212,7 @@ class FDMPC(PCBase):
 
         for e in range(nel):
             ie = lgmap.apply(lexico_cg(e))
-            index_bcs(ie, bcflags[e], -1)
+            self.index_bcs(ie, pshape, bcflags[e], -1)
             rows = ie[offdiag]
             nonzeros.setValues(rows, aones, imode)
 
@@ -235,7 +238,7 @@ class FDMPC(PCBase):
                 Pmat.setValues(row, row, aij[0], imode)
 
             # Assemble off-diagonal
-            index_bcs(ie, bcflags[e], -1)
+            self.index_bcs(ie, pshape, bcflags[e], -1)
             je = ie[graph]
             je[ondiag] = -1
             for row, cols, aij in zip(ie, je, vals):
@@ -474,7 +477,7 @@ class FDMPC(PCBase):
         #include <petscsys.h>
         #include <petscblaslapack.h>
 
-        static void kronmxv(int tflag,
+        static void kronmxv(PetscBLASInt tflag,
             PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
             PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
             PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
@@ -572,13 +575,13 @@ class FDMPC(PCBase):
         Jhex = ', '.join(map(float.hex, np.asarray(Jfdm).flatten()))
         Dhex = ', '.join(map(float.hex, np.asarray(Dfdm).flatten()))
 
-        JX = f"J+((int)bcs[{ndim-1}])*{nb}"
-        JY = f"J+((int)bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
-        JZ = f"J+((int)bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
+        JX = f"J+(({IntType_c})bcs[{ndim-1}])*{nb}"
+        JY = f"J+(({IntType_c})bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
+        JZ = f"J+(({IntType_c})bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
 
-        DX = f"D+((int)bcs[{ndim-1}])*{nb}"
-        DY = f"D+((int)bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
-        DZ = f"D+((int)bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
+        DX = f"D+(({IntType_c})bcs[{ndim-1}])*{nb}"
+        DY = f"D+(({IntType_c})bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
+        DZ = f"D+(({IntType_c})bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
 
         # FIXME I don't know how to use optional arguments here
         bcoef = "bcoef" if helm else "NULL"
@@ -591,20 +594,21 @@ class FDMPC(PCBase):
         stencil_code = f"""
         {kronmxv_code}
 
-        void mult3(int n, PetscScalar *A, PetscScalar *B, PetscScalar *C){{
+        void mult3(PetscBLASInt n, PetscScalar *A, PetscScalar *B, PetscScalar *C){{
             for({IntType_c} i=0; i<n; i++)
                 C[i] = A[i] * B[i];
             return;
         }}
 
-        void mult_diag(int m, int n, PetscScalar *A, PetscScalar *B, PetscScalar *C){{
+        void mult_diag(PetscBLASInt m, PetscBLASInt n, 
+                       PetscScalar *A, PetscScalar *B, PetscScalar *C){{
             for({IntType_c} j=0; j<n; j++)
                 for({IntType_c} i=0; i<m; i++)
                     C[i+m*j] = A[i] * B[i+m*j];
             return;
         }}
 
-        void get_basis(int dom, PetscScalar *J, PetscScalar *D, PetscScalar *B){{
+        void get_basis(PetscBLASInt dom, PetscScalar *J, PetscScalar *D, PetscScalar *B){{
             PetscScalar *basis[2] = {{J, D}};
             if(dom)
                 for({IntType_c} j=0; j<2; j++)
@@ -617,7 +621,7 @@ class FDMPC(PCBase):
             return;
         }}
 
-        void get_band(int dom1, int dom2, int dom3,
+        void get_band(PetscBLASInt dom1, PetscBLASInt dom2, PetscBLASInt dom3,
                       PetscScalar *JX, PetscScalar *DX,
                       PetscScalar *JY, PetscScalar *DY,
                       PetscScalar *JZ, PetscScalar *DZ,
@@ -680,8 +684,8 @@ class FDMPC(PCBase):
                 i3 = (j/2 == {ndim-3}) * (1 + (j%2));
                 bcj = ({IntType_c}) bcs[j/2];
                 bcj = (j%2 == 0) ? bcj % 3 : bcj / 3;
-                if(bcj > 1)
-                    get_band(i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
+                //if(bcj > 1)
+                get_band(i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
             }}
 
             return;
