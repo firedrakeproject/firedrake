@@ -1,4 +1,5 @@
 from pyop2.mpi import MPI
+from itertools import zip_longest
 
 __all__ = ("Ensemble", )
 
@@ -50,7 +51,6 @@ class Ensemble(object):
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
             if vout.getSizes() != vin.getSizes():
                 raise ValueError("Mismatching sizes")
-            vout.set(0)
             self.ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 
@@ -62,7 +62,7 @@ class Ensemble(object):
             self.ensemble_comm.Free()
             del self.ensemble_comm
 
-    def send(self, f, rank, tag=0):
+    def send(self, f, dest, tag=0):
         """
         Send (blocking) a function f over :attr:`ensemble_comm` to another
         ensemble rank.
@@ -71,10 +71,12 @@ class Ensemble(object):
         :arg dest: the rank to send to
         :arg tag: the tag of the message
         """
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        for dat in f.dat:
+            self.ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
 
-        raise NotImplementedError("Ensemble send not implemented")
-
-    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
+    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
         """
         Receive (blocking) a function f over :attr:`ensemble_comm` from
         another ensemble rank.
@@ -82,34 +84,41 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from
         :arg tag: the tag of the message
+        :arg statuses: MPI.Status objects (one for each of f.split() or None).
         """
-
-        raise NotImplementedError("Ensemble recv not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        if statuses is not None and len(statuses) != len(f.dat):
+            raise ValueError("Need to provide enough status objects for all parts of the Function")
+        for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
+            self.ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
 
     def isend(self, f, dest, tag=0):
         """
         Send (non-blocking) a function f over :attr:`ensemble_comm` to another
         ensemble rank.
 
-        Returns a Request object.
-
         :arg f: The a :class:`.Function` to send
         :arg dest: the rank to send to
         :arg tag: the tag of the message
+        :returns: list of MPI.Request objects (one for each of f.split()).
         """
-
-        raise NotImplementedError("Ensemble isend not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        return [self.ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
+                for dat in f.dat]
 
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
         Receive (non-blocking) a function f over :attr:`ensemble_comm` from
         another ensemble rank.
 
-        Returns a Request object.
-
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from
         :arg tag: the tag of the message
+        :returns: list of MPI.Request objects (one for each of f.split()).
         """
-
-        raise NotImplementedError("Ensemble irecv not implemented")
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+        return [self.ensemble_comm.Irecv(dat.data, source=source, tag=tag)
+                for dat in f.dat]

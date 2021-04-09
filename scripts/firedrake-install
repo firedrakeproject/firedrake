@@ -4,7 +4,6 @@ import platform
 import subprocess
 import sys
 import os
-import stat
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import argparse
@@ -17,7 +16,8 @@ from glob import iglob
 from itertools import chain
 import re
 
-osname = platform.uname()[0]
+osname = platform.uname().system
+arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
@@ -117,7 +117,12 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info < (3, 6):
+if sys.version_info >= (3, 10):
+    print("""\nCan not install Firedrake with Python 3.10 at the moment:
+Some wheels are not yet available for Python 3.10 for some required package(s).
+Please install with Python 3.9 (or an earlier version >= 3.6).""")
+    sys.exit(1)
+elif sys.version_info < (3, 6):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
 You should run firedrake-install with python3.""")
@@ -486,6 +491,18 @@ pipinstall = pip + ["install",
                     "--no-build-isolation",
                     "--no-binary", ",".join(wheel_blacklist)]
 
+if mode == "install":
+    # "petsc4py" is in `branches` when we are explicitly asking for a petsc4py
+    # branch that lives in firedrake-project/petsc4py. This happens when we do:
+    # python3 firedrake-install --doi some_old_zenodo_doi ...
+    # or:
+    # python3 firedrake-install --package-branch petsc4py some_old_branch ...
+    use_petsc4py_in_petsc = "petsc4py" not in branches
+    use_slepc4py_in_slepc = "slepc4py" not in branches
+else:
+    use_petsc4py_in_petsc = True
+    use_slepc4py_in_slepc = True
+
 
 # This context manager should be used whenever arguments should be temporarily added to pipinstall.
 class pipargs(object):
@@ -501,8 +518,25 @@ class pipargs(object):
         pipinstall = self.save
 
 
-pyinstall = [python, "setup.py", "install"]
+def check_call(arguments):
+    try:
+        log.debug("Running command '%s'", " ".join(arguments))
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output.decode())
+        raise
 
+
+def check_output(args):
+    try:
+        log.debug("Running command '%s'", " ".join(args))
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output.decode())
+        raise
+
+
+pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -584,7 +618,8 @@ elif options.get("with_blas") is not None:
     else:
         petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
 elif osname == "Darwin":
-    mac_blas = "/usr/local/opt/openblas"
+    brew_prefix = check_output(['brew', '--prefix'])[:-1]
+    mac_blas = brew_prefix+"/opt/openblas"
     petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
     petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
     petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
@@ -596,24 +631,6 @@ if mode == "update" and petsc_int_type_changed:
 
 if mode == "update" and petsc_complex_type_changed:
     log.warning("""Force rebuilding all packages because PETSc scalar type changed between real and complex""")
-
-
-def check_call(arguments):
-    try:
-        log.debug("Running command '%s'", " ".join(arguments))
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode())
-    except subprocess.CalledProcessError as e:
-        log.debug(e.output.decode())
-        raise
-
-
-def check_output(args):
-    try:
-        log.debug("Running command '%s'", " ".join(args))
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=os.environ).decode()
-    except subprocess.CalledProcessError as e:
-        log.debug(e.output.decode())
-        raise
 
 
 def brew_install(name, options=None):
@@ -670,7 +687,10 @@ def git_url(plain_url, protocol):
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
-        log.info("Using existing petsc installation\n")
+        log.info("Using existing PETSc installation\n")
+        return name
+    elif name == "petsc4py" and use_petsc4py_in_petsc:
+        log.info("Not cloning petsc4py from firedrake-project repo: using petsc4py in PETSc source tree.\n")
         return name
     log.info("Cloning %s\n" % name)
     branch = branches.get(name.lower(), branch)
@@ -820,9 +840,11 @@ def install(package):
         build_and_install_petsc()
     elif package == "slepc/":
         build_and_install_slepc()
-    elif package in ["petsc4py/", "slepc4py/"]:
+    elif package == "petsc4py/":
+        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
+    elif package == "slepc4py/":
         # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-        run_pip_install(["--ignore-installed", package])
+        run_pip_install(["--ignore-installed", get_slepc4py_dir()])
     elif package == "h5py/":
         # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
@@ -888,6 +910,15 @@ def get_petsc_dir():
     return petsc_dir, petsc_arch
 
 
+def get_petsc4py_dir():
+    if use_petsc4py_in_petsc:
+        petsc_dir, _ = get_petsc_dir()
+        # petsc4py is currently here:
+        return os.path.join(petsc_dir, "src/binding/petsc4py/")
+    else:
+        return "petsc4py/"
+
+
 def get_slepc_dir():
     petsc_dir, petsc_arch = get_petsc_dir()
     if args.honour_petsc_dir:
@@ -898,6 +929,14 @@ def get_slepc_dir():
     else:
         slepc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "slepc")
     return slepc_dir, petsc_arch
+
+
+def get_slepc4py_dir():
+    if use_slepc4py_in_slepc:
+        slepc_dir, _ = get_slepc_dir()
+        return os.path.join(slepc_dir, "src/binding/slepc4py")
+    else:
+        return "slepc4py/"
 
 
 def build_and_install_petsc():
@@ -945,7 +984,6 @@ def build_and_install_petsc():
 
 
 def build_and_install_h5py():
-    import shutil
     log.info("Installing h5py")
     # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
@@ -1135,32 +1173,22 @@ def build_and_install_slepc():
         else:
             log.info("No need to rebuild SLEPc")
 
-    log.info("Installing slepc4py.")
     url = "git+https://github.com/firedrakeproject/slepc4py.git@firedrake"
-    slepc4py_changed = slepc_changed
-    if os.path.exists("slepc4py"):
-        with directory("slepc4py"):
-            plain_url = split_requirements_url(url)[1]
-            current_remote = check_output(["git", "remote", "-v"]).split()[1]
-            proto = "https" if current_remote.startswith("https") else "ssh"
-            new_remote = git_url(plain_url, proto)
-            if new_remote != current_remote:
-                log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
-                check_call(["git", "remote", "set-url", "origin", new_remote])
-                check_call(["git", "fetch", "-p", "origin"])
-                check_call(["git", "checkout", "firedrake"])
-                slepc4py_changed = True
-        slepc4py_changed |= git_update("slepc4py")
-    else:
-        git_clone(url)
-        slepc4py_changed = True
-    if slepc4py_changed:
-        with environment(PETSC_DIR=petsc_dir,
-                         SLEPC_DIR=slepc_dir,
-                         PETSC_ARCH=petsc_arch):
-            install("slepc4py/")
-    else:
-        log.info("No need to rebuild slepc4py")
+    if not use_slepc4py_in_slepc:
+        if os.path.exists("slepc4py"):
+            with directory("slepc4py"):
+                plain_url = split_requirements_url(url)[1]
+                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                proto = "https" if current_remote.startswith("https") else "ssh"
+                new_remote = git_url(plain_url, proto)
+                if new_remote != current_remote:
+                    log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
+                    check_call(["git", "remote", "set-url", "origin", new_remote])
+                    check_call(["git", "fetch", "-p", "origin"])
+                    check_call(["git", "checkout", "firedrake"])
+        else:
+            log.info("Cloning slepc4py from %s" % url)
+            git_clone(url)
 
 
 def install_documentation_dependencies():
@@ -1308,7 +1336,6 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
-                             "python3",
                              "autoconf",
                              "make",
                              "automake",
@@ -1410,7 +1437,7 @@ if mode == "install" or not args.update_script:
                     brew_install(package)
 
             if args.with_blas is None and mode == "install":
-                blas_location = "/usr/local/opt/openblas"
+                blas_location = brew_prefix+"/opt/openblas"
                 config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1468,27 +1495,31 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 petsc_dir, petsc_arch = get_petsc_dir()
+if options["slepc"]:
+    slepc_dir, _ = get_slepc_dir()
 
-should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
+if mode == "install":
+    should_link = not args.honour_petsc_dir or options.get("mpicc") is not None
 
-# Set up the MPI wrappers
-for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
-    if options.get(opt):
-        name = options[opt]
-        src = shutil.which(name)
-    else:
-        src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
-    dest = os.path.join(firedrake_env, "bin", opt)
-    # Remove old symlinks
-    if os.path.lexists(dest):
-        os.remove(dest)
-    elif os.path.exists(dest):
-        os.remove(dest)
-    if should_link:
-        log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
-        with open(dest, "w") as f:
-            f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
-        os.chmod(dest, os.stat(dest).st_mode | stat.S_IEXEC)
+    # Set up the MPI wrappers
+    for opt in ["mpicc", "mpicxx", "mpif90", "mpiexec"]:
+        if options.get(opt):
+            name = options[opt]
+            src = shutil.which(name)
+        else:
+            src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
+        dest = os.path.join(firedrake_env, "bin", opt)
+        # Remove old symlinks
+        if os.path.lexists(dest):
+            os.remove(dest)
+        elif os.path.exists(dest):
+            os.remove(dest)
+        if should_link:
+            log.debug("Creating a wrapper for %s from %s to %s" % (opt, src, dest))
+            # use low-level os.open to ensure permissions (incl. exec.) are set according to umask
+            fd = os.open(dest, os.O_CREAT | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                f.write('#!/bin/bash' + os.linesep + src + ' "$@"')
 
 cc = options["mpicc"]
 cxx = options["mpicxx"]
@@ -1533,14 +1564,21 @@ if mode == "install":
             run_pip_install(package.split())
 
     # Temporary workaround for missing VTK wheel on Python 3.9
-    if sys.version_info >= (3, 9):
+    if sys.version_info[:2] == (3, 9):
         source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20210113/"
         if osname == "Darwin":
-            source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+            if arch == "arm64":
+                source += " vtk-9.0.1-cp39-cp39-macosx_11_0_arm64.whl"
+            elif arch == "x86_64":
+                source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+            else:
+                log.error("unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
             source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
         log.info("Pip installing VTK for Python 3.9 to venv")
         run_pip_install([source])
+        # Also lazy-object-proxy
+        run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1633,7 +1671,15 @@ else:
         petsc_changed = git_update("petsc", deps["petsc"])
     else:
         petsc_changed = False
-    petsc4py_changed = git_update("petsc4py", deps["petsc4py"])
+    if os.path.exists(os.path.join(firedrake_env, "src/petsc4py")):
+        clean("petsc4py/")
+        shutil.move("petsc4py", "petsc4py_old")
+        petsc4py_changed = True
+    else:
+        petsc4py_changed = False
+    if os.path.exists(os.path.join(firedrake_env, "src/slepc4py")):
+        clean("slepc4py")
+        shutil.move("slepc4py", "slepc4py_old")
 
     packages.remove("petsc")
     packages.remove("petsc4py")
@@ -1684,10 +1730,21 @@ else:
 
     with pipargs("--no-deps"):
         if args.rebuild or petsc_changed or petsc4py_changed:
-            clean("petsc4py/")
+            # If not honour_petsc_dir, we have a version of petsc that contains
+            # petsc4py in its source tree (old petsc must have been updated
+            # in the above).
+            # If honour_petsc_dir, we can get here (e.g., with --rebuild flag)
+            # without obtaining the latest petsc in the above:
+            # thus, we must check if the user installed petsc contains petsc4py.
+            if args.honour_petsc_dir:
+                if not os.path.exists(get_petsc4py_dir()):
+                    raise InstallError("""\npetsc4py not found in your installation of PETSc,
+which indicates that your PETSc is relatively old.
+Please consider updating your PETSc manually.
+""")
+            clean(get_petsc4py_dir())
             with environment(**compiler_env):
                 install("petsc4py/")
-
         # Always rebuild h5py.
         with environment(**compiler_env):
             build_and_install_h5py()
@@ -1699,6 +1756,12 @@ else:
         clean("loopy")
         install("loopy/")
         packages.remove("loopy")
+
+    try:
+        log.info("Attempting to install symengine")
+        run_pip_install(["symengine"])
+    except subprocess.CalledProcessError:
+        log.info("Symengine installation failed, this is NOT FATAL.")
 
     with pipargs("--no-deps"):
         try:
@@ -1722,6 +1785,10 @@ with environment(**compiler_env):
     with pipargs("--no-deps"):
         if options["slepc"]:
             build_and_install_slepc()
+            with environment(PETSC_DIR=petsc_dir,
+                             SLEPC_DIR=slepc_dir,
+                             PETSC_ARCH=petsc_arch):
+                install("slepc4py/")
 
     if options["tinyasm"]:
         build_and_install_tinyasm()

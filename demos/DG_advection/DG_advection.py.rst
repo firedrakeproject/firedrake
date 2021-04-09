@@ -113,6 +113,8 @@ give us access to the value of pi.  We use a 40-by-40 mesh of squares. ::
 
   from firedrake import *
   import math
+  import matplotlib.pyplot as plt
+  from matplotlib.animation import FuncAnimation
 
   mesh = UnitSquareMesh(40, 40, quadrilateral=True)
 
@@ -153,10 +155,10 @@ that we can check the :math:`L^2`-norm error at the end. ::
   q = Function(V).interpolate(1.0 + bell + cone + slot_cyl)
   q_init = Function(V).assign(q)
 
-We declare the output filename, and write out the initial condition. ::
+Next we'll create a list to store the function values at every timestep so that
+we can make a movie of them later. ::
 
-  outfile = File("DGadv.pvd")
-  outfile.write(q)
+  qs = []
 
 We will run for time :math:`2\pi`, a full rotation.  We take 600 steps, giving
 a timestep close to the CFL limit.  We declare an extra variable ``dtc``; for
@@ -249,6 +251,7 @@ terminal. ::
 
   t = 0.0
   step = 0
+  output_freq = 20
   while t < T - 0.5*dt:
       solv1.solve()
       q1.assign(q + dq)
@@ -262,16 +265,46 @@ terminal. ::
       step += 1
       t += dt
 
-      if step % 20 == 0:
-          outfile.write(q)
+      if step % output_freq == 0:
+          qs.append(q.copy(deepcopy=True))
           print("t=", t)
 
-Finally, we display the normalised :math:`L^2` error, by comparing to the
-initial condition. ::
+To check our solution, we display the normalised :math:`L^2` error, by comparing
+to the initial condition. ::
 
   L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
   L2_init = sqrt(assemble(q_init*q_init*dx))
   print(L2_err/L2_init)
+
+Finally, we'll animate our solution using matplotlib. We'll need to evaluate
+the solution at many points in every frame of the animation, so we'll employ a
+helper class that pre-computres some relevant data in order to speed up the
+evaluation. ::
+
+  nsp = 16
+  fn_plotter = FunctionPlotter(mesh, num_sample_points=nsp)
+
+We first set up a figure and axes and draw the first frame. ::
+
+  fig, axes = plt.subplots()
+  axes.set_aspect('equal')
+  colors = tripcolor(q_init, num_sample_points=nsp, vmin=0, vmax=1, axes=axes)
+  fig.colorbar(colors)
+
+Now we'll create a function to call in each frame. This function will use the
+helper object we created before. ::
+
+  def animate(q):
+      colors.set_array(fn_plotter(q))
+
+The last step is to make the animation and save it to a file. ::
+
+  interval = 1e3 * output_freq * dt
+  animation = FuncAnimation(fig, animate, frames=qs, interval=interval)
+  try:
+      animation.save("DG_advection.mp4", writer="ffmpeg")
+  except:
+      print("Failed to write movie! Try installing `ffmpeg`.")
 
 This demo can be found as a script in
 `DG_advection.py <DG_advection.py>`__.

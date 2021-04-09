@@ -109,22 +109,27 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         assert Vc.extruded == Vf.extruded
         if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
             raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded and Vc.mesh().layers != Vf.mesh().layers:
-            raise ValueError("Coarse and fine meshes must have same number of layers")
-
+        if Vc.extruded:
+            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+        else:
+            level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cell_set
         arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity), -1, dtype=IntType)
+        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
         values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
 
-        coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
+        if Vc.extruded:
+            off = numpy.tile(Vf.offset, ncell)
+            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
+        else:
+            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
         offset = Vf.offset
         if offset is not None:
-            offset = numpy.tile(offset, ncell)
+            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
         return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity, values=coarse_to_fine_nodes,
+                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
                                              offset=offset))
 
 
@@ -134,7 +139,9 @@ def physical_node_locations(V):
         assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
         element = element.sub_elements()[0]
     mesh = V.mesh()
-    cache = mesh._shared_data_cache["hierarchy_physical_node_locations"]
+    # This is a defaultdict, so the first time we access the key we
+    # get a fresh dict for the cache.
+    cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
     key = element
     try:
         return cache[key]
