@@ -222,7 +222,7 @@ class FDMPC(PCBase):
         nonzeros.assemble()
         nonzeros = nonzeros.array.astype(PETSc.IntType)
         nonzeros[self.bc_nodes] = 1
-        
+
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
         Pmat.setLGMap(lgmap, lgmap)
@@ -292,7 +292,7 @@ class FDMPC(PCBase):
                     be = kron(be, Sfdm[fbc[1]][1], format="csr")
                     ae = kron(ae, Sfdm[fbc[2]][1], format="csr")
                     ae += kron(be, Sfdm[fbc[2]][0] * mue[2], format="csr")
-                    
+
             ae = ae.tocoo()
             ie = lexico_cg(e)
             ondiag = (ae.row == ae.col)
@@ -302,14 +302,14 @@ class FDMPC(PCBase):
             cols = ie[ae.col]
             rows[ondiag] = idiag
             cols[ondiag] = idiag
-            b = (rows >= 0) & (cols >= 0) 
+            b = (rows >= 0) & (cols >= 0)
             ii.append(rows[b])
             jj.append(cols[b])
             aa.append(ae.data[b])
-       
+
         i = np.concatenate(ii)
         j = np.concatenate(jj)
-        aij = np.concatenate(aa) 
+        aij = np.concatenate(aa)
         aloc = coo_matrix((aij, (i, j)))
         aloc = aloc.tocsr()
 
@@ -318,10 +318,8 @@ class FDMPC(PCBase):
         nonzeros.setLGMap(lgmap)
         nonzeros.zeroEntries()
         nonzeros.setValuesLocal(np.arange(nzdata.size, dtype=PETSc.IntType), nzdata, imode)
-        
         nonzeros.assemble()
         nonzeros = nonzeros.array.astype(PETSc.IntType)
-        #nonzeros = nzdata
 
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
@@ -458,7 +456,7 @@ class FDMPC(PCBase):
                 if bc0 == 2:
                     rd.append(0)
                 if bc1 == 2:
-                    rd.append(A.shape[1]-1)                
+                    rd.append(A.shape[1]-1)
                 A[rd, k0:k1] = 0.0E0
                 A[k0:k1, rd] = 0.0E0
             return csr_matrix(A)
