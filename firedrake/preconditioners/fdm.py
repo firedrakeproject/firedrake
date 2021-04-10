@@ -150,15 +150,15 @@ class FDMPC(PCBase):
         xshape = x.shape
         x.shape = pshape
         if bc[0] == 1:
-            x[0, :, :] = val
+            x[0, ...] = val
         if bc[1] == 1:
-            x[-1, :, :] = val
-        if pshape[1] > 1:
+            x[-1, ...] = val
+        if len(pshape) >= 2:
             if bc[2] == 1:
-                x[:, 0, :] = val
+                x[:, 0, ...] = val
             if bc[3] == 1:
-                x[:, -1, :] = val
-        if pshape[2] > 1:
+                x[:, -1, ...] = val
+        if len(pshape) >= 3:
             if bc[4] == 1:
                 x[:, :, 0] = val
             if bc[5] == 1:
@@ -177,7 +177,7 @@ class FDMPC(PCBase):
         ndim = V.mesh().topological_dimension()
         ncell = V.cell_node_list.shape[1]
         nx = N + 1
-        pshape = ((nx,)*ndim) + ((1,)*(3-ndim))
+        pshape = (nx,)*ndim
 
         self.stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here
@@ -204,6 +204,7 @@ class FDMPC(PCBase):
 
         offdiag = graph[graph != i]
         aones = np.ones(offdiag.shape, dtype=PETSc.RealType)
+        nzbase = np.zeros((ncell,), dtype=PETSc.RealType)
 
         # Upper bound for nonzeros on each row
         nonzeros = PETSc.Vec().createMPI(A.getSizes()[0], comm=A.comm)
@@ -214,13 +215,14 @@ class FDMPC(PCBase):
             ie = lgmap.apply(lexico_cg(e))
             self.index_bcs(ie, pshape, bcflags[e], -1)
             rows = ie[offdiag]
+            nzbase[:] = 1 + sum(bcflags[e] == 2)
+            nonzeros.setValues(ie, nzbase, imode)
             nonzeros.setValues(rows, aones, imode)
 
         nonzeros.assemble()
         nonzeros = nonzeros.array.astype(PETSc.IntType)
-        nonzeros = nonzeros + (1 + 2*ndim)
         nonzeros[self.bc_nodes] = 1
-
+        
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
         Pmat.setLGMap(lgmap, lgmap)
@@ -256,7 +258,7 @@ class FDMPC(PCBase):
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
 
-        uid, nel = FDMPC.glonum_fun(V)
+        lexico_cg, nel = FDMPC.glonum_fun(V)
         gid, _ = FDMPC.glonum_fun(Gq)
         bid, _ = FDMPC.glonum_fun(Bq) if Bq is not None else (None, nel)
 
@@ -264,6 +266,8 @@ class FDMPC(PCBase):
         idsym = [0, 2] if ndim == 2 else [0, 3, 5]
         idsym = idsym[:ndim]
 
+        nx = Sfdm[0][0].shape[0]
+        pshape = (nx,)*ndim
         nloc = V.dof_dset.set.size
 
         # Build elemental sparse matrices
@@ -280,35 +284,46 @@ class FDMPC(PCBase):
             ae = Sfdm[fbc[0]][0] * mue[0]
             if Bq is not None:
                 ae += be * sum(Bq.dat.data_ro[bid(e)])
-                ae = ae.tocoo()
 
             if ndim > 1:
-                ae = kron(ae, Sfdm[fbc[1]][1], format="coo")
-                ae += kron(be, Sfdm[fbc[1]][0] * mue[1], format="coo")
-                ae = ae.tocoo()
+                ae = kron(ae, Sfdm[fbc[1]][1], format="csr")
+                ae += kron(be, Sfdm[fbc[1]][0] * mue[1], format="csr")
                 if ndim > 2:
-                    be = kron(be, Sfdm[fbc[1]][1], format="coo")
-                    ae = kron(ae, Sfdm[fbc[2]][1], format="coo")
-                    ae += kron(be, Sfdm[fbc[2]][0] * mue[2], format="coo")
-                    ae = ae.tocoo()
-
-            ide = uid(e)
-            ii.append(ide[ae.row])
-            jj.append(ide[ae.col])
-            aa.append(ae.data)
-
+                    be = kron(be, Sfdm[fbc[1]][1], format="csr")
+                    ae = kron(ae, Sfdm[fbc[2]][1], format="csr")
+                    ae += kron(be, Sfdm[fbc[2]][0] * mue[2], format="csr")
+                    
+            ae = ae.tocoo()
+            ie = lexico_cg(e)
+            ondiag = (ae.row == ae.col)
+            idiag = ie[ae.row[ondiag]]
+            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
+            rows = ie[ae.row]
+            cols = ie[ae.col]
+            rows[ondiag] = idiag
+            cols[ondiag] = idiag
+            b = (rows >= 0) & (cols >= 0) 
+            ii.append(rows[b])
+            jj.append(cols[b])
+            aa.append(ae.data[b])
+       
         i = np.concatenate(ii)
         j = np.concatenate(jj)
-        aij = np.concatenate(aa)
-        b = np.ones(aij.shape, dtype=bool)
-        b &= np.logical_not(np.isin(i, bcdofs))
-        b &= np.logical_not(np.isin(j, bcdofs))
-        b |= (i == j)
-        aloc = coo_matrix((aij[b], (i[b], j[b])))
+        aij = np.concatenate(aa) 
+        aloc = coo_matrix((aij, (i, j)))
         aloc = aloc.tocsr()
 
-        nonzeros = aloc.indptr[1:nloc+1] - aloc.indptr[:nloc]
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros, comm=A.comm)
+        nzdata = aloc.indptr[1:] - aloc.indptr[:-1]
+        nonzeros = PETSc.Vec().createMPI(A.getSizes()[0], comm=A.comm)
+        nonzeros.setLGMap(lgmap)
+        nonzeros.zeroEntries()
+        nonzeros.setValuesLocal(np.arange(nzdata.size, dtype=PETSc.IntType), nzdata, imode)
+        
+        nonzeros.assemble()
+        nonzeros = nonzeros.array.astype(PETSc.IntType)
+        #nonzeros = nzdata
+
+        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
@@ -379,7 +394,7 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def assemble_matfree(ndim, nscal, N, Nq, helm=False):
         from scipy.linalg import eigh
-        from scipy.sparse import coo_matrix
+        from scipy.sparse import csr_matrix
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         from pyop2 import op2
 
@@ -398,13 +413,6 @@ class FDMPC(PCBase):
         nyq = nxq if ndim >= 2 else 1
         nzq = nxq if ndim >= 3 else 1
         nquad = nxq * nyq * nzq
-
-        def chop(A):
-            tol = 1E-14
-            a = A.diagonal().copy()
-            A[1:-1, 1:-1] = 0.0E0
-            np.fill_diagonal(A, a)
-            A[np.isclose(A, 0.0E0, tol)] = 0.0E0
 
         rd = ((), (0,), (-1,), (0, -1))
         Lfdm = np.zeros((4, nx))
@@ -438,25 +446,22 @@ class FDMPC(PCBase):
             else:
                 return V
 
-        def apply_bcs(Ahat, Vbc, bc0, bc1):
-            Adense = Vbc.T @ Ahat @ Vbc
-            chop(Adense)
-            A = coo_matrix(Adense)
-            if (bc0 == 1) or (bc1 == 1):
-                iend = A.shape[0] - 1
-                i = A.row
-                j = A.col
-                b = np.ones(A.data.shape, dtype=bool)
-                if bc0 == 1:
-                    b &= (i > 0)
-                    b &= (j > 0)
-                if bc1 == 1:
-                    b &= (i < iend)
-                    b &= (j < iend)
-                b |= (i == j)
-                return coo_matrix((A.data[b], (i[b], j[b])), A.shape)
-            else:
-                return A
+        def galerkin_bcs(Ahat, Vbc, bc0, bc1, ismass):
+            A = Vbc.T @ Ahat @ Vbc
+            k0 = 1 if bc0 == 2 else 0
+            k1 = -1 if bc1 == 2 else A.shape[1]
+            a = A.diagonal().copy()
+            A[k0:k1, k0:k1] = 0.0E0
+            np.fill_diagonal(A, a)
+            if ismass:
+                rd = []
+                if bc0 == 2:
+                    rd.append(0)
+                if bc1 == 2:
+                    rd.append(A.shape[1]-1)                
+                A[rd, k0:k1] = 0.0E0
+                A[k0:k1, rd] = 0.0E0
+            return csr_matrix(A)
 
         Vbc = []
         Sbc = []
@@ -465,7 +470,7 @@ class FDMPC(PCBase):
             for i in range(3):
                 k = (i > 0) + (j > 0) * 2
                 Vbc.append(basis_bcs(Vfdm[k], Bhat, i, j))
-                Sbc.append([apply_bcs(Ak, Vbc[-1], i, j) for Ak in Abar])
+                Sbc.append([galerkin_bcs(Ak, Vbc[-1], i, j, ismass) for ismass, Ak in enumerate(Abar)])
 
         Vsize = nv * len(Vbc)
         Vhex = ', '.join(map(float.hex, np.asarray(Vbc).flatten()))
