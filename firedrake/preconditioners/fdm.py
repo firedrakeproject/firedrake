@@ -88,7 +88,7 @@ class FDMPC(PCBase):
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
             Gq, Bq = self.assemble_coef(mu, helm, Nq)
-            Pmat = self.assemble_affine(P, V, Gq, Bq, Sfdm, bcflags, self.bc_ghost)
+            Pmat = self.assemble_affine(P, V, Gq, Bq, Sfdm, bcflags, self.bc_nodes)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -180,7 +180,7 @@ class FDMPC(PCBase):
         pshape = (nx,)*ndim
 
         self.stencil.assign(firedrake.zero())
-        # FIXME I don't know how to use optional arguments here
+        # FIXME I don't know how to use optional arguments here, maybe a MixedFunctionSpace
         if Bq is not None:
             op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
                          self.stencil.dat(op2.WRITE, self.stencil.cell_node_map()),
@@ -202,34 +202,32 @@ class FDMPC(PCBase):
             sz = i - (((i // nx) // nx) % nx) * nx * nx
             graph = np.array([sz, sz+(nx-1)*nx*nx, sy, sy+(nx-1)*nx, sx, sx+(nx-1)])
 
-        offdiag = graph[graph != i]
-        aones = np.ones(offdiag.shape, dtype=PETSc.RealType)
-        nzbase = np.zeros((ncell,), dtype=PETSc.RealType)
-
         # Upper bound for nonzeros on each row
         nonzeros = PETSc.Vec().createMPI(A.getSizes()[0], comm=A.comm)
         nonzeros.setOption(PETSc.Vec.Option.IGNORE_NEGATIVE_INDICES, True)
         nonzeros.zeroEntries()
 
+        ondiag = (graph == i).T
+        graph = graph.T
         for e in range(nel):
             ie = lgmap.apply(lexico_cg(e))
             self.index_bcs(ie, pshape, bcflags[e], -1)
-            rows = ie[offdiag]
-            nzbase[:] = 1 + sum(bcflags[e] == 2)
-            nonzeros.setValues(ie, nzbase, imode)
-            nonzeros.setValues(rows, aones, imode)
+            je = ie[graph]
+            je[ondiag] = -1
+            edges = np.sum(je >= 0, axis=1)
+            nonzeros.setValues(ie, edges.astype(PETSc.RealType), imode)
+            edges = np.tile(ie >= 0, (je.shape[1], 1))
+            nonzeros.setValues(je, edges.astype(PETSc.RealType), imode)
 
         nonzeros.assemble()
-        nonzeros = nonzeros.array.astype(PETSc.IntType)
-        nonzeros[self.bc_nodes] = 1
+        nnz = nonzeros.array.astype(PETSc.IntType)
+        nnz = nnz + 1
 
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
-        Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
+        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz[:nloc], comm=A.comm)
+        # Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
 
-        ondiag = (graph == i).T
-        graph = graph.T
         for e in range(nel):
             # Fetch rows in lexicographical ordering
             ie = lgmap.apply(lexico_cg(e))
@@ -237,7 +235,7 @@ class FDMPC(PCBase):
 
             # Assemble diagonal
             for row, aij in zip(ie, vals):
-                Pmat.setValues(row, row, aij[0], imode)
+                Pmat.setValue(row, row, aij[0], imode)
 
             # Assemble off-diagonal
             self.index_bcs(ie, pshape, bcflags[e], -1)
@@ -257,6 +255,7 @@ class FDMPC(PCBase):
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
+        nloc = V.dof_dset.set.size
 
         lexico_cg, nel = FDMPC.glonum_fun(V)
         gid, _ = FDMPC.glonum_fun(Gq)
@@ -268,7 +267,6 @@ class FDMPC(PCBase):
 
         nx = Sfdm[0][0].shape[0]
         pshape = (nx,)*ndim
-        nloc = V.dof_dset.set.size
 
         # Build elemental sparse matrices
         aa = []  # lists with values and row/column indices (local to each process)
@@ -295,17 +293,18 @@ class FDMPC(PCBase):
 
             ae = ae.tocoo()
             ie = lexico_cg(e)
+            je = ie.copy()  # in-place reshape of ie fails because we would take two views
             ondiag = (ae.row == ae.col)
             idiag = ie[ae.row[ondiag]]
-            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
-            rows = ie[ae.row]
-            cols = ie[ae.col]
+            FDMPC.index_bcs(je, pshape, bcflags[e], -1)
+            rows = je[ae.row]
+            cols = je[ae.col]
             rows[ondiag] = idiag
             cols[ondiag] = idiag
-            b = (rows >= 0) & (cols >= 0)
-            ii.append(rows[b])
-            jj.append(cols[b])
-            aa.append(ae.data[b])
+            valid = (rows[:] >= 0) & (cols[:] >= 0)
+            ii.append(rows[valid])
+            jj.append(cols[valid])
+            aa.append(ae.data[valid])
 
         i = np.concatenate(ii)
         j = np.concatenate(jj)
@@ -319,9 +318,9 @@ class FDMPC(PCBase):
         nonzeros.zeroEntries()
         nonzeros.setValuesLocal(np.arange(nzdata.size, dtype=PETSc.IntType), nzdata, imode)
         nonzeros.assemble()
-        nonzeros = nonzeros.array.astype(PETSc.IntType)
+        nnz = nonzeros.array.astype(PETSc.IntType)
 
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nonzeros[:nloc], comm=A.comm)
+        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz[:nloc], comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
