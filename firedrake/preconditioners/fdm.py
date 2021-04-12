@@ -203,7 +203,7 @@ class FDMPC(PCBase):
 
         ondiag = (graph == i).T
         graph = graph.T
-        
+
         prealloc = PETSc.Mat().create(comm=A.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(A.getSizes())
@@ -224,7 +224,7 @@ class FDMPC(PCBase):
             for row, cols in zip(ie, je):
                 prealloc.setValues(row, cols, aij)
                 prealloc.setValues(cols, row, aij)
-        
+
         prealloc.assemble()
         nnz = get_preallocation(prealloc, V.dof_dset.set.size)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
