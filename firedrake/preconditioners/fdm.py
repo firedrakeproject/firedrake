@@ -251,7 +251,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     def assemble_affine(A, V, Gq, Bq, Sfdm, bcflags):
-        from scipy.sparse import coo_matrix, kron
+        from scipy.sparse import kron
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
@@ -267,10 +267,13 @@ class FDMPC(PCBase):
         nx1 = Sfdm[0][0].shape[0]
         pshape = (nx1,)*ndim
 
+        prealloc = PETSc.Mat().create(comm=A.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(A.getSizes())
+        prealloc.setUp()
+
         # Build elemental sparse matrices
-        aa = []  # lists with values and row/column indices (local to each process)
-        ii = []
-        jj = []
+        acsr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
         for e in range(nel):
             fbc = bcflags[e] @ flag2id
@@ -290,46 +293,39 @@ class FDMPC(PCBase):
                     ae = kron(ae, Sfdm[fbc[2]][1], format="csr")
                     ae += kron(be, Sfdm[fbc[2]][0] * mue[2], format="csr")
 
-            ae = ae.tocoo()
-            ie = lexico_cg(e)
-            je = ie.copy()  # in-place reshape of ie fails because we would take two views
-            ondiag = (ae.row == ae.col)
-            idiag = ie[ae.row[ondiag]]
-            FDMPC.index_bcs(je, pshape, bcflags[e], -1)
-            rows = je[ae.row]
-            cols = je[ae.col]
-            rows[ondiag] = idiag
-            cols[ondiag] = idiag
-            valid = (rows >= 0) & (cols >= 0)
-            ii.append(rows[valid])
-            jj.append(cols[valid])
-            aa.append(ae.data[valid])
+            acsr.append(ae)
+            ie = lgmap.apply(lexico_cg(e))
+            je = ie.copy()
+            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
+            je = je[ie == -1]
+            for row in je:
+                prealloc.setValue(row, row, 1.0E0)
 
-        i = np.concatenate(ii)
-        j = np.concatenate(jj)
-        aij = np.concatenate(aa)
-        aloc = coo_matrix((aij, (i, j)))
-        aloc = aloc.tocsr()
-
-        prealloc = PETSc.Mat().create(comm=A.comm)
-        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-        prealloc.setSizes(A.getSizes())
-        prealloc.setUp()
-        prealloc.setLGMap(lgmap, lgmap)
-        for row in range(aloc.shape[0]):
-            i1 = aloc.indptr[row]
-            i2 = aloc.indptr[row+1]
-            prealloc.setValuesLocal(row, aloc.indices[i1:i2], aloc.data[i1:i2])
+            for i, row in enumerate(ie):
+                i1 = ae.indptr[i]
+                i2 = ae.indptr[i+1]
+                cols = ie[ae.indices[i1:i2]]
+                prealloc.setValues(row, cols, ae.data[i1:i2])
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, V.dof_dset.set.size)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
-        for row in range(aloc.shape[0]):
-            i1 = aloc.indptr[row]
-            i2 = aloc.indptr[row+1]
-            Pmat.setValuesLocal(row, aloc.indices[i1:i2], aloc.data[i1:i2], imode)
+
+        for e, ae in enumerate(acsr):
+            ie = lgmap.apply(lexico_cg(e))
+            je = ie.copy()
+            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
+            je = je[ie == -1]
+            for row in je:
+                Pmat.setValue(row, row, 1.0E0, imode)
+
+            for i, row in enumerate(ie):
+                i1 = ae.indptr[i]
+                i2 = ae.indptr[i+1]
+                cols = ie[ae.indices[i1:i2]]
+                Pmat.setValues(row, cols, ae.data[i1:i2], imode)
 
         Pmat.assemble()
         return Pmat
