@@ -2,6 +2,7 @@ from functools import lru_cache
 import numpy as np
 
 from pyop2 import op2
+from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, TensorElement, Jacobian, JacobianInverse, dx, inner, dot, inv
 from firedrake.petsc import PETSc
@@ -48,17 +49,14 @@ class FDMPC(PCBase):
         if len(self.bcs) > 0:
             self.bc_nodes = np.unique(np.concatenate([bcdofs(bc, ghost=False)
                                                       for bc in self.bcs]))
-            self.bc_ghost = np.unique(np.concatenate([bcdofs(bc, ghost=True)
-                                                      for bc in self.bcs]))
         else:
             self.bc_nodes = np.empty(0, dtype=PETSc.IntType)
-            self.bc_ghost = np.empty(0, dtype=PETSc.IntType)
 
         bcflags, cell2cell = self.get_bc_flags(self.mesh, self.bcs)
 
         # Encode bcflags into a VectorFunction that can be used in the pyOp2 kernels
         # FIXME very ugly interface
-        VDG = firedrake.VectorFunctionSpace(self.mesh, 'DG', 0)
+        VDG = firedrake.VectorFunctionSpace(self.mesh, 'DG', 0, dim=ndim)
         self.fbc = firedrake.Function(VDG, name="bcflags")
         self.fbc.dat.data[cell2cell] = np.reshape(bcflags @ np.kron(np.eye(ndim), [[1], [3]]), (-1, 1, ndim))
 
@@ -88,9 +86,10 @@ class FDMPC(PCBase):
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
             Gq, Bq = self.assemble_coef(mu, helm, Nq)
-            Pmat = self.assemble_affine(P, V, Gq, Bq, Sfdm, bcflags, self.bc_nodes)
+            Pmat = self.assemble_affine(P, V, Gq, Bq, Sfdm, bcflags)
         else:
             raise ValueError("Unknown fdm_type")
+        Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
         # Monkey see, monkey do
         opc = pc
@@ -173,11 +172,10 @@ class FDMPC(PCBase):
         lexico_cg, nel = self.glonum_fun(V)
         lexico_dg, _ = self.glonum_fun(self.stencil)
 
-        nloc = V.dof_dset.set.size
         ndim = V.mesh().topological_dimension()
-        ncell = V.cell_node_list.shape[1]
-        nx = N + 1
-        pshape = (nx,)*ndim
+        ndof_cell = V.cell_node_list.shape[1]
+        nx1 = N + 1
+        pshape = (nx1,)*ndim
 
         self.stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here, maybe a MixedFunctionSpace
@@ -193,43 +191,46 @@ class FDMPC(PCBase):
                          Gq.dat(op2.READ, Gq.cell_node_map()),
                          self.fbc.dat(op2.READ, self.fbc.cell_node_map()))
 
-        i = np.arange(ncell, dtype=PETSc.IntType)
-        sx = i - (i % nx)
-        sy = i - ((i // nx) % nx) * nx
+        # Connectivity graph between the nodes within a cell
+        i = np.arange(ndof_cell, dtype=PETSc.IntType)
+        sx = i - (i % nx1)
+        sy = i - ((i // nx1) % nx1) * nx1
         if ndim == 2:
-            graph = np.array([sy, sy+(nx-1)*nx, sx, sx+(nx-1)])
+            graph = np.array([sy, sy+(nx1-1)*nx1, sx, sx+(nx1-1)])
         else:
-            sz = i - (((i // nx) // nx) % nx) * nx * nx
-            graph = np.array([sz, sz+(nx-1)*nx*nx, sy, sy+(nx-1)*nx, sx, sx+(nx-1)])
-
-        # Upper bound for nonzeros on each row
-        nonzeros = PETSc.Vec().createMPI(A.getSizes()[0], comm=A.comm)
-        nonzeros.setOption(PETSc.Vec.Option.IGNORE_NEGATIVE_INDICES, True)
-        nonzeros.zeroEntries()
+            sz = i - (((i // nx1) // nx1) % nx1) * nx1 * nx1
+            graph = np.array([sz, sz+(nx1-1)*nx1*nx1, sy, sy+(nx1-1)*nx1, sx, sx+(nx1-1)])
 
         ondiag = (graph == i).T
         graph = graph.T
+        
+        prealloc = PETSc.Mat().create(comm=A.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(A.getSizes())
+        prealloc.setUp()
+
+        aij = np.ones(graph.shape[1], dtype=PETSc.RealType)
         for e in range(nel):
             ie = lgmap.apply(lexico_cg(e))
+
+            # Preallocate diagonal
+            for row in ie:
+                prealloc.setValue(row, row, 1.0E0)
+
+            # Preallocate off-diagonal
             self.index_bcs(ie, pshape, bcflags[e], -1)
             je = ie[graph]
             je[ondiag] = -1
-            edges = np.sum(je >= 0, axis=1)
-            nonzeros.setValues(ie, edges.astype(PETSc.RealType), imode)
-            edges = np.tile(ie >= 0, (je.shape[1], 1))
-            nonzeros.setValues(je, edges.astype(PETSc.RealType), imode)
-
-        nonzeros.assemble()
-        nnz = nonzeros.array.astype(PETSc.IntType)
-        nnz = nnz + 1
-
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz[:nloc], comm=A.comm)
-        # Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
+            for row, cols in zip(ie, je):
+                prealloc.setValues(row, cols, aij)
+                prealloc.setValues(cols, row, aij)
+        
+        prealloc.assemble()
+        nnz = get_preallocation(prealloc, V.dof_dset.set.size)
+        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
-
         for e in range(nel):
-            # Fetch rows in lexicographical ordering
             ie = lgmap.apply(lexico_cg(e))
             vals = self.stencil.dat.data_ro[lexico_dg(e)]
 
@@ -246,16 +247,14 @@ class FDMPC(PCBase):
                 Pmat.setValues(cols, row, aij[1:], imode)
 
         Pmat.assemble()
-        Pmat.zeroRowsColumnsLocal(self.bc_nodes)
         return Pmat
 
     @staticmethod
-    def assemble_affine(A, V, Gq, Bq, Sfdm, bcflags, bcdofs):
+    def assemble_affine(A, V, Gq, Bq, Sfdm, bcflags):
         from scipy.sparse import coo_matrix, kron
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
-        nloc = V.dof_dset.set.size
 
         lexico_cg, nel = FDMPC.glonum_fun(V)
         gid, _ = FDMPC.glonum_fun(Gq)
@@ -265,8 +264,8 @@ class FDMPC(PCBase):
         idsym = [0, 2] if ndim == 2 else [0, 3, 5]
         idsym = idsym[:ndim]
 
-        nx = Sfdm[0][0].shape[0]
-        pshape = (nx,)*ndim
+        nx1 = Sfdm[0][0].shape[0]
+        pshape = (nx1,)*ndim
 
         # Build elemental sparse matrices
         aa = []  # lists with values and row/column indices (local to each process)
@@ -301,7 +300,7 @@ class FDMPC(PCBase):
             cols = je[ae.col]
             rows[ondiag] = idiag
             cols[ondiag] = idiag
-            valid = (rows[:] >= 0) & (cols[:] >= 0)
+            valid = (rows >= 0) & (cols >= 0)
             ii.append(rows[valid])
             jj.append(cols[valid])
             aa.append(ae.data[valid])
@@ -312,25 +311,27 @@ class FDMPC(PCBase):
         aloc = coo_matrix((aij, (i, j)))
         aloc = aloc.tocsr()
 
-        nzdata = aloc.indptr[1:] - aloc.indptr[:-1]
-        nonzeros = PETSc.Vec().createMPI(A.getSizes()[0], comm=A.comm)
-        nonzeros.setLGMap(lgmap)
-        nonzeros.zeroEntries()
-        nonzeros.setValuesLocal(np.arange(nzdata.size, dtype=PETSc.IntType), nzdata, imode)
-        nonzeros.assemble()
-        nnz = nonzeros.array.astype(PETSc.IntType)
+        prealloc = PETSc.Mat().create(comm=A.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(A.getSizes())
+        prealloc.setUp()
+        prealloc.setLGMap(lgmap, lgmap)
+        for row in range(aloc.shape[0]):
+            i1 = aloc.indptr[row]
+            i2 = aloc.indptr[row+1]
+            prealloc.setValuesLocal(row, aloc.indices[i1:i2], aloc.data[i1:i2])
 
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz[:nloc], comm=A.comm)
+        prealloc.assemble()
+        nnz = get_preallocation(prealloc, V.dof_dset.set.size)
+        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
-        Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
         for row in range(aloc.shape[0]):
             i1 = aloc.indptr[row]
             i2 = aloc.indptr[row+1]
             Pmat.setValuesLocal(row, aloc.indices[i1:i2], aloc.data[i1:i2], imode)
 
         Pmat.assemble()
-        Pmat.zeroRowsColumnsLocal(bcdofs)
         return Pmat
 
     def assemble_coef(self, mu, helm, Nq=0):
@@ -390,6 +391,7 @@ class FDMPC(PCBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def assemble_matfree(ndim, nscal, N, Nq, helm=False):
+        # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
         from scipy.linalg import eigh
         from scipy.sparse import csr_matrix
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
@@ -657,7 +659,7 @@ class FDMPC(PCBase):
                     ix = (i == {ndim-1}) + 2 * (j == {ndim-1});
                     iy = (i == {ndim-2}) + 2 * (j == {ndim-2});
                     iz = (i == {ndim-3}) + 2 * (j == {ndim-3});
-                    scal = (i == j) ? 1.0E0 : 0.5E0; // FIXME
+                    scal = (i == j) ? 1.0E0 : 0.5E0;
                     BLAScopy_(&nquad, gcoef+k*nquad, &inc, t0, &inc);
                     kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, 1, BX+ix*{nb}, BY+iy*{nb}, BZ+iz*{nb}, t0, t1);
                     BLASaxpy_(&ndiag, &scal, t1, &inc, t2, &inc);
@@ -689,7 +691,6 @@ class FDMPC(PCBase):
                 //if(bcj > 1)
                 get_band(i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
             }}
-
             return;
         }}
         """
