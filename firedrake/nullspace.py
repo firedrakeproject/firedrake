@@ -285,7 +285,7 @@ class MixedVectorSpaceBasis(object):
             if transpose:
                 raise RuntimeError("No MatSetTransposeNearNullSpace operation in PETSc.")
             else:
-                matrix.petscmat.setNearNullSpace(self.nullspace)
+                matrix.petscmat.setNearNullSpace(self._nullspace)
         else:
             if transpose:
                 matrix.petscmat.setTransposeNullSpace(self._nullspace)
@@ -329,7 +329,7 @@ class MixedVectorSpaceBasis(object):
             # PETSc doesn't give us anything here
             return
 
-        key = "near_nullspace" if near else "nullspace"
+        key = "nearnullspace" if near else "nullspace"
         for i, basis in enumerate(self):
             if not isinstance(basis, VectorSpaceBasis):
                 continue

@@ -280,6 +280,45 @@ class MeshOutputBlock(Block):
 
 
 class InterpolateBlock(Block, Backend):
+    r"""
+    Annotates an interpolator.
+
+    Consider the block as f with 1 forward model output ``v``, and inputs ``u`` and ``g``
+    (there can, in principle, be any number of outputs).
+    The adjoint input is ``vhat`` (``uhat`` and ``ghat`` are adjoints to ``u`` and ``v``
+    respectively and are shown for completeness). The downstream block is ``J``
+    which has input ``v``.
+
+    ::
+
+         _             _
+        |J|--<--v--<--|f|--<--u--<--...
+         ¯      |      ¯      |
+               vhat    |     uhat
+                       |
+                        ---<--g--<--...
+                              |
+                             ghat
+
+    (Arrows indicate forward model direction)
+
+    ::
+
+        J : V ⟶ R i.e. J(v) ∈ R ∀ v ∈ V
+
+    Interpolation can operate on an expression which may not be linear in its
+    arguments.
+
+    ::
+
+        f : W × G ⟶ V i.e. f(u, g) ∈ V ∀ u ∈ W and g ∈ G.
+        f = I ∘ expr
+        I :   X ⟶ V i.e. I(;x) ∈ V ∀ x ∈ X.
+                          X is infinite dimensional.
+        expr: W × G ⟶ X i.e. expr(u, g) ∈ X ∀ u ∈ W and g ∈ G.
+
+    Arguments after a semicolon are linear (i.e. operation I is linear)
+    """
     def __init__(self, interpolator, *functions, **kwargs):
         super().__init__()
 
@@ -314,21 +353,234 @@ class InterpolateBlock(Block, Backend):
         return replace(self.expr, self._replace_map())
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        r"""
+        Denote ``d_u[A]`` as the gateaux derivative in the ``u`` direction.
+        Arguments after a semicolon are linear.
+
+        This calculates
+
+        ::
+
+            uhat = vhat ⋅ d_u[f](u, g; ⋅) (for inputs[idx] ∈ W)
+            or
+            ghat = vhat ⋅ d_g[f](u, g; ⋅) (for inputs[idx] ∈ G)
+
+        where ``inputs[idx]`` specifies the derivative direction, ``vhat`` is
+        ``adj_inputs[0]`` (since we assume only one block output)
+        and ``⋅`` denotes an unspecified operand of ``u'`` (for
+        ``inputs[idx]`` ∈ ``W``) or ``g'`` (for ``inputs[idx]`` ∈ ``G``) size (``vhat`` left
+        multiplies the derivative).
+
+        ::
+
+            f = I ∘ expr : W × G ⟶ V
+                           i.e. I(expr|_{u, g}) ∈ V ∀ u ∈ W, g ∈ G.
+
+        Since ``I`` is linear we get that
+
+        ::
+
+            d_u[I ∘ expr](u, g; u') = I ∘ d_u[expr](u|_u, g|_g; u')
+            d_g[I ∘ expr](u, g; g') = I ∘ d_u[expr](u|_u, g|_g; g').
+
+        In tensor notation
+
+        ::
+
+            uhat_q^T = vhat_p^T I([dexpr/du|_u]_q)_p
+            or
+            ghat_q^T = vhat_p^T I([dexpr/dg|_u]_q)_p
+
+        the output is then
+
+        ::
+
+            uhat_q = I^T([dexpr/du|_u]_q)_p vhat_p
+            or
+            ghat_q = I^T([dexpr/dg|_u]_q)_p vhat_p.
+        """
+        if len(adj_inputs) > 1:
+            raise(NotImplementedError("Interpolate block must have a single output"))
         dJdm = self.backend.derivative(prepared, inputs[idx])
-        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True)
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True).vector()
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        r"""
+        Denote ``d_u[A]`` as the gateaux derivative in the ``u`` direction.
+        Arguments after a semicolon are linear.
+
+        For a block with two inputs this calculates
+
+        ::
+
+            v' = d_u[f](u, g; u') + d_g[f](u, g; g')
+
+        where ``u' = tlm_inputs[0]`` and ``g = tlm_inputs[1]``.
+
+        ::
+
+            f = I ∘ expr : W × G ⟶ V
+                           i.e. I(expr|_{u, g}) ∈ V ∀ u ∈ W, g ∈ G.
+
+        Since ``I`` is linear we get that
+
+        ::
+
+            d_u[I ∘ expr](u, g; u') = I ∘ d_u[expr](u|_u, g|_g; u')
+            d_g[I ∘ expr](u, g; g') = I ∘ d_u[expr](u|_u, g|_g; g').
+
+        In tensor notation the output is then
+
+        ::
+
+            v'_l = I([dexpr/du|_{u,g}]_k u'_k)_l + I([dexpr/du|_{u,g}]_k g'_k)_l
+                 = I([dexpr/du|_{u,g}]_k u'_k + [dexpr/du|_{u,g}]_k g'_k)_l
+
+        since ``I`` is linear.
+        """
         dJdm = 0.
 
+        assert len(inputs) == len(tlm_inputs)
         for i, input in enumerate(inputs):
             if tlm_inputs[i] is None:
                 continue
             dJdm += self.backend.derivative(prepared, input, tlm_inputs[i])
-
         return self.backend.Interpolator(dJdm, self.V).interpolate()
+
+    def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
+        return self.prepare_evaluate_adj(inputs, hessian_inputs, relevant_dependencies)
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        r"""
+        Denote ``d_u[A]`` as the gateaux derivative in the ``u`` direction.
+        Arguments after a semicolon are linear.
+
+        hessian_input is ``d_v[d_v[J]](v; v', ⋅)`` where the direction ``⋅`` is left
+        unspecified so it can be operated upon.
+
+        .. warning::
+            NOTE: This comment describes the implementation of 1 block input ``u``.
+            (e.g. interpolating from an expression with 1 coefficient).
+            Explaining how this works for multiple block inputs (e.g. ``u`` and ``g``) is
+            currently too complicated for the author to do succinctly!
+
+        This function needs to output ``d_u[d_u[J ∘ f]](u; u', ⋅)`` where
+        the direction ``⋅`` will be specified in another function and
+        multiplied on the right with the output of this function.
+        We will calculate this using the chain rule.
+
+        ::
+
+            J : V ⟶ R i.e. J(v) ∈ R ∀ v ∈ V
+            f = I ∘ expr : W ⟶ V
+            J ∘ f : W ⟶ R i.e. J(f|u) ∈ R ∀ u ∈ V.
+            d_u[J ∘ f] : W × W ⟶ R i.e. d_u[J ∘ f](u; u')
+            d_u[d_u[J ∘ f]] : W × W × W ⟶ R i.e. d_u[d_u[J ∘ f]](u; u', u'')
+            d_v[J] : V × V ⟶ R i.e. d_v[J](v; v')
+            d_v[d_v[J]] : V × V × V ⟶ R i.e. d_v[d_v[J]](v; v', v'')
+
+        Chain rule:
+
+        ::
+
+            d_u[J ∘ f](u; u') = d_v[J](v = f|u; v' = d_u[f](u; u'))
+
+        Multivariable chain rule:
+
+        ::
+
+            d_u[d_u[J ∘ f]](u; u', u'') =
+            d_v[d_v[J]](v = f|u; v' = d_u[f](u; u'), v'' = d_u[f](u; u''))
+            + d_v'[d_v[J]](v = f|u; v' = d_u[f](u; u'), v'' = d_u[d_u[f]](u; u', u''))
+            = d_v[d_v[J]](v = f|u; v' = d_u[f](u; u'), v''=d_u[f](u; u''))
+            + d_v[J](v = f|u; v' = v'' = d_u[d_u[f]](u; u', u''))
+
+        since ``d_v[d_v[J]]`` is linear in ``v'`` so differentiating wrt to it leaves
+        its coefficient, the bare d_v[J] operator which acts on the ``v''`` term
+        that remains.
+
+        The ``d_u[d_u[f]](u; u', u'')`` term can be simplified further:
+
+        ::
+
+            f = I ∘ expr : W ⟶ V i.e. I(expr|u) ∈ V ∀ u ∈ W
+            d_u[I ∘ expr] : W × W ⟶ V i.e. d_u[I ∘ expr](u; u')
+            d_u[d_u[I ∘ expr]] : W × W × W ⟶ V i.e. d_u[I ∘ expr](u; u', u'')
+            d_x[I] : X × X ⟶ V i.e. d_x[I](x; x')
+            d_x[d_x[I]] : X × X × X ⟶ V i.e. d_x[d_x[I]](x; x', x'')
+            d_u[expr] : W × W ⟶ X i.e. d_u[expr](u; u')
+            d_u[d_u[expr]] : W × W × W ⟶ X i.e. d_u[d_u[expr]](u; u', u'')
+
+        Since ``I`` is linear we get that
+
+        ::
+
+            d_u[d_u[I ∘ expr]](u; u', u'') = I ∘ d_u[d_u[expr]](u; u', u'').
+
+        So our full hessian is:
+
+        ::
+
+            d_u[d_u[J ∘ f]](u; u', u'')
+            = d_v[d_v[J]](v = f|u; v' = d_u[f](u; u'), v''=d_u[f](u; u''))
+            + d_v[J](v = f|u; v' = v'' = d_u[d_u[f]](u; u', u''))
+
+        In tensor notation
+
+        ::
+
+            [d^2[J ∘ f]/du^2|_u]_{lk} u'_k u''_k =
+            [d^2J/dv^2|_{v=f|_u}]_{ij} [df/du|_u]_{jk} u'_k [df/du|_u]_{il} u''_l
+            + [dJ/dv|_{v=f_u}]_i I([d^2expr/du^2|_u]_{lk} u'_k)_i u''_l
+
+        In the first term:
+
+        ::
+
+            [df/du|_u]_{jk} u'_k = v'_j
+            => [d^2J/dv^2|_{v=f|_u}]_{ij} [df/du|_u]_{jk} u'_k
+            = [d^2J/dv^2|_{v=f|_u}]_{ij} v'_j
+            = hessian_input_i
+            => [d^2J/dv^2|_{v=f|_u}]_{ij} [df/du|_u]_{jk} u'_k [df/du|_u]_{il}
+            = hessian_input_i [df/du|_u]_{il}
+            = self.evaluate_adj_component(inputs, hessian_inputs, ...)_l
+
+        In the second term we calculate everything explicitly though note
+        ``[dJ/dv|_{v=f_u}]_i = adj_inputs[0]_i``
+
+        Also, the second term is 0 if ``expr`` is linear.
+        """
+
+        if len(hessian_inputs) > 1 or len(adj_inputs) > 1:
+            raise(NotImplementedError("Interpolate block must have a single output"))
+
+        component = self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx, prepared)
+
+        # Prepare again by replacing expression
+        expr = replace(self.expr, self._replace_map())
+
+        # Calculate first derivative for each relevant block
+        dexprdu = 0.
+        for _, bv in relevant_dependencies:
+            # Only take the derivative if there is a direction to take it in
+            if bv.tlm_value is None:
+                continue
+            dexprdu += self.backend.derivative(expr, bv.saved_output, bv.tlm_value)
+
+        # Calculate the second derivative w.r.t. the specified coefficient's
+        # saved value. Leave argument unspecified so it can be calculated with
+        # the eventual inner product with u''.
+        d2exprdudu = self.backend.derivative(dexprdu, block_variable.saved_output)
+
+        # left multiply by dJ/dv (adj_inputs[0]) - i.e. interpolate using the
+        # transpose operator
+        component += self.backend.Interpolator(d2exprdudu, self.V).interpolate(adj_inputs[0], transpose=True)
+        return component.vector()
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())

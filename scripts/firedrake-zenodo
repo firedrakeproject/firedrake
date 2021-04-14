@@ -16,6 +16,7 @@ import datetime
 
 
 # TODO: Remove "petsc4py" once all users have switched to "petsc/src/binding/petsc4py".
+# And the same for slepc4py.
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
     ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),

@@ -2415,66 +2415,6 @@ def prune_sf(PETSc.SF sf):
     return pruned_sf
 
 
-def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
-    """Begin a halo exchange.
-
-    :arg sf: the PETSc SF to use for exchanges
-    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
-    :arg dtype: an MPI datatype describing the unit of data
-    :arg reverse: should a reverse (local-to-global) exchange be
-        performed.
-
-    Forward exchanges are implemented using ``PetscSFBcastBegin``,
-    reverse exchanges with ``PetscSFReduceBegin``.
-    """
-    cdef:
-        np.ndarray buf = dat._data
-
-    # We've pruned the SF so it only references remote roots.
-    # Therefore, we can pass the same buffer for input and output.
-    # This works because the sends will be packed into buffers
-    # internally in XXXBegin and unpacked in XXXEnd.  So any
-    # subsequent changes to the input buffer are ignored for the
-    # purposes of exchanging data.  If we didn't want to rely on this
-    # implementation we would have to do a dance with temporary
-    # buffers (which is slightly inefficient and messier).
-    if reverse:
-        CHKERR(PetscSFReduceBegin(sf.sf, dtype.ob_mpi,
-                                  <const void*>buf.data,
-                                  <void *>buf.data,
-                                  op.ob_mpi))
-    else:
-        CHKERR(PetscSFBcastBegin(sf.sf, dtype.ob_mpi,
-                                 <const void *>buf.data,
-                                 <void *>buf.data))
-
-
-def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse, MPI.Op op=MPI.SUM):
-    """End a halo exchange.
-
-    :arg sf: the PETSc SF to use for exchanges
-    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
-    :arg dtype: an MPI datatype describing the unit of data
-    :arg reverse: should a reverse (local-to-global) exchange be
-        performed.
-
-    Forward exchanges are implemented using ``PetscSFBcastEnd``,
-    reverse exchanges with ``PetscSFReduceEnd``.
-    """
-    cdef:
-        np.ndarray buf = dat._data
-
-    if reverse:
-        CHKERR(PetscSFReduceEnd(sf.sf, dtype.ob_mpi,
-                                <const void *>buf.data,
-                                <void*>buf.data,
-                                op.ob_mpi))
-    else:
-        CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
-                               <const void *>buf.data,
-                               <void *>buf.data))
-
-
 cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
