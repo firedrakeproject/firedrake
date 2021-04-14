@@ -329,16 +329,25 @@ class HybridizationPC(SCBase):
                             decomposition="PartialPivLU")
             self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
         else:
-            M = D - C * A.solve(B, matfree=True)
-            R = K_1.T - C * A.solve(K_0.T, matfree=True)
-            u_rec = M.solve(f - C * A.solve(g, matfree=True) - R * lambdar,
-                            decomposition="PartialPivLU",
-                            matfree=True)
             self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+            M = D - C * A.inv * B
+            R = (K_1.T - C * A.solve(K_0.T, matfree=True)) * lambdar
+            
+            # FIXME for now M is matrix-explicit. How can we rewrite this to be locally matrix-free?
+            # for the matrix-explicit solve to work the rhs needs to be assembled for now
+            # -> change that when switching to fully matrix-free
+            from firedrake import assemble
+            rhs = AssembledVector(assemble(f - C * A.solve(g, matfree=True) - R,
+                                           form_compiler_parameters={"optimise_slate": True,
+                                                                     "replace_mul_with_action": True,
+                                                                     "visual_debug": False}))
+            u_rec = M.solve(rhs)
+            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
         self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.ctx.fc_params)
-
+        if local_matfree:
+            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
         self._elim_unknown = create_assembly_callable(sigma_rec,
