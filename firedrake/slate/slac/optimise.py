@@ -284,3 +284,16 @@ class SwapController(object):
         :returns: the modified code generation context."""
         yield ActionBag(state.coeff, swap_op, state.pick_op)
 
+def optimise(expr, tsfc_parameters):
+    # Optimise expression which is already partially optimised
+    # by recursing to a subexpression that is not optimised yet
+    # the non optimised expression would be a Mul
+    if isinstance(expr, Mul):
+        return push_mul(*expr.children, tsfc_parameters)
+    elif isinstance(expr, Negative):
+        return Negative(optimise(*expr.children, tsfc_parameters))
+    elif isinstance(expr, Add):
+        expr1, expr2 = expr.children
+        return Add(optimise(expr1, tsfc_parameters), optimise(expr2, tsfc_parameters))
+    else:
+        return expr
