@@ -521,9 +521,9 @@ def _vector_arg(access, get_map, i, *, function, V):
     vector (:class:`Function`).
 
     :arg access: :mod:`~pyop2` access descriptor (e.g. :class:`~pyop2.op2.READ`).
-    :arg get_map: callable of one argument that obtains :class:`~pyop2.op2.Map`
+    :arg get_map: Callable of one argument that obtains :class:`~pyop2.op2.Map`
         objects from :class:`FunctionSpace` objects.
-    :arg i: index of block (may be None).
+    :arg i: Index of block (subspace of a mixed function), may be ``None``.
     :arg function: :class:`Function` to insert into.
     :arg V: :class:`FunctionSpace` corresponding to ``function``.
 
