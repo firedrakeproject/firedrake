@@ -362,7 +362,7 @@ def compile_to_gem(expr, translator):
     if any(type(s.ufl_element()) is ufl.MixedElement for s in spaces if s is not None):
         raise ValueError("Not expecting a mixed space at this point, "
                          "did you forget to index a function with .sub(...)?")
-    if len(set(s.finat_element for s in spaces if s is not None)) != 1:
+    if len(set(s.ufl_element() for s in spaces if s is not None)) != 1:
         raise ValueError("All coefficients must be defined on the same space")
     lvalue = expr.lvalue
     rvalue = expr.rvalue

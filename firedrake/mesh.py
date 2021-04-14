@@ -1330,6 +1330,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
+        self._geometric_shared_data_cache = defaultdict(dict)
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -1753,8 +1754,10 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                          ``[a, b]`` where ``a`` indicates the starting
                          cell layer of the column and ``b`` the number
                          of cell layers in that column.
-    :arg layer_height:   the layer height, assuming all layers are evenly
-                         spaced. If this is omitted, the value defaults to
+    :arg layer_height:   the layer height.  A scalar value will result in
+                         evenly-spaced layers, whereas an array of values
+                         will vary the layer height through the extrusion.
+                         If this is omitted, the value defaults to
                          1/layers (i.e. the extruded mesh has total height 1.0)
                          unless a custom kernel is used.  Must be
                          provided if using a variable number of layers.
@@ -1804,14 +1807,30 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                              mesh.cell_set.total_size, layers.shape)
         if layer_height is None:
             raise ValueError("Must provide layer height for variable layers")
+
+        # variable-height layers need to be present for the maximum number
+        # of extruded layers
+        num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
+        num_layers = mesh.comm.allreduce(num_layers, op=MPI.MAX)
+
         # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
+
     else:
         if layer_height is None:
             # Default to unit
             layer_height = 1 / layers
+
+        num_layers = layers
+
         # All internal logic works with layers of base mesh (not layers of cells)
         layers = layers + 1
+
+    try:
+        assert num_layers == len(layer_height)
+    except TypeError:
+        # layer_height is a scalar; equi-distant layers are fine
+        pass
 
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 

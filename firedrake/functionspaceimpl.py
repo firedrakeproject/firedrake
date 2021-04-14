@@ -270,7 +270,7 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
-    def __init__(self, mesh, element, name=None, real_tensorproduct=False):
+    def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -278,6 +278,14 @@ class FunctionSpace(object):
         if isinstance(finat_element, finat.TensorFiniteElement):
             # Retrieve scalar element
             finat_element = finat_element.base_element
+        # Support foo x Real tensorproduct elements
+        real_tensorproduct = False
+        scalar_element = element
+        if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
+            scalar_element = element.sub_elements()[0]
+        if isinstance(scalar_element, ufl.TensorProductElement):
+            a, b = scalar_element.sub_elements()
+            real_tensorproduct = b.family() == 'Real'
         # Used for reconstruction of mixed/component spaces
         self.real_tensorproduct = real_tensorproduct
         sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
@@ -772,7 +780,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None, real_tensorproduct=False):
+    def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
@@ -827,8 +835,7 @@ def IndexedFunctionSpace(index, space, parent):
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name,
-                                 real_tensorproduct=space.real_tensorproduct)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -850,8 +857,7 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name,
-                             real_tensorproduct=parent.real_tensorproduct)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent

@@ -280,3 +280,90 @@ def test_nullspace_mixed_multiple_components():
     schur_ksp = solver.snes.ksp.pc.getFieldSplitSubKSP()[1]
     assert schur_ksp.getConvergedReason() > 0
     assert schur_ksp.getIterationNumber() < 6
+
+
+def test_near_nullspace_mixed():
+    # test nullspace and nearnullspace for a mixed Stokes system
+    # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
+    PETSc.Sys.popErrorHandler()
+    n = 64
+    mesh = UnitSquareMesh(n, n)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    P = FunctionSpace(mesh, "CG", 1)
+    W = V*P
+
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    x, y = SpatialCoordinate(mesh)
+    inside_box = And(abs(x-0.5) < 0.2, abs(y-0.75) < 0.2)
+    mu = conditional(inside_box, 1e8, 1)
+
+    a = inner(mu*2*sym(grad(u)), grad(v))*dx
+    a += -inner(p, div(v))*dx + inner(div(u), q)*dx
+
+    f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
+    L = inner(f, v)*dx
+
+    bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
+
+    rotW = Function(W)
+    rotV, _ = rotW.split()
+    rotV.interpolate(as_vector((-y, x)))
+
+    c0 = Function(W)
+    c0V, _ = c0.split()
+    c1 = Function(W)
+    c1V, _ = c1.split()
+    c0V.interpolate(Constant([1., 0.]))
+    c1V.interpolate(Constant([0., 1.]))
+
+    near_nullmodes = VectorSpaceBasis([c0V, c1V, rotV])
+    near_nullmodes.orthonormalize()
+    near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
+
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+
+    w = Function(W)
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'pc_type': 'fieldsplit',
+        'ksp_type': 'preonly',
+        'pc_fieldsplit_type': 'schur',
+        'fieldsplit_schur_fact_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'ksp_rtol': 1e-7,
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'ksp_converged_reason': None,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-5',
+            'ksp_monitor': None,
+        }
+    }
+
+    problem = LinearVariationalProblem(a, L, w, bcs=bcs)
+    solver = LinearVariationalSolver(
+        problem, appctx={'mu': mu},
+        nullspace=pressure_nullspace,
+        transpose_nullspace=pressure_nullspace,
+        near_nullspace=near_nullmodes_W,
+        solver_parameters=solver_parameters)
+    solver.solve()
+
+    assert solver.snes.getConvergedReason() > 0
+    ksp_inner, _ = solver.snes.ksp.pc.getFieldSplitSubKSP()
+    assert ksp_inner.getConvergedReason() > 0
+    A, P = ksp_inner.getOperators()
+    assert A.getNearNullSpace().handle
+    # currently ~64 vs. >110-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 70
