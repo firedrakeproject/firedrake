@@ -230,7 +230,14 @@ def _slate2gem_action(expr, self):
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    return Solve(*map(self, expr.children), expr._matfree, self(expr._Aonx), self(expr._Aonp))
+    if expr.is_matfree():
+        name = f"S{len(self.var2terminal)}"
+        assert expr not in self.var2terminal.values()
+        var = Variable(name, expr.shape)
+        self.var2terminal[var] = expr
+        return Solve(*map(self, expr.children), name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
+    else:
+        return Solve(*map(self, expr.children))
 
 
 @_slate2gem.register(sl.Transpose)
