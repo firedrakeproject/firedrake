@@ -94,10 +94,11 @@ def assemble(expr, tensor=None, bcs=None, *,
 
     :returns: See below.
 
-    If expr is a :class:`~ufl.classes.Form` then this evaluates the corresponding
-    integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
-    for 2-forms. Similarly if it is a Slate tensor expression.
+    If expr is a :class:`~ufl.classes.Form` or Slate tensor expression then
+    this evaluates the corresponding integral(s) and returns a :class:`float`
+    for 0-forms, a :class:`.Function` for 1-forms and a :class:`.Matrix` or
+    :class:`.ImplicitMatrix` for 2-forms. In the case of 2-forms the rows
+    correspond to the test functions and the columns to the trial functions.
 
     If expr is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
@@ -298,7 +299,8 @@ def _assemble_matrix(expr, matrix, bcs, opts):
     :arg bcs: Iterable of boundary conditions.
     :arg opts: :class:`_AssemblyOpts` containing the assembly options.
 
-    :returns: The assembled :class:`.Matrix` or :class:`.ImplicitMatrix`.
+    :returns: The assembled :class:`.Matrix` or :class:`.ImplicitMatrix`. For
+        more information about this object refer to :func:`assemble`.
 
     This function does the matrix-specific initialisation of the output tensor
     before calling the generic function :func:`_assemble_expr`.
