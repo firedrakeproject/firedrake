@@ -209,7 +209,7 @@ class FDMPC(PCBase):
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
 
-        aij = np.ones(graph.shape[1], dtype=PETSc.RealType)
+        aones = np.ones(graph.shape[1], dtype=PETSc.RealType)
         for e in range(nel):
             ie = lgmap.apply(lexico_cg(e))
 
@@ -222,8 +222,8 @@ class FDMPC(PCBase):
             je = ie[graph]
             je[ondiag] = -1
             for row, cols in zip(ie, je):
-                prealloc.setValues(row, cols, aij)
-                prealloc.setValues(cols, row, aij)
+                prealloc.setValues(row, cols, aones)
+                prealloc.setValues(cols, row, aones)
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, V.dof_dset.set.size)
@@ -272,7 +272,7 @@ class FDMPC(PCBase):
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
 
-        # Build elemental sparse matrices
+        # Build elemental sparse matrices and preallocate matrix
         acsr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
         for e in range(nel):
@@ -295,17 +295,15 @@ class FDMPC(PCBase):
 
             acsr.append(ae)
             ie = lgmap.apply(lexico_cg(e))
-            je = ie.copy()
             FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
-            je = je[ie == -1]
-            for row in je:
-                prealloc.setValue(row, row, 1.0E0)
-
+            cols = ie[ae.indices]
             for i, row in enumerate(ie):
                 i1 = ae.indptr[i]
                 i2 = ae.indptr[i+1]
-                cols = ie[ae.indices[i1:i2]]
-                prealloc.setValues(row, cols, ae.data[i1:i2])
+                prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
+
+        for row in range(V.dof_dset.set.size):
+            prealloc.setValue(row, row, 1.0E0)
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, V.dof_dset.set.size)
@@ -313,19 +311,22 @@ class FDMPC(PCBase):
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
 
+        # Assemble global matrix
         for e, ae in enumerate(acsr):
             ie = lgmap.apply(lexico_cg(e))
             je = ie.copy()
-            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
-            je = je[ie == -1]
-            for row in je:
-                Pmat.setValue(row, row, 1.0E0, imode)
+            FDMPC.index_bcs(je, pshape, bcflags[e], -1)
+            adiag = ae.diagonal()
+            adiag = adiag[je == -1]
+            ibc = ie[je == -1]
+            for row, val in zip(ibc, adiag):
+                Pmat.setValue(row, row, val, imode)
 
-            for i, row in enumerate(ie):
+            cols = je[ae.indices]
+            for i, row in enumerate(je):
                 i1 = ae.indptr[i]
                 i2 = ae.indptr[i+1]
-                cols = ie[ae.indices[i1:i2]]
-                Pmat.setValues(row, cols, ae.data[i1:i2], imode)
+                Pmat.setValues(row, cols[i1:i2], ae.data[i1:i2], imode)
 
         Pmat.assemble()
         return Pmat
