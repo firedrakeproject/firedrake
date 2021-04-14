@@ -388,6 +388,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             assemble_expressions.Assign(self, expr), subset)
         return self
 
+    @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
@@ -405,6 +406,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_isub
     @utils.known_pyop2_safe
     def __isub__(self, expr):
 
@@ -422,6 +424,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_imul
     @utils.known_pyop2_safe
     def __imul__(self, expr):
 
@@ -439,6 +442,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_idiv
     @utils.known_pyop2_safe
     def __idiv__(self, expr):
 

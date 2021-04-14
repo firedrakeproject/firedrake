@@ -1,25 +1,90 @@
 """
 
-This module wraps `randomgen <https://pypi.org/project/randomgen/>`__
-and enables users to generate a randomised :class:`.Function`
-from a :class:`.FunctionSpace`.
-This module inherits all attributes from `randomgen <https://pypi.org/project/randomgen/>`__.
+This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
+and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
+This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
+
+**Generator**
+
+:class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
+:class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
+and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
+
+Example:
+
+.. code-block:: python3
+
+    from firedrake import *
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, 'CG', 1)
+    pcg = PCG64(seed=123456789)
+    rg = Generator(pcg)
+    f_beta = rg.beta(V, 1.0, 2.0)
+    print(f_beta.dat.data)
+    # prints:
+    # [0.0075147 0.40893448 0.18390776 0.46192167 0.20055854 0.02231147 0.47424777 0.24177973 0.55937075]
+
+**BitGenerator**
+
+:class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
+A :class:`.BitGenerator` takes an additional keyword argument `comm` (=`pyop2.mpi.COMM_WORLD` by default).
+If `comm.Get_rank() > 1`, :class:`.PCG64` or :class:`.Philox` must be used, as these bit generators are known to be prallel-safe.
+
+*PCG64*
+
+:class:`.PCG64` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
+If `seed` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
+To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the `seed` as the following before
+passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
+
+.. code-block:: python3
+
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+    sg = numpy.random.SeedSequence(seed)
+    seed = sg.spawn(size)[rank]
+
+.. note::
+
+    `inc` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset "state" after construction as:
+
+    .. code-block:: python3
+
+        pcg = PCG64()
+        state = pcg.state
+        state['state'] = {'state': seed, 'inc': inc}
+        pcg.state = state
+
+*Philox*
+
+:class:`.Philox` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
+If `key` keyword is not provided by the user, :class:`.Philox` computes the default key as:
+
+.. code-block:: python3
+
+    key = np.zeros(2, dtype=np.uint64)
+    key[0] = comm.Get_rank()
 
 """
-from mpi4py import MPI
 
-import numpy as np
 import inspect
-import randomgen
+import warnings
+import numpy as np
+import numpy.random as randomgen
 
 from firedrake.function import Function
+from pyop2.mpi import COMM_WORLD
 from ufl import FunctionSpace
 
-__all__ = [item for item in randomgen.__all__ if item not in ('hypergeometric', 'multinomial', 'random_sample')]
+_deprecated_attributes = ['RandomGenerator', ]
 
-_class_names = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)]
-_method_names = [name for name, _ in inspect.getmembers(randomgen.RandomGenerator)
-                 if not name.startswith('_') and name not in ('state', 'poisson_lam_max')]
+__all__ = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)] + _deprecated_attributes
+
+# >>> [name for name, _ in inspect.getmembers(numpy.random) if not name.startswith('_')]
+_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+# >>> [name for name, _ in inspect.getmembers(numpy.random.Generator) if not name.startswith('_')]
+_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 
 
 def __getattr__(module_attr):
@@ -119,7 +184,7 @@ def __getattr__(module_attr):
                 st += sp + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
                 st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
                 st += sp + ':returns: :class:`.Function`\n\n'
-                st += sp + "The original documentation is found at `<https://bashtage.github.io/randomgen/generated/randomgen.legacy.legacy.LegacyGenerator." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
+                st += sp + "The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generated/numpy.random." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
                 st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif '.. math::' in s:
                 st += '\n' + sp + s + '\n\n'
@@ -127,15 +192,13 @@ def __getattr__(module_attr):
                 st += sp + s + '\n'
 
         return st
-
-    if module_attr == 'RandomGenerator':
-
+    if module_attr == 'Generator':
         _Base = getattr(randomgen, module_attr)
-
         _dict = {}
-
         _dict["__doc__"] = ("\n"
                             "    Container for the Basic Random Number Generators.\n"
+                            "\n"
+                            "    The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generator.html#numpy.random.Generator>`__, which is reproduced below with appropriate changes.\n"
                             "\n"
                             "    Users can pass to many of the available distribution methods\n"
                             "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`.Function`.\n"
@@ -150,29 +213,36 @@ def __getattr__(module_attr):
                             "        mesh = UnitSquareMesh(2,2)\n"
                             "        V = FunctionSpace(mesh, 'CG', 1)\n"
                             "        pcg = PCG64(seed=123456789)\n"
-                            "        rg = RandomGenerator(pcg)\n"
+                            "        rg = Generator(pcg)\n"
                             "        f_beta = rg.beta(V, 1.0, 2.0)\n"
                             "        print(f_beta.dat.data)\n"
-                            "        # produces:\n"
-                            "        # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]\n"
+                            "        # prints:\n"
+                            "        # [0.0075147 0.40893448 0.18390776 0.46192167 0.20055854 0.02231147 0.47424777 0.24177973 0.55937075]\n"
                             "\n")
+
+        def __init__(self, bit_generator=None):
+            if bit_generator is None:
+                from firedrake.randomfunctiongen import PCG64
+                bit_generator = PCG64()
+            super(_Wrapper, self).__init__(bit_generator)
+        _dict['__init__'] = __init__
 
         # Use decorator to add doc strings to
         # auto generated methods
         def add_doc_string(doc_string):
-
             def f(func):
                 func.__doc__ = _reformat_doc(doc_string)
                 return func
-
             return f
 
         # To have Sphinx generate docs, make the following methods "static"
-        for class_attr, _ in inspect.getmembers(getattr(randomgen, module_attr)):
-
-            # These methods are not to be used with V
-            if class_attr in ('bytes', 'shuffle', 'permutation', 'dirichlet', 'multinomial', 'multivariate_normal', 'complex_normal'):
-
+        for class_attr, _ in inspect.getmembers(randomgen.Generator):
+            if class_attr.startswith('_'):
+                continue
+            elif class_attr in ['bit_generator', ]:
+                continue
+            elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation', 'permuted']:
+                # These methods are not to be used with V.
                 # class_attr is mutable, so we have to wrap func with
                 # another function to lock the value of class_attr
                 def funcgen(c_a):
@@ -187,38 +257,10 @@ def __getattr__(module_attr):
                     return func
 
                 _dict[class_attr] = funcgen(class_attr)
-
-            # Arguments for these two are slightly different
-            elif class_attr in ('rand', 'randn'):
-
-                # Here, too, wrap func with funcgen.
-                def funcgen(c_a):
-
-                    @add_doc_string(getattr(_Base, c_a).__doc__)
-                    def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
-                            # Extract size from V
-                            if 'size' in kwargs.keys():
-                                raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
-                            V = args[0]
-                            f = Function(V)
-                            with f.dat.vec_wo as v:
-                                v.array[:] = getattr(self, c_a)(v.local_size, **kwargs)
-                            return f
-                        else:
-                            # forward to the original implementation
-                            return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
-
-                    return func
-
-                _dict[class_attr] = funcgen(class_attr)
-
             # Other methods here
-            elif class_attr in _method_names:
-
+            elif class_attr in _known_generator_attributes:
                 # Here, too, wrap func with funcgen.
                 def funcgen(c_a):
-
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
                         if len(args) > 0 and isinstance(args[0], FunctionSpace):
@@ -235,103 +277,83 @@ def __getattr__(module_attr):
                         else:
                             # forward to the original implementation
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
-
                     return func
-
                 _dict[class_attr] = funcgen(class_attr)
-
+            else:
+                warnings.warn("Unknown attribute: Firedrake needs to wrap numpy.random.Generator.%s." % class_attr)
         _Wrapper = type(module_attr, (_Base,), _dict)
-
         return _Wrapper
-
-    elif module_attr in _class_names:
-
+    elif module_attr == "RandomGenerator":
+        from firedrake.randomfunctiongen import Generator
+        return Generator
+    elif module_attr in ['MT19937', 'Philox', 'PCG64', 'SFC64']:
         _Base = getattr(randomgen, module_attr)
 
         def __init__(self, *args, **kwargs):
-            self._comm = kwargs.pop('comm', MPI.COMM_WORLD)
-            # Remember args, kwargs as these are changed in super().__init__
-            _args = args
-            _kwargs = kwargs
-            self._initialized = False
-            super(_Wrapper, self).__init__(*args, **kwargs)
-            self._initialized = True
-            self.seed(*_args, **_kwargs)
-            self._generator = None
+            _kwargs = kwargs.copy()
+            self._comm = _kwargs.pop('comm', COMM_WORLD)
+            if self._comm.Get_size() > 1 and module_attr not in ['PCG64', 'Philox']:
+                raise TypeError("Use 'PCG64', 'Philox', for parallel RNG")
+            self._init(*args, **_kwargs)
 
-        @property
-        def generator(self):
-            if self._generator is None:
-                from . import RandomGenerator
-                self._generator = RandomGenerator(brng=self)
-            return self._generator
+        def seed(self, *args, **kwargs):
+            raise AttributeError("`seed` method is not available in `numpy.random`; if reseeding, create a new bit generator with the new seed.")
 
         if module_attr == 'PCG64':
-
-            # Use examples in https://bashtage.github.io/randomgen/parallel.html
-            # with appropriate changes.
-            def seed(self, seed=None, inc=None):
-
-                if self._comm.Get_size() == 1:
-                    super(_Wrapper, self).seed(seed=seed, inc=0 if inc is None else inc)
-                else:
-                    rank = self._comm.Get_rank()
-                    if seed is None:
-                        if rank == 0:
-                            # generate a 128bit seed
-                            entropy = randomgen.entropy.random_entropy(4)
-                            seed = sum([int(entropy[i]) * 2 ** (32 * i) for i in range(4)])
-                        else:
-                            seed = None
-                        # All processes have to have the same seed
-                        seed = self._comm.bcast(seed, root=0)
-                    # Use rank to generate multiple streams.
-                    # If 'inc' is to be passed, it is users' responsibility
-                    # to provide an appropriate value.
-                    inc = inc or rank
-                    super(_Wrapper, self).seed(seed=seed, inc=inc)
-
-        elif module_attr in ('Philox', 'ThreeFry'):
-
-            def seed(self, seed=None, counter=None, key=None):
-
+            def _init(self, *args, **kwargs):
+                if 'inc' in kwargs:
+                    raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
+                rank = self._comm.Get_rank()
+                size = self._comm.Get_size()
+                _kwargs = kwargs.copy()
+                seed = _kwargs.get("seed")
+                if seed is None:
+                    if rank == 0:
+                        # generate a 128bit seed
+                        seed = randomgen.SeedSequence().entropy
+                    else:
+                        seed = None
+                    seed = self._comm.bcast(seed, root=0)
+                # Create multiple streams
+                sg = randomgen.SeedSequence(seed)
+                _kwargs["seed"] = sg.spawn(size)[rank]
+                super(_Wrapper, self).__init__(*args, **_kwargs)
+        elif module_attr == 'Philox':
+            def _init(self, *args, **kwargs):
+                seed = kwargs.get("seed")
+                # counter = kwargs.get("counter")
+                key = kwargs.get("key")
                 if self._comm.Get_size() > 1:
                     rank = self._comm.Get_rank()
                     if seed is not None:
-                        raise TypeError("'seed' should not be used when using 'Philox'/'ThreeFry' in parallel.  A random 'key' is automatically generated and used unless specified.")
+                        raise TypeError("'seed' should not be used when using 'Philox' in parallel.  A random 'key' is automatically generated and used unless specified.")
                     # if 'key' is to be passed, it is users' responsibility
                     # to provide an appropriate one
                     if key is None:
                         # Use rank to generate multiple streams
-                        key = np.zeros(2 if module_attr == 'Philox' else 4, dtype=np.uint64)
+                        key = np.zeros(2, dtype=np.uint64)
                         key[0] = rank
-
-                super(_Wrapper, self).seed(seed=seed, counter=counter, key=key)
-
+                _kwargs = kwargs.copy()
+                _kwargs["key"] = key
+                super(_Wrapper, self).__init__(*args, **_kwargs)
         else:
-
-            def seed(self, *args, **kwargs):
-
-                if self._comm.Get_size() > 1:
-                    raise TypeError("Use 'PCG64', 'Philox', 'ThreeFry' for parallel RNG")
-
-                super(_Wrapper, self).seed(*args, **kwargs)
-
+            def _init(self, *args, **kwargs):
+                super(_Wrapper, self).__init__(*args, **kwargs)
         _dict = {"__init__": __init__,
+                 "_init": _init,
                  "seed": seed,
-                 "generator": generator,
                  "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
-
         _Wrapper = type(module_attr, (_Base,), _dict)
-
         return _Wrapper
-
-    else:
-
+    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'bit_generator', 'default_rng', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
+        return getattr(randomgen, module_attr)
+    elif not module_attr.startswith('_'):
+        # module_attr not in _known_attributes + _deprecated_attributes
+        warnings.warn("Found unknown attribute: Falling back to numpy.random.%s, but Firedrake might need to wrap this attribute." % module_attr)
         return getattr(randomgen, module_attr)
 
 
-# __getattr__ on module level only works for 3.7+
+# Module level __getattr__ is only available with 3.7+
 
 import sys
 

@@ -114,6 +114,74 @@ class FunctionMixin(FloatingType):
 
         return wrapper
 
+    @staticmethod
+    def _ad_annotate_iadd(__iadd__):
+        @wraps(__iadd__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __iadd__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self + other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_isub(__isub__):
+        @wraps(__isub__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __isub__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self - other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_imul(__imul__):
+        @wraps(__imul__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __imul__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self*other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_idiv(__idiv__):
+        @wraps(__idiv__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __idiv__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self/other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
     def _ad_create_checkpoint(self):
         return self.copy(deepcopy=True)
 
