@@ -550,7 +550,7 @@ class StandaloneInterpolationMatrix(object):
         """
         Interpolation and restriction kernels between arbitrary elements.
 
-        This is temporary while we wait for structure-preserving tfsc kernels.
+        This is temporary while we wait for dual evaluation in FInAT.
         """
         prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
