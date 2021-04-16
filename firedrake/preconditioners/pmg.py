@@ -27,6 +27,10 @@ class PMGBase(PCSNESBase):
     relaxation to apply on every p-level is described by 'pmg_mg_levels_',
     and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
+    
+    The relevant PETSc options are:
+    - 'pmg_mg_coarse_degree': to specify the degree of the coarse level
+    - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
     This takes in a :class:`ufl.FiniteElement` and either returns a
