@@ -253,6 +253,11 @@ def convert_hcurlelement(element, **kwargs):
     return finat.HCurlElement(finat_elem), deps
 
 
+@convert.register(ufl.WithMapping)
+def convert_withmapping(element, **kwargs):
+    return _create_element(element.wrapee, **kwargs)
+
+
 @convert.register(ufl.RestrictedElement)
 def convert_restrictedelement(element, **kwargs):
     finat_elem, deps = _create_element(element._element, **kwargs)
