@@ -27,7 +27,6 @@ class PMGBase(PCSNESBase):
     relaxation to apply on every p-level is described by 'pmg_mg_levels_',
     and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
-    An example chaining p-MG, GMG and AMG is given in the tests.
 
     The p-coarsening is implemented in the `coarsen_element` routine.
     This takes in a :class:`ufl.FiniteElement` and either returns a
@@ -687,7 +686,7 @@ class StandaloneInterpolationMatrix(object):
         }
         """
 
-        # FInaT elements order the component DoFs related to the same node contiguously.
+        # FInAT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
@@ -741,48 +740,6 @@ class StandaloneInterpolationMatrix(object):
         prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         return prolong_kernel, restrict_kernel
-
-    @staticmethod
-    def get_line_element(V):
-        # Return the corresponding Line element for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if family <= {"Q", "Lagrange"}:
-            if variant == "equispaced":
-                element = lagrange.Lagrange(cell, N)
-            else:
-                element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            if variant == "equispaced":
-                element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
-            else:
-                element = gauss_legendre.GaussLegendre(cell, N)
-        else:
-            raise ValueError("Don't know how to get fiat element for %r" % family)
-
-        return element
-
-    @staticmethod
-    def get_line_nodes(V):
-        # Return the corresponding nodes in the Line for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import quadrature
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if variant == "equispaced":
-            return cell.make_points(1, 0, N+1)
-        elif family <= {"Q", "Lagrange"}:
-            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        else:
-            raise NotImplementedError("Don't know how to get nodes for %r" % family)
 
     @staticmethod
     def multiplicity(V):
