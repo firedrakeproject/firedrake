@@ -146,8 +146,8 @@ def test_interpolate_tlm():
     tape = get_working_tape()
     tape.evaluate_tlm()
 
-    assert J.tlm_value is not None
-    assert taylor_test(rf, f, h, dJdm=J.tlm_value) > 1.9
+    assert J.block_variable.tlm_value is not None
+    assert taylor_test(rf, f, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -165,23 +165,23 @@ def test_interpolate_tlm_wit_constant():
     u.interpolate(c * f ** 2)
 
     # test tlm w.r.t constant only:
-    c.tlm_value = Constant(1.0)
+    c.block_variable.tlm_value = Constant(1.0)
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
     h = Constant(1.0)
 
     tape = get_working_tape()
     tape.evaluate_tlm()
-    assert abs(J.tlm_value - 2.0) < 1e-5
-    assert taylor_test(rf, c, h, dJdm=J.tlm_value) > 1.9
+    assert abs(J.block_variable.tlm_value - 2.0) < 1e-5
+    assert taylor_test(rf, c, h, dJdm=J.block_variable.tlm_value) > 1.9
 
     # test tlm w.r.t constant c and function f:
     tape.reset_tlm_values()
-    c.tlm_value = Constant(0.4)
+    c.block_variable.tlm_value = Constant(0.4)
     f.block_variable.tlm_value = g
     rf(c)  # replay to reset checkpoint values based on c=5
     tape.evaluate_tlm()
-    assert abs(J.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
+    assert abs(J.block_variable.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -293,8 +293,8 @@ def test_interpolate_hessian_linear_expr():
     h = Function(W)
     h.vector()[:] = 10*rand(W.dim())
 
-    J.adj_value = 1.0
-    f.tlm_value = h
+    J.block_variable.adj_value = 1.0
+    f.block_variable.tlm_value = h
 
     tape.evaluate_adj()
     tape.evaluate_tlm()
@@ -306,9 +306,9 @@ def test_interpolate_hessian_linear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.original_block_variable.adj_value, Vector)
-    assert isinstance(f.original_block_variable.hessian_value, Vector)
-    Hm = f.original_block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Vector)
+    assert isinstance(f.block_variable.hessian_value, Vector)
+    Hm = f.block_variable.hessian_value.inner(h.vector())
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -351,8 +351,8 @@ def test_interpolate_hessian_nonlinear_expr():
     h = Function(W)
     h.vector()[:] = 10*rand(W.dim())
 
-    J.adj_value = 1.0
-    f.tlm_value = h
+    J.block_variable.adj_value = 1.0
+    f.block_variable.tlm_value = h
 
     tape.evaluate_adj()
     tape.evaluate_tlm()
@@ -364,9 +364,9 @@ def test_interpolate_hessian_nonlinear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.original_block_variable.adj_value, Vector)
-    assert isinstance(f.original_block_variable.hessian_value, Vector)
-    Hm = f.original_block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Vector)
+    assert isinstance(f.block_variable.hessian_value, Vector)
+    Hm = f.block_variable.hessian_value.inner(h.vector())
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -412,9 +412,9 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     h = Function(W)
     h.vector()[:] = 10*rand(W.dim())
 
-    J.adj_value = 1.0
+    J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
-    f.tlm_value = h
+    f.block_variable.tlm_value = h
 
     tape.evaluate_adj()
     tape.evaluate_tlm()
@@ -426,9 +426,9 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.original_block_variable.adj_value, Vector)
-    assert isinstance(f.original_block_variable.hessian_value, Vector)
-    Hm = f.original_block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Vector)
+    assert isinstance(f.block_variable.hessian_value, Vector)
+    Hm = f.block_variable.hessian_value.inner(h.vector())
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9

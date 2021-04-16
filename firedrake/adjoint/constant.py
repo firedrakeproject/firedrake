@@ -52,9 +52,6 @@ class ConstantMixin(OverloadedType):
     def get_derivative(self, options={}):
         return self._ad_convert_type(self.adj_value, options=options)
 
-    def adj_update_value(self, value):
-        self.original_block_variable.checkpoint = value._ad_create_checkpoint()
-
     def _ad_convert_type(self, value, options={}):
         if value is None:
             # TODO: Should the default be 0 constant here or return just None?
