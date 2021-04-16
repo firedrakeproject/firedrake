@@ -212,9 +212,12 @@ class PMGBase(PCSNESBase):
                 for index in bc._indices:
                     cV_ = cV_.sub(index)
                 cbc_value = self.coarsen_bc_value(bc, cV_)
-                cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                  bc.sub_domain,
-                                                  method=bc.method))
+                if type(bc) == firedrake.DirichletBC:
+                    cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                                      bc.sub_domain,
+                                                      method=bc.method))
+                else:
+                    raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
             return cbcs
 
         Nf = get_max_degree(fV.ufl_element())
