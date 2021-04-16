@@ -89,7 +89,7 @@ class PMGBase(PCSNESBase):
             sub = ele.sub_elements()
             return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):
-            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()))
+            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
         else:
             return ele.reconstruct(degree=N)
 
