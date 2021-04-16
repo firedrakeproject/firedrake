@@ -20,4 +20,4 @@ class P1PC(PMGPC):
         if N <= self.coarse_degree:
             raise ValueError
 
-        return PMGPC.reconstruct_degree(ele, self.coarse_degree)
+        return super().reconstruct_degree(ele, self.coarse_degree)

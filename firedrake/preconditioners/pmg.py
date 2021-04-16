@@ -70,14 +70,14 @@ class PMGBase(PCSNESBase):
         if N <= self.coarse_degree:
             raise ValueError
 
-        return PMGBase.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
+        return self.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
 
     @staticmethod
     def reconstruct_degree(ele, N):
         """
         Reconstruct a given element, modifying its polynomial degree.
 
-        May only set the same degree on VectorElements and TensorProductElements.
+        Can only set a single degree along all axes of a TensorProductElement.
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
         :arg N: an integer degree.
@@ -179,10 +179,9 @@ class PMGBase(PCSNESBase):
             else:
                 N = ele.degree()
                 try:
-                    N = max(N)
+                    return max(N)
                 except TypeError:
-                    pass
-                return N
+                    return N
 
         def coarsen_quadrature(df, Nf, Nc):
             # Coarsen the quadrature degree in a dictionary
@@ -494,7 +493,7 @@ def get_line_element(V):
         else:
             element = gauss_legendre.GaussLegendre(cell, N)
     else:
-        raise ValueError("Don't know how to get fiat element for %r" % family)
+        raise ValueError("Don't know how to get line element for %r" % family)
 
     return element
 
@@ -515,7 +514,7 @@ def get_line_nodes(V):
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return rule.get_points()
     else:
-        raise NotImplementedError("Don't know how to get nodes for %r" % family)
+        raise ValueError("Don't know how to get line nodes for %r" % family)
 
 
 class StandaloneInterpolationMatrix(object):
