@@ -1,6 +1,86 @@
-from firedrake.potential_evaluation import PotentialEvaluationLibraryConnection
-from firedrake.potential_evaluation.pytential import \
-    MeshmodeConnection
+from firedrake.functionspacedata import cached
+from firedrake.potential_evaluation.potentials import PotentialEvaluationLibraryConnection
+from firedrake.potential_evaluation.pytential import MeshmodeConnection
+
+
+@cached
+def _cached_build_volumential_connection(mesh, key, actx,
+                                         meshmode_discr,
+                                         order,
+                                         nlevels,
+                                         **box_fmm_geometry_factory_kwargs):
+    # TODO: Fix documentation
+    """
+    Build connections (meshmode -> volumential, volumential -> meshmode)
+
+    :arg mesh: the mesh to cache on
+    :arg key: the key this connection is looked up by
+    (function space ufl element,
+               restrict_to_boundary,
+               order,
+               nlevels,
+               frozenset(box_fmm_geometry_factory_kwargs.items()))
+    :arg meshmode_discr: the :class:`meshmode.discretization.Discretization`
+        a connection is being built to
+    :arg order: Passed to :class:`volumential.geometry.BoxFMMGeometryFactory`.
+    :arg nlevels: Passed to :class:`volumential.geometry.BoxFMMGeometryFactory`.
+    :kwarg box_fmm_geometry_factory_kwargs: Extra kwargs passed to
+        :class:`volumential.geometry.BoxFMMGeometryFactory`. Must
+        not include :code:`"expand_to_hold_mesh"`:.
+
+    :return: A tuple *(meshmode -> volumential connection,
+             volumential -> meshmode connection)*.
+    """
+    # Build connection from meshmode into volumential
+    # (following https://gitlab.tiker.net/xywei/volumential/-/blob/fe2c3e7af355d5c527060e783237c124c95397b5/test/test_interpolation.py#L72 ) # noqa: E501
+    from volumential.geometry import (
+        BoundingBoxFactory, BoxFMMGeometryFactory)
+    from volumential.interpolation import ElementsToSourcesLookupBuilder
+    bbox_fac = BoundingBoxFactory(dim=meshmode_discr.ambient_dim)
+    # make sure desired kwargs are present/not present
+    assert "expand_to_hold_mesh" not in box_fmm_geometry_factory_kwargs
+    # build our BoxFMMGeometryFactory
+    bboxfmm_fac = BoxFMMGeometryFactory(
+        cl_ctx=actx.context,
+        dim=meshmode_discr.ambient_dim,
+        bbox_getter=bbox_fac,
+        expand_to_hold_mesh=meshmode_discr.mesh,
+        **box_fmm_geometry_factory_kwargs)
+    boxgeo = bboxfmm_fac(actx.queue)
+    elt_to_src_lookup_fac = ElementsToSourcesLookupBuilder(
+        actx.context, tree=boxgeo.tree, discr=meshmode_discr)
+    elt_to_src_lookup, _ = elt_to_src_lookup_fac(actx.queue)
+
+    # Build connection from volumential into meshmode
+    from volumential.interpolation import LeavesToNodesLookupBuilder
+    leaves_to_node_lookup_fac = LeavesToNodesLookupBuilder(
+        actx.context, trav=boxgeo.trav, discr=meshmode_discr)
+    leaves_to_node_lookup, _ = leaves_to_node_lookup_fac(actx.queue)
+    return (leaves_to_node_lookup, elt_to_src_lookup)
+
+
+def _build_volumential_connection(actx,
+                                  function_space,
+                                  order,
+                                  nlevels,
+                                  **box_fmm_geometry_factory_kwargs):
+    """
+    Constructs key and invokes  _cached_build_volumential_connection
+    """
+    mesh = function_space.mesh()
+    key = (function_space.ufl_element().family(),
+           function_space.ufl_element().degree(),
+           order,
+           nlevels,
+           frozenset(box_fmm_geometry_factory_kwargs.items()))
+    return _cached_build_volumential_connection(
+        mesh,
+        key,
+        actx,
+        function_space,
+        order,
+        nlevels,
+        **box_fmm_geometry_factory_kwargs)
 
 
 class VolumentialConnection(PotentialEvaluationLibraryConnection):
@@ -10,9 +90,8 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
     def __init__(self,
                  potential_source_and_target,
                  function_space,
-                 cl_ctx,
-                 queue,
-                 box_fmm_geometry_kwargs,
+                 actx,
+                 box_fmm_geometry_factory_kwargs,
                  reorder_potentials,
                  meshmode_connection_kwargs,
                  warn_if_cg=True):
@@ -21,17 +100,21 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
         The *potential_source_and_target* must have a 3D
         source, 3D target, and 3D mesh of co-dimension 0.
 
-        :arg cl_ctx: A :class:`pyopencl.Context`
-        :arg queue: A :class:`pyopencl.CommandQueue`
-        :arg box_fmm_geometry_kwargs: kwargs passed to
+        Currently, potential_source_and_target must have the
+        same source and target, and both target "everywhere"
+
+        :arg actx: A :class:`meshmode.array_context.PyOpenCLArrayContext`
+        :arg box_fmm_geometry_factory_kwargs: arguments passed to
             :class:`volumential.geometry.BoxFMMGeometryFactory`.
-            Must include the key *'nlevels'*
+            Must not contain :code:`"cl_ctx"`,
+            :code:`"dim"`, :code:`"bbox_getter"`, or :code:`"expand_to_hold_mesh"`
+            Defaults:
+            * order: the degree of the firedrake functions pace
+            * nlevels: 50
         :arg reorder_potentials: *True* iff the volumential FMM
             is reordering potentials. *False* otherwise.
-        :arg meshmode_connection_kwargs: A dict passes as kwargs
-            to :func:`meshmode.interop.build_connection_from_firedrake`.
-            :mod:`meshmode` is used an intermediate level between
-            :mod:`firedrake` and :mod:`volumential`.
+        :arg meshmode_connection_kwargs: As used by
+            :class:`firedrake.potential_evaluation.pytential.MeshmodeConnection`
         """
         # super
         PotentialEvaluationLibraryConnection.__init__(
@@ -50,75 +133,62 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
         if potential_source_and_target.mesh().topological_dimension() != 3:
             raise ValueError("mesh must have topological dimension 3")
 
-        # FIXME : allow subdomain regions
+        # FIXME : allow subdomain regions.
+        #         Note that this will require creating
+        #         volumential connections separately for to vs. from
         if potential_source_and_target.get_source_id() != "everywhere":
             raise NotImplementedError("subdomain sources not implemented")
         if potential_source_and_target.get_target_id() != "everywhere":
             raise NotImplementedError("subdomain targets not implemented")
 
-        # validate cl_ctx argument
-        from pyopencl import Context
-        if not isinstance(cl_ctx, Context):
-            raise TypeError("cl_ctx must be of type Context, not "
-                            "%s." % type(cl_ctx))
-
-        # validate queue argument
-        from pyopencl import CommandQueue
-        if not isinstance(queue, CommandQueue):
-            raise TypeError("queue must be of type CommandQueue, not "
-                            "%s." % type(queue))
+        # validate actx argument
+        from meshmode.array_context import PyOpenCLArrayContext
+        if not isinstance(actx, PyOpenCLArrayContext):
+            raise TypeError("actx must be of type PyOpenCLArrayContext, not "
+                            "%s." % type(actx))
 
         # validate reorder_potentials
         if not isinstance(reorder_potentials, bool):
             raise TypeError("reorder_potentials must be of type bool, not "
                             "%s." % type(reorder_potentials))
 
-        # validate box_fmm_geometry_kwargs
-        if not isinstance(box_fmm_geometry_kwargs, dict):
-            raise TypeError("box_fmm_geometry_kwargs must be of "
+        # validate box_fmm_geometry_factory_kwargs
+        if not isinstance(box_fmm_geometry_factory_kwargs, dict):
+            raise TypeError("box_fmm_geometry_factory_kwargs must be of "
                             "type dict, not '%s'." %
-                            type(box_fmm_geometry_kwargs))
-        if 'nlevels' not in box_fmm_geometry_kwargs:
-            raise ValueError("box_fmm_geometry_kwargs missing required keyword"
-                             " 'nlevels'.")
-
-        # validate meshmode_connection_kwargs
-        if meshmode_connection_kwargs is None:
-            meshmode_connection_kwargs = {}
-        if not isinstance(meshmode_connection_kwargs, dict):
-            raise TypeError("meshmode_connection_kwargs must be *None* or of "
-                            "type dict, not '%s'." %
-                            type(meshmode_connection_kwargs))
+                            type(box_fmm_geometry_factory_kwargs))
+        for illegal_key in ["cl_ctx", "dim", "bbox_getter", "expand_to_hold_mesh"]:
+            if illegal_key in box_fmm_geometry_factory_kwargs:
+                raise ValueError("box_fmm_geometry_factory_kwargs "
+                                 + f"must not have key {illegal_key}.")
+        # set default values in box_fmm_geometry_factory_kwargs and remove them
+        # from the dict
+        order = box_fmm_geometry_factory_kwargs.get("order", function_space.degree())
+        del box_fmm_geometry_factory_kwargs["order"]
+        nlevels = box_fmm_geometry_factory_kwargs.get("nlevels", 50)
+        del box_fmm_geometry_factory_kwargs["nlevels"]
 
         # Build intermediate connection into meshmode
-        from meshmode.interop.firedrake import build_connection_from_firedrake
         from meshmode.array_context import PyOpenCLArrayContext
-        actx = PyOpenCLArrayContext(queue)
         meshmode_connection = MeshmodeConnection(
-                function_space,
-                potential_source_and_target,
-                actx,
-                warn_if_cg=warn_if_cg,
-                meshmode_connection_kwargs=meshmode_connection_kwargs)
+            function_space,
+            potential_source_and_target,
+            actx,
+            warn_if_cg=warn_if_cg,
+            meshmode_connection_kwargs=meshmode_connection_kwargs)
 
-        # Build connection from meshmode into volumential
-        # (following https://gitlab.tiker.net/xywei/volumential/-/blob/fe2c3e7af355d5c527060e783237c124c95397b5/test/test_interpolation.py#L72 ) # noqa : E501
-        from volumential.geometry import (
-            BoundingBoxFactory, BoxFMMGeometryFactory)
-        from volumential.interpolation import ElementsToSourcesLookupBuilder
-        dim = function_space.mesh().geometric_dimension()
-        bboxfmm_fac = BoxFMMGeometryFactory(cl_ctx, dim=dim,
-                                            **box_fmm_geometry_kwargs)
-        boxgeo = bboxfmm_fac(queue)
-        elt_to_src_lookup_fac = ElementsToSourcesLookupBuilder(
-            cl_ctx, tree=boxgeo.tree, discr=meshmode_connection.discr)
-        elt_to_src_lookup, evt = elt_to_src_lookup_fac(queue)
-
-        # Build connection from volumential into meshmode
-        from volumential.interpolation import LeavesToNodesLookupBuilder
-        leaves_to_node_lookup_fac = LeavesToNodesLookupBuilder(
-            cl_ctx, trav=boxgeo.trav, discr=meshmode_connection.discr)
-        leaves_to_node_lookup, evt = leaves_to_node_lookup_fac(queue)
+        # set to hold appropriate mesh
+        # FIXME: Once we allow subdomains, will may have to supply
+        #        both source and target meshes separately?
+        box_fmm_geometry_factory_kwargs["expand_to_hold_mesh"] = \
+            meshmode_connection.source_to_meshmode_connection.discr.mesh
+        # build lookup tables
+        to_volumential_lookup, from_volumential_lookup = \
+            _build_volumential_connection(actx,
+                                          function_space,
+                                          order,
+                                          nlevels,
+                                          **box_fmm_geometry_factory_kwargs)
 
         # Figure out whether or not conversion from volumential -> meshmode
         # should user order or tree order
@@ -126,11 +196,10 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
 
         # Store maps for conversion to/from volumential
         self.meshmode_connection = meshmode_connection
-        self.to_volumential_lookup = elt_to_src_lookup
-        self.from_volumential_lookup = leaves_to_node_lookup
+        self.to_volumential_lookup = to_volumential_lookup
+        self.from_volumential_lookup = from_volumential_lookup
         self.from_volumential_order = order
         # store necessary computing contextx
-        self.queue = queue
         self.actx = actx
 
     def from_firedrake(self, density):
@@ -142,7 +211,7 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
         # pass flattened operand into volumential interpolator
         from volumential.interpolation import interpolate_from_meshmode
         volumential_density = \
-            interpolate_from_meshmode(self.queue,
+            interpolate_from_meshmode(self.actx.queue,
                                       meshmode_density,
                                       self.to_volumential_lookup,
                                       order="user")  # user order is more intuitive
@@ -153,12 +222,13 @@ class VolumentialConnection(PotentialEvaluationLibraryConnection):
         from volumential.interpolation import interpolate_to_meshmode
         from meshmode.dof_array import unflatten
         meshmode_pot_vals = \
-            interpolate_to_meshmode(self.queue,
+            interpolate_to_meshmode(self.actx.queue,
                                     evaluated_potential,
                                     self.from_volumential_lookup,
                                     order=self.from_volumential_order)
+        mm_tgt_conn = self.meshmode_connection.target_to_meshmode_connection
         meshmode_pot_vals = unflatten(self.actx,
-                                      self.meshmode_connection.discr,
+                                      mm_tgt_conn.discr,
                                       meshmode_pot_vals)
         # get meshmode data back as firedrake function
         return self.meshmode_connection.to_firedrake(meshmode_pot_vals, out=self)

@@ -1,17 +1,17 @@
 import numpy as np
 
-from firedrake.potential_evaluation import \
+from firedrake.potential_evaluation.potentials import \
     Potential, PotentialEvaluationLibraryConnection
 from firedrake import project
 from firedrake.functionspacedata import cached
 
 
 @cached
-def _cached_build_connection_from_firedrake(mesh, key,
-                                            actx,
-                                            function_space,
-                                            restrict_to_boundary,
-                                            **meshmode_connection_kwargs):
+def _cached_build_meshmode_connection_from_firedrake(mesh, key,
+                                                     actx,
+                                                     function_space,
+                                                     restrict_to_boundary,
+                                                     **meshmode_connection_kwargs):
     """
     Build connection from firedrake to meshmode and cache on mesh based on key.
 
@@ -30,8 +30,8 @@ def _cached_build_connection_from_firedrake(mesh, key,
                                            **meshmode_connection_kwargs)
 
 
-def _build_connection_from_firedrake(actx, function_space, restrict_to_boundary,
-                                     **meshmode_connection_kwargs):
+def _build_meshmode_connection_from_firedrake(actx, function_space, restrict_to_boundary,
+                                              **meshmode_connection_kwargs):
     """
     Constructs key and invokes  _cached_build_connection_from_firedrake
     """
@@ -40,21 +40,26 @@ def _build_connection_from_firedrake(actx, function_space, restrict_to_boundary,
            function_space.ufl_element().degree(),
            restrict_to_boundary,
            frozenset(meshmode_connection_kwargs.items()))
-    return _cached_build_connection_from_firedrake(mesh, key,
-                                                   actx,
-                                                   function_space,
-                                                   restrict_to_boundary,
-                                                   **meshmode_connection_kwargs)
+    return _cached_build_meshmode_connection_from_firedrake(
+        mesh,
+        key,
+        actx,
+        function_space,
+        restrict_to_boundary,
+        **meshmode_connection_kwargs)
 
 
 class MeshmodeConnection(PotentialEvaluationLibraryConnection):
     """
-    Build a connection into :mod:`meshmode`
+    A connection into :mod:`meshmode`
     """
     def __init__(self, function_space, potential_source_and_target, actx,
                  warn_if_cg=True,
                  meshmode_connection_kwargs=None):
         """
+        Construct a connection into :mod:`meshmode`, or retrieve
+        a cached one if the desired connection already exists
+
         For other args see :class:`PotentialEvaluationLibraryConnection`
 
         :arg actx: a :class:`meshmode.array_context.PyOpenCLArrayContext`
@@ -105,10 +110,10 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
             src_bdy = potential_source_and_target.get_source_id()
 
         # Build source connection to (or retrieve cached connection from mesh)
-        src_conn = _build_connection_from_firedrake(actx,
-                                                    self.dg_function_space,
-                                                    restrict_to_boundary=src_bdy,
-                                                    **meshmode_connection_kwargs)
+        src_conn = _build_meshmode_connection_from_firedrake(actx,
+                                                             self.dg_function_space,
+                                                             restrict_to_boundary=src_bdy,
+                                                             **meshmode_connection_kwargs)
 
         # If source is a boundary, build a connection to restrict it to the
         # boundary
@@ -147,10 +152,11 @@ class MeshmodeConnection(PotentialEvaluationLibraryConnection):
             tgt_bdy = potential_source_and_target.get_target_id()
 
         # Build target connection to (or retrieve cached connection from mesh)
-        tgt_conn = _build_connection_from_firedrake(actx,
-                                                    self.dg_function_space,
-                                                    restrict_to_boundary=tgt_bdy,
-                                                    **meshmode_connection_kwargs)
+        tgt_conn = _build_meshmode_connection_from_firedrake(
+            actx,
+            self.dg_function_space,
+            restrict_to_boundary=tgt_bdy,
+            **meshmode_connection_kwargs)
 
         # store computing context
         self.actx = actx
