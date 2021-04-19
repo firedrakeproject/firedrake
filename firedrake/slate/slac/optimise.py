@@ -93,6 +93,55 @@ from contextlib import contextmanager
 from collections import namedtuple
 from firedrake.slate.slate import *
 
+
+def drop_double_transpose(expr):
+    """ Remove double transposes from optimised Slate expression.
+        Remember A = A.T.T
+    """
+    from gem.node import Memoizer
+    mapper = Memoizer(_drop_double_transpose)
+    a = mapper(expr)
+    return a
+
+
+@singledispatch
+def _drop_double_transpose(expr, self):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_drop_double_transpose.register(Tensor)
+@_drop_double_transpose.register(AssembledVector)
+def _drop_double_transpose_terminals(expr, self):
+    return expr
+
+
+@_drop_double_transpose.register(Transpose)
+def _drop_double_transpose_transpose(expr, self):
+    child, = expr.children
+    if isinstance(child, Transpose):
+        grandchild, = child.children
+        return self(grandchild)
+    return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(Negative)
+@_drop_double_transpose.register(Add)
+@_drop_double_transpose.register(Mul)
+@_drop_double_transpose.register(Block)
+def _drop_double_transpose_distributive(expr, self):
+    return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(Action)
+def _drop_double_transpose_action(expr, self):
+    return type(expr)(*map(self, expr.children), expr.pick_op)
+
+
+@_drop_double_transpose.register(Solve)
+def _drop_double_transpose_action(expr, self):
+    return type(expr)(*map(self, expr.children), matfree=expr.is_matfree)
+
+
 @singledispatch
 def _action(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
