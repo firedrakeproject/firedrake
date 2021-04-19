@@ -351,9 +351,6 @@ class SwapController(object):
         yield ActionBag(state.coeff, swap_op, state.pick_op)
 
 def optimise(expr, tsfc_parameters):
-    from firedrake.slate.slate import BinaryOp, UnaryOp
-    if ((isinstance(expr, BinaryOp) and isinstance(expr.children, AssembledVector))
-        or isinstance(expr, UnaryOp)):
     # Optimise expression which is already partially optimised
     # by optimising a subexpression that is not optimised yet
     # the non optimised expression is a Mul
