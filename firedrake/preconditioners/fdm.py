@@ -145,6 +145,14 @@ class FDMPC(PCBase):
             self.pc.view(viewer)
 
     @staticmethod
+    def pull_facet(x, pshape, idir):
+        xshape = x.shape
+        x.shape = pshape
+        x = x.transpose((idir,) + tuple(np.arange(idir)) + tuple(np.arange(idir+1, len(pshape))))
+        x.shape = xshape
+        return
+
+    @staticmethod
     def index_bcs(x, pshape, bc, val):
         xshape = x.shape
         x.shape = pshape
@@ -249,16 +257,17 @@ class FDMPC(PCBase):
         Pmat.assemble()
         return Pmat
 
-    @staticmethod
-    def assemble_affine(A, V, Gq, Bq, Sfdm, bcflags):
+    def assemble_affine(self, A, V, Gq, Bq, Sfdm, bcflags):
         from scipy.sparse import kron
+
+        needs_interior_facet = False
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
 
         lexico_cg, nel = FDMPC.glonum_fun(V)
-        gid, _ = FDMPC.glonum_fun(Gq)
-        bid, _ = FDMPC.glonum_fun(Bq) if Bq is not None else (None, nel)
+        gid, _ = self.glonum_fun(Gq)
+        bid, _ = self.glonum_fun(Bq) if Bq is not None else (None, nel)
 
         ndim = V.mesh().topological_dimension()
         idsym = [0, 2] if ndim == 2 else [0, 3, 5]
@@ -295,12 +304,47 @@ class FDMPC(PCBase):
 
             acsr.append(ae)
             ie = lgmap.apply(lexico_cg(e))
-            FDMPC.index_bcs(ie, pshape, bcflags[e], -1)
+            self.index_bcs(ie, pshape, bcflags[e], -1)
             cols = ie[ae.indices]
             for i, row in enumerate(ie):
                 i1 = ae.indptr[i]
                 i2 = ae.indptr[i+1]
                 prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
+
+        if needs_interior_facet:
+
+            # TODO extrude these arrays
+            lexico_facet, nfacet = self.glonum_fun(V, interior_facet=True)
+            facet_cells = self.mesh.interior_facets.facet_cell_map.values
+            facet_dir = self.mesh.interior_facets.local_facet_dat.data
+
+            for f in range(nfacet):
+                e0, e1 = facet_cells[f]
+                fbc = bcflags[e0] @ flag2id
+                icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
+
+                idir = facet_dir[f]
+                iside = idir % 2
+                idir = idir // 2
+
+                perm = (idir[0],) + tuple(np.arange(idir[0])) + tuple(np.arange(idir[0]+1, ndim))
+
+                ae = Sfdm[iside[0] + 2*iside[1]][0] * mue[e0, idir[0]]
+                if ndim > 1:
+                    ae = kron(ae, Sfdm[fbc[perm[1]]][1], format="csr")
+                    if ndim > 2:
+                        ae = kron(ae, Sfdm[fbc[perm[2]]][1], format="csr")
+
+                self.pull_facet(icell[0], pshape, idir[0])
+                self.pull_facet(icell[1], pshape, idir[1])
+
+                rows = icell[0]
+                cols = icell[1][ae.indices]
+                for i, row in enumerate(rows):
+                    i1 = ae.indptr[i]
+                    i2 = ae.indptr[i+1]
+                    prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
+                    prealloc.setValues(cols[i1:i2], row, ae.data[i1:i2])
 
         for row in range(V.dof_dset.set.size):
             prealloc.setValue(row, row, 1.0E0)
@@ -315,7 +359,7 @@ class FDMPC(PCBase):
         for e, ae in enumerate(acsr):
             ie = lgmap.apply(lexico_cg(e))
             je = ie.copy()
-            FDMPC.index_bcs(je, pshape, bcflags[e], -1)
+            self.index_bcs(je, pshape, bcflags[e], -1)
             adiag = ae.diagonal()
             adiag = adiag[je == -1]
             ibc = ie[je == -1]
@@ -713,8 +757,8 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def glonum_fun(V):
-        cnmap = V.cell_node_map()
+    def glonum_fun(V, interior_facet=False):
+        cnmap = V.interior_facet_node_map() if interior_facet else V.cell_node_map()
         nelh = cnmap.values.shape[0]
         if cnmap.offset is None:
             return lambda e: cnmap.values[e], nelh
