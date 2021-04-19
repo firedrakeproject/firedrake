@@ -1170,7 +1170,8 @@ class Solve(BinaryOp):
         decomposition = decomposition or "PartialPivLU"
 
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition)
+        if not matfree:
+            A_factored = Factorization(A, decomposition=decomposition)
 
         super(Solve, self).__init__(A_factored, B)
 
