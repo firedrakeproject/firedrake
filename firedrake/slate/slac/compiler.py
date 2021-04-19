@@ -162,16 +162,17 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
+    name = "slate_wrapper"
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
-    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
+    code = code.replace(f'void {name}', f'static void {name}')
     loopykernel = op2.Kernel(code,
-                             loopy_merged.name,
+                             name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
                              ldargs=BLASLAPACK_LIB.split())
 

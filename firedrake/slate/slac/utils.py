@@ -282,7 +282,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
@@ -307,7 +307,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
+    slate_wrapper = lp.make_function(domains, insns, args, name=name,
                                      seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register kernels
