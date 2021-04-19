@@ -872,29 +872,24 @@ class LocalLoopyKernelBuilder(object):
                 code = match_kernel_argnames(insn, code)
                 yield insn, code
 
+        if not cxt_kernels:
+            yield (None, None)
+
 
 def match_kernel_argnames(insn, code):
     last_arg = None
     for c, arg in enumerate(insn.expression.parameters):
         name_call = arg.subscript.aggregate.name
         name_code = code.args[c+1].name
-        if not name_call == name_code:
-            # change the args of the kernel
-            code.args[c+1].name = name_call
-            code.arg_dict[name_call] = code.args[c+1]
-            # change the variable in the instructions of the kernel
-            replace = {name_code: arg.subscript.aggregate}
-            code = loopy.transform.parameter.fix_parameters(code, **replace)
         if last_arg:
             if name_call == last_arg.name:
                 # In this case we are dealing with coefficients coming from a mixed background.
                 # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
                 # but we pass them as one temporary which contains them both, so we need to adjust the shape
-                wrongly_shaped_arg = code.arg_dict[name_call]
+                wrongly_shaped_arg = code.arg_dict[name_call].copy()
                 wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
                 code.arg_dict[name_call] = wrongly_shaped_arg
-        last_arg = code.arg_dict[name_call]
-
+        last_arg = code.arg_dict[name_code]
     return code
 
 

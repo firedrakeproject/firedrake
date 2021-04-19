@@ -1131,6 +1131,11 @@ class Action(BinaryOp):
         self.ufl_coefficient = coeff
         return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        op1, op2 = self.operands
+        return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
 
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
@@ -1218,9 +1223,18 @@ class Solve(BinaryOp):
         """
         return self._args
 
-    @cached_property
     def is_matfree(self):
         return self._matfree
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        op1, op2 = self.operands
+        if self._matfree:
+            return (type(self), op1, op2, self._matfree, self._Aonx, self._Aonp)
+        else:
+            return (type(self), op1, op2, self._matfree)
+
 
 class Diagonal(UnaryOp):
     """An abstract Slate class representing the diagonal of a tensor.
