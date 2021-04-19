@@ -1,3 +1,4 @@
+:orphan: true
 
 Firedrake and PyOP2 publications
 ================================

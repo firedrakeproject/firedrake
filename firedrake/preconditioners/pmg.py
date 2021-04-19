@@ -23,11 +23,14 @@ class PMGBase(PCSNESBase):
     A class for implementing p-multigrid
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
-    PETSc PC of type MG and with options prefix 'pmg_'. The
-    relaxation to apply on every p-level is described by 'pmg_mg_levels_',
-    and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
+    PETSc PC of type MG and with options prefix ``pmg_``. The
+    relaxation to apply on every p-level is described by ``pmg_mg_levels_``,
+    and the coarse solve by ``pmg_mg_coarse_``. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
-    An example chaining p-MG, GMG and AMG is given in the tests.
+
+    Other PETSc options inspected by this class in particular are:
+    - 'pmg_mg_coarse_degree': to specify the degree of the coarse level
+    - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
     This takes in a :class:`ufl.FiniteElement` and either returns a
@@ -35,7 +38,7 @@ class PMGBase(PCSNESBase):
     should be the coarsest one of the hierarchy).
 
     The default coarsen_element is to perform power-of-2 reduction
-    of the polynomial degree. For mixed systems a `NotImplementedError`
+    of the polynomial degree. For mixed systems a ``NotImplementedError``
     is raised, as I don't know how to make a sensible default for this.
     It is expected that many (most?) applications of this preconditioner
     will subclass :class:`PMGBase` to override `coarsen_element`.
@@ -71,14 +74,14 @@ class PMGBase(PCSNESBase):
         if N <= self.coarse_degree:
             raise ValueError
 
-        return PMGBase.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
+        return self.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
 
     @staticmethod
     def reconstruct_degree(ele, N):
         """
         Reconstruct a given element, modifying its polynomial degree.
 
-        May only set the same degree on VectorElements and TensorProductElements.
+        Can only set a single degree along all axes of a TensorProductElement.
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
         :arg N: an integer degree.
@@ -90,7 +93,7 @@ class PMGBase(PCSNESBase):
             sub = ele.sub_elements()
             return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):
-            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()))
+            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
         else:
             return ele.reconstruct(degree=N)
 
@@ -180,10 +183,9 @@ class PMGBase(PCSNESBase):
             else:
                 N = ele.degree()
                 try:
-                    N = max(N)
+                    return max(N)
                 except TypeError:
-                    pass
-                return N
+                    return N
 
         def coarsen_quadrature(df, Nf, Nc):
             # Coarsen the quadrature degree in a dictionary
@@ -210,9 +212,12 @@ class PMGBase(PCSNESBase):
                 for index in bc._indices:
                     cV_ = cV_.sub(index)
                 cbc_value = self.coarsen_bc_value(bc, cV_)
-                cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                  bc.sub_domain,
-                                                  method=bc.method))
+                if type(bc) == firedrake.DirichletBC:
+                    cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                                      bc.sub_domain,
+                                                      method=bc.method))
+                else:
+                    raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
             return cbcs
 
         Nf = get_max_degree(fV.ufl_element())
@@ -495,7 +500,7 @@ def get_line_element(V):
         else:
             element = gauss_legendre.GaussLegendre(cell, N)
     else:
-        raise ValueError("Don't know how to get fiat element for %r" % family)
+        raise ValueError("Don't know how to get line element for %r" % family)
 
     return element
 
@@ -516,7 +521,7 @@ def get_line_nodes(V):
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return rule.get_points()
     else:
-        raise NotImplementedError("Don't know how to get nodes for %r" % family)
+        raise ValueError("Don't know how to get line nodes for %r" % family)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -687,7 +692,7 @@ class StandaloneInterpolationMatrix(object):
         }
         """
 
-        # FInaT elements order the component DoFs related to the same node contiguously.
+        # FInAT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
@@ -741,48 +746,6 @@ class StandaloneInterpolationMatrix(object):
         prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         return prolong_kernel, restrict_kernel
-
-    @staticmethod
-    def get_line_element(V):
-        # Return the corresponding Line element for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if family <= {"Q", "Lagrange"}:
-            if variant == "equispaced":
-                element = lagrange.Lagrange(cell, N)
-            else:
-                element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            if variant == "equispaced":
-                element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
-            else:
-                element = gauss_legendre.GaussLegendre(cell, N)
-        else:
-            raise ValueError("Don't know how to get fiat element for %r" % family)
-
-        return element
-
-    @staticmethod
-    def get_line_nodes(V):
-        # Return the corresponding nodes in the Line for CG / DG
-        from FIAT.reference_element import UFCInterval
-        from FIAT import quadrature
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        cell = UFCInterval()
-        if variant == "equispaced":
-            return cell.make_points(1, 0, N+1)
-        elif family <= {"Q", "Lagrange"}:
-            rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-            return rule.get_points()
-        else:
-            raise NotImplementedError("Don't know how to get nodes for %r" % family)
 
     @staticmethod
     def multiplicity(V):

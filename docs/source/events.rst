@@ -1,3 +1,5 @@
+:orphan: true
+
 .. image:: images/david_talking.jpg
    :width: 50%
    :alt: David Ham explaining Firedrake
@@ -9,7 +11,7 @@ Firedrake events
 Firedrake USA '20
 ~~~~~~~~~~~~~~~~~
 
-We'll be holding a Firedrake user and developer workshop for the first
+We held a Firedrake user and developer workshop for the first
 time in North America at the University of Washingon on 10 and 11
 February 2020. For more information, see the
 :doc:`the workshop page <firedrake_usa_20>`.
