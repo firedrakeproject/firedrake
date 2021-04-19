@@ -311,8 +311,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
                                      seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register kernels
-    prg = make_program(slate_wrapper)
     for tsfc_loopy in tsfc_kernels:
-        prg = merge([prg, tsfc_loopy])
-    prg = merge([prg, slate_loopy])
-    return prg
+        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
+    slate_wrapper = merge([slate_wrapper, slate_loopy])
+    return slate_wrapper
