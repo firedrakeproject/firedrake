@@ -652,12 +652,11 @@ class LocalLoopyKernelBuilder(object):
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"])]
 
-        for loopy_inner in templated_subkernels:
-            for arg in loopy_inner.args[1:]:
-                if arg.name == self.cell_orientations_arg or\
-                   arg.name == self.cell_size_arg:
-                    if arg not in args:
-                        args.append(arg)
+        if self.bag.needs_cell_orientations:
+            args.append(loopy.GlobalArg(self.cell_orientations_arg))
+
+        if self.bag.needs_cell_sizes:
+            args.append(loopy.GlobalArg(self.coordinates_arg))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
