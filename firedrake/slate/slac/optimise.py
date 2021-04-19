@@ -133,6 +133,57 @@ def push_mul(tensor, options):
     return a
 
 
+def drop_double_transpose(expr):
+    """Remove double transposes from optimised Slate expression."""
+    from gem.node import Memoizer
+    mapper = Memoizer(_drop_double_transpose)
+    a = mapper(expr)
+    return a
+
+
+@singledispatch
+def _drop_double_transpose(expr, self):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_drop_double_transpose.register(Tensor)
+@_drop_double_transpose.register(AssembledVector)
+@_drop_double_transpose.register(Block)
+def _drop_double_transpose_terminals(expr, self):
+    """Terminal expression is encountered."""
+    return expr
+
+
+@_drop_double_transpose.register(Factorization)
+def _drop_double_transpose_factorization(expr, self):
+    """Drop any factorisations. This is needed because whenever
+    a Solve node is created so is a Factorization node inside it.
+    The Factorization nodes are only needed for the Eigen Backend however."""
+    return self(*expr.children)
+
+
+@_drop_double_transpose.register(Transpose)
+def _drop_double_transpose_transpose(expr, self):
+    """When the expression and its child are transposes the grandchild is returned,
+    because A=A.T.T."""
+    child, = expr.children
+    if isinstance(child, Transpose):
+        grandchild, = child.children
+        return self(grandchild)
+    else:
+        return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(Negative)
+@_drop_double_transpose.register(Add)
+@_drop_double_transpose.register(Mul)
+@_drop_double_transpose.register(Solve)
+@_drop_double_transpose.register(Inverse)
+def _drop_double_transpose_distributive(expr, self):
+    """Distribute into the children of the expression. """
+    return type(expr)(*map(self, expr.children))
+
+
 @singledispatch
 def _push_mul(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
