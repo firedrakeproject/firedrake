@@ -159,10 +159,7 @@ def _action_tensor(expr, self, state):
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):
-    if not state.coeff:
-        return expr
-    else:
-        raise AssertionError("You cannot push into this node.")
+    return expr
 
 @_action.register(Inverse)
 def _action_inverse(expr, self, state):
@@ -357,10 +354,14 @@ def optimise(expr, tsfc_parameters):
     from firedrake.slate.slate import BinaryOp, UnaryOp
     if ((isinstance(expr, BinaryOp) and isinstance(expr.children, AssembledVector))
         or isinstance(expr, UnaryOp)):
-        # Optimise expression which is already partially optimised
-        # by optimising a subexpression that is not optimised yet
-        # the non optimised expression is a Mul
-        # and has at least one AssembledVector as child
+    # Optimise expression which is already partially optimised
+    # by optimising a subexpression that is not optimised yet
+    # the non optimised expression is a Mul
+    # and has at least one AssembledVector as child
+    partially_optimised = not (isinstance(expr, Mul)
+                               or any(isinstance(child, AssembledVector)
+                                      for child in expr.children))
+    if partially_optimised:
         # for partially optimised exppresions we pass no coefficient to act on 
         return drop_double_transpose(push_mul(expr, None, tsfc_parameters))
     else:
