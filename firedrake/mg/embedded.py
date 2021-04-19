@@ -28,8 +28,11 @@ class TransferManager(object):
             degree = element.degree()
             family = lambda c: "DG" if c.is_simplex() else "DQ"
             if isinstance(cell, ufl.TensorProductCell):
-                scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
-                                                            for (c, d) in zip(cell.sub_cells(), degree)))
+                if type(degree) is int:
+                    scalar_element = ufl.FiniteElement("DQ", cell=cell, degree=degree)
+                else:
+                    scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
+                                                                for (c, d) in zip(cell.sub_cells(), degree)))
             else:
                 scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
             shape = element.value_shape()

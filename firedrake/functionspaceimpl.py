@@ -295,7 +295,9 @@ class FunctionSpace(object):
         if type(element) is ufl.TensorElement:
             # UFL enforces value_shape of the subelement to be empty
             # on a TensorElement.
-            self.shape = element.value_shape()
+            # The number of "free" dofs is given by reference_value_shape,
+            # not value_shape due to symmetry specifications
+            self.shape = element.reference_value_shape()
         elif type(element) is ufl.VectorElement:
             # First dimension of the value_shape is the VectorElement
             # shape.
