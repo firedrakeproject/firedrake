@@ -36,7 +36,7 @@ from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
+from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -163,8 +163,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                       tsfc_parameters=tsfc_parameters)
 
     loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
-    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
-    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
+    loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
+    loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
