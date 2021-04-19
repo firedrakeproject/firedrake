@@ -277,12 +277,6 @@ def _action_mul(expr, self, state):
             else:
                 pushed_prio_child = self(prio_child, state)
 
-            # Assemble new coefficient
-            # FIXME: this is a temporary solutions we jump out of local assembly
-            # into global assembly and back to local assembly here.
-            # We need to stack tsfc calls instead.
-            from firedrake import assemble
-
             # Then action the leftover operator onto the thing where the action got pushed into
             # solve needs special case because we need to swap args if we premultiply with a vec
             if self.swapc.should_swap(other_child, state):
