@@ -1628,7 +1628,7 @@ def Mesh(meshfile, **kwargs):
                  the default choice), ``False`` (do not) ``True``
                  (do), or a 2-tuple that specifies a partitioning of
                  the cells (only really useful for debugging).
-             -``"partitioner_type"``: which may take ``"chaco"``,
+             - ``"partitioner_type"``: which may take ``"chaco"``,
                  ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
              - ``"overlap_type"``: a 2-tuple indicating how to grow
                  the mesh overlap.  The first entry should be a

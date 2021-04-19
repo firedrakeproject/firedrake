@@ -1,3 +1,6 @@
+:orphan: true
+
+===================
 Obtaining Firedrake
 ===================
 
