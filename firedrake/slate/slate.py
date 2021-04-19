@@ -1183,6 +1183,8 @@ class Solve(BinaryOp):
         # Create a matrix factorization
         if not matfree:
             A_factored = Factorization(A, decomposition=decomposition)
+        else:
+            A_factored = A
 
         super(Solve, self).__init__(A_factored, B)
 
