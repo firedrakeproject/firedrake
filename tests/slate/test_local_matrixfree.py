@@ -144,6 +144,7 @@ def expr(request, A, A2, A3, f, f2):
         return (A+A-A2*A.inv*A)*f
     elif request.param == "advection":
         return A3*f2
+    # TODO Add test for a partially optimised expression
 
 
 def test_new_slateoptpass(expr):
