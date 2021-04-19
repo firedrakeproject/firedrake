@@ -1176,6 +1176,17 @@ class Solve(BinaryOp):
         # LU with partial pivoting is a stable default.
         decomposition = decomposition or "PartialPivLU"
 
+        # If we have a matfree solve on a transposed Tensor
+        # we need to drop the Transpose
+        # because otherwise it will generate a matrix temporary
+        # instead we change which argument of the tensor will be replaced
+        # within the actions used in the matrix-free solve kernel
+        if isinstance(A, Transpose) and matfree:
+            A, = A.children
+            pick_op = 0
+        else:
+            pick_op = 1
+
         # Create a matrix factorization
         if not matfree:
             A_factored = Factorization(A, decomposition=decomposition)
@@ -1188,8 +1199,8 @@ class Solve(BinaryOp):
 
         if matfree:
             # keep track of the actions, which we need for the local matrixfree solve
-            self._Aonx = Action(A, AssembledVector(Coefficient(self._arg_fs[0])), 0)
-            self._Aonp = Action(A, AssembledVector(Coefficient(self._arg_fs[0])), 0)
+            self._Aonx = Action(A, AssembledVector(Coefficient(A.arg_function_spaces[pick_op])), pick_op)
+            self._Aonp = Action(A, AssembledVector(Coefficient(A.arg_function_spaces[pick_op])), pick_op)
             # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
