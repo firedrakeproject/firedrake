@@ -235,8 +235,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     coords = mesh.coordinates
     dual_eval_domain = V.mesh()
     trans_mesh_allowed = False
+    runtime_vertex_only_mesh_interp = (
+        expr.ufl_domain() is not None  # Constant expr
+        and expr.ufl_domain() != V.mesh()  # Coming from a different domain
+        and isinstance(mesh.topology,  # Target domain is the one we support
+                       firedrake.mesh.VertexOnlyMeshTopology)
+    )
 
-    if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+    if runtime_vertex_only_mesh_interp:
         if mesh.geometric_dimension() != expr.ufl_domain().geometric_dimension():
             raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension")
         # Create a quadrature element for a runtime point with weight 1
@@ -304,7 +310,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # Replace with real coords coefficient
         coefficients[0] = coords
 
-    if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+    if runtime_vertex_only_mesh_interp:
         # NOTE: Shouldn't this happen in compile_expression_dual_evaluation?
         coefficients = coefficients + [mesh.reference_coordinates]
         # TODO: stash the composed map on cell_parent_cell_map using caching
@@ -334,7 +340,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         parloop_args.append(tensor(access, V.cell_node_map()))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
-        if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        if runtime_vertex_only_mesh_interp:
             cmap = cell_parent_cell_fs_node_map
         else:
             cmap = arguments[0].function_space().cell_node_map()
@@ -346,7 +352,17 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         cs = mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        if isinstance(mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and not isinstance(coefficient.function_space().mesh().topology, firedrake.mesh.VertexOnlyMeshTopology):
+        get_composed_map = (
+            runtime_vertex_only_mesh_interp
+            and (
+                isinstance(mesh.topology,
+                           firedrake.mesh.VertexOnlyMeshTopology)
+                and not isinstance(
+                    coefficient.function_space().mesh().topology,
+                    firedrake.mesh.VertexOnlyMeshTopology)
+            )
+        )
+        if get_composed_map:
             m_ = cell_parent_cell_fs_node_map
             iterset = mesh.cell_parent_cell_map.iterset
             toset = coefficient.cell_node_map().toset
