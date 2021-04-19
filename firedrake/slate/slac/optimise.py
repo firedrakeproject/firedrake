@@ -159,7 +159,10 @@ def _action_tensor(expr, self, state):
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):
-    raise AssertionError("You cannot push into this node.")
+    if not state.coeff:
+        return expr
+    else:
+        raise AssertionError("You cannot push into this node.")
 
 @_action.register(Inverse)
 def _action_inverse(expr, self, state):
@@ -176,24 +179,30 @@ def _action_solve(expr, self, state):
     """
     assert expr.rank != 0, "You cannot do actions on 0 forms"
     if expr.rank == 1:
-        return expr
-
-    
-    # swap operands if we are currently premultiplying due to a former transpose
-    if state.pick_op == 0:
-        rhs = state.swap_op
-        mat = Transpose(expr.children[state.pick_op])
-        swapped_op = self(Transpose(expr.children[state.pick_op^1]), ActionBag(state.coeff, None, state.pick_op))
-        # FIXME
-        assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
-                                                             the rhs in a  Solve is a result of a Solve"
-        return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)),
-                                 matfree=expr.is_matfree)
+        if not state.coeff:
+            # expression is already partially optimised
+            # meaning coefficient is not multiplied on the outside of it
+            # so the rhs of the solve must contain the coefficient
+            expr1, expr2 = expr.children
+            assert expr2.rank == 1
+            coeff = self(expr2, state)
+            return self(expr1, ActionBag(coeff, state.swap_op, state.pick_op))
     else:
-        rhs = expr.children[state.pick_op]
-        mat = expr.children[state.pick_op^1]
-        # always push into the right hand side of the solve
-        return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
+        # swap operands if we are currently premultiplying due to a former transpose
+        if state.pick_op == 0:
+            rhs = state.swap_op
+            mat = Transpose(expr.children[state.pick_op])
+            swapped_op = Transpose(expr.children[state.pick_op^1])#, ActionBag(state.coeff, None, state.pick_op))
+            # FIXME
+            assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
+                                                                the rhs in a  Solve is a result of a Solve"
+            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)),
+                                    matfree=expr.is_matfree)
+        else:
+            rhs = expr.children[state.pick_op]
+            mat = expr.children[state.pick_op^1]
+            # always push into the right hand side of the solve
+            return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
 
 @_action.register(Transpose)
 def _action_transpose(expr, self, state):
@@ -262,7 +271,6 @@ def _action_mul(expr, self, state):
     :returns: an action of this node on the coefficient.
     """
     assert expr.rank != 0, "You cannot do actions on 0 forms"
-    assert expr.rank != 1, "Action should not be pushed into a multiplication by vector"
     if expr.rank == 2:
             other_child = expr.children[state.pick_op^1]
             prio_child = expr.children[state.pick_op]
@@ -288,6 +296,18 @@ def _action_mul(expr, self, state):
             else:
                 coeff = pushed_prio_child
                 return self(other_child, ActionBag(coeff, state.swap_op, state.pick_op))
+    elif expr.rank == 1:
+        # expression is already partially optimised
+        # meaning the coefficient is not multiplied on the outside of it
+        if not state.coeff:
+            # optimise the expression which is rank1
+            # because it is the one that must contain a coefficient
+            rank1expr, = tuple(filter(lambda child: child.rank == 1, expr.children))
+            coeff = self(rank1expr, state)
+            pick_op = expr.children.index(rank1expr)
+            return self(expr.children[pick_op^1], ActionBag(coeff, state.swap_op, pick_op))
+        else:
+            return expr
 
 @_action.register(Factorization)
 def _action_factorization(expr, self, state):
@@ -334,15 +354,14 @@ class SwapController(object):
         yield ActionBag(state.coeff, swap_op, state.pick_op)
 
 def optimise(expr, tsfc_parameters):
-    # Optimise expression which is already partially optimised
-    # by recursing to a subexpression that is not optimised yet
-    # the non optimised expression would be a Mul
-    if isinstance(expr, Mul):
-        return push_mul(*expr.children, tsfc_parameters)
-    elif isinstance(expr, Negative):
-        return Negative(optimise(*expr.children, tsfc_parameters))
-    elif isinstance(expr, Add):
-        expr1, expr2 = expr.children
-        return Add(optimise(expr1, tsfc_parameters), optimise(expr2, tsfc_parameters))
+    from firedrake.slate.slate import BinaryOp, UnaryOp
+    if ((isinstance(expr, BinaryOp) and isinstance(expr.children, AssembledVector))
+        or isinstance(expr, UnaryOp)):
+        # Optimise expression which is already partially optimised
+        # by optimising a subexpression that is not optimised yet
+        # the non optimised expression is a Mul
+        # and has at least one AssembledVector as child
+        # for partially optimised exppresions we pass no coefficient to act on 
+        return drop_double_transpose(push_mul(expr, None, tsfc_parameters))
     else:
-        return expr
+        return drop_double_transpose(push_mul(*expr.children, tsfc_parameters))
