@@ -21,6 +21,7 @@ from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.adjoint.equationbc import EquationBCMixin, EquationBCSplitMixin
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -429,7 +430,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(object):
+class EquationBC(EquationBCSplitMixin):
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
@@ -447,49 +448,49 @@ class EquationBC(object):
     :arg is_linear: this flag is used only with the `reconstruct` method
     :arg Jp_eq_J: this flag is used only with the `reconstruct` method
     '''
-
+    @EquationBCMixin._ad_annotate_init
     def __init__(self, *args, bcs=None, J=None, Jp=None, method="topological", V=None, is_linear=False, Jp_eq_J=False):
         from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
             # initial construction from equation
             eq = args[0]
-            u = args[1]
+            self.u = args[1]
             sub_domain = args[2]
             if V is None:
                 V = eq.lhs.arguments()[0].function_space()
-            bcs = solving._extract_bcs(bcs)
+            self.bcs = solving._extract_bcs(bcs)
             # Jp_eq_J is progressively evaluated as the tree is constructed
-            self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in bcs])
+            self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in self.bcs])
 
             # linear
             if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
                 J = eq.lhs
                 Jp = Jp or J
                 if eq.rhs == 0:
-                    F = ufl_expr.action(J, u)
+                    F = ufl_expr.action(J, self.u)
                 else:
                     if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
                         raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(eq.rhs).__name__)
                     if len(eq.rhs.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
-                    F = ufl_expr.action(J, u) - eq.rhs
+                    F = ufl_expr.action(J, self.u) - eq.rhs
                 self.is_linear = True
             # nonlinear
             else:
                 if eq.rhs != 0:
                     raise TypeError("RHS of a nonlinear form equation has to be 0")
                 F = eq.lhs
-                J = J or ufl_expr.derivative(F, u)
+                J = J or ufl_expr.derivative(F, self.u)
                 Jp = Jp or J
                 self.is_linear = False
             # Check form style consistency
-            is_form_consistent(self.is_linear, bcs)
+            is_form_consistent(self.is_linear, self.bcs)
             # Argument checking
             check_pde_args(F, J, Jp)
             # EquationBCSplit objects for `F`, `J`, and `Jp`
-            self._F = EquationBCSplit(F, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in bcs], method=method, V=V)
-            self._J = EquationBCSplit(J, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in bcs], method=method, V=V)
-            self._Jp = EquationBCSplit(Jp, u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in bcs], method=method, V=V)
+            self._F = EquationBCSplit(F, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in self.bcs], method=method, V=V)
+            self._J = EquationBCSplit(J, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in self.bcs], method=method, V=V)
+            self._Jp = EquationBCSplit(Jp, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in self.bcs], method=method, V=V)
         elif all(isinstance(args[i], EquationBCSplit) for i in range(3)):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
@@ -538,6 +539,7 @@ class EquationBCSplit(BCBase):
         the equation boundary condition is applied (optional)
     '''
 
+    @EquationBCSplitMixin._ad_annotate_init
     def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
         # This nested structure will enable recursive application of boundary conditions.
         #
@@ -577,6 +579,7 @@ class EquationBCSplit(BCBase):
         bc.increment_bc_depth()
         self.bcs.append(bc)
 
+    @EquationBCSplitMixin._ad_annotate_reconstruct
     def reconstruct(self, field=None, V=None, subu=None, u=None, row_field=None, col_field=None, action_x=None, use_split=False):
         subu = subu or self.u
         row_field = row_field or field
