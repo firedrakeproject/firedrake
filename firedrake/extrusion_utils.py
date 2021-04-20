@@ -109,7 +109,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         """.format(dd=', '.join(dd),
                    base_coord_dim=base_coord_dim,
                    hv=height_var)
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_uniform_extrusion", target=lp.CTarget(),
+        name = "pyop2_kernel_uniform_extrusion"
+        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial':
         domains = []
@@ -128,7 +129,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         """.format(RealType=RealType,
                    dd=', '.join(dd),
                    hv=height_var)
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_extrusion", target=lp.CTarget(),
+        name = "pyop2_kernel_radial_extrusion"
+        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
@@ -203,12 +205,13 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    _dd=', '.join(_dd),
                    ninst=n_dict[tdim][adim],
                    hv=height_var)
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_hedgehog_extrusion", target=lp.CTarget(),
+        name = "pyop2_kernel_radial_hedgehog_extrusion"
+        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    kernel = op2.Kernel(ast, ast.name)
+    kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
                 ext_coords.cell_set,
                 ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
