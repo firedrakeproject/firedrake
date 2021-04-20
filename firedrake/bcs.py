@@ -458,6 +458,7 @@ class EquationBC(EquationBCMixin):
             self.sub_domain = args[2]
             if V is None:
                 V = self.eq.lhs.arguments()[0].function_space()
+
             self.bcs = solving._extract_bcs(bcs)
             # Jp_eq_J is progressively evaluated as the tree is constructed
             self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in self.bcs])
