@@ -453,33 +453,33 @@ class EquationBC(EquationBCMixin):
         from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
             # initial construction from equation
-            eq = args[0]
+            self.eq = args[0]
             self.u = args[1]
-            sub_domain = args[2]
+            self.sub_domain = args[2]
             if V is None:
-                V = eq.lhs.arguments()[0].function_space()
+                V = self.eq.lhs.arguments()[0].function_space()
             self.bcs = solving._extract_bcs(bcs)
             # Jp_eq_J is progressively evaluated as the tree is constructed
             self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in self.bcs])
 
             # linear
-            if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
-                J = eq.lhs
+            if isinstance(self.eq.lhs, ufl.Form) and isinstance(self.eq.rhs, ufl.Form):
+                J = self.eq.lhs
                 Jp = Jp or J
-                if eq.rhs == 0:
+                if self.eq.rhs == 0:
                     F = ufl_expr.action(J, self.u)
                 else:
-                    if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(eq.rhs).__name__)
-                    if len(eq.rhs.arguments()) != 1:
+                    if not isinstance(self.eq.rhs, (ufl.Form, slate.slate.TensorBase)):
+                        raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(self.eq.rhs).__name__)
+                    if len(self.eq.rhs.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
-                    F = ufl_expr.action(J, self.u) - eq.rhs
+                    F = ufl_expr.action(J, self.u) - self.eq.rhs
                 self.is_linear = True
             # nonlinear
             else:
-                if eq.rhs != 0:
+                if self.eq.rhs != 0:
                     raise TypeError("RHS of a nonlinear form equation has to be 0")
-                F = eq.lhs
+                F = self.eq.lhs
                 J = J or ufl_expr.derivative(F, self.u)
                 Jp = Jp or J
                 self.is_linear = False
@@ -488,9 +488,9 @@ class EquationBC(EquationBCMixin):
             # Argument checking
             check_pde_args(F, J, Jp)
             # EquationBCSplit objects for `F`, `J`, and `Jp`
-            self._F = EquationBCSplit(F, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in self.bcs], method=method, V=V)
-            self._J = EquationBCSplit(J, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in self.bcs], method=method, V=V)
-            self._Jp = EquationBCSplit(Jp, self.u, sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in self.bcs], method=method, V=V)
+            self._F = EquationBCSplit(F, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in self.bcs], method=method, V=V)
+            self._J = EquationBCSplit(J, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in self.bcs], method=method, V=V)
+            self._Jp = EquationBCSplit(Jp, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in self.bcs], method=method, V=V)
         elif all(isinstance(args[i], EquationBCSplit) for i in range(3)):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
