@@ -427,9 +427,10 @@ def pointwise_expression_kernel(exprs, scalar_type):
             plargs.append(arg)
             args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype))
     assert len(coefficients) == 0
-    knl = generate(impero_c, args, scalar_type, kernel_name="expression_kernel",
+    name = "expression_kernel"
+    knl = generate(impero_c, args, scalar_type, kernel_name=name,
                    return_increments=False)
-    return firedrake.op2.Kernel(knl, knl.name), plargs
+    return firedrake.op2.Kernel(knl, name), plargs
 
 
 class dereffed(object):
