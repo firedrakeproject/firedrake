@@ -21,7 +21,7 @@ from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
-from firedrake.adjoint.equationbc import EquationBCMixin, EquationBCSplitMixin
+from firedrake.adjoint.equationbc import EquationBCMixin#, EquationBCSplitMixin
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -518,6 +518,7 @@ class EquationBC(EquationBCMixin):
         else:
             return getattr(self, f"_{form_type}")
 
+    @EquationBCMixin._ad_annotate_reconstruct
     def reconstruct(self, V, subu, u, field):
         _F = self._F.reconstruct(field=field, V=V, subu=subu, u=u)
         _J = self._J.reconstruct(field=field, V=V, subu=subu, u=u)
@@ -526,7 +527,7 @@ class EquationBC(EquationBCMixin):
             return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=self.is_linear)
 
 
-class EquationBCSplit(BCBase, EquationBCSplitMixin):
+class EquationBCSplit(BCBase):#, EquationBCSplitMixin):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
 
     :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.
@@ -539,7 +540,7 @@ class EquationBCSplit(BCBase, EquationBCSplitMixin):
         the equation boundary condition is applied (optional)
     '''
 
-    @EquationBCSplitMixin._ad_annotate_init
+    #@EquationBCSplitMixin._ad_annotate_init
     def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
         # This nested structure will enable recursive application of boundary conditions.
         #
@@ -579,7 +580,6 @@ class EquationBCSplit(BCBase, EquationBCSplitMixin):
         bc.increment_bc_depth()
         self.bcs.append(bc)
 
-    @EquationBCSplitMixin._ad_annotate_reconstruct
     def reconstruct(self, field=None, V=None, subu=None, u=None, row_field=None, col_field=None, action_x=None, use_split=False):
         subu = subu or self.u
         row_field = row_field or field
