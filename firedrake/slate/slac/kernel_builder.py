@@ -658,7 +658,7 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.GlobalArg(self.cell_orientations_arg))
 
         if self.bag.needs_cell_sizes:
-            args.append(loopy.GlobalArg(self.coordinates_arg))
+            args.append(loopy.GlobalArg(self.cell_size_arg))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
