@@ -321,15 +321,15 @@ def _extract_args(*args, **kwargs):
 
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
-    from firedrake.bcs import BCBase, EquationBC, EquationBCSplit
+    from firedrake.bcs import BCBase, EquationBC
     if bcs is None:
         return ()
-    if isinstance(bcs, (BCBase, EquationBC, EquationBCSplit)):
+    if isinstance(bcs, (BCBase, EquationBC)):
         return (bcs, )
     else:
         if not isinstance(bcs, (tuple, list)):
             raise TypeError("bcs must be BCBase, EquationBC, tuple, or list, not '%s'." % type(bcs).__name__)
     for bc in bcs:
-        if not isinstance(bc, (BCBase, EquationBC, EquationBCSplit)):
+        if not isinstance(bc, (BCBase, EquationBC)):
             raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
     return bcs

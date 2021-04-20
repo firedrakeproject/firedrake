@@ -1,8 +1,8 @@
 from functools import wraps
+from pyadjoint import Block
 from pyadjoint.overloaded_type import FloatingType
 from pyadjoint.tape import no_annotations, annotate_tape, stop_annotating
 import ufl
-from pyadjoint import Block, OverloadedType
 
 
 class EquationBCBlock(Block):
@@ -82,7 +82,7 @@ class EquationBCBlock(Block):
     def recompute(self):
         # There is nothing to do. The checkpoint is weak,
         # so it changes automatically with the dependency checkpoint.
-        return
+        return self
 
     def __str__(self):
         return "EquationBC block"
@@ -120,17 +120,18 @@ class EquationBCMixin(FloatingType):
                                   _ad_floating_active=True,
                                   **kwargs)
             init(self, *args, **kwargs)
-            self._ad_F = self._F
-            self._ad_u = self.u
-            self._ad_bcs = self.bcs
-            self._ad_J = self._J
-            self._ad_kwargs = {'Jp': self._Jp, 'is_linear': self.is_linear}
+            #self._ad_F = self._F
+            #self._ad_u = self.u
+            #self._ad_bcs = self.bcs
+            #self._ad_J = self._J
+            #self._ad_kwargs = {'Jp': self._Jp, 'is_linear': self.is_linear}
         return wrapper
 
     @staticmethod
     def _ad_annotate_reconstruct(reconstruct):
         @wraps(reconstruct)
         def wrapper(self, *args, **kwargs):
+            import ipdb; ipdb.set_trace()
             annotate = annotate_tape(kwargs)
             if annotate:
                 for arg in args:
@@ -148,7 +149,7 @@ class EquationBCMixin(FloatingType):
         return deps[0]
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        return checkpoint
+        return self
     
 """
 class EquationBCMixin:
