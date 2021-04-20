@@ -430,7 +430,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(EquationBCSplitMixin):
+class EquationBC(EquationBCMixin):
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
@@ -526,7 +526,7 @@ class EquationBC(EquationBCSplitMixin):
             return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=self.is_linear)
 
 
-class EquationBCSplit(BCBase):
+class EquationBCSplit(BCBase, EquationBCSplitMixin):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
 
     :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.

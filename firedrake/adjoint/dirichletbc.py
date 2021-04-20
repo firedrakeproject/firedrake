@@ -9,6 +9,8 @@ class DirichletBCMixin(FloatingType):
     def _ad_annotate_init(init):
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            print(self)
+            import ipdb; ipdb.set_trace()
             FloatingType.__init__(self,
                                   *args,
                                   block_class=DirichletBCBlock,
