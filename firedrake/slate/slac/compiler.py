@@ -167,11 +167,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    # WORKAROUND: Generate code directly from the loopy kernel here,
-    # then attach code as a c-string to the op2kernel
-    code = loopy.generate_code_v2(loopy_merged).device_code()
-    code = code.replace(f'void {name}', f'static void {name}')
-    loopykernel = op2.Kernel(code,
+    loopykernel = op2.Kernel(loopy_merged,
                              name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
                              ldargs=BLASLAPACK_LIB.split())
