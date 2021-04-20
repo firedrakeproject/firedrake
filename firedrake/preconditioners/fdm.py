@@ -66,7 +66,8 @@ class FDMPC(PCBase):
         # FIXME very ugly interface
         VDG = firedrake.VectorFunctionSpace(self.mesh, 'DG', 0, dim=ndim)
         self.fbc = firedrake.Function(VDG, name="bcflags")
-        self.fbc.dat.data[cell2cell] = np.reshape(bcflags @ np.kron(np.eye(ndim), [[1], [3]]), (-1, 1, ndim))
+        extra_dim = (-1,) if ndim > 1 else ()
+        self.fbc.dat.data[cell2cell] = np.reshape(bcflags @ np.kron(np.eye(ndim), [[1], [3]]), cell2cell.shape + extra_dim)
 
         self.weight = self.multiplicity(V)
         with self.weight.dat.vec as w:
@@ -154,10 +155,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     def pull_facet(x, pshape, fdata):
-        xshape = x.shape
-        idir = fdata // 2
-        y = np.reshape(np.moveaxis(np.reshape(x, pshape), idir, 0), xshape)
-        return y
+        return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), fdata // 2, 0), x.shape)
 
     @staticmethod
     def index_bcs(x, pshape, bc, val):
@@ -280,7 +278,7 @@ class FDMPC(PCBase):
         bid, _ = self.glonum_fun(Bq) if Bq is not None else (None, nel)
 
         ndim = V.mesh().topological_dimension()
-        idsym = [0, 2] if ndim == 2 else [0, 3, 5]
+        idsym = [0, 3, 5] if ndim == 3 else [0, 2]
         idsym = idsym[:ndim]
 
         nx1 = Afdm[0][0].shape[0]
@@ -292,11 +290,12 @@ class FDMPC(PCBase):
         prealloc.setUp()
 
         # Build elemental sparse matrices and preallocate matrix
-        acsr = []
+        cell_csr = []
+        facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
         for e in range(nel):
             fbc = bcflags[e] @ flag2id
-            mue = np.sum(Gq.dat.data_ro[gid(e)], axis=0)
+            mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
             mue = mue[idsym]
 
             be = Afdm[fbc[0]][1]
@@ -312,7 +311,7 @@ class FDMPC(PCBase):
                     ae = kron(ae, Afdm[fbc[2]][1], format="csr")
                     ae += kron(be, Afdm[fbc[2]][0] * mue[2], format="csr")
 
-            acsr.append(ae)
+            cell_csr.append(ae)
             rows = lgmap.apply(lexico_cell(e))
             self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
             cols = rows[ae.indices]
@@ -322,22 +321,22 @@ class FDMPC(PCBase):
                 prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
 
         if needs_interior_facet:
-            eta = nx1*(nx1-1)
+            eta = nx1*(nx1+1)
 
             # TODO extrude these arrays
             lexico_facet, nfacet = self.glonum_fun(V, interior_facet=True)
             facet_cells = self.mesh.interior_facets.facet_cell_map.values
             facet_data = self.mesh.interior_facets.local_facet_dat.data
 
-            facet_csr = []
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
-                mu0 = np.sum(Gq.dat.data_ro[gid(e0)], axis=0)
-                mu1 = np.sum(Gq.dat.data_ro[gid(e1)], axis=0)
-                mu0 = mu0[idsym]
-                mu1 = mu1[idsym]
+                mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
+                mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
 
                 idir = facet_data[f] // 2
+                mu0 = mu0[idsym[idir[0]]]
+                mu1 = mu1[idsym[idir[1]]]
+
                 fbc0 = bcflags[e0] @ flag2id
                 fbc1 = bcflags[e1] @ flag2id
                 bc0 = fbc0[idir[0]]
@@ -349,14 +348,15 @@ class FDMPC(PCBase):
                 i0 = -(facet_data[f, 0] % 2)
                 i1 = -(facet_data[f, 1] % 2)
                 ae = np.zeros((nx1, nx1))
-                ae[i0, :] = ae[i0, :] + mu1[idir[0]] * Dfdm[bc0][i0]
-                ae[:, i1] = ae[:, i1] + mu0[idir[1]] * Dfdm[bc1][i1]
-                ae[i0, i1] = ae[i0, i1] - eta * (mu0[idir[0]] + mu1[idir[1]])
+                ae[:, i1] = ae[:, i1] + (0.5E0*mu0) * Dfdm[bc0][:, i0]
+                ae[i0, :] = ae[i0, :] + (0.5E0*mu1) * Dfdm[bc1][:, i1]
+                ae[i0, i1] = ae[i0, i1] - eta * (mu0 + mu1)
+
                 ae = csr_matrix(ae)
                 if ndim > 1:
-                    ae = kron(Afdm[fbc[1]][1], ae, format="csr")
+                    ae = kron(ae, Afdm[fbc[1]][1], format="csr")
                     if ndim > 2:
-                        ae = kron(Afdm[fbc[2]][1], ae, format="csr")
+                        ae = kron(ae, Afdm[fbc[2]][1], format="csr")
 
                 facet_csr.append(ae)
                 icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
@@ -379,7 +379,7 @@ class FDMPC(PCBase):
         Pmat.zeroEntries()
 
         # Assemble global matrix
-        for e, ae in enumerate(acsr):
+        for e, ae in enumerate(cell_csr):
             ie = lgmap.apply(lexico_cell(e))
             rows = ie.copy()
             self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
@@ -538,7 +538,7 @@ class FDMPC(PCBase):
         from FIAT.quadrature import GaussLegendreQuadratureLineRule
 
         if eta is None:
-            eta = N*(N+1)
+            eta = (N+1)*(N+2)
 
         cell = UFCInterval()
         elem = GaussLobattoLegendre(cell, N)
@@ -565,12 +565,15 @@ class FDMPC(PCBase):
             A = Ahat.copy()
             for j in (0, -1):
                 if weak_bcs[j]:
-                    A[:, j] = A[:, j] - Dfacet[:, j]
-                    A[j, :] = A[j, :] - Dfacet[:, j].T
+                    A[:, j] = A[:, j] - Dfacet[:, j] * (1.0E0/(1+strong_bcs[j]))
+                    A[j, :] = A[j, :] - Dfacet[:, j] * (1.0E0/(1+strong_bcs[j]))
                     A[j, j] = A[j, j] + eta * (1+strong_bcs[j])
 
             Vbc = np.eye(A.shape[0])
             _, Vbc[k0:k1, k0:k1] = eigh(A[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
+            iord = np.argsort(abs(Vbc[-1]) - abs(Vbc[0]))
+            Vbc = Vbc[:, iord]
+
             Vbc[k0:k1, rd] = -Vbc[k0:k1, k0:k1] @ ((Vbc[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vbc[np.ix_(rd, rd)])
             A = Vbc.T @ A @ Vbc
             B = Vbc.T @ Bhat @ Vbc
@@ -594,8 +597,8 @@ class FDMPC(PCBase):
                 Vk, Ak, Bk = fdm_weak(Ahat, Bhat, Dfacet, strong_bcs, weak_bcs, eta)
                 Afdm.append([Ak, Bk])
                 # Vbc rotates GL residuals into modes obtained from GLL
+                Dbc.append(Vk.T @ Dfacet)
                 Vbc.append(Jipdg.T @ Vk)
-                Dbc.append(Dfacet.T @ Vk)
 
         return Afdm, Vbc, Dbc
 
@@ -731,10 +734,10 @@ class FDMPC(PCBase):
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
 
         nb = Jhat.size
-        Jfdm = [Vk.T @ Jhat for Vk in Vbc]
-        Dfdm = [Vk.T @ Dhat for Vk in Vbc]
-        Jhex = ', '.join(map(float.hex, np.asarray(Jfdm).flatten()))
-        Dhex = ', '.join(map(float.hex, np.asarray(Dfdm).flatten()))
+        VJ = [Vk.T @ Jhat for Vk in Vbc]
+        VD = [Vk.T @ Dhat for Vk in Vbc]
+        Jhex = ', '.join(map(float.hex, np.asarray(VJ).flatten()))
+        Dhex = ', '.join(map(float.hex, np.asarray(VD).flatten()))
 
         JX = f"J+(({IntType_c})bcs[{ndim-1}])*{nb}"
         JY = f"J+(({IntType_c})bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
@@ -931,7 +934,10 @@ class FDMPC(PCBase):
 
         # Partition of unity at interior facets (fraction of volumes)
         DG0 = firedrake.FunctionSpace(mesh, 'DG', 0)
-        DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
+        if ndim == 1:
+            DGT = firedrake.FunctionSpace(mesh, 'Lagrange', 1)
+        else:
+            DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
         cell2cell = FDMPC.glonum(DG0)
         face2cell = FDMPC.glonum(DGT)
 
@@ -995,9 +1001,21 @@ class FDMPC(PCBase):
                 else:
                     labels += bs if type(bs) == tuple else (bs,)
 
+        for it in J.integrals():
+            itype = it.integral_type()
+            if itype.startswith("exterior_facet"):
+                bs = it.subdomain_id()
+                if bs == "everywhere":
+                    if itype == "exterior_facet_bottom":
+                        labels += (-2,)
+                    elif itype == "exterior_facet_top":
+                        labels += (-4,)
+                    else:
+                        maskall = True
+                else:
+                    labels += bs if type(bs) == tuple else (bs,)
+
         labels = list(set(labels))
-        labels.extend([it.subdomain_id() for it in J.integrals() if it.integral_type().startswith("exterior_facet")])
-        # TODO deal with "everywhere"
 
         fbc = np.isin(sub, labels).astype(PETSc.IntType)
         if maskall:
