@@ -585,9 +585,12 @@ class PlaneSmoother(object):
         bary /= len(closure_of_p)
         return bary
 
-    def sort_entities(self, dm, axis, dir, ndiv):
+    def sort_entities(self, dm, axis, dir, ndiv=-1, divisions=None):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+
+        if ndiv == -1 and divisions is None:
+            raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
 
         mesh = dm.getAttr("__firedrake_mesh__")
         ele = mesh.coordinates.function_space().ufl_element()
@@ -619,7 +622,10 @@ class PlaneSmoother(object):
 
         s = sorted(entities, key=keyfunc, reverse=(dir == -1))
 
-        divisions = numpy.linspace(minx, maxx, ndiv+1)
+        if divisions is None:
+            divisions = numpy.linspace(minx, maxx, ndiv+1)
+        if ndiv == -1:
+            ndiv = numpy.size(divisions)-1
         (entities, coords) = zip(*s)
         coords = [c[axis] for c in coords]
         indices = numpy.searchsorted(coords[::dir], divisions)
@@ -635,6 +641,7 @@ class PlaneSmoother(object):
         if complex_mode:
             raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
+        context = dm.getAttr("__firedrake_ctx__")
         prefix = pc.getOptionsPrefix()
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
@@ -645,12 +652,23 @@ class PlaneSmoother(object):
         for sweep in sweeps.split(':'):
             axis = int(sweep[0])
             dir = {'+': +1, '-': -1}[sweep[1]]
-            ndiv = int(sweep[2:])
+            # Either use equispaced bins for relaxation or get from appctx
+            try:
+                ndiv = int(sweep[2:])
+                entities = self.sort_entities(dm, axis, dir, ndiv=ndiv)
+            except ValueError:
+                try:
+                    divisions = context.appctx[sweep[2:]]
+                    entities = self.sort_entities(dm, axis, dir, divisions=divisions)
+                except KeyError:
+                    raise KeyError("PlaneSmoother division key %s not provided" % sweep[2:])
 
-            entities = self.sort_entities(dm, axis, dir, ndiv)
             for patch in entities:
-                iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
-                patches.append(iset)
+                if not patch:
+                    continue
+                else:
+                    iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
+                    patches.append(iset)
 
         iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=PETSc.COMM_SELF)
         return (patches, iterationSet)
@@ -689,12 +707,13 @@ class PatchBase(PCSNESBase):
 
         mesh = J.ufl_domain()
         self.plex = mesh.topology_dm
-        # We need to attach the mesh to the plex, so that
+        # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
         # constructors) can use firedrake's opinion of what
         # the coordinates are, rather than plex's.
         self.plex.setAttr("__firedrake_mesh__", weakref.proxy(mesh))
         self.ctx = ctx
+        self.plex.setAttr("__firedrake_ctx__", weakref.proxy(ctx))
 
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
@@ -824,6 +843,10 @@ class PatchBase(PCSNESBase):
         d = self.plex.getDict()
         try:
             del d["__firedrake_mesh__"]
+        except KeyError:
+            pass
+        try:
+            del d["__firedrake_ctx__"]
         except KeyError:
             pass
 
