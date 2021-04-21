@@ -316,12 +316,13 @@ class FDMPC(PCBase):
             self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
             cols = rows[ae.indices]
             for i, row in enumerate(rows):
-                i1 = ae.indptr[i]
-                i2 = ae.indptr[i+1]
-                prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
+                i0 = ae.indptr[i]
+                i1 = ae.indptr[i+1]
+                prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
 
         if needs_interior_facet:
             eta = nx1*(nx1+1)
+            adense = np.zeros((nx1, nx1))
 
             # TODO extrude these arrays
             lexico_facet, nfacet = self.glonum_fun(V, interior_facet=True)
@@ -330,33 +331,29 @@ class FDMPC(PCBase):
 
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
-                mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
-                mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
-
                 idir = facet_data[f] // 2
-                mu0 = mu0[idsym[idir[0]]]
-                mu1 = mu1[idsym[idir[1]]]
-
                 fbc0 = bcflags[e0] @ flag2id
                 fbc1 = bcflags[e1] @ flag2id
                 bc0 = fbc0[idir[0]]
                 bc1 = fbc1[idir[1]]
+                fbc = np.delete(fbc0, idir[0])
 
-                perm = list((idir[0],) + tuple(np.arange(idir[0])) + tuple(np.arange(idir[0]+1, ndim)))
-                fbc = fbc0[perm]
+                mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
+                mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
+                mu0 = mu0[idsym[idir[0]]]
+                mu1 = mu1[idsym[idir[1]]]
 
                 i0 = -(facet_data[f, 0] % 2)
                 i1 = -(facet_data[f, 1] % 2)
-                ae = np.zeros((nx1, nx1))
-                ae[:, i1] = ae[:, i1] + (0.5E0*mu0) * Dfdm[bc0][:, i0]
-                ae[i0, :] = ae[i0, :] + (0.5E0*mu1) * Dfdm[bc1][:, i1]
-                ae[i0, i1] = ae[i0, i1] - eta * (mu0 + mu1)
-
-                ae = csr_matrix(ae)
+                adense.fill(0.0E0)
+                adense[:, i1] += (0.5E0*mu0) * Dfdm[bc0][:, i0]
+                adense[i0, :] += (0.5E0*mu1) * Dfdm[bc1][:, i1]
+                adense[i0, i1] -= eta * (mu0 + mu1)
+                ae = csr_matrix(adense)
                 if ndim > 1:
-                    ae = kron(ae, Afdm[fbc[1]][1], format="csr")
+                    ae = kron(ae, Afdm[fbc[0]][1], format="csr")
                     if ndim > 2:
-                        ae = kron(ae, Afdm[fbc[2]][1], format="csr")
+                        ae = kron(ae, Afdm[fbc[1]][1], format="csr")
 
                 facet_csr.append(ae)
                 icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
@@ -364,10 +361,10 @@ class FDMPC(PCBase):
                 cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
                 cols = cols[ae.indices]
                 for i, row in enumerate(rows):
-                    i1 = ae.indptr[i]
-                    i2 = ae.indptr[i+1]
-                    prealloc.setValues(row, cols[i1:i2], ae.data[i1:i2])
-                    prealloc.setValues(cols[i1:i2], row, ae.data[i1:i2])
+                    i0 = ae.indptr[i]
+                    i1 = ae.indptr[i+1]
+                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
+                    prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1])
 
         for row in range(V.dof_dset.set.size):
             prealloc.setValue(row, row, 1.0E0)
@@ -391,9 +388,9 @@ class FDMPC(PCBase):
 
             cols = rows[ae.indices]
             for i, row in enumerate(rows):
-                i1 = ae.indptr[i]
-                i2 = ae.indptr[i+1]
-                Pmat.setValues(row, cols[i1:i2], ae.data[i1:i2], imode)
+                i0 = ae.indptr[i]
+                i1 = ae.indptr[i+1]
+                Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
         if needs_interior_facet:
             for f, ae in enumerate(facet_csr):
@@ -402,10 +399,10 @@ class FDMPC(PCBase):
                 cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
                 cols = cols[ae.indices]
                 for i, row in enumerate(rows):
-                    i1 = ae.indptr[i]
-                    i2 = ae.indptr[i+1]
-                    Pmat.setValues(row, cols[i1:i2], ae.data[i1:i2], imode)
-                    Pmat.setValues(cols[i1:i2], row, ae.data[i1:i2], imode)
+                    i0 = ae.indptr[i]
+                    i1 = ae.indptr[i+1]
+                    Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                    Pmat.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
 
         Pmat.assemble()
         return Pmat
@@ -565,15 +562,13 @@ class FDMPC(PCBase):
             A = Ahat.copy()
             for j in (0, -1):
                 if weak_bcs[j]:
-                    A[:, j] = A[:, j] - Dfacet[:, j] * (1.0E0/(1+strong_bcs[j]))
-                    A[j, :] = A[j, :] - Dfacet[:, j] * (1.0E0/(1+strong_bcs[j]))
-                    A[j, j] = A[j, j] + eta * (1+strong_bcs[j])
+                    mult = 1 + strong_bcs[j]
+                    A[:, j] -= Dfacet[:, j] * (1.0E0/mult)
+                    A[j, :] -= Dfacet[:, j] * (1.0E0/mult)
+                    A[j, j] += eta * mult
 
             Vbc = np.eye(A.shape[0])
             _, Vbc[k0:k1, k0:k1] = eigh(A[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
-            iord = np.argsort(abs(Vbc[-1]) - abs(Vbc[0]))
-            Vbc = Vbc[:, iord]
-
             Vbc[k0:k1, rd] = -Vbc[k0:k1, k0:k1] @ ((Vbc[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vbc[np.ix_(rd, rd)])
             A = Vbc.T @ A @ Vbc
             B = Vbc.T @ Bhat @ Vbc
