@@ -357,15 +357,8 @@ def _make_matrix(expr, bcs, opts):
         bcs = ()
     else:
         if any(isinstance(bc, EquationBC) for bc in bcs):
-            bcs_old = bcs
-            bcs = []
-            for bc in bcs_old:
-                if isinstance(bc, EquationBC):
-                    bcs.append(bc.extract_form('J'))
-                else:
-                    bcs.append(bc)
-            #raise TypeError("EquationBC objects not expected here. "
-            #                "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
+            raise TypeError("EquationBC objects not expected here. "
+                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
     if matfree:
         return matrix.ImplicitMatrix(expr, bcs,
                                      fc_params=opts.fc_params,
@@ -442,6 +435,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     # cache a single set of parloops at any one time to prevent memory leaks.
     # This restriction does make the caching a lot simpler as we don't have to
     # worry about hashing the arguments.
+    import ipdb; ipdb.set_trace()
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
     parloops = cached_parloops if cached_init_args == parloop_init_args else None

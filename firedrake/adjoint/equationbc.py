@@ -23,6 +23,9 @@ class EquationBCBlock(Block, Backend):
             for bc in kwargs['bcs']:
                 self.add_dependency(bc, no_duplicates=True)
         
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        import ipdb; ipdb.set_trace()
+
     @no_annotations
     def recompute(self):
         # There is nothing to do. The checkpoint is weak,
