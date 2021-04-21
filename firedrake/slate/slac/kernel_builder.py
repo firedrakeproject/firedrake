@@ -716,7 +716,9 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("Integral type '%s' not recognized" % integral_type)
 
                 # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_lhs(slate_tensor, pym.Variable(loopy_tensor.name))
+                output_var = pym.Variable(loopy_tensor.name)
+                reads.append
+                output = self.generate_lhs(slate_tensor, output_var)
                 kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
