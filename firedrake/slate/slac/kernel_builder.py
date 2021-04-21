@@ -636,8 +636,9 @@ class LocalLoopyKernelBuilder(object):
     def slate_call(self, prg, temporaries):
         name, = prg.callables_table.keys()
         kernel = prg.callables_table[name].subkernel
+        output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
-        reads = []
+        reads = [output_var]
         for t in temporaries:
             shape = t.shape
             name = t.name
