@@ -117,7 +117,6 @@ class LinearSolver(OptionsManager):
         u, update, blift = self._rhs
         u.dat.zero()
         for bc in self.A.bcs:
-            import ipdb; ipdb.set_trace()
             if hasattr(bc, 'apply'):
                 bc.apply(u)
         update()

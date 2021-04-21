@@ -143,7 +143,7 @@ def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
     See :func:`assemble` for a description of the possible additional arguments
     and return values.
     """
-    import ipdb; ipdb.set_trace()
+
     # Do some setup of the arguments and wrap them in a namedtuple.
     bcs = solving._extract_bcs(bcs)
     if assembly_type == "solution":
@@ -435,7 +435,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     # cache a single set of parloops at any one time to prevent memory leaks.
     # This restriction does make the caching a lot simpler as we don't have to
     # worry about hashing the arguments.
-    import ipdb; ipdb.set_trace()
+
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
     parloops = cached_parloops if cached_init_args == parloop_init_args else None
