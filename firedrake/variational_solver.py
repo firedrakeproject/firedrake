@@ -8,7 +8,7 @@ from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.bcs import DirichletBC
+from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
@@ -34,8 +34,8 @@ def check_pde_args(F, J, Jp):
 
 def is_form_consistent(is_linear, bcs):
     # Check form style consistency
-    if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))
-            or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))):
+    if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, (DirichletBC, EquationBCSplit)))
+            or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, (DirichletBC, EquationBCSplit)))):
         raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
 
 
@@ -66,6 +66,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
+
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
 

@@ -23,6 +23,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
+        import ipdb; ipdb.set_trace()
         self.bcs = bcs
         test, trial = a.arguments()
         self.comm = test.function_space().comm

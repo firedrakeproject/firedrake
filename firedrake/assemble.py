@@ -143,6 +143,7 @@ def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
     See :func:`assemble` for a description of the possible additional arguments
     and return values.
     """
+    import ipdb; ipdb.set_trace()
     # Do some setup of the arguments and wrap them in a namedtuple.
     bcs = solving._extract_bcs(bcs)
     if assembly_type == "solution":
@@ -348,14 +349,23 @@ def _make_matrix(expr, bcs, opts):
 
     :returns: An empty :class:`.Matrix` or :class:`.ImplicitMatrix`.
     """
+
     matfree = opts.mat_type == "matfree"
     arguments = expr.arguments()
+
     if bcs is None:
         bcs = ()
     else:
         if any(isinstance(bc, EquationBC) for bc in bcs):
-            raise TypeError("EquationBC objects not expected here. "
-                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
+            bcs_old = bcs
+            bcs = []
+            for bc in bcs_old:
+                if isinstance(bc, EquationBC):
+                    bcs.append(bc.extract_form('J'))
+                else:
+                    bcs.append(bc)
+            #raise TypeError("EquationBC objects not expected here. "
+            #                "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
     if matfree:
         return matrix.ImplicitMatrix(expr, bcs,
                                      fc_params=opts.fc_params,

@@ -8,7 +8,6 @@ from firedrake.petsc import PETSc, OptionsManager
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
 
-
 __all__ = ["LinearSolver"]
 
 
@@ -118,12 +117,15 @@ class LinearSolver(OptionsManager):
         u, update, blift = self._rhs
         u.dat.zero()
         for bc in self.A.bcs:
-            bc.apply(u)
+            import ipdb; ipdb.set_trace()
+            if hasattr(bc, 'apply'):
+                bc.apply(u)
         update()
         # blift contains -A u_bc
         blift += b
         for bc in self.A.bcs:
-            bc.apply(blift)
+            if hasattr(bc, 'apply'):
+                bc.apply(blift)
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
