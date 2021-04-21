@@ -636,8 +636,9 @@ class LocalLoopyKernelBuilder(object):
     def slate_call(self, prg, temporaries):
         name, = prg.callables_table.keys()
         kernel = prg.callables_table[name].subkernel
+        output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
-        reads = []
+        reads = [output_var]
         for t in temporaries:
             shape = t.shape
             name = t.name
@@ -716,7 +717,9 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("Integral type '%s' not recognized" % integral_type)
 
                 # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_lhs(slate_tensor, pym.Variable(loopy_tensor.name))
+                output_var = pym.Variable(loopy_tensor.name)
+                reads.append(output_var)
+                output = self.generate_lhs(slate_tensor, output_var)
                 kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 

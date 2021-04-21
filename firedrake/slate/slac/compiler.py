@@ -627,7 +627,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)]
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type, is_output=True, is_input=True)]
             + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
                for var in var2terminal.keys()])
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
