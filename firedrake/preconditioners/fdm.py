@@ -60,14 +60,7 @@ class FDMPC(PCBase):
         else:
             self.bc_nodes = np.empty(0, dtype=PETSc.IntType)
 
-        bcflags, cell2cell = self.get_bc_flags(self.mesh, self.bcs, solverctx._problem.J)
-
-        # Encode bcflags into a VectorFunction that can be used in the pyOp2 kernels
-        # FIXME very ugly interface
-        VDG = firedrake.VectorFunctionSpace(self.mesh, 'DG', 0, dim=ndim)
-        self.fbc = firedrake.Function(VDG, name="bcflags")
-        extra_dim = (-1,) if ndim > 1 else ()
-        self.fbc.dat.data[cell2cell] = np.reshape(bcflags @ np.kron(np.eye(ndim), [[1], [3]]), cell2cell.shape + extra_dim)
+        bcflags = self.get_bc_flags(self.mesh, self.bcs, solverctx._problem.J)
 
         self.weight = self.multiplicity(V)
         with self.weight.dat.vec as w:
@@ -131,16 +124,20 @@ class FDMPC(PCBase):
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.uc.cell_node_map()),
                      self.uf.dat(op2.READ, self.uf.cell_node_map()),
-                     self.fbc.dat(op2.READ, self.fbc.cell_node_map()),
                      self.weight.dat(op2.READ, self.weight.cell_node_map()))
+
+        for bc in self.bcs:
+            bc.zero(self.uc)
 
         with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
             self.pc.apply(x_, y_)
 
+        for bc in self.bcs:
+            bc.zero(self.uf)
+
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.WRITE, self.uc.cell_node_map()),
-                     self.uf.dat(op2.READ, self.uf.cell_node_map()),
-                     self.fbc.dat(op2.READ, self.fbc.cell_node_map()))
+                     self.uf.dat(op2.READ, self.uf.cell_node_map()))
 
         with self.uc.dat.vec_ro as xc:
             xc.copy(y)
@@ -333,9 +330,6 @@ class FDMPC(PCBase):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
                 fbc0 = bcflags[e0] @ flag2id
-                fbc1 = bcflags[e1] @ flag2id
-                bc0 = fbc0[idir[0]]
-                bc1 = fbc1[idir[1]]
                 fbc = np.delete(fbc0, idir[0])
 
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
@@ -346,8 +340,8 @@ class FDMPC(PCBase):
                 i0 = -(facet_data[f, 0] % 2)
                 i1 = -(facet_data[f, 1] % 2)
                 adense.fill(0.0E0)
-                adense[:, i1] += (0.5E0*mu0) * Dfdm[bc0][:, i0]
-                adense[i0, :] += (0.5E0*mu1) * Dfdm[bc1][:, i1]
+                adense[:, i1] += (0.5E0*mu0) * Dfdm[:, i0]
+                adense[i0, :] += (0.5E0*mu1) * Dfdm[:, i1]
                 adense[i0, i1] -= eta * (mu0 + mu1)
                 ae = csr_matrix(adense)
                 if ndim > 1:
@@ -465,66 +459,44 @@ class FDMPC(PCBase):
     def fdm_cg(Ahat, Bhat):
         from scipy.linalg import eigh
         from scipy.sparse import csr_matrix
-        nx = Ahat.shape[0]
-        rd = ((), (0,), (-1,), (0, -1))
-        Lfdm = np.zeros((4, nx))
-        Vfdm = np.zeros((4, nx, nx))
-        for k in range(4):
-            Abar = np.stack((Ahat, Bhat))
-            if 0 in set(rd[k]):
-                Abar[:, 0, 1:] = 0.0E0
-                Abar[:, 1:, 0] = 0.0E0
-            if -1 in set(rd[k]):
-                Abar[:, -1, :-1] = 0.0E0
-                Abar[:, :-1, -1] = 0.0E0
+        k0 = 1
+        k1 = -1
+        rd = (0, -1)
+        Vfdm = np.eye(Ahat.shape[0])
+        _, Vfdm[k0:k1, k0:k1] = eigh(Ahat[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
+        Vfdm[k0:k1, rd] = -Vfdm[k0:k1, k0:k1] @ ((Vfdm[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vfdm[np.ix_(rd, rd)])
 
-            Lfdm[k], Vfdm[k] = eigh(Abar[0], Abar[1])
-            iord = np.argsort(abs(Vfdm[k][-1]) - abs(Vfdm[k][0]))
-            Vfdm[k] = Vfdm[k][:, iord]
-            Lfdm[k] = Lfdm[k][iord]
+        def apply_strong_bcs(Ahat, Bhat, bc0, bc1):
+            k0 = 0 if bc0 == 1 else 1
+            k1 = Ahat.shape[0] if bc1 == 1 else -1
 
-        def basis_bcs(V, Bhat, bc0, bc1):
-            k0 = 1 if bc0 else 0
-            k1 = -1 if bc1 else V.shape[1]
-            rd = []
-            if bc0 == 2:
-                rd.append(0)
-            if bc1 == 2:
-                rd.append(V.shape[1]-1)
-            if rd:
-                Vbc = V.copy()
-                Vbc[k0:k1, rd] = -V[k0:k1, k0:k1] @ ((V[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ V[np.ix_(rd, rd)])
-                return Vbc
-            else:
-                return V
-
-        def galerkin_bcs(Ahat, Vbc, bc0, bc1, ismass):
-            A = Vbc.T @ Ahat @ Vbc
-            k0 = 1 if bc0 == 2 else 0
-            k1 = -1 if bc1 == 2 else A.shape[1]
+            A = Ahat.copy()
             a = A.diagonal().copy()
             A[k0:k1, k0:k1] = 0.0E0
             np.fill_diagonal(A, a)
-            if ismass:
-                rd = []
-                if bc0 == 2:
-                    rd.append(0)
-                if bc1 == 2:
-                    rd.append(A.shape[1]-1)
-                A[rd, k0:k1] = 0.0E0
-                A[k0:k1, rd] = 0.0E0
-            return csr_matrix(A)
 
-        Vbc = []
+            B = Bhat.copy()
+            b = B.diagonal().copy()
+            B[k0:k1, k0:k1] = 0.0E0
+            np.fill_diagonal(B, b)
+
+            rd = []
+            if bc0 != 1:
+                rd.append(0)
+            if bc1 != 1:
+                rd.append(A.shape[1]-1)
+            B[rd, k0:k1] = 0.0E0
+            B[k0:k1, rd] = 0.0E0
+            return [csr_matrix(A), csr_matrix(B)]
+
         Afdm = []
-        Abar = (Ahat, Bhat)
-        for j in range(3):
-            for i in range(3):
-                k = (i > 0) + (j > 0) * 2
-                Vbc.append(basis_bcs(Vfdm[k], Bhat, i, j))
-                Afdm.append([galerkin_bcs(Ak, Vbc[-1], i, j, ismass) for ismass, Ak in enumerate(Abar)])
+        Ak = Vfdm.T @ Ahat @ Vfdm
+        Bk = Vfdm.T @ Bhat @ Vfdm
+        for bc1 in range(3):
+            for bc0 in range(3):
+                Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
 
-        return Afdm, Vbc
+        return Afdm, Vfdm, None
 
     @staticmethod
     def fdm_ipdg(Ahat, Bhat, N, eta=None):
@@ -550,52 +522,49 @@ class FDMPC(PCBase):
         Dfacet = basis[(1,)]
         Dfacet[:, 0] = -Dfacet[:, 0]
 
-        def fdm_weak(Ahat, Bhat, Dfacet, strong_bcs, weak_bcs, eta):
-            rd = tuple()
-            if strong_bcs[0]:
-                rd += (0,)
-            if strong_bcs[1]:
-                rd += (Ahat.shape[0]-1,)
-            k0 = strong_bcs[0]
-            k1 = Ahat.shape[0] - strong_bcs[1]
+        k0 = 1
+        k1 = -1
+        rd = (0, -1)
+        Vfdm = np.eye(Ahat.shape[0])
+        _, Vfdm[k0:k1, k0:k1] = eigh(Ahat[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
+        Vfdm[k0:k1, rd] = -Vfdm[k0:k1, k0:k1] @ ((Vfdm[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vfdm[np.ix_(rd, rd)])
 
-            A = Ahat.copy()
+        def apply_weak_bcs(Ahat, Bhat, Dfacet, strong_bcs, weak_bcs, eta):
+            Abc = Ahat.copy()
+            Bbc = Bhat.copy()
             for j in (0, -1):
                 if weak_bcs[j]:
                     mult = 1 + strong_bcs[j]
-                    A[:, j] -= Dfacet[:, j] * (1.0E0/mult)
-                    A[j, :] -= Dfacet[:, j] * (1.0E0/mult)
-                    A[j, j] += eta * mult
+                    Abc[:, j] -= Dfacet[:, j] * (1.0E0/mult)
+                    Abc[j, :] -= Dfacet[:, j] * (1.0E0/mult)
+                    Abc[j, j] += eta * mult
 
-            Vbc = np.eye(A.shape[0])
-            _, Vbc[k0:k1, k0:k1] = eigh(A[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
-            Vbc[k0:k1, rd] = -Vbc[k0:k1, k0:k1] @ ((Vbc[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vbc[np.ix_(rd, rd)])
-            A = Vbc.T @ A @ Vbc
-            B = Vbc.T @ Bhat @ Vbc
-            a = A.diagonal().copy()
-            A[k0:k1, k0:k1] = 0.0E0
-            np.fill_diagonal(A, a)
-            b = B.diagonal().copy()
-            B[k0:k1, k0:k1] = 0.0E0
-            np.fill_diagonal(B, b)
-            B[rd, k0:k1] = 0.0E0
-            B[k0:k1, rd] = 0.0E0
-            return Vbc, csr_matrix(A), csr_matrix(B)
+            return [csr_matrix(Abc), csr_matrix(Bbc)]
 
-        Vbc = []
-        Dbc = []
+        A = Vfdm.T @ Ahat @ Vfdm
+        a = A.diagonal().copy()
+        A[k0:k1, k0:k1] = 0.0E0
+        np.fill_diagonal(A, a)
+
+        B = Vfdm.T @ Bhat @ Vfdm
+        b = B.diagonal().copy()
+        B[k0:k1, k0:k1] = 0.0E0
+        np.fill_diagonal(B, b)
+        B[rd, k0:k1] = 0.0E0
+        B[k0:k1, rd] = 0.0E0
+
+        Dfdm = Vfdm.T @ Dfacet
         Afdm = []
         for bc1 in range(3):
             for bc0 in range(3):
                 weak_bcs = np.array([bc0 >= 1, bc1 >= 1])
                 strong_bcs = np.array([bc0 == 2, bc1 == 2])
-                Vk, Ak, Bk = fdm_weak(Ahat, Bhat, Dfacet, strong_bcs, weak_bcs, eta)
-                Afdm.append([Ak, Bk])
-                # Vbc rotates GL residuals into modes obtained from GLL
-                Dbc.append(Vk.T @ Dfacet)
-                Vbc.append(Jipdg.T @ Vk)
+                Afdm.append(apply_weak_bcs(A, B, Dfdm, strong_bcs, weak_bcs, eta))
 
-        return Afdm, Vbc, Dbc
+        # Vbc rotates GL residuals into modes obtained from GLL
+        Vfdm = Jipdg.T @ Vfdm
+
+        return Afdm, Vfdm, Dfdm
 
     @staticmethod
     @lru_cache(maxsize=10)
@@ -623,14 +592,13 @@ class FDMPC(PCBase):
         if needs_interior_facet:
             Afdm, Vbc, Dbc = FDMPC.fdm_ipdg(Ahat, Bhat, N)
         else:
-            Afdm, Vbc = FDMPC.fdm_cg(Ahat, Bhat)
-            Dbc = None
+            Afdm, Vbc, Dbc = FDMPC.fdm_cg(Ahat, Bhat)
 
-        Vsize = nv * len(Vbc)
+        Vsize = nv
         Vhex = ', '.join(map(float.hex, np.asarray(Vbc).flatten()))
-        VX = f"V+((int)bcs[{ndim-1}])*{nv}"
-        VY = f"V+((int)bcs[{ndim-2}])*{nv}" if ndim > 1 else "&one"
-        VZ = f"V+((int)bcs[{ndim-3}])*{nv}" if ndim > 2 else "&one"
+        VX = "V"
+        VY = "V" if ndim > 1 else "&one"
+        VZ = "V" if ndim > 2 else "&one"
 
         kronmxv_code = """
         #include <petscsys.h>
@@ -686,8 +654,7 @@ class FDMPC(PCBase):
         {kronmxv_code}
 
         void prolongation(PetscScalar *y,
-                      PetscScalar *x,
-                      PetscScalar *bcs){{
+                      PetscScalar *x){{
             PetscScalar V[{Vsize}] = {{ {Vhex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
@@ -706,7 +673,6 @@ class FDMPC(PCBase):
 
         void restriction(PetscScalar *y,
                       PetscScalar *x,
-                      PetscScalar *bcs,
                       PetscScalar *w){{
             PetscScalar V[{Vsize}] = {{ {Vhex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
@@ -734,13 +700,13 @@ class FDMPC(PCBase):
         Jhex = ', '.join(map(float.hex, np.asarray(VJ).flatten()))
         Dhex = ', '.join(map(float.hex, np.asarray(VD).flatten()))
 
-        JX = f"J+(({IntType_c})bcs[{ndim-1}])*{nb}"
-        JY = f"J+(({IntType_c})bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
-        JZ = f"J+(({IntType_c})bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
+        JX = "J"
+        JY = "J" if ndim > 1 else "&one"
+        JZ = "J" if ndim > 2 else "&one"
 
-        DX = f"D+(({IntType_c})bcs[{ndim-1}])*{nb}"
-        DY = f"D+(({IntType_c})bcs[{ndim-2}])*{nb}" if ndim > 1 else "&one"
-        DZ = f"D+(({IntType_c})bcs[{ndim-3}])*{nb}" if ndim > 2 else "&one"
+        DX = "D"
+        DY = "D" if ndim > 1 else "&one"
+        DZ = "D" if ndim > 2 else "&one"
 
         # FIXME I don't know how to use optional arguments here
         bcoef = "bcoef" if helm else "NULL"
@@ -748,7 +714,6 @@ class FDMPC(PCBase):
         cargs += "PetscScalar *gcoef,"
         if helm:
             cargs += " PetscScalar *bcoef,"
-        cargs += "PetscScalar *bcs"
 
         stencil_code = f"""
         {kronmxv_code}
@@ -825,11 +790,11 @@ class FDMPC(PCBase):
         }}
 
         void stencil({cargs}){{
-            PetscScalar J[{9 * nb}] = {{ {Jhex} }};
-            PetscScalar D[{9 * nb}] = {{ {Dhex} }};
+            PetscScalar J[{nb}] = {{ {Jhex} }};
+            PetscScalar D[{nb}] = {{ {Dhex} }};
             PetscScalar tcoef[{nquad * nsym}];
             PetscScalar one = 1.0E0;
-            {IntType_c} i1, i2, i3, bcj;
+            {IntType_c} i1, i2, i3;
 
             for({IntType_c} j=0; j<{nquad}; j++)
                 for({IntType_c} i=0; i<{nsym}; i++)
@@ -841,9 +806,6 @@ class FDMPC(PCBase):
                 i1 = (j/2 == {ndim-1}) * (1 + (j%2));
                 i2 = (j/2 == {ndim-2}) * (1 + (j%2));
                 i3 = (j/2 == {ndim-3}) * (1 + (j%2));
-                bcj = ({IntType_c}) bcs[j/2];
-                bcj = (j%2 == 0) ? bcj % 3 : bcj / 3;
-                //if(bcj > 1)
                 get_band(i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
             }}
             return;
@@ -1017,4 +979,4 @@ class FDMPC(PCBase):
             fbc[sub >= -1] = 1
 
         fbc[flags != 0] = 2
-        return fbc, cell2cell
+        return fbc
