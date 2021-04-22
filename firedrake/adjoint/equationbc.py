@@ -19,7 +19,7 @@ class EquationBCBlock(Block, Backend):
         self.add_dependency(args[1])
         self.func = args[1]
         self.function_space = self.args[1].function_space()
-        if len(kwargs) > 0:
+        if 'bcs' in kwargs:
             for bc in kwargs['bcs']:
                 self.add_dependency(bc, no_duplicates=True)
         
