@@ -7,6 +7,7 @@ from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
 from firedrake.utils import IntType
 from pyop2.utils import as_tuple
+from pyadjoint import no_annotations
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
     vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
@@ -436,6 +437,7 @@ class File(object):
         self._topology = None
         self._adaptive = adaptive
 
+    @no_annotations
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
             TensorFunctionSpace, Function
