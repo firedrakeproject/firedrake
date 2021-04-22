@@ -80,7 +80,7 @@ class FDMPC(PCBase):
             # nonzeros from the diagonal and interface neighbors
             # Vertex-vertex couplings are ignored here,
             # so this should work as direct solver only on star patches
-            W = firedrake.VectorFunctionSpace(self.mesh, "DQ", N, dim=2*ndim+1)
+            W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             self.stencil = firedrake.Function(W)
             Gq, Bq = self.assemble_coef(mu, helm, Nq)
             Pmat = self.assemble_stencil(P, V, Gq, Bq, N, bcflags)
@@ -91,11 +91,8 @@ class FDMPC(PCBase):
             Pmat = self.assemble_affine(P, V, Gq, Bq, Afdm, Dfdm, bcflags)
         else:
             raise ValueError("Unknown fdm_type")
-        Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
-        # Monkey see, monkey do
         opc = pc
-
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
@@ -176,6 +173,8 @@ class FDMPC(PCBase):
         return
 
     def assemble_stencil(self, A, V, Gq, Bq, N, bcflags):
+        assert V.value_size == 1
+
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map([])
         # TODO implement stencil for IPDG
@@ -195,19 +194,19 @@ class FDMPC(PCBase):
             op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
                          self.stencil.dat(op2.WRITE, self.stencil.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()),
-                         Bq.dat(op2.READ, Bq.cell_node_map()),
-                         self.fbc.dat(op2.READ, self.fbc.cell_node_map()))
+                         Bq.dat(op2.READ, Bq.cell_node_map()))
         else:
             op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
                          self.stencil.dat(op2.WRITE, self.stencil.cell_node_map()),
-                         Gq.dat(op2.READ, Gq.cell_node_map()),
-                         self.fbc.dat(op2.READ, self.fbc.cell_node_map()))
+                         Gq.dat(op2.READ, Gq.cell_node_map()))
 
         # Connectivity graph between the nodes within a cell
         i = np.arange(ndof_cell, dtype=PETSc.IntType)
         sx = i - (i % nx1)
         sy = i - ((i // nx1) % nx1) * nx1
-        if ndim == 2:
+        if ndim == 1:
+            graph = np.array([sx, sx+(nx1-1)])
+        elif ndim == 2:
             graph = np.array([sy, sy+(nx1-1)*nx1, sx, sx+(nx1-1)])
         else:
             sz = i - (((i // nx1) // nx1) % nx1) * nx1 * nx1
@@ -274,6 +273,7 @@ class FDMPC(PCBase):
         gid, _ = self.glonum_fun(Gq)
         bid, _ = self.glonum_fun(Bq) if Bq is not None else (None, nel)
 
+        ncomp = V.value_size
         ndim = V.mesh().topological_dimension()
         idsym = [0, 3, 5] if ndim == 3 else [0, 2]
         idsym = idsym[:ndim]
@@ -291,33 +291,35 @@ class FDMPC(PCBase):
         facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
         for e in range(nel):
-            fbc = bcflags[e] @ flag2id
+            rows = ncomp * lgmap.apply(lexico_cell(e))
             mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
             mue = mue[idsym]
+            for j in range(ncomp):
+                fbc = bcflags[e] @ flag2id
+                be = Afdm[fbc[0]][1]
+                ae = Afdm[fbc[0]][0] * mue[0]
+                if Bq is not None:
+                    ae += be * sum(Bq.dat.data_ro[bid(e)])
 
-            be = Afdm[fbc[0]][1]
-            ae = Afdm[fbc[0]][0] * mue[0]
-            if Bq is not None:
-                ae += be * sum(Bq.dat.data_ro[bid(e)])
+                if ndim > 1:
+                    ae = kron(ae, Afdm[fbc[1]][1], format="csr")
+                    ae += kron(be, Afdm[fbc[1]][0] * mue[1], format="csr")
+                    if ndim > 2:
+                        be = kron(be, Afdm[fbc[1]][1], format="csr")
+                        ae = kron(ae, Afdm[fbc[2]][1], format="csr")
+                        ae += kron(be, Afdm[fbc[2]][0] * mue[2], format="csr")
 
-            if ndim > 1:
-                ae = kron(ae, Afdm[fbc[1]][1], format="csr")
-                ae += kron(be, Afdm[fbc[1]][0] * mue[1], format="csr")
-                if ndim > 2:
-                    be = kron(be, Afdm[fbc[1]][1], format="csr")
-                    ae = kron(ae, Afdm[fbc[2]][1], format="csr")
-                    ae += kron(be, Afdm[fbc[2]][0] * mue[2], format="csr")
-
-            cell_csr.append(ae)
-            rows = lgmap.apply(lexico_cell(e))
-            self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
-            cols = rows[ae.indices]
-            for i, row in enumerate(rows):
-                i0 = ae.indptr[i]
-                i1 = ae.indptr[i+1]
-                prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
+                cell_csr.append(ae)
+                self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
+                cols = rows[ae.indices]
+                for i, row in enumerate(rows):
+                    i0 = ae.indptr[i]
+                    i1 = ae.indptr[i+1]
+                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
+                rows += 1
 
         if needs_interior_facet:
+            assert ncomp == 1
             eta = nx1*(nx1+1)
             adense = np.zeros((nx1, nx1))
 
@@ -344,12 +346,9 @@ class FDMPC(PCBase):
                 ae = csr_matrix(adense)
                 if ndim > 1:
                     # Here we are assuming that the mesh is oriented
-                    fbc0 = np.delete(bcflags[e0] @ flag2id, idir[0])
-                    fbc1 = np.delete(bcflags[e1] @ flag2id, idir[1])
-                    assert fbc0 == fbc1
-                    ae = kron(ae, Afdm[fbc0[0]][1], format="csr")
+                    ae = kron(ae, Afdm[0][1], format="csr")
                     if ndim > 2:
-                        ae = kron(ae, Afdm[fbc0[1]][1], format="csr")
+                        ae = kron(ae, Afdm[0][1], format="csr")
 
                 facet_csr.append(ae)
                 icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
@@ -362,20 +361,26 @@ class FDMPC(PCBase):
                     prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
                     prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1])
 
-        for row in range(V.dof_dset.set.size):
+        ndof = ncomp * V.dof_dset.set.size
+        for row in range(ndof):
             prealloc.setValue(row, row, 1.0E0)
 
         prealloc.assemble()
-        nnz = get_preallocation(prealloc, V.dof_dset.set.size)
+        nnz = get_preallocation(prealloc, ndof)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
+        Pmat.setBlockSize(ncomp)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
 
         # Assemble global matrix
         for e, ae in enumerate(cell_csr):
-            ie = lgmap.apply(lexico_cell(e))
+            if e % ncomp == 0:
+                ie = ncomp * lgmap.apply(lexico_cell(e // ncomp))
+            else:
+                ie += 1
+
             rows = ie.copy()
-            self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
+            self.index_bcs(rows, pshape, bcflags[e // ncomp] == strong, -1)
             adiag = ae.diagonal()
             adiag = adiag[rows == -1]
             ibc = ie[rows == -1]
@@ -471,7 +476,6 @@ class FDMPC(PCBase):
         def apply_strong_bcs(Ahat, Bhat, bc0, bc1):
             k0 = 0 if bc0 == 1 else 1
             k1 = Ahat.shape[0] if bc1 == 1 else -1
-
             A = Ahat.copy()
             a = A.diagonal().copy()
             A[k0:k1, k0:k1] = 0.0E0
@@ -481,19 +485,13 @@ class FDMPC(PCBase):
             b = B.diagonal().copy()
             B[k0:k1, k0:k1] = 0.0E0
             np.fill_diagonal(B, b)
-
-            rd = []
-            if bc0 != 1:
-                rd.append(0)
-            if bc1 != 1:
-                rd.append(A.shape[1]-1)
-            B[rd, k0:k1] = 0.0E0
-            B[k0:k1, rd] = 0.0E0
             return [csr_matrix(A), csr_matrix(B)]
 
         Afdm = []
         Ak = Vfdm.T @ Ahat @ Vfdm
         Bk = Vfdm.T @ Bhat @ Vfdm
+        Bk[rd, k0:k1] = 0.0E0
+        Bk[k0:k1, rd] = 0.0E0
         for bc1 in range(3):
             for bc0 in range(3):
                 Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
@@ -531,12 +529,12 @@ class FDMPC(PCBase):
         _, Vfdm[k0:k1, k0:k1] = eigh(Ahat[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
         Vfdm[k0:k1, rd] = -Vfdm[k0:k1, k0:k1] @ ((Vfdm[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vfdm[np.ix_(rd, rd)])
 
-        def apply_weak_bcs(Ahat, Bhat, Dfacet, strong_bcs, weak_bcs, eta):
+        def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
             Bbc = Bhat.copy()
             for j in (0, -1):
-                if weak_bcs[j]:
-                    mult = 1.0E0 / (1 + strong_bcs[j])
+                if bcs[j]:
+                    mult = 1.0E0 / bcs[j]
                     Abc[:, j] -= mult * Dfacet[:, j]
                     Abc[j, :] -= mult * Dfacet[:, j]
                     Abc[j, j] += eta
@@ -559,9 +557,8 @@ class FDMPC(PCBase):
         Afdm = []
         for bc1 in range(3):
             for bc0 in range(3):
-                weak_bcs = np.array([bc0 >= 1, bc1 >= 1])
-                strong_bcs = np.array([bc0 == 2, bc1 == 2])
-                Afdm.append(apply_weak_bcs(A, B, Dfdm, strong_bcs, weak_bcs, eta))
+                bcs = (bc0, bc1)
+                Afdm.append(apply_weak_bcs(A, B, Dfdm, bcs, eta))
 
         # Vbc rotates GL residuals into modes obtained from GLL
         Vfdm = Jipdg.T @ Vfdm
@@ -697,8 +694,8 @@ class FDMPC(PCBase):
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
 
         nb = Jhat.size
-        VJ = [Vk.T @ Jhat for Vk in Vbc]
-        VD = [Vk.T @ Dhat for Vk in Vbc]
+        VJ = Vbc.T @ Jhat
+        VD = Vbc.T @ Dhat
         Jhex = ', '.join(map(float.hex, np.asarray(VJ).flatten()))
         Dhex = ', '.join(map(float.hex, np.asarray(VD).flatten()))
 
@@ -712,10 +709,10 @@ class FDMPC(PCBase):
 
         # FIXME I don't know how to use optional arguments here
         bcoef = "bcoef" if helm else "NULL"
-        cargs = "PetscScalar *diag,"
-        cargs += "PetscScalar *gcoef,"
+        cargs = "PetscScalar *diag"
+        cargs += ", PetscScalar *gcoef"
         if helm:
-            cargs += " PetscScalar *bcoef,"
+            cargs += ", PetscScalar *bcoef"
 
         stencil_code = f"""
         {kronmxv_code}
@@ -946,8 +943,8 @@ class FDMPC(PCBase):
         # 0 => Natural, do nothing
         # 1 => Strong Dirichlet
         # 2 => Interior facet
-        labels = ()
         maskall = False
+        labels = tuple()
         for bc in bcs:
             if isinstance(bc, firedrake.DirichletBC):
                 bs = bc.sub_domain
@@ -975,10 +972,9 @@ class FDMPC(PCBase):
                     labels += bs if type(bs) == tuple else (bs,)
 
         labels = list(set(labels))
-
         fbc = np.isin(sub, labels).astype(PETSc.IntType)
         if maskall:
             fbc[sub >= -1] = 1
-
         fbc[flags != 0] = 2
+
         return fbc
