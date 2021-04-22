@@ -311,7 +311,19 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
                                      seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register kernels
+    from loopy.transform.callable import _match_caller_callee_argument_dimension_
+    from loopy.kernel.function_interface import CallableKernel
+        
     for tsfc_loopy in tsfc_kernels:
         slate_wrapper = merge([slate_wrapper, tsfc_loopy])
+        names = tsfc_loopy.callables_table
+        for name in names:  
+            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
     slate_wrapper = merge([slate_wrapper, slate_loopy])
+    names = slate_loopy.callables_table
+    for name in names:
+        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+
     return slate_wrapper
