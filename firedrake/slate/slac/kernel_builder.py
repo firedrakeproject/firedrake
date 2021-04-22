@@ -512,9 +512,9 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer),
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
                  "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
                  "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
 
         return [which]
