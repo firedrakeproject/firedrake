@@ -329,8 +329,6 @@ class FDMPC(PCBase):
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
-                fbc0 = bcflags[e0] @ flag2id
-                fbc = np.delete(fbc0, idir[0])
 
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
@@ -342,12 +340,16 @@ class FDMPC(PCBase):
                 adense.fill(0.0E0)
                 adense[:, i1] += (0.5E0*mu0) * Dfdm[:, i0]
                 adense[i0, :] += (0.5E0*mu1) * Dfdm[:, i1]
-                adense[i0, i1] -= eta * (mu0 + mu1)
+                adense[i0, i1] -= eta * 0.5E0*(mu0 + mu1)
                 ae = csr_matrix(adense)
                 if ndim > 1:
-                    ae = kron(ae, Afdm[fbc[0]][1], format="csr")
+                    # Here we are assuming that the mesh is oriented
+                    fbc0 = np.delete(bcflags[e0] @ flag2id, idir[0])
+                    fbc1 = np.delete(bcflags[e1] @ flag2id, idir[1])
+                    assert fbc0 == fbc1
+                    ae = kron(ae, Afdm[fbc0[0]][1], format="csr")
                     if ndim > 2:
-                        ae = kron(ae, Afdm[fbc[1]][1], format="csr")
+                        ae = kron(ae, Afdm[fbc0[1]][1], format="csr")
 
                 facet_csr.append(ae)
                 icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
@@ -517,7 +519,7 @@ class FDMPC(PCBase):
         basis = elem.tabulate(0, rule.get_points())
         Jipdg = basis[(0,)]
 
-        # Facet outward normal derivatives
+        # Facet normal derivatives
         basis = elem.tabulate(1, cell.get_vertices())
         Dfacet = basis[(1,)]
         Dfacet[:, 0] = -Dfacet[:, 0]
@@ -534,10 +536,10 @@ class FDMPC(PCBase):
             Bbc = Bhat.copy()
             for j in (0, -1):
                 if weak_bcs[j]:
-                    mult = 1 + strong_bcs[j]
-                    Abc[:, j] -= Dfacet[:, j] * (1.0E0/mult)
-                    Abc[j, :] -= Dfacet[:, j] * (1.0E0/mult)
-                    Abc[j, j] += eta * mult
+                    mult = 1.0E0 / (1 + strong_bcs[j])
+                    Abc[:, j] -= mult * Dfacet[:, j]
+                    Abc[j, :] -= mult * Dfacet[:, j]
+                    Abc[j, j] += eta
 
             return [csr_matrix(Abc), csr_matrix(Bbc)]
 
