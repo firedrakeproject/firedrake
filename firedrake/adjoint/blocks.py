@@ -150,7 +150,8 @@ class GenericSolveBlock(Block, Backend):
                 bc = self.compat.create_bc(bc, homogenize=True)
                 bcs_list.append(bc)
             elif isinstance(bc, self.backend.EquationBC):
-                bcs = tuple(bc.extract_form('J'))
+                bcs = tuple(bc.extract_form('ad_J'))
+                import ipdb; ipdb.set_trace()
                 for i in bcs:
                     if isinstance(i, self.backend.DirichletBC):
                         bcs_list.append(self.compat.create_bc(i, homogenize=True))
@@ -234,7 +235,7 @@ class GenericSolveBlock(Block, Backend):
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._process_bcs()
         kwargs["bcs"] = bcs
-        kwargs["adj"] = True
+        kwargs["is_adjoint"] = True
         import ipdb; ipdb.set_trace()
         dFdu = self.compat.assemble_adjoint_value(dFdu_adj_form, **kwargs)
 

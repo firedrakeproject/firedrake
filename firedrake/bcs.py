@@ -21,7 +21,8 @@ from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
-from firedrake.adjoint.equationbc import EquationBCMixin#, EquationBCSplitMixin
+from firedrake.adjoint.equationbc import EquationBCMixin
+from firedrake.ufl_expr import adjoint
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -484,14 +485,18 @@ class EquationBC(EquationBCMixin):
                 J = J or ufl_expr.derivative(F, self.u)
                 Jp = Jp or J
                 self.is_linear = False
+           
+            ad_J = adjoint(J)
             # Check form style consistency
             is_form_consistent(self.is_linear, self.bcs)
             # Argument checking
             check_pde_args(F, J, Jp)
-            # EquationBCSplit objects for `F`, `J`, and `Jp`
+            # EquationBCSplit objects for `F`, `J`, adjoint of J, and `Jp`
             self._F = EquationBCSplit(F, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._F for bc in self.bcs], method=method, V=V)
             self._J = EquationBCSplit(J, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._J for bc in self.bcs], method=method, V=V)
+            self._ad_J = EquationBCSplit(ad_J, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._ad_J for bc in self.bcs], method=method, V=V)
             self._Jp = EquationBCSplit(Jp, self.u, self.sub_domain, bcs=[bc if isinstance(bc, DirichletBC) else bc._Jp for bc in self.bcs], method=method, V=V)
+
         elif all(isinstance(args[i], EquationBCSplit) for i in range(3)):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
@@ -514,8 +519,8 @@ class EquationBC(EquationBCMixin):
 
         :arg form_type: Form to extract; 'F', 'J', or 'Jp'.
         """
-        if form_type not in {"F", "J", "Jp"}:
-            raise ValueError("Unknown form_type: 'form_type' must be 'F', 'J', or 'Jp'.")
+        if form_type not in {"F", "J", "Jp", "ad_J"}:
+            raise ValueError("Unknown form_type: 'form_type' must be 'F', 'J', 'Jp', or '_ad_J'.")
         else:
             return getattr(self, f"_{form_type}")
 
@@ -553,8 +558,11 @@ class EquationBCSplit(BCBase):#, EquationBCSplitMixin):
         #     ...
         self.f = form
         self.u = u
+
         if V is None:
             V = self.f.arguments()[0].function_space()
+        self.method = method
+        self.V = V
         super(EquationBCSplit, self).__init__(V, sub_domain, method=method)
         # overwrite bcs
         self.bcs = bcs or []

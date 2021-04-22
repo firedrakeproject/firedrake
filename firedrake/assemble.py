@@ -58,7 +58,7 @@ def assemble(expr, tensor=None, bcs=None, *,
              sub_mat_type=None,
              appctx={},
              options_prefix=None,
-             adj=False):
+             is_adjoint=False):
     r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
@@ -125,7 +125,7 @@ def assemble(expr, tensor=None, bcs=None, *,
         form = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
                              mat_type, sub_mat_type,
-                             appctx, options_prefix, adj)
+                             appctx, options_prefix, is_adjoint)
         return form
     elif isinstance(expr, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(expr)
@@ -136,7 +136,7 @@ def assemble(expr, tensor=None, bcs=None, *,
 def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                   form_compiler_parameters,
                   mat_type, sub_mat_type,
-                  appctx, options_prefix, adj):
+                  appctx, options_prefix, is_adjoint):
     """Assemble an expression.
 
     :arg expr: a :class:`~ufl.classes.Form` or a :class:`~slate.TensorBase`
@@ -167,7 +167,7 @@ def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
     elif assembly_rank == _AssemblyRank.VECTOR:
         return _assemble_vector(expr, tensor, bcs, opts)
     elif assembly_rank == _AssemblyRank.MATRIX:
-        mat = _assemble_matrix(expr, tensor, bcs, opts, adj)
+        mat = _assemble_matrix(expr, tensor, bcs, opts, is_adjoint)
         return mat
     else:
         raise AssertionError
@@ -256,7 +256,7 @@ def _assemble_scalar(expr, bcs, opts):
         raise ValueError("Can't assemble a 0-form with arguments")
 
     scalar = _make_scalar()
-    _assemble_expr(expr, scalar, bcs, opts, _AssemblyRank.SCALAR, adj=False)
+    _assemble_expr(expr, scalar, bcs, opts, _AssemblyRank.SCALAR, is_adjoint=False)
     return scalar.data[0]
 
 
@@ -291,11 +291,11 @@ def _assemble_vector(expr, vector, bcs, opts):
     if any(isinstance(bc, EquationBC) for bc in bcs):
         bcs = tuple(bc.extract_form("F") for bc in bcs)
 
-    _assemble_expr(expr, vector, bcs, opts, _AssemblyRank.VECTOR, adj=False)
+    _assemble_expr(expr, vector, bcs, opts, _AssemblyRank.VECTOR, is_adjoint=False)
     return vector
 
 
-def _assemble_matrix(expr, matrix, bcs, opts, adj):
+def _assemble_matrix(expr, matrix, bcs, opts, is_adjoint):
     """Assemble a 2-form into a matrix.
 
     :arg expr: The expression being assembled.
@@ -320,7 +320,7 @@ def _assemble_matrix(expr, matrix, bcs, opts, adj):
     if opts.mat_type == "matfree":
         matrix.assemble()
     else:
-        _assemble_expr(expr, matrix, bcs, opts, _AssemblyRank.MATRIX, adj)
+        _assemble_expr(expr, matrix, bcs, opts, _AssemblyRank.MATRIX, is_adjoint)
         matrix.M.assemble()
     return matrix
 
@@ -422,7 +422,7 @@ def _make_matrix(expr, bcs, opts):
                          options_prefix=opts.options_prefix)
 
 
-def _assemble_expr(expr, tensor, bcs, opts, assembly_rank, adj):
+def _assemble_expr(expr, tensor, bcs, opts, assembly_rank, is_adjoint):
     """Assemble an expression into the provided tensor.
 
     :arg expr: The expression to be assembled.
@@ -439,7 +439,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank, adj):
     # This restriction does make the caching a lot simpler as we don't have to
     # worry about hashing the arguments.
 
-    parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank, adj)
+    parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank, is_adjoint)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
     parloops = cached_parloops if cached_init_args == parloop_init_args else None
 
@@ -459,7 +459,7 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank, adj):
     for bc in eq_bcs:
         if assembly_rank == _AssemblyRank.VECTOR:
             bc.zero(tensor)
-        _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank, adj)
+        _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank, is_adjoint)
 
 
 def _get_mat_type(mat_type, sub_mat_type, arguments):
@@ -526,7 +526,7 @@ def _collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
 def adjoint_collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col): 
     """Obtain local to global maps for matrix insertion in the
     presence of boundary conditions. Because of the transpose this must be reversed
-    for EquationBC.
+    for the adjoint code.
     """
         
     if len(Vrow) > 1:
@@ -571,7 +571,7 @@ def _vector_arg(access, get_map, i, *, function, V):
 
 
 def _matrix_arg(access, get_map, row, col, *,
-                all_bcs, matrix, Vrow, Vcol, adj):
+                all_bcs, matrix, Vrow, Vcol, is_adjoint):
     """Obtain an op2.Arg for insertion into the given matrix.
 
     :arg access: Access descriptor.
@@ -586,7 +586,7 @@ def _matrix_arg(access, get_map, row, col, *,
     :raises AssertionError: on invalid arguments
     :returns: an op2.Arg.
     """
-    if adj:
+    if is_adjoint:
         lgmap_fn = adjoint_collect_lgmaps
     else:
         lgmap_fn = _collect_lgmaps
@@ -662,7 +662,7 @@ def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
 
 
 @utils.known_pyop2_safe
-def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank, adj):
+def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank, is_adjoint):
     """Create parloops for the assembly of the expression.
 
     :arg expr: The expression to be assembled.
@@ -696,13 +696,15 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank, adj):
             raise NotImplementedError("Assembly with multiple meshes not supported.")
 
     if assembly_rank == _AssemblyRank.MATRIX:
+
         test, trial = expr.arguments()
+
         create_op2arg = functools.partial(_matrix_arg,
                                           all_bcs=tuple(chain(*bcs)),
                                           matrix=tensor,
                                           Vrow=test.function_space(),
                                           Vcol=trial.function_space(),
-                                          adj=adj)
+                                          is_adjoint=is_adjoint)
     elif assembly_rank == _AssemblyRank.VECTOR:
         if diagonal:
             # actually a 2-form but throw away the trial space
