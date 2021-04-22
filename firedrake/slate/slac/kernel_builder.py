@@ -656,10 +656,16 @@ class LocalLoopyKernelBuilder(object):
                                 dtype=self.tsfc_parameters["scalar_type"])]
 
         if self.bag.needs_cell_orientations:
-            args.append(loopy.GlobalArg(self.cell_orientations_arg))
+            ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
+            args.append(loopy.GlobalArg(self.cell_orientations_arg,
+                                        shape=ori_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
 
         if self.bag.needs_cell_sizes:
-            args.append(loopy.GlobalArg(self.cell_size_arg))
+            siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
+            args.append(loopy.GlobalArg(self.cell_size_arg,
+                                        shape=siz_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
