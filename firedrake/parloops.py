@@ -82,15 +82,15 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
-            ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
+            shape = func.dat.shape
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=shape, is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].finat_element.space_dimension()
-                cdim = c.dat[idx].cdim
+                shape = c.dat[idx].dim
                 dtype = c.dat[idx].dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
@@ -101,12 +101,13 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
                     ndof = func.function_space().finat_element.space_dimension()
-                    cdim = func.dat.cdim
+                    shape = func.dat.dim
                     dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
-            # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), is_input=is_input, is_output=is_output))
+            if measure.integral_type() != 'direct':
+                shape = (ndof, *shape)
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=shape, is_input=is_input, is_output=is_output))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
     if kernel_domains == "":
@@ -156,6 +157,8 @@ def _form_string_kernel(body, measure, args, **kwargs):
                 ndof = func.function_space().finat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
+            if measure.integral_type() == 'direct':
+                ndof = func.dat.cdim
             kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
         body = body.replace(var+".dofs", str(ndof))
 
