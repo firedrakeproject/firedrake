@@ -426,7 +426,7 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     expr = TestFunction(P1)
     to_element = create_base_element(Pk.ufl_element())
 
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name  = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     kernel = op2.Kernel(ast, name)
     return kernel
 
