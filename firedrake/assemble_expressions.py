@@ -91,6 +91,8 @@ class Translator(MultiFunction, ufl2gem.Mixin):
     def coefficient(self, o):
         # Because we act on dofs, the ufl_shape is not the right thing to check
         shape = o.dat.dim
+        if shape == ():
+            shape = (1, )
         try:
             var = self.varmapping[o]
         except KeyError:
