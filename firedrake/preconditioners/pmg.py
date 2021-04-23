@@ -797,7 +797,7 @@ class StandaloneInterpolationMatrix(object):
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uf.dat(op2.RW, self.Vf.cell_node_map()),
+                     self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
                      self.uc.dat(op2.READ, self.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
@@ -867,7 +867,7 @@ class MixedInterpolationMatrix(object):
 
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
-                         self.uf.split()[i].dat(op2.RW, standalone.Vf.cell_node_map()),
+                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
                          self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
@@ -905,7 +905,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
             clgmap = P1.sub(i).local_to_global_map(P1_bcs_i, lgmap=clgmap)
             unroll = any(bc.function_space().component is not None
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
-            matarg = mat[i, i](op2.RW, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
+            matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
             op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
                          matarg)
@@ -916,7 +916,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
         clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
         unroll = any(bc.function_space().component is not None
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
-        matarg = mat(op2.RW, (Pk.cell_node_map(), P1.cell_node_map()),
+        matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
         op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
                      matarg)
