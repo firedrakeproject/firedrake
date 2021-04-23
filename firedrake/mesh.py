@@ -82,16 +82,18 @@ class _Facets(object):
         self.kind = kind
         assert kind in ["interior", "exterior"]
         if kind == "interior":
+            shape = (2,)
             self._rank = 2
         else:
+            shape = ()
             self._rank = 1
 
         self.facet_cell = facet_cell
 
         if isinstance(self.set, op2.ExtrudedSet):
-            dset = op2.DataSet(self.set.parent, self._rank)
+            dset = op2.DataSet(self.set.parent, shape)
         else:
-            dset = op2.DataSet(self.set, self._rank)
+            dset = op2.DataSet(self.set, shape)
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
