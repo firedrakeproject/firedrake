@@ -2,6 +2,7 @@ r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 import collections
+from operator import itemgetter
 
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -113,7 +114,9 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
     try:
-        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        key = (kernel_domains, tuple(instructions),
+               tuple(map(tuple, sorted(kwargs.items(),
+                                       key=itemgetter(0)))))
         if kernel_cache is not None:
             return kernel_cache[key]
         else:
@@ -174,10 +177,9 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: a string containing the C code to be executed. Or a
-        2-tuple of (domains, instructions) to create a loopy kernel
-        (must also set ``is_loopy_kernel=True``). If loopy syntax is
-        used, the domains and instructions should be specified in
-        loopy kernel syntax. See the `loopy tutorial
+        2-tuple of (domains, instructions) to create a loopy kernel.
+        If loopy syntax is used, the domains and instructions should
+        be specified in loopy kernel syntax. See the `loopy tutorial
         <https://documen.tician.de/loopy/tutorial.html>`_ for details.
 
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
@@ -221,7 +223,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
           A[i] = max(A[i], B[0])
       end
       '''
-      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)}, is_loopy_kernel=True)
+      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
@@ -350,10 +352,10 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         domain, = domains
         mesh = domain
 
-    if is_loopy_kernel:
+    try:
         kernel_domains, instructions = kernel
         op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
-    else:
+    except ValueError:
         op2args = [_form_string_kernel(kernel, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
