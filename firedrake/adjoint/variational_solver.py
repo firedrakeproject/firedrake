@@ -36,7 +36,6 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
-
         return wrapper
 
     @staticmethod
@@ -93,22 +92,24 @@ class NonlinearVariationalSolverMixin:
 
         F_replace_map = {}
         J_replace_map = {}
-        bc_replace_map = {}
+        bc_lhs_replace_map = {}
+        bc_rhs_replace_map = {}        
 
         F_coefficients = problem.F.coefficients()
         J_coefficients = problem.J.coefficients()
         
-        bc_coefficients = ()
+        bc_coefficients_lhs = ()
+        bc_coefficients_rhs = ()        
         for bc in problem.bcs:
             if isinstance(bc, EquationBC):
-                bc_coefficients += (bc.eq.lhs.coefficients())
+                bc_coefficients_lhs += (bc.eq.lhs.coefficients())
                 if bc.is_linear:
-                    bc_coefficients += (bc.eq.rhs.coefficients())
+                    bc_coefficients_rhs += (bc.eq.rhs.coefficients())
 
         _ad_count_map = {}
         for block_variable in dependencies:
-            import ipdb; ipdb.set_trace()
             coeff = block_variable.output
+
             if coeff in F_coefficients and coeff not in F_replace_map:
                 if isinstance(coeff, Constant):
                     F_replace_map[coeff] = copy.deepcopy(coeff)
@@ -124,44 +125,67 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
-                
-            if coeff in bc_coefficients and coeff not in bc_replace_map:
+             
+            if coeff in bc_coefficients_lhs and coeff not in bc_lhs_replace_map:
                 if coeff in F_replace_map:
-                    bc_replace_map[coeff] = F_replace_map[coeff]
+                    bc_lhs_replace_map[coeff] = F_replace_map[coeff]
                 elif coeff in J_replace_map:
-                    bc_replace_map[coeff] = J_replace_map[coeff]                    
+                    bc_lhs_replace_map[coeff] = J_replace_map[coeff]                    
                 elif isinstance(coeff, Constant):
-                    bc_replace_map[coeff] = copy.deepcopy(coeff)
+                    bc_lhs_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
-                    bc_replace_map[coeff] = coeff.copy()
-                _ad_count_map[bc_replace_map[coeff]] = coeff.count()
+                    bc_lhs_replace_map[coeff] = coeff.copy()
+                _ad_count_map[bc_lhs_replace_map[coeff]] = coeff.count()
 
-        for coeff in bc_coefficients:
-            if coeff not in bc_replace_map:
-                bc_replace_map[coeff] = coeff.copy()
-            _ad_count_map[bc_replace_map[coeff]] = coeff.count()
+            if coeff in bc_coefficients_rhs and coeff not in bc_rhs_replace_map:
+                if coeff in F_replace_map:
+                    bc_rhs_replace_map[coeff] = F_replace_map[coeff]
+                elif coeff in J_replace_map:
+                    bc_rhs_replace_map[coeff] = J_replace_map[coeff] 
+                elif coeff in bc_lhs_replace_map:
+                    bc_rhs_replace_map[coeff] = bc_lhs_replace_map[coeff] 
+                elif isinstance(coeff, Constant):
+                    bc_rhs_replace_map[coeff] = copy.deepcopy(coeff)
+                else:
+                    bc_rhs_replace_map[coeff] = coeff.copy()
+                _ad_count_map[bc_rhs_replace_map[coeff]] = coeff.count()
+
+        for coeff in bc_coefficients_lhs:
+            if coeff not in bc_lhs_replace_map:
+                if isinstance(coeff, Constant):
+                    bc_lhs_replace_map[coeff] = copy.deepcopy(coeff)
+                else:
+                    bc_lhs_replace_map[coeff] = coeff.copy()
+            _ad_count_map[bc_lhs_replace_map[coeff]] = coeff.count()
+
+        for coeff in bc_coefficients_rhs:
+            if coeff not in bc_rhs_replace_map:
+                if isinstance(coeff, Constant):
+                    bc_rhs_replace_map[coeff] = copy.deepcopy(coeff)
+                else:
+                    bc_rhs_replace_map[coeff] = coeff.copy()
+            _ad_count_map[bc_rhs_replace_map[coeff]] = coeff.count()            
                 
         bc_new = []
         for bc in problem.bcs:
-            if isinstance(bc, EquationBC):
-                if bc.is_linear:                   
-                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_replace_map) == 
-                                             replace(bc.eq.rhs, bc_replace_map), 
-                                             replace(bc.u, bc_replace_map), bc.sub_domain, 
+            if isinstance(bc, EquationBC):            
+                if bc.is_linear: 
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == 
+                                             replace(bc.eq.rhs, bc_rhs_replace_map), 
+                                             F_replace_map[bc.u], bc.sub_domain, 
                                              bcs = bc.bcs))
                 else:
-                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_replace_map) == bc.eq.rhs, 
-                                             replace(bc.u, bc_replace_map), bc.sub_domain, 
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == bc.eq.rhs, 
+                                             F_replace_map[bc.u], bc.sub_domain, 
                                              bcs = bc.bcs))
             else:
                 bc_new.append(bc)
-
-        import ipdb; ipdb.set_trace()
         
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u],
                                            bcs=bc_new,
-                                           J=replace(problem.J, J_replace_map))
+                                           J=replace(problem.J, J_replace_map), is_linear=problem.is_linear)
 
         nlvp._ad_count_map_update(_ad_count_map)
+
         return nlvp

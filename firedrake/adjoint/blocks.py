@@ -275,6 +275,15 @@ class GenericSolveBlock(Block, Backend):
         elif isinstance(c, self.backend.DirichletBC):
             tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
             return [tmp_bc]
+        elif isinstance(c, self.backend.EquationBC):
+            bcs_list = []
+            bcs = tuple(c.extract_form('ad_J'))
+            for i in bcs:
+                if isinstance(i, self.backend.DirichletBC):
+                    bcs_list.append(self.compat.create_bc(i, value=self.compat.extract_subfunction(adj_sol_bdy, i.function_space())))
+                else:
+                    bcs_list.append(i)          
+            return [bcs_list]
         elif isinstance(c, self.compat.MeshType):
             # Using CoordianteDerivative requires us to do action before
             # differentiating, might change in the future.
@@ -447,10 +456,11 @@ class GenericSolveBlock(Block, Backend):
 
         # If m = DirichletBC then d^2F(u,m)/dm^2 = 0 and d^2F(u,m)/dudm = 0,
         # so we only have the term dF(u,m)/dm * adj_sol2
-        import ipdb; ipdb.set_trace()
         if isinstance(c, self.backend.DirichletBC):
             tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol2_bdy, c.function_space()))
             return [tmp_bc]
+        if isinstance(c, self.backend.EquationBC):
+            raise NotImplementedError("Evaluate hessian not implemented for EquationBC.")
 
         if isinstance(c_rep, self.backend.Constant):
             mesh = self.compat.extract_mesh_from_form(F_form)
@@ -618,11 +628,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
-        import ipdb; ipdb.set_trace()
         assign_map = {}
-        form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
+            form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
             if isinstance(coeff, (self.backend.Coefficient, self.backend.Constant)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
