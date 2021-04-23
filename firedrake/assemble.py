@@ -488,7 +488,7 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
     return mat_type, sub_mat_type
 
 
-def _collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
+def _collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col, is_adjoint):
     """Obtain local to global maps for matrix insertion in the
     presence of boundary conditions.
 
@@ -520,34 +520,11 @@ def _collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col):
     clgmap = Vcol[col].local_to_global_map(bccol, lgmap=clgmap)
     unroll = any(bc.function_space().component is not None
                  for bc in chain(bcrow, bccol))
-    return (rlgmap, clgmap), unroll
-
-
-def adjoint_collect_lgmaps(matrix, all_bcs, Vrow, Vcol, row, col): 
-    """Obtain local to global maps for matrix insertion in the
-    presence of boundary conditions. Because of the transpose this must be reversed
-    for the adjoint code.
-    """
-        
-    if len(Vrow) > 1:
-        bcrow = tuple(bc for bc in all_bcs
-                      if bc.function_space_index() == row)
+    if is_adjoint:
+        return (clgmap, rlgmap), unroll
     else:
-        bcrow = all_bcs
-    if len(Vcol) > 1:
-        bccol = tuple(bc for bc in all_bcs
-                      if bc.function_space_index() == col
-                      and isinstance(bc, DirichletBC))
-    else:
-        bccol = tuple(bc for bc in all_bcs
-                      if isinstance(bc, DirichletBC))
+        return (rlgmap, clgmap), unroll
 
-    rlgmap, clgmap = matrix.M[row, col].local_to_global_maps
-    rlgmap = Vrow[row].local_to_global_map(bcrow, lgmap=rlgmap)
-    clgmap = Vcol[col].local_to_global_map(bccol, lgmap=clgmap)
-    unroll = any(bc.function_space().component is not None
-                 for bc in chain(bcrow, bccol))
-    return (clgmap, rlgmap), unroll
 
 def _vector_arg(access, get_map, i, *, function, V):
     """Obtain an :class:`~pyop2.op2.Arg` for insertion into a given
@@ -586,15 +563,12 @@ def _matrix_arg(access, get_map, row, col, *,
     :raises AssertionError: on invalid arguments
     :returns: an op2.Arg.
     """
-    if is_adjoint:
-        lgmap_fn = adjoint_collect_lgmaps
-    else:
-        lgmap_fn = _collect_lgmaps
+
     if row is None and col is None:
         maprow = get_map(Vrow)
         mapcol = get_map(Vcol)
-        lgmaps, unroll = zip(*(lgmap_fn(matrix, all_bcs,
-                                               Vrow, Vcol, i, j)
+        lgmaps, unroll = zip(*(_collect_lgmaps(matrix, all_bcs,
+                                               Vrow, Vcol, i, j, is_adjoint)
                                for i, j in numpy.ndindex(matrix.block_shape)))
         return matrix.M(access, (maprow, mapcol), lgmaps=tuple(lgmaps),
                         unroll_map=any(unroll))
@@ -602,8 +576,8 @@ def _matrix_arg(access, get_map, row, col, *,
         assert row is not None and col is not None
         maprow = get_map(Vrow[row])
         mapcol = get_map(Vcol[col])
-        lgmaps, unroll = lgmap_fn(matrix, all_bcs,
-                                         Vrow, Vcol, row, col)
+        lgmaps, unroll = _collect_lgmaps(matrix, all_bcs,
+                                         Vrow, Vcol, row, col, is_adjoint)
         return matrix.M[row, col](access, (maprow, mapcol), lgmaps=(lgmaps, ),
                                   unroll_map=unroll)
 

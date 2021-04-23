@@ -11,6 +11,7 @@ import firedrake.utils as utils
 import numpy
 import ufl
 
+
 class Backend:
     @utils.cached_property
     def backend(self):
@@ -282,7 +283,7 @@ class GenericSolveBlock(Block, Backend):
                 if isinstance(i, self.backend.DirichletBC):
                     bcs_list.append(self.compat.create_bc(i, value=self.compat.extract_subfunction(adj_sol_bdy, i.function_space())))
                 else:
-                    bcs_list.append(i)          
+                    bcs_list.append(i)
             return [bcs_list]
         elif isinstance(c, self.compat.MeshType):
             # Using CoordianteDerivative requires us to do action before
@@ -543,8 +544,8 @@ class GenericSolveBlock(Block, Backend):
                     c = block_variable.output
                     c_rep = block_variable.saved_output
                     if isinstance(c, (self.backend.DirichletBC)):
-                        bbcs.append(c_rep)                
-                bcs_new.append(self.backend.EquationBC(bc_lhs == bc_rhs, func, bc.sub_domain, bcs = bbcs))
+                        bbcs.append(c_rep)
+                bcs_new.append(self.backend.EquationBC(bc_lhs == bc_rhs, func, bc.sub_domain, bcs=bbcs))
             else:
                 bcs_new.append(bc)
         lhs = self._replace_form(self.lhs, func=func)

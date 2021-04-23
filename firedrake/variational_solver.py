@@ -66,7 +66,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
-        
+
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
 

@@ -485,7 +485,7 @@ class EquationBC(EquationBCMixin):
                 J = J or ufl_expr.derivative(F, self.u)
                 Jp = Jp or J
                 self.is_linear = False
-           
+
             ad_J = adjoint(J)
             # Check form style consistency
             is_form_consistent(self.is_linear, self.bcs)
@@ -533,7 +533,7 @@ class EquationBC(EquationBCMixin):
             return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=self.is_linear)
 
 
-class EquationBCSplit(BCBase):#, EquationBCSplitMixin):
+class EquationBCSplit(BCBase):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
 
     :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.
@@ -546,7 +546,6 @@ class EquationBCSplit(BCBase):#, EquationBCSplitMixin):
         the equation boundary condition is applied (optional)
     '''
 
-    #@EquationBCSplitMixin._ad_annotate_init
     def __init__(self, form, u, sub_domain, bcs=None, method="topological", V=None):
         # This nested structure will enable recursive application of boundary conditions.
         #

@@ -93,13 +93,13 @@ class NonlinearVariationalSolverMixin:
         F_replace_map = {}
         J_replace_map = {}
         bc_lhs_replace_map = {}
-        bc_rhs_replace_map = {}        
+        bc_rhs_replace_map = {}
 
         F_coefficients = problem.F.coefficients()
         J_coefficients = problem.J.coefficients()
-        
+
         bc_coefficients_lhs = ()
-        bc_coefficients_rhs = ()        
+        bc_coefficients_rhs = ()
         for bc in problem.bcs:
             if isinstance(bc, EquationBC):
                 bc_coefficients_lhs += (bc.eq.lhs.coefficients())
@@ -125,12 +125,12 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
-             
+
             if coeff in bc_coefficients_lhs and coeff not in bc_lhs_replace_map:
                 if coeff in F_replace_map:
                     bc_lhs_replace_map[coeff] = F_replace_map[coeff]
                 elif coeff in J_replace_map:
-                    bc_lhs_replace_map[coeff] = J_replace_map[coeff]                    
+                    bc_lhs_replace_map[coeff] = J_replace_map[coeff]
                 elif isinstance(coeff, Constant):
                     bc_lhs_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
@@ -141,9 +141,9 @@ class NonlinearVariationalSolverMixin:
                 if coeff in F_replace_map:
                     bc_rhs_replace_map[coeff] = F_replace_map[coeff]
                 elif coeff in J_replace_map:
-                    bc_rhs_replace_map[coeff] = J_replace_map[coeff] 
+                    bc_rhs_replace_map[coeff] = J_replace_map[coeff]
                 elif coeff in bc_lhs_replace_map:
-                    bc_rhs_replace_map[coeff] = bc_lhs_replace_map[coeff] 
+                    bc_rhs_replace_map[coeff] = bc_lhs_replace_map[coeff]
                 elif isinstance(coeff, Constant):
                     bc_rhs_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
@@ -164,23 +164,22 @@ class NonlinearVariationalSolverMixin:
                     bc_rhs_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     bc_rhs_replace_map[coeff] = coeff.copy()
-            _ad_count_map[bc_rhs_replace_map[coeff]] = coeff.count()            
-                
+            _ad_count_map[bc_rhs_replace_map[coeff]] = coeff.count()
+
         bc_new = []
         for bc in problem.bcs:
-            if isinstance(bc, EquationBC):            
-                if bc.is_linear: 
-                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == 
-                                             replace(bc.eq.rhs, bc_rhs_replace_map), 
-                                             F_replace_map[bc.u], bc.sub_domain, 
-                                             bcs = bc.bcs))
+            if isinstance(bc, EquationBC):
+                if bc.is_linear:
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == replace(bc.eq.rhs, bc_rhs_replace_map),
+                                             F_replace_map[bc.u], bc.sub_domain,
+                                             bcs=bc.bcs))
                 else:
-                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == bc.eq.rhs, 
-                                             F_replace_map[bc.u], bc.sub_domain, 
-                                             bcs = bc.bcs))
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_lhs_replace_map) == bc.eq.rhs,
+                                             F_replace_map[bc.u], bc.sub_domain,
+                                             bcs=bc.bcs))
             else:
                 bc_new.append(bc)
-        
+
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u],
                                            bcs=bc_new,

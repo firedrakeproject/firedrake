@@ -1,16 +1,17 @@
 from functools import wraps
-#from dolfin_adjoint_common import blocks
 from pyadjoint import Block
 from pyadjoint.overloaded_type import FloatingType
 from pyadjoint.tape import no_annotations, annotate_tape, stop_annotating
 
 import firedrake.utils as utils
 
+
 class Backend:
     @utils.cached_property
     def backend(self):
         import firedrake
         return firedrake
+
 
 class EquationBCBlock(Block, Backend):
     def __init__(self, *args, **kwargs):
@@ -22,9 +23,10 @@ class EquationBCBlock(Block, Backend):
         if 'bcs' in kwargs:
             for bc in kwargs['bcs']:
                 self.add_dependency(bc, no_duplicates=True)
-        
+
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        import ipdb; ipdb.set_trace()
+        import ipdb
+        ipdb.set_trace()
 
     @no_annotations
     def recompute(self):
@@ -44,11 +46,11 @@ class EquationBCMixin(FloatingType):
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self,
                                   *args,
-                                  block_class= EquationBCBlock,
+                                  block_class=EquationBCBlock,
                                   _ad_args=args,
                                   _ad_floating_active=True,
-                                  _ad_kwargs = kwargs)
-            init(self, *args, **kwargs)                
+                                  _ad_kwargs=kwargs)
+            init(self, *args, **kwargs)
         return wrapper
 
     @staticmethod
