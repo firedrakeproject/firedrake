@@ -425,8 +425,8 @@ def pointwise_expression_kernel(exprs, scalar_type):
             except KeyError:
                 continue
             plargs.append(arg)
-            is_input = arg.access in [op2.INC, op2.READ, op2.RW]
-            is_output = arg.access in [op2.INC, op2.RW, op2.WRITE]
+            is_input = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.READ, op2.RW]
+            is_output = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.RW, op2.WRITE]
             args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype, is_input=is_input, is_output=is_output))
     assert len(coefficients) == 0
     name = "expression_kernel"
