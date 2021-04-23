@@ -151,7 +151,6 @@ class GenericSolveBlock(Block, Backend):
                 bcs_list.append(bc)
             elif isinstance(bc, self.backend.EquationBC):
                 bcs = tuple(bc.extract_form('ad_J'))
-                import ipdb; ipdb.set_trace()
                 for i in bcs:
                     if isinstance(i, self.backend.DirichletBC):
                         bcs_list.append(self.compat.create_bc(i, homogenize=True))
@@ -236,7 +235,6 @@ class GenericSolveBlock(Block, Backend):
         bcs = self._process_bcs()
         kwargs["bcs"] = bcs
         kwargs["is_adjoint"] = True
-        import ipdb; ipdb.set_trace()
         dFdu = self.compat.assemble_adjoint_value(dFdu_adj_form, **kwargs)
 
         for bc in bcs:
@@ -519,7 +517,6 @@ class GenericSolveBlock(Block, Backend):
         return self._replace_recompute_form()
 
     def _replace_recompute_form(self):
-
         func = self._create_initial_guess()
 
         bcs = self._recover_bcs()
@@ -621,6 +618,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
+        import ipdb; ipdb.set_trace()
         assign_map = {}
         form_ad_count_map = dict((count_map[coeff], coeff) for coeff in form.coefficients())
         for block_variable in self.get_dependencies():
@@ -640,6 +638,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
+        for bc in problem.bcs:
+            if isinstance(bc, self.backend.EquationBC):
+                self._ad_assign_coefficients(bc.eq.lhs)
+                if bc.is_linear:
+                    self._ad_assign_coefficients(bc.eq.rhs)
 
 
 class ProjectBlock(SolveVarFormBlock):

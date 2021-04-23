@@ -89,15 +89,25 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import NonlinearVariationalProblem
+        from firedrake import NonlinearVariationalProblem, EquationBC
+
         F_replace_map = {}
         J_replace_map = {}
+        bc_replace_map = {}
 
         F_coefficients = problem.F.coefficients()
         J_coefficients = problem.J.coefficients()
+        
+        bc_coefficients = ()
+        for bc in problem.bcs:
+            if isinstance(bc, EquationBC):
+                bc_coefficients += (bc.eq.lhs.coefficients())
+                if bc.is_linear:
+                    bc_coefficients += (bc.eq.rhs.coefficients())
 
         _ad_count_map = {}
         for block_variable in dependencies:
+            import ipdb; ipdb.set_trace()
             coeff = block_variable.output
             if coeff in F_coefficients and coeff not in F_replace_map:
                 if isinstance(coeff, Constant):
@@ -114,10 +124,44 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
+                
+            if coeff in bc_coefficients and coeff not in bc_replace_map:
+                if coeff in F_replace_map:
+                    bc_replace_map[coeff] = F_replace_map[coeff]
+                elif coeff in J_replace_map:
+                    bc_replace_map[coeff] = J_replace_map[coeff]                    
+                elif isinstance(coeff, Constant):
+                    bc_replace_map[coeff] = copy.deepcopy(coeff)
+                else:
+                    bc_replace_map[coeff] = coeff.copy()
+                _ad_count_map[bc_replace_map[coeff]] = coeff.count()
 
+        for coeff in bc_coefficients:
+            if coeff not in bc_replace_map:
+                bc_replace_map[coeff] = coeff.copy()
+            _ad_count_map[bc_replace_map[coeff]] = coeff.count()
+                
+        bc_new = []
+        for bc in problem.bcs:
+            if isinstance(bc, EquationBC):
+                if bc.is_linear:                   
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_replace_map) == 
+                                             replace(bc.eq.rhs, bc_replace_map), 
+                                             replace(bc.u, bc_replace_map), bc.sub_domain, 
+                                             bcs = bc.bcs))
+                else:
+                    bc_new.append(EquationBC(replace(bc.eq.lhs, bc_replace_map) == bc.eq.rhs, 
+                                             replace(bc.u, bc_replace_map), bc.sub_domain, 
+                                             bcs = bc.bcs))
+            else:
+                bc_new.append(bc)
+
+        import ipdb; ipdb.set_trace()
+        
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u],
-                                           bcs=problem.bcs,
+                                           bcs=bc_new,
                                            J=replace(problem.J, J_replace_map))
+
         nlvp._ad_count_map_update(_ad_count_map)
         return nlvp
