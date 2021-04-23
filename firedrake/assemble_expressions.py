@@ -286,7 +286,7 @@ class Assign(object):
     def args(self):
         """Tuple of par_loop arguments for the expression."""
         args = []
-        if self.lvalue in self.rcoefficients:
+        if isinstance(self, AugmentedAssign) or self.lvalue in self.rcoefficients:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
         else:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
