@@ -307,7 +307,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns, args, name=name,
-                                     seq_dependencies=True, target=lp.CTarget())
+                                     seq_dependencies=True, target=lp.CTarget(),
+                                     lang_version=(2018, 2))
 
     # Generate program from kernel, so that one can register kernels
     from loopy.transform.callable import _match_caller_callee_argument_dimension_
