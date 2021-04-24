@@ -13,6 +13,7 @@ from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+from ufl.algorithms.apply_restrictions import apply_restrictions
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.map_dag import map_expr_dag
@@ -102,8 +103,12 @@ def entity_avg(integrand, measure, argument_multiindices):
     return integrand, degree, argument_multiindices
 
 
-def preprocess_expression(expression, complex_mode=False):
+def preprocess_expression(expression, complex_mode=False,
+                          do_apply_restrictions=False):
     """Imitates the compute_form_data processing pipeline.
+
+    :arg complex_mode: Are we in complex UFL mode?
+    :arg do_apply_restrictions: Propogate restrictions to terminals?
 
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
@@ -121,6 +126,8 @@ def preprocess_expression(expression, complex_mode=False):
     expression = apply_derivatives(expression)
     if not complex_mode:
         expression = remove_complex_nodes(expression)
+    if do_apply_restrictions:
+        expression = apply_restrictions(expression)
     return expression
 
 
