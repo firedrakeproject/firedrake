@@ -304,12 +304,8 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
     # OK, now we have the correct extents for owned points, but
     # potentially incorrect extents for ghost points, so do a SF Bcast
     # over the point SF to get it right.
-    CHKERR(PetscSFBcastBegin(sf.sf, contig.ob_mpi,
-                             <const void*>tmp.data,
-                             <void *>layer_extents.data))
-    CHKERR(PetscSFBcastEnd(sf.sf, contig.ob_mpi,
-                           <const void*>tmp.data,
-                           <void *>layer_extents.data))
+    sf.bcastBegin(contig, tmp, layer_extents, MPI.REPLACE)
+    sf.bcastEnd(contig, tmp, layer_extents, MPI.REPLACE)
     contig.Free()
     return layer_extents
 
