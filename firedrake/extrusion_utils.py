@@ -7,6 +7,7 @@ from pyop2 import op2
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
+import pymbolic.primitives as pym
 
 
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
