@@ -5,8 +5,7 @@ import subprocess
 import sys
 import os
 import shutil
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
-import argparse
+from argparse import ArgumentParser, RawDescriptionHelpFormatter, SUPPRESS
 from collections import OrderedDict
 import atexit
 import json
@@ -21,9 +20,9 @@ osname = platform.uname().system
 arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
+WHEEL_BLACKLIST = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+PARALLEL_PACKAGES = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -367,7 +366,7 @@ if mode == "install":
     # Tries to resolve to a known DOI and immediately exits.
     parser.add_argument("--test-doi-resolution",
                         action="store_true",
-                        help=argparse.SUPPRESS)
+                        help=SUPPRESS)
 else:
     parser.add_argument("--rebuild-script",
                         action="store_true",
@@ -386,33 +385,34 @@ else:
 args = parser.parse_args()
 
 # If the user has set any MPI info, they must set them all
-if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
-    if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
-        log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
-        sys.exit(1)
+if mode == "install":
+    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
+        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
+            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
+            sys.exit(1)
+    if args.test_doi_resolution:
+        actual = resolve_doi_branches("10.5281/zenodo.1322546")
+        expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
+                  'finat': 'aa74fd499304c8363a4520555fd62ef21e8e5e1f',
+                  'fiat': '184601a46c24fb5cbf8fd7961d22b16dd26890e7',
+                  'firedrake': '6a30b64da01eb587dcc0e04e8e6b84fe4839bdb7',
+                  'petsc': '413f72f04f5cb0a010c85e03ed029573ff6d4c63',
+                  'petsc4py': 'ac2690070a80211dfdbab04634bdb3496c14ca0a',
+                  'tsfc': 'fe9973eaacaa205fd491cd1cc9b3743b93a3d076',
+                  'ufl': 'c5eb7fbe89c1091132479c081e6fa9c182191dcc',
+                  'pyop2': '741a21ba9a62cb67c0aa300a2e199436ea8cb61c'}
+        if actual != expect:
+            log.error("Unable to resolve DOI correctly.")
+            log.error("You'll need to figure out how Zenodo have changed their API.")
+            sys.exit(1)
+        else:
+            log.info("DOI resolution test passed.")
+            sys.exit(0)
+    if args.doi:
+        branches = resolve_doi_branches(args.doi[0])
 
 if args.package_branch:
     branches = {package.lower(): branch for package, branch in args.package_branch}
-if args.test_doi_resolution:
-    actual = resolve_doi_branches("10.5281/zenodo.1322546")
-    expect = {'coffee': '87e50785d3a05b111f5423a66d461cd44cc4bdc9',
-              'finat': 'aa74fd499304c8363a4520555fd62ef21e8e5e1f',
-              'fiat': '184601a46c24fb5cbf8fd7961d22b16dd26890e7',
-              'firedrake': '6a30b64da01eb587dcc0e04e8e6b84fe4839bdb7',
-              'petsc': '413f72f04f5cb0a010c85e03ed029573ff6d4c63',
-              'petsc4py': 'ac2690070a80211dfdbab04634bdb3496c14ca0a',
-              'tsfc': 'fe9973eaacaa205fd491cd1cc9b3743b93a3d076',
-              'ufl': 'c5eb7fbe89c1091132479c081e6fa9c182191dcc',
-              'pyop2': '741a21ba9a62cb67c0aa300a2e199436ea8cb61c'}
-    if actual != expect:
-        log.error("Unable to resolve DOI correctly.")
-        log.error("You'll need to figure out how Zenodo have changed their API.")
-        sys.exit(1)
-    else:
-        log.info("DOI resolution test passed.")
-        sys.exit(0)
-if args.doi:
-    branches = resolve_doi_branches(args.doi[0])
 
 petsc_int_type_changed = False
 if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
@@ -506,9 +506,110 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
 python = "%s/bin/python" % firedrake_env
 # Use the pip from the venv
 pip = [python, "-m", "pip"]
-pipinstall = pip + ["install",
-                    "--no-build-isolation",
-                    "--no-binary", ",".join(wheel_blacklist)]
+
+
+class Pip:
+    # Notes: Object for running pip and associated functionality
+    def __init__(self, *command, **kwargs):
+        self._pip = list(command)
+        self._parallel_env = kwargs.get('parallel_env', {})
+
+    def __call__(self, *args):
+        # Notes: Replaces `run_pip()`
+        return check_call(self._pip + list(args))
+
+    def install(self, *args):
+        # Notes: replaces 'run_pip_install()' and
+        # `pipinstall = pip + ["install","--no-build-isolation","--no-binary", ",".join(WHEEL_BLACKLIST)]`
+        # and `run_pip_install_wrap()`
+        install_options = [
+            "install",
+            "-vvv",
+            "--no-build-isolation",
+            "--no-binary", ",".join(WHEEL_BLACKLIST)
+        ]
+        package = args[-1]
+        # Note: would prefer not to depend on global blas definition here
+        if re.split('<|>|=', package)[0] in PARALLEL_PACKAGES:
+            env = {**blas, **self._parallel_env}
+        else:
+            env = blas
+        with environment(**env):
+            output = check_call(self._pip + install_options + list(args))
+        return output
+
+    def uninstall(self, package):
+        # Notes: replaces `pip_uninstall()`
+        log.info("Removing existing %s installations\n" % package)
+        # Uninstalling something with pip is an absolute disaster.  We
+        # have to use pip freeze to list all available packages "locally"
+        # and keep on removing the one we want until it is gone from this
+        # list!  Yes, pip will happily have two different versions of the
+        # same package co-existing.  Moreover, depending on the phase of
+        # the moon, the order in which they are uninstalled is not the
+        # same as the order in which they appear on sys.path!
+        again = True
+        uninstalled = False
+        i = 0
+        while again:
+            # List installed packages, "locally".  In a venv,
+            # this just tells me packages in the venv, otherwise it
+            # gives me everything.
+            lines = self("freeze", "-l")
+            again = False
+            for line in lines.split("\n"):
+                # Do we have a locally installed package?
+                if line.startswith(package+'=='):
+                    # Uninstall it.
+                    self("uninstall", "-y", line.strip())
+                    uninstalled = True
+                    # Go round again, because THERE MIGHT BE ANOTHER ONE!
+                    again = True
+            i += 1
+            if i > 10:
+                raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
+        return uninstalled
+
+    @staticmethod
+    def get_requirements(requirements_filename):
+        with open(requirements_filename, "r") as f:
+            reqs = f.readlines()
+        return [r.strip() for r in reqs]
+
+
+def pip_requirements(package, parallel_compiler_env):
+    # Note: Needs renaming to something sensible
+    pip = Pip(python, "-m", "pip", parallel_env=parallel_compiler_env)
+    log.info("Installing pip dependencies for %s" % package)
+    if os.path.isfile("%s/requirements-ext.txt" % package):
+        reqs = pip.get_requirements("%s/requirements-ext.txt" % package)
+        for r in reqs:
+            pip.install(r)
+    elif os.path.isfile("%s/requirements.txt" % package):
+        if package == "COFFEE":
+            # FIXME: Horrible hack to work around
+            # https://github.com/coin-or/pulp/issues/123
+            pip.install("--no-deps", "-r", "%s/requirements.txt" % package)
+        elif package == "pyadjoint":
+            reqs = pip.get_requirements("%s/requirements.txt" % package)
+            for r in reqs:
+                try:
+                    pip.install(r)
+                except subprocess.CalledProcessError as e:
+                    if r == "tensorflow":
+                        log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
+                    else:
+                        raise e
+        elif package == "loopy":
+            # loopy dependencies are installed in setup.py
+            return
+        else:
+            reqs = pip.get_requirements("%s/requirements.txt" % package)
+            for r in reqs:
+                pip.install(r)
+    else:
+        log.info("No dependencies found. Skipping.")
+
 
 if mode == "install":
     # "petsc4py" is in `branches` when we are explicitly asking for a petsc4py
@@ -523,21 +624,9 @@ else:
     use_slepc4py_in_slepc = True
 
 
-# This context manager should be used whenever arguments should be temporarily added to pipinstall.
-class pipargs(object):
-    def __init__(self, *args):
-        self.args = args
-
-    def __enter__(self):
-        self.save = pipinstall.copy()
-        pipinstall.extend(self.args)
-
-    def __exit__(self, *args, **kwargs):
-        global pipinstall
-        pipinstall = self.save
-
-
 def check_call(arguments, logcall=True):
+    ''' Runs command line program and logs output
+    '''
     try:
         log.debug("Running command '%s'", " ".join(arguments))
         output = subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=os.environ).decode()
@@ -549,6 +638,7 @@ def check_call(arguments, logcall=True):
         raise
 
 
+# Variant of check_call without logging
 check_output = partial(check_call, logcall=False)
 
 
@@ -807,124 +897,12 @@ def run_spack_install(args):
     run_spack(["install"] + args)
 
 
-def run_pip(args):
-    check_call(pip + args)
-
-
-def run_pip_install(pipargs):
-    # Make pip verbose when logging, so we see what the
-    # subprocesses wrote out.
-    # Particularly important for debugging petsc fails.
-    with environment(**blas):
-        pipargs = ["-vvv"] + pipargs
-        check_call(pipinstall + pipargs)
-
-
-def get_requirements(reqfname):
-    with open(reqfname, "r") as f:
-        reqs = f.readlines()
-    return [req.strip() for req in reqs]
-
-
-def run_pip_install_wrap(reqs, parallel_compiler_env):
-    for req in reqs:
-        if re.split('<|>|=', req)[0] in parallel_packages:
-            with environment(**parallel_compiler_env):
-                run_pip_install([req])
-        else:
-            run_pip_install([req])
-
-
-def pip_requirements(package, parallel_compiler_env):
-    log.info("Installing pip dependencies for %s" % package)
-    if os.path.isfile("%s/requirements-ext.txt" % package):
-        reqs = get_requirements("%s/requirements-ext.txt" % package)
-        run_pip_install_wrap(reqs, parallel_compiler_env)
-    elif os.path.isfile("%s/requirements.txt" % package):
-        if package == "COFFEE":
-            # FIXME: Horrible hack to work around
-            # https://github.com/coin-or/pulp/issues/123
-            run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
-        elif package == "pyadjoint":
-            reqs = get_requirements("%s/requirements.txt" % package)
-            for req in reqs:
-                try:
-                    run_pip_install([req])
-                except subprocess.CalledProcessError as e:
-                    if req == "tensorflow":
-                        log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
-                    else:
-                        raise e
-        elif package == "loopy":
-            # loopy dependencies are installed in setup.py
-            return
-        else:
-            reqs = get_requirements("%s/requirements.txt" % package)
-            run_pip_install_wrap(reqs, parallel_compiler_env)
-    else:
-        log.info("No dependencies found. Skipping.")
-
-
-def install(package):
-    log.info("Installing %s" % package)
-    if package == "petsc/":
-        build_and_install_petsc()
-    elif package == "slepc/":
-        build_and_install_slepc()
-    elif package == "petsc4py/":
-        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
-    elif package == "slepc4py/":
-        # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-        run_pip_install(["--ignore-installed", get_slepc4py_dir()])
-    elif package == "h5py/":
-        # h5py tries to build against ancient version of numpy additional flag avoids this
-        run_pip_install(["--no-build-isolation", package])
-    elif package == "loopy/" and osname == "Darwin":
-        # On MacOS loopy won't build unless additional flags are passed to the compiler
-        with environment(CFLAGS="-Wno-implicit-function-declaration"):
-            run_pip_install(["-e", package])
-    else:
-        run_pip_install(["-e", package])
-
-
 def clean(package):
     log.info("Cleaning %s" % package)
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
             check_call([python, "setup.py", "clean"])
-
-
-def pip_uninstall(package):
-    log.info("Removing existing %s installations\n" % package)
-    # Uninstalling something with pip is an absolute disaster.  We
-    # have to use pip freeze to list all available packages "locally"
-    # and keep on removing the one we want until it is gone from this
-    # list!  Yes, pip will happily have two different versions of the
-    # same package co-existing.  Moreover, depending on the phase of
-    # the moon, the order in which they are uninstalled is not the
-    # same as the order in which they appear on sys.path!
-    again = True
-    uninstalled = False
-    i = 0
-    while again:
-        # List installed packages, "locally".  In a venv,
-        # this just tells me packages in the venv, otherwise it
-        # gives me everything.
-        lines = check_output(pip + ["freeze", "-l"])
-        again = False
-        for line in lines.split("\n"):
-            # Do we have a locally installed package?
-            if line.startswith(package+'=='):
-                # Uninstall it.
-                run_pip(["uninstall", "-y", line.strip()])
-                uninstalled = True
-                # Go round again, because THERE MIGHT BE ANOTHER ONE!
-                again = True
-        i += 1
-        if i > 10:
-            raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
-    return uninstalled
 
 
 def get_petsc_dir():
@@ -1052,11 +1030,12 @@ def build_and_install_h5py():
                          HDF5_MPI="ON",
                          **blas):
             # Only uninstall if things changed.
-            pip_uninstall("h5py")
+            pip = Pip(python, "-m", "pip")
+            pip.uninstall("h5py")
             # Pip installing from dirty directory is potentially unsafe.
             with directory("h5py/"):
                 check_call(["git", "clean", "-fdx"])
-            install("h5py/")
+            pip.install("--no-build-isolation", "--no-deps", "h5py/")
     else:
         log.info("No need to rebuild h5py")
 
@@ -1116,7 +1095,7 @@ def build_and_install_tinyasm():
             # Clean source directory
             check_call(["git", "reset", "--hard"])
             check_call(["git", "clean", "-f", "-x", "-d"])
-            run_pip_install(["-e", "."])
+            pip.install(["-e", "."])
     else:
         log.info("No need to rebuild TinyASM")
 
@@ -1226,16 +1205,18 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip_install(["sphinx"])
-    run_pip_install(["sphinxcontrib-bibtex"])
-    run_pip_install(["bibtexparser"])
-    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
+    pip = Pip(python, "-m", "pip")
+    pip.install("sphinx")
+    pip.install("sphinxcontrib-bibtex")
+    pip.install("bibtexparser")
+    pip.install("git+https://github.com/sphinx-contrib/youtube.git")
 
 
 def clean_obsolete_packages():
     dirs = os.listdir(".")
+    pip = Pip(python, "-m", "pip")
     for package in old_git_packages:
-        pip_uninstall(package)
+        pip.uninstall(package)
         if package in dirs:
             shutil.rmtree(package)
 
@@ -1321,11 +1302,6 @@ if "SLEPC_DIR" in os.environ and not args.honour_petsc_dir and options["slepc"]:
     quit("""The SLEPC_DIR environment variable is set.  If you want to use
 your own SLEPc version, you must also build your own PETSc and run
 with --honour-petsc-dir.""")
-
-if platform.uname()[0] == "Darwin" and args.opencascade:
-    quit("""Sorry, automatically installing opencascade on OSX hasn't been
-implemented yet. (It's not a supported package in brew.)
-Please contact us to get this working.""")
 
 log.debug("Installer running with: %s" % sys.executable)
 log.debug("Python version: %s" % sys.version)
@@ -1494,12 +1470,15 @@ if mode == "install":
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
     # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel"])
+    pip = Pip(python, "-m", "pip")  # Note: It didn't really make sense to define pip until we had a venv
+    pip("install", "-U", "setuptools")
+    pip("install", "-U", "pip")  # Note: until pip is updated we may not have all the command line flags we need (hence don't call `pip.install()`)
+    pip("install", "-U", "wheel")
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+else:
+    pip = Pip(python, "-m", "pip")  # !!!
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1571,13 +1550,13 @@ if mode == "install":
             quit("--use-existing-spack is specified but we cannot find it on your "
                 "PATH. Please check that your install works properly.")
     else:
-        install_spack()
+        pass #install_spack()
 
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install(package.split())
+            pip.install(*package.split())
 
     # Temporary workaround for missing VTK wheel on Python 3.9
     if sys.version_info[:2] == (3, 9):
@@ -1592,9 +1571,9 @@ if mode == "install":
         elif osname == "Linux":
             source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
         log.info("Pip installing VTK for Python 3.9 to venv")
-        run_pip_install([source])
+        pip.install(source)
         # Also lazy-object-proxy
-        run_pip(["install", "lazy-object-proxy==1.4.*"])
+        pip.install("lazy-object-proxy==1.4.*")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1609,15 +1588,14 @@ if mode == "install":
         packages.remove("petsc")
 
     # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython>=0.22"])
-    run_pip_install(["pybind11"])
+    pip.install("Cython>=0.22")
+    pip.install("pybind11")
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
         with environment(**compiler_env):
-            with pipargs("--no-deps"):
-                packages.remove("petsc")
-                install("petsc/")
+            packages.remove("petsc")
+            build_and_install_petsc()
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
     os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
@@ -1635,6 +1613,8 @@ if mode == "install":
         pip_requirements(p, compiler_env)
 
     with environment(**compiler_env):
+        packages.remove("petsc4py")
+        pip.install("--ignore-installed", "--no-deps", get_petsc4py_dir())
         build_and_install_h5py()
         build_and_install_libsupermesh()
 
@@ -1642,24 +1622,18 @@ if mode == "install":
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
-        install("loopy/")
+        pip.install("loopy")
         packages.remove("loopy")
 
-    with pipargs("--no-deps"):
-        for p in packages:
-            if p in parallel_packages:
-                with environment(**compiler_env):
-                    install(p+"/")
-            else:
-                install(p+"/")
-            sys.path.append(os.getcwd() + "/" + p)
+    for p in packages:
+        pip.install("--no-deps", "-e", p + "/")
+        sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
     try:
         packages.remove("petsc")
     except ValueError:
         pass
-    packages.remove("petsc4py")
     packages.remove("firedrake")
 
 else:
@@ -1703,12 +1677,12 @@ else:
     if args.clean:
         clean_obsolete_packages()
         for package in packages:
-            pip_uninstall(package)
+            pip.uninstall(package)
         if args.rebuild:
-            pip_uninstall("petsc4py")
+            pip.uninstall("petsc4py")
 
     # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
-    petsc_changed = pip_uninstall("petsc") or petsc_changed
+    petsc_changed = pip.uninstall("petsc") or petsc_changed
 
     for p in packages:
         try:
@@ -1720,98 +1694,92 @@ else:
             else:
                 raise
 
-    with pipargs("--no-deps"):
-        with environment(**compiler_env):
-            # Only rebuild petsc if it has changed.
-            if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
-                clean("petsc/")
-                install("petsc/")
-        if not args.honour_petsc_dir:
-            os.environ["PETSC_DIR"] = petsc_dir
-            os.environ["PETSC_ARCH"] = petsc_arch
-        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
-        os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
+    with environment(**compiler_env):
+        # Only rebuild petsc if it has changed.
+        if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
+            clean("petsc/")
+            build_and_install_petsc()
+    if not args.honour_petsc_dir:
+        os.environ["PETSC_DIR"] = petsc_dir
+        os.environ["PETSC_ARCH"] = petsc_arch
+    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
+    os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
-        # If petsc built mpich then we now need to set the compiler environment variables.
-        if not compiler_env:
-            compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
-            cc = os.path.join(compilerbin, "mpicc")
-            cxx = os.path.join(compilerbin, "mpicxx")
-            f90 = os.path.join(compilerbin, "mpif90")
-            compiler_env = create_compiler_env(cc, cxx, f90)
+    # If petsc built mpich then we now need to set the compiler environment variables.
+    if not compiler_env:
+        compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+        cc = os.path.join(compilerbin, "mpicc")
+        cxx = os.path.join(compilerbin, "mpicxx")
+        f90 = os.path.join(compilerbin, "mpif90")
+        compiler_env = create_compiler_env(cc, cxx, f90)
 
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
 
-    with pipargs("--no-deps"):
-        if args.rebuild or petsc_changed or petsc4py_changed:
-            # If not honour_petsc_dir, we have a version of petsc that contains
-            # petsc4py in its source tree (old petsc must have been updated
-            # in the above).
-            # If honour_petsc_dir, we can get here (e.g., with --rebuild flag)
-            # without obtaining the latest petsc in the above:
-            # thus, we must check if the user installed petsc contains petsc4py.
-            if args.honour_petsc_dir:
-                if not os.path.exists(get_petsc4py_dir()):
-                    raise InstallError("""\npetsc4py not found in your installation of PETSc,
+    if args.rebuild or petsc_changed or petsc4py_changed:
+        # If not honour_petsc_dir, we have a version of petsc that contains
+        # petsc4py in its source tree (old petsc must have been updated
+        # in the above).
+        # If honour_petsc_dir, we can get here (e.g., with --rebuild flag)
+        # without obtaining the latest petsc in the above:
+        # thus, we must check if the user installed petsc contains petsc4py.
+        pass
+
+    # Note: Always rebuild petsc4py it's often missed on install failures and isn't picked up by update
+    if args.honour_petsc_dir:
+        if not os.path.exists(get_petsc4py_dir()):
+            raise InstallError("""\npetsc4py not found in your installation of PETSc,
 which indicates that your PETSc is relatively old.
 Please consider updating your PETSc manually.
 """)
-            clean(get_petsc4py_dir())
-            with environment(**compiler_env):
-                install("petsc4py/")
-        # Always rebuild h5py.
-        with environment(**compiler_env):
-            build_and_install_h5py()
-            build_and_install_libsupermesh()
-        build_and_install_libspatialindex()
+    clean(get_petsc4py_dir())
+    with environment(**compiler_env):
+        pip.install("--ignore-installed", "--no-deps", get_petsc4py_dir())
+    # Always rebuild h5py.
+    with environment(**compiler_env):
+        build_and_install_h5py()   # !! --no-deps (but doesn't call pip !?)
+        build_and_install_libsupermesh()
+    build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
         clean("loopy")
-        install("loopy/")
+        pip.install("loopy")
         packages.remove("loopy")
 
     try:
         log.info("Attempting to install symengine")
-        run_pip_install(["symengine"])
+        pip.install("symengine")
     except subprocess.CalledProcessError:
         log.info("Symengine installation failed, this is NOT FATAL.")
 
-    with pipargs("--no-deps"):
-        try:
-            packages.remove("PyOP2")
-            packages.remove("firedrake")
-        except ValueError:
-            pass
-        packages += ("PyOP2", "firedrake")
-        for p in packages:
-            clean(p)
-            if p in parallel_packages:
-                with environment(**compiler_env):
-                    install(p+"/")
-            else:
-                install(p+"/")
+    try:
+        packages.remove("PyOP2")
+        packages.remove("firedrake")
+    except ValueError:
+        pass
+    packages += ("PyOP2", "firedrake")
+    for p in packages:
+        clean(p)
+        pip.install("--no-deps", "-e", p + "/")
 
-        # Ensure pytest is at the latest version
-        run_pip(["install", "-U", "pytest"])
+    # Ensure pytest is at the latest version
+    pip.install("-U", "pytest")
 
 with environment(**compiler_env):
-    with pipargs("--no-deps"):
-        if options["slepc"]:
-            build_and_install_slepc()
-            with environment(PETSC_DIR=petsc_dir,
-                             SLEPC_DIR=slepc_dir,
-                             PETSC_ARCH=petsc_arch):
-                install("slepc4py/")
+    if options["slepc"]:
+        build_and_install_slepc()
+        with environment(PETSC_DIR=petsc_dir,
+                         SLEPC_DIR=slepc_dir,
+                         PETSC_ARCH=petsc_arch):
+            pip.install("--ignore-installed", "--no-deps", get_slepc4py_dir())
 
     if options["tinyasm"]:
         build_and_install_tinyasm()
 
-with pipargs("--no-deps"):
-    if options["opencascade"]:
-        build_and_install_pythonocc()
+if options["opencascade"]:
+    build_and_install_pythonocc()   # !! --no-deps (but doesn't call pip !?)
 
 if args.documentation_dependencies:
     install_documentation_dependencies()
