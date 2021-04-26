@@ -61,7 +61,7 @@ def test_PyTorch_operator_model_attribute(mesh, model):
 
     # Define model
     fc = model
-    nP = neuralnet(fc, function_space=V)
+    nP = neuralnet(fc, function_space=V, inputs_format=1)
     nP2 = nP(u)
 
     assert nP2.framework == 'PyTorch'
@@ -100,6 +100,8 @@ def test_PyTorch_operator_model_attribute(mesh, model):
     assert assemble(error) < 1.0e-9
 
 
+"""
+TODO: ncontrols is a deprecated feature
 def test_pointwise_neuralnet_PyTorch_control(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -124,6 +126,7 @@ def test_pointwise_neuralnet_PyTorch_control(mesh, model):
 
     dnp2_dg = apply_derivatives(diff(nP2, g))
     assemble(dnp2_dg*dx)
+"""
 
 
 def test_scalar_check_equality(mesh, model_Identity):
@@ -139,7 +142,7 @@ def test_scalar_check_equality(mesh, model_Identity):
     solve(F == 0, u)
 
     u2 = Function(V1)
-    p = neuralnet(model_Identity, function_space=V1)
+    p = neuralnet(model_Identity, function_space=V1, inputs_format=1)
     tau2 = p(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx

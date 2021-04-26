@@ -1,7 +1,7 @@
 from firedrake.adjoint.function import FunctionMixin
 
 
-class PointwiseOperatorsMixin(FunctionMixin):
+class ExternalOperatorsMixin(FunctionMixin):
 
     @staticmethod
     def _ad_annotate_init(init):
