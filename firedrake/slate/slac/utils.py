@@ -311,7 +311,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
                                      lang_version=(2018, 2))
 
     # Generate program from kernel, so that one can register kernels
-    from loopy.transform.callable import _match_caller_callee_argument_dimension_
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
     from loopy.kernel.function_interface import CallableKernel
 
     for tsfc_loopy in tsfc_kernels:
