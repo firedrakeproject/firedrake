@@ -315,7 +315,7 @@ class FDMPC(PCBase):
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
-                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
+                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
                 rows += 1
 
         if needs_interior_facet:
@@ -358,12 +358,12 @@ class FDMPC(PCBase):
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
-                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1])
-                    prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1])
+                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                    prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
 
         ndof = ncomp * V.dof_dset.set.size
         for row in range(ndof):
-            prealloc.setValue(row, row, 1.0E0)
+            prealloc.setValue(row, row, 1.0E0, imode)
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, ndof)
@@ -570,7 +570,6 @@ class FDMPC(PCBase):
     def assemble_matfree(ndim, nscal, N, Nq, needs_interior_facet, helm=False):
         # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        from pyop2 import op2
 
         nsym = (ndim * (ndim+1)) // 2
 
