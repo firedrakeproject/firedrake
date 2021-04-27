@@ -22,16 +22,9 @@ except ImportError:
 
 
 def get_petsc_dir():
-    try:
-        petsc_dir = os.environ["PETSC_DIR"]
-        petsc_arch = os.environ.get("PETSC_ARCH", "")
-    except KeyError:
-        try:
-            petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
-            petsc_arch = "default"
-        except KeyError:
-            sys.exit("""Error: Firedrake venv not active.""")
-
+    config = petsc4py.get_config()
+    petsc_dir = config["PETSC_DIR"]
+    petsc_arch = config["PETSC_ARCH"]
     return (petsc_dir, path.join(petsc_dir, petsc_arch))
 
 
