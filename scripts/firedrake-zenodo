@@ -11,7 +11,6 @@ import json
 import time
 import requests
 import base64
-import mimetypes
 import datetime
 
 
@@ -558,35 +557,36 @@ with deposit:write scope.""")
         raise ValueError("Unable to add metadata to deposition {}".format(depo.json()))
 
     components = create_json(matching_records, title, additional_dois=additional_dois)
-    upload = requests.post("{url}/files".format(url=depo_url),
-                           files={"file": ("components.json", components, "application/json")},
-                           params=authentication_params)
+    # This is where files live
+    bucket_url = depo.json()["links"]["bucket"]
+    upload = requests.put("{url}/{filename}".format(url=bucket_url, filename="components.json"),
+                          data=components,
+                          params=authentication_params)
     if upload.status_code >= 400:
         raise ValueError("Unable to upload file {}".format(upload.json()))
 
-    checksum = hashlib.md5(components).hexdigest()
-    if checksum != upload.json()["checksum"]:
-        raise ValueError("components.json failed checksum verification")
+    def checksum(actual, expect, name):
+        assert actual.startswith("md5:")
+        actual = actual[4:]
+        if actual != expect:
+            raise ValueError(f"Failed checksum validation for '{name}'\n"
+                             f"Expected: {expect}\n"
+                             f"Actual:   {actual}")
+
+    checksum(upload.json()["checksum"],
+             hashlib.md5(components).hexdigest(),
+             "components.json")
 
     if info_file is not None:
         filename, contents = info_file
         if filename == "components.json":
             filename = "user-components.json"
-        content_type, encoding = mimetypes.guess_type(filename)
-        if content_type is None:
-            content_type = "application/octet-stream"
-        if encoding is not None:
-            params = (filename, contents, content_type, {"Content-Encoding": encoding})
-        else:
-            params = (filename, contents, content_type)
-        upload = requests.post("{url}/files".format(url=depo_url),
-                               files={"file": params},
-                               params=authentication_params)
+        upload = requests.put("{url}/{filename}".format(url=bucket_url, filename=filename),
+                              data=contents,
+                              params=authentication_params)
         if upload.status_code >= 400:
             raise ValueError("Unable to upload user file {}".format(upload.json()))
-        checksum = hashlib.md5(contents).hexdigest()
-        if checksum != upload.json()["checksum"]:
-            raise ValueError("User file '{}' failed checksum verification".format(filename))
+        checksum(upload.json()["checksum"], hashlib.md5(contents).hexdigest(), filename)
 
     publish = requests.post("{url}/actions/publish".format(url=depo_url),
                             params=authentication_params)
