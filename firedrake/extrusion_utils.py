@@ -105,7 +105,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
         if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (base_coord_dim,2)))
+            domains.extend(_get_lp_domains(('l',), (2,)))
         else:
             domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
         instructions = """
@@ -123,7 +123,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
         if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (base_coord_dim,2)))
+            domains.extend(_get_lp_domains(('l',), (2,)))
         else:
             domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
         instructions = """
