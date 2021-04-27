@@ -22,7 +22,7 @@ arch = platform.uname().machine
 # Packages which we wish to ensure are always recompiled
 WHEEL_BLACKLIST = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-PARALLEL_PACKAGES = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+PARALLEL_PACKAGES = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake", "TinyASM"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -34,6 +34,8 @@ firedrake_apps = {
                 "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
     "irksome": ("""Implicit Runge-Kutta methods. https://github.com/firedrakeproject/Irksome/""",
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
+    "TinyASM": ("""A simple implementation of PETSc's ASM PC. https://github.com/florianwechsung/TinyASM""",
+                "git+ssh://github.com/florianwechsung/TinyASM.git#egg=TinyASM"),
 }
 
 
@@ -64,7 +66,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "tinyasm",
+                           "opencascade",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
 
 
@@ -242,10 +244,6 @@ parser = ArgumentParser(description=help_description,
                         formatter_class=RawDescriptionHelpFormatter)
 
 # Install options
-parser.add_argument("--tinyasm",
-                    action="store_true",
-                    default=config["options"].get("tinyasm", False),
-                    help="Install TinyASM as backend for ASMPatchPC.")
 parser.add_argument("--honour-pythonpath",
                     action="store_true",
                     default=config["options"].get("honour_pythonpath", False),
@@ -440,12 +438,12 @@ You can install the following packages by passing --install shortname
 where shortname is one of the names given below:
 
 """
-    componentformat = "|{:10}|{:70}|\n"
-    header = componentformat.format("Name", "Description")
-    line = "-" * (len(header) - 1) + "\n"
+    componentformat = "|{:10}|{:70}|\n|          |{:70}|\n"
+    header = componentformat.format("Name", "Description", "")
+    line = "-" * (len(header)//2 - 1) + "\n"
     help_string += line + header + line
     for package, d in firedrake_apps.items():
-        help_string += componentformat.format(package, d[0])
+        help_string += componentformat.format(package, *d[0].split(".", maxsplit=1))
     help_string += line
     print(help_string)
     sys.exit(0)
@@ -504,8 +502,6 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
 
 # venv install
 python = "%s/bin/python" % firedrake_env
-# Use the pip from the venv
-pip = [python, "-m", "pip"]
 
 
 class Pip:
@@ -1074,32 +1070,6 @@ def build_and_install_libsupermesh():
         log.info("No need to rebuild libsupermesh")
 
 
-def build_and_install_tinyasm():
-    log.info("Installing TinyASM")
-    if os.path.exists("TinyASM"):
-        log.info("Updating the git repository for TinyASM")
-        with directory("TinyASM"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            tinyasm_changed = git_sha != git_sha_new
-            if tinyasm_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
-        tinyasm_changed = True
-
-    if tinyasm_changed:
-        with directory("TinyASM"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            pip.install(["-e", "."])
-    else:
-        log.info("No need to rebuild TinyASM")
-
-
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
@@ -1622,7 +1592,7 @@ if mode == "install":
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
-        pip.install("loopy")
+        pip.install("loopy/")
         packages.remove("loopy")
 
     for p in packages:
@@ -1745,7 +1715,7 @@ Please consider updating your PETSc manually.
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
         clean("loopy")
-        pip.install("loopy")
+        pip.install("loopy/")
         packages.remove("loopy")
 
     try:
@@ -1774,9 +1744,6 @@ with environment(**compiler_env):
                          SLEPC_DIR=slepc_dir,
                          PETSC_ARCH=petsc_arch):
             pip.install("--ignore-installed", "--no-deps", get_slepc4py_dir())
-
-    if options["tinyasm"]:
-        build_and_install_tinyasm()
 
 if options["opencascade"]:
     build_and_install_pythonocc()   # !! --no-deps (but doesn't call pip !?)
