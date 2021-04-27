@@ -63,9 +63,6 @@ extensions = [Extension("firedrake.cython.{}".format(ext),
                         libraries=libs,
                         extra_link_args=link_args,
                         cython_compile_time_env=cython_compile_time_env) for (ext, libs) in cythonfiles]
-if 'CC' not in env:
-    env['CC'] = "mpicc"
-
 
 setup(name='firedrake',
       version=versioneer.get_version(),
