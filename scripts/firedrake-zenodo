@@ -542,30 +542,9 @@ with deposit:write scope.""")
     return publish
 
 
-if args.release_tag:
-    tag = args.release_tag[0]
-    check_tag(tag)
-    log.info("Retrieving BibTeX data for Firedrake release %s." % tag)
-    log.info("This may take a few seconds.")
-    response = requests.get("https://zenodo.org/api/records",
-                            params={"q": "creators.name:firedrake-zenodo AND version:%s" % tag})
-    if response.status_code >= 400:
-        log.error("Unable to obtain Zenodo data for release tag %s" % tag)
-        sys.exit(1)
-
-    result = response.json()
-    if result["hits"]["total"] < 1:
-        log.error("""No data returned. Please check that the release tag is correct.
-
-If the release has only just been created, then the information may not yet have propagated to Zenodo yet. Please try again later.""")
-        sys.exit(1)
-
-    if result["hits"]["total"] > 1:
-        log.error("More than one release for this tag found, please check bibtex carefully.")
-
-    def format_bibtex(record):
-        metadata = record["metadata"]
-        template = """@misc{{{key},
+def format_bibtex(record):
+    metadata = record["metadata"]
+    template = """@misc{{{key},
  key   = {{{key}}},
  title = {{{{{title}}}}},
  year  = {{{year}}},
@@ -574,28 +553,51 @@ If the release has only just been created, then the information may not yet have
  url   = {{https://doi.org/{doi}}},
 }}
 """
-        months = {"01": "jan",
-                  "02": "feb",
-                  "03": "mar",
-                  "04": "apr",
-                  "05": "may",
-                  "06": "jun",
-                  "07": "jul",
-                  "08": "aug",
-                  "09": "sep",
-                  "10": "oct",
-                  "11": "nov",
-                  "12": "dec"}
-        title = metadata["title"]
-        doi = metadata["doi"]
-        key = "zenodo/{}".format(tag)
-        key = key.replace("_", "-")
-        date = metadata["publication_date"]
-        year = date[:4]
-        month = months[date[5:7]]
-        return template.format(key=key, title=title, doi=doi, year=year, month=month)
+    months = {"01": "jan",
+              "02": "feb",
+              "03": "mar",
+              "04": "apr",
+              "05": "may",
+              "06": "jun",
+              "07": "jul",
+              "08": "aug",
+              "09": "sep",
+              "10": "oct",
+              "11": "nov",
+              "12": "dec"}
+    title = metadata["title"]
+    doi = metadata["doi"]
+    key = "zenodo/{}".format(tag)
+    key = key.replace("_", "-")
+    date = metadata["publication_date"]
+    year = date[:4]
+    month = months[date[5:7]]
+    return template.format(key=key, title=title, doi=doi, year=year, month=month)
 
-    bibtex = "\n".join(map(format_bibtex, result["hits"]["hits"]))
+
+def create_bibtex(tag):
+    check_tag(tag)
+    response = requests.get("https://zenodo.org/api/records",
+                            params={"q": "creators.name:firedrake-zenodo AND version:%s" % tag})
+    if response.status_code >= 400:
+        log.error("Unable to obtain Zenodo data for release tag %s" % tag)
+        sys.exit(1)
+    result = response.json()
+    if result["hits"]["total"] < 1:
+        log.error("""No data returned. Please check that the release tag is correct.
+
+If the release has only just been created, then the information may not yet have propagated to Zenodo yet. Please try again later.""")
+        sys.exit(1)
+    if result["hits"]["total"] > 1:
+        log.error("More than one release for this tag found, please check bibtex carefully.")
+    return "\n".join(map(format_bibtex, result["hits"]["hits"]))
+
+
+if args.release_tag:
+    tag = args.release_tag[0]
+    log.info("Retrieving BibTeX data for Firedrake release %s." % tag)
+    log.info("This may take a few seconds.")
+    bibtex = create_bibtex(tag)
     with open(args.bibtex_file[0], "w") as f:
         f.write(bibtex)
     log.info("Bibliography written to %s" % args.bibtex_file[0])
