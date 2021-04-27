@@ -22,7 +22,7 @@ except IOError:
             _config = json.load(f)
 
     except IOError:
-        _config = None
+        _config = {"options": {}}
 
 
 def get_config():
