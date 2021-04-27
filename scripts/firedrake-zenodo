@@ -107,7 +107,9 @@ parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrak
 parser.add_argument("--title", "-t", action="store", nargs=1,
                     help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
 parser.add_argument("--info-file", action="store", nargs=1,
-                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. dois linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
+                    help="""File containing additional information to be added to the Zenodo meta-record (e.g. DOIs linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
+parser.add_argument("--additional-dois", action="store", nargs='+',
+                    help="""DOIs of additional components that should be recorded in the Zenodo meta-record (use this to archive and then link to additional packages you used).""")
 parser.add_argument("--new-version-of", action="store", nargs=1,
                     help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
 parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -353,11 +355,13 @@ def match(records, possible_tags):
     return list(sorted(results.items(), key=lambda x: x[0].full_name.lower()))
 
 
-def create_json(records, title):
+def create_json(records, title, additional_dois=None):
     """Create a JSON string describing a meta-record.
 
     :arg records: The (repo, (tag, record)) list to encode.
     :arg title: The title of the meta-record.
+    :arg additional_dois: optional additional DOIs that the archive
+        refers to.
     :returns: a JSON representation suitable for upload."""
     data = {"components": [{"component": repo.full_name,
                             "tag": tag.name,
@@ -365,20 +369,26 @@ def create_json(records, title):
                             "zenodo-record": record}
                            for repo, (tag, record) in records],
             "title": title}
+    if additional_dois:
+        data["additional_dois"] = additional_dois
     return json.dumps(data).encode()
 
 
-def create_description(records, title, doi):
+def create_description(records, title, doi, additional_dois=None):
     """Create a description of a meta-record.
 
     :arg records: the (repo, (tag, record)) list to encode.
     :arg title: The title of the meta-record.
     :arg doi: The DOI of the meta-record.
+    :arg additional_dois: optional additional archived DOIs.
     :returns: A HTML string suitable for zenodo upload."""
     links = "\n".join('<li>{name} ({desc}): <a href="https://doi.org/{doi}">{doi}</a></li>'.format(
         name=repo.name,
         desc=descriptions[repo.name],
         doi=record["doi"]) for repo, (_, record) in records)
+    if additional_dois:
+        additional_links = "\n".join('<li><a href="https://doi.org/{doi}">{doi}</a></li>'.format(
+            doi=additional_doi) for additional_doi in additional_dois)
     data = """<p>This record collates DOIs for the software components used in '{title}'.</p>
 
 <p>
@@ -395,11 +405,44 @@ You can install Firedrake using exactly this set of component versions using:
 </p>
 <p>
 See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.org/download.html</a> for more information.
-</p>""".format(title=title, links=links, doi=doi)
+</p>
+    """.format(title=title, links=links, doi=doi)
+    if additional_dois:
+        data = """{data}
+
+<p>In addition to the Firedrake components above, the following additional packages were archived:
+<ul>
+{additional_links}
+</ul>
+</p>
+<p>
+You will have to download and install them separately in your Firedrake installation, since we cannot automate it for you.
+</p> """.format(data=data, additional_links=additional_links)
     return data
 
 
-def create_metarecord(tag, title, components, info_file=None, update_record=None):
+def check_dois_resolve(*dois):
+    """Check that user-provided DOIs actually point somewhere.
+
+    :arg dois: DOIs to check.
+    :returns: The input dois
+    :raises ValueError: if some DOI did not resolve."""
+    for doi in dois:
+        response = requests.get(f"https://doi.org/api/handles/{doi}")
+        if response.status_code != 200 or response.json()["responseCode"] != 1:
+            log.error(f"Was not able to resolve provided DOI '{doi}'")
+            log.error("Details")
+            log.error("*******")
+            log.error(response.content.decode())
+            raise ValueError(f"DOI '{doi}' did not resolve anywhere, are you sure it's correct?")
+        else:
+            response = response.json()
+            assert response["responseCode"] == 1 and response["handle"] == doi
+    return dois
+
+
+def create_metarecord(tag, title, components, info_file=None,
+                      additional_dois=None, update_record=None):
     """Create meta-record.
 
     :arg tag: The tag to create the record for.
@@ -407,7 +450,9 @@ def create_metarecord(tag, title, components, info_file=None, update_record=None
     :arg components: The components to include in the record.
     :arg info_file: optional (filename, contents) pair of any additional
         (user-provided) information, will be uploaded using the provided filename.
-
+    :arg additional_dois: optional iterable of additional DOIs to
+        include in the metarecord information. Could be used to point
+        at additional packages this simulation needed.
     :arg update_record: Zenodo record this metarelease updates (use,
         for example, for version two of a paper with newer components, or similar)."""
     # First check that we don't have a matching tag already.
@@ -486,6 +531,9 @@ with deposit:write scope.""")
         raise ValueError("Unable to get information about newly created deposition")
     doi = info.json()["metadata"]["prereserve_doi"]["doi"]
 
+    if additional_dois is not None:
+        check_dois_resolve(*additional_dois)
+
     metadata = {
         "metadata": {
             "title": "Software used in '{}'".format(title),
@@ -494,9 +542,12 @@ with deposit:write scope.""")
             "version": "{}".format(tag),
             "access_right": "open",
             "license": "cc-by",
-            "related_identifiers": [{"relation": "cites", "identifier": record["doi"]}
-                                    for _, (_, record) in matching_records],
-            "description": create_description(matching_records, title, doi),
+            "related_identifiers": ([{"relation": "cites", "identifier": record["doi"]}
+                                    for _, (_, record) in matching_records]
+                                    + [{"relation": "cites", "identifier": additional_doi}
+                                       for additional_doi in (additional_dois or ())]),
+            "description": create_description(matching_records, title, doi,
+                                              additional_dois=additional_dois),
         }
     }
     depo = requests.put("{url}".format(url=depo_url),
@@ -504,7 +555,7 @@ with deposit:write scope.""")
     if depo.status_code >= 400:
         raise ValueError("Unable to add metadata to deposition {}".format(depo.json()))
 
-    components = create_json(matching_records, title)
+    components = create_json(matching_records, title, additional_dois=additional_dois)
     upload = requests.post("{url}/files".format(url=depo_url),
                            files={"file": ("components.json", components, "application/json")},
                            params=authentication_params)
@@ -627,12 +678,17 @@ if args.meta_release:
     title = data["title"]
     components = data["components"]
     info_file = decode_info_file(data["info_file"])
+    additional_dois = data["additional_dois"]
     new_version_of = data["new_version_of"]
-    record = create_metarecord(tag, title, components, info_file, update_record=new_version_of)
+    record = create_metarecord(tag, title, components, info_file=info_file,
+                               additional_dois=additional_dois,
+                               update_record=new_version_of)
     record = record.json()
     log.info("Created Zenodo meta-release.")
+    log.info("Tag is {}".format(tag))
     log.info("DOI is {}".format(record["doi"]))
     log.info("Zenodo URL is {}".format(record["links"]["record_html"]))
+    log.info("BibTeX\n\n{}".format(format_bibtex(record)))
     sys.exit(0)
 
 
@@ -660,6 +716,10 @@ if args.info_file:
 
 if args.new_version_of:
     shas["new_version_of"] = new_version_of
+
+if args.additional_dois:
+    shas["additional_dois"] = check_dois_resolve(*args.additional_dois)
+
 
 # Override hashes with any read from the command line.
 for component in components:
@@ -776,7 +836,8 @@ with open(meta_file, "w") as f:
             "title": shas["title"],
             "components": sorted(set(shas) & set(components)),
             "info_file": shas.get("metarelease_info_file", None),
-            "new_version_of": shas.get("new_version_of", None)}
+            "new_version_of": shas.get("new_version_of", None),
+            "additional_dois": shas.get("additional_dois", None)}
     f.write(json.dumps(data))
 
 log.info("Releases complete. The release tag is %s" % tag)
