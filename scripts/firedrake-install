@@ -1455,8 +1455,6 @@ if mode == "install":
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
-else:
-    pip = Pip(python, "-m", "pip")  # !!!
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1507,6 +1505,8 @@ json_output = json.dumps(config)
 with open(config_location, "w") as f:
     f.write(json_output)
 log.info("Configuration saved to " + config_location)
+
+pip = Pip(python, "-m", "pip", parallel_env=compiler_env, blas_env=blas)  # !!!
 
 if mode == "install":
     os.mkdir("src")
@@ -1586,6 +1586,8 @@ if mode == "install":
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
+
+    pip = Pip(python, "-m", "pip", parallel_env=compiler_env, blas_env=blas)  # !!!
 
     for p in packages:
         pip_requirements(p, compiler_env)
