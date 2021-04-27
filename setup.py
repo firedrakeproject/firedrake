@@ -22,6 +22,10 @@ except ImportError:
 
 
 def get_petsc_dir():
+    config = petsc4py.get_config()
+    petsc_dir = config["PETSC_DIR"]
+    petsc_arch = config["PETSC_ARCH"]
+    return (petsc_dir, path.join(petsc_dir, petsc_arch))
     try:
         petsc_dir = os.environ["PETSC_DIR"]
         petsc_arch = os.environ.get("PETSC_ARCH", "")
