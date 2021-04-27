@@ -524,9 +524,17 @@ class Pip:
             "--no-build-isolation",
             "--no-binary", ",".join(WHEEL_BLACKLIST)
         ]
-        package = args[-1]
+        # Package may have version specifier like numpy<=19
+        # Or may be a directory like /tmp/firedrake/src/petsc/src/binding/petsc4py/
+        # Or even (pathologically) /tmp/firedrake/src/petsc/src/binding/petsc4py
+        package = re.split('<|>|=', args[-1])[0]
+        if len(package.split('/')) > 1:
+            if package.split('/')[-1]:
+                package = package.split('/')[-1]
+            else:
+                package = package.split('/')[-2]
         # Note: would prefer not to depend on global blas definition here
-        if re.split('<|>|=', package)[0] in PARALLEL_PACKAGES:
+        if package in PARALLEL_PACKAGES:
             env = {**blas, **self._parallel_env}
         else:
             env = blas
