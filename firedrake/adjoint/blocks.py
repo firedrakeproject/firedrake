@@ -623,33 +623,40 @@ class SupermeshProjectBlock(Block, Backend):
         self.target_space = target_space
 
         # Form LHS
-        dx = self.backend.dx(mesh)
+        dx = self.backend.dx(domain=mesh)
         w = self.backend.TestFunction(target_space)
         Pv = self.backend.TrialFunction(target_space)
-        self.lhs = self.backend.assemble(self.backend.inner(Pv, w)*dx, bcs=bcs)
-        self.solver = self.backend.LinearSolver(self.lhs, solver_parameters=self.solver_parameters)
+        self.lhs = self.backend.assemble(
+            self.backend.inner(Pv, w)*dx, bcs=bcs)
+        self.solver = self.backend.LinearSolver(
+            self.lhs, solver_parameters=self.solver_parameters)
 
         # Form RHS
-        self.mixed_mass = supermesh.assemble_mixed_mass_matrix(source.function_space(), target_space)
-        self.rhs = firedrake.Function(target.function_space())
-        self._compute_rhs()
+        self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
+            source.function_space(), target_space)
+        self._rhs = firedrake.Function(target_space)
 
         # Add dependencies
         self.add_dependency(source, no_duplicates=True)
         for bc in bcs:
             self.add_dependency(bc, no_duplicates=True)
 
-    def _compute_rhs(self):
-        with self.source.dat.vec_ro as vsrc, self.rhs.dat.vec_ro as vrhs:
-            self.mixed_mass.mult(vsrc, vrhs)
+    @property
+    def rhs(self):
+        with self.source.dat.vec_ro as vsrc, self._rhs.dat.vec_ro as vrhs:
+            self.mixed_mass.mult(vsrc, vrhs)  # Step 1
+        return self._rhs
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         self.source.assign(inputs[0])
-        self._compute_rhs()  # Step 1
+
+    @property
+    def apply_massinv(self):
+        return self.solver.solve  # TODO: Account for non-const Jacobian, slate
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         target = self.backend.Function(self.target_space)
-        self.solver.solve(target, self.rhs)  # Step 2
+        self.apply_massinv(target, self.rhs)  # Step 2
         return target
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -671,15 +678,12 @@ class SupermeshProjectBlock(Block, Backend):
         tmp = self.backend.Function(self.target_space)
         out = self.backend.Function(self.source_space)
 
-        # Adjoint of step 2
+        # Adjoint of projection
         ksp = PETSc.KSP().create()
         ksp.setOperators(self.lhs.M.handle.transpose())
-        with seed.dat.vec_ro as vin, tmp.dat.vec_ro as v_:
-            ksp.solve(vin, v_)
-
-        # Adjoint of step 1
-        with tmp.dat.vec_ro as v_, out.dat.vec_ro as vout:
-            self.mixed_mass.multTranspose(v_, vout)
+        with seed.dat.vec_ro as vin, tmp.dat.vec_ro as v_, out.dat.vec_ro as vout:
+            ksp.solve(vin, v_)                       # Adjoint of step 2
+            self.mixed_mass.multTranspose(v_, vout)  # Adjoint of step 1
         return out
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
