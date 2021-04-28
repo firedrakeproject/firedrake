@@ -435,7 +435,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_replay(op, order, power):
+def test_ioperator_replay(op, order, power):
     """
     Given source and target functions of some `order`,
     verify that replaying the tape associated with the
@@ -496,3 +496,78 @@ def test_replay(op, order, power):
             tt /= tt
         assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
         assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
+
+
+def supermesh_setup():
+    source_mesh = UnitSquareMesh(20, 25, diagonal="left")
+    source_space = FunctionSpace(source_mesh, "CG", 1)
+    x, y = SpatialCoordinate(source_mesh)
+    source = interpolate(sin(pi*x)*sin(pi*y), source_space)
+    target_mesh = UnitSquareMesh(20, 20, diagonal="right")
+    target_space = FunctionSpace(target_mesh, "CG", 1)
+    return source, target_space
+
+
+def test_self_supermesh_project():
+    from firedrake_adjoint import ReducedFunctional, Control
+    source, target_space = supermesh_setup()
+    control = Control(source)
+    target = Function(target_space)
+    target.project(source)
+    J = assemble(target*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Check forward conservation
+    mass = assemble(source*dx)
+    assert np.isclose(mass, J)
+
+    # Test replay with the same input
+    assert np.isclose(rf(source), J)
+
+    # Test replay with different input
+    h = Function(source)
+    h.assign(10.0)
+    assert np.isclose(rf(h), 10.0)
+
+
+def test_supermesh_project_function():
+    from firedrake_adjoint import ReducedFunctional, Control
+    source, target_space = supermesh_setup()
+    control = Control(source)
+    target = Function(target_space)
+    project(source, target)
+    J = assemble(target*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Check forward conservation
+    mass = assemble(source*dx)
+    assert np.isclose(mass, J)
+
+    # Test replay with the same input
+    assert np.isclose(rf(source), J)
+
+    # Test replay with different input
+    h = Function(source)
+    h.assign(10.0)
+    assert np.isclose(rf(h), 10.0)
+
+
+def test_supermesh_project_to_function_space():
+    from firedrake_adjoint import ReducedFunctional, Control
+    source, target_space = supermesh_setup()
+    control = Control(source)
+    target = project(source, target_space)
+    J = assemble(target*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Check forward conservation
+    mass = assemble(source*dx)
+    assert np.isclose(mass, J)
+
+    # Test replay with the same input
+    assert np.isclose(rf(source), J)
+
+    # Test replay with different input
+    h = Function(source)
+    h.assign(10.0)
+    assert np.isclose(rf(h), 10.0)
