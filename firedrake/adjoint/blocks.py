@@ -612,12 +612,27 @@ class SupermeshProjectBlock(Block, Backend):
     def __init__(self, source, target_space, target, bcs=[], *args, **kwargs):
         super(SupermeshProjectBlock, self).__init__()
         import firedrake.supermeshing as supermesh
+        from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+
+        sp = kwargs.get('solver_parameters')
+        self.solver_parameters = {} if sp is None else sp.copy()
+        self.form_compiler_parameters = kwargs.get('form_compiler_parameters')
+        self.constant_jacobian = kwargs.get('constant_jacobian', True)
+        use_slate_for_inverse = kwargs.get('use_slate_for_inverse', True)
+        try:
+            element = target_space.finat_element
+            is_dg = element.entity_dofs() == element.entity_closure_dofs()
+            is_variable_layers = target_space.mesh().variable_layers
+        except AttributeError:
+            is_dg = False
+            is_variable_layers = True
+        self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
+                                      and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
 
         # Store spaces
         mesh = kwargs.pop("mesh", None)
         if mesh is None:
             mesh = target_space.mesh()
-        self.solver_parameters = kwargs.get('solver_parameters')
         self.source = source
         self.source_space = source.function_space()
         self.target_space = target_space
@@ -627,7 +642,9 @@ class SupermeshProjectBlock(Block, Backend):
         w = self.backend.TestFunction(target_space)
         Pv = self.backend.TrialFunction(target_space)
         self.lhs = self.backend.assemble(
-            self.backend.inner(Pv, w)*dx, bcs=bcs)
+            self.backend.inner(Pv, w)*dx, bcs=bcs,
+            mat_type=self.solver_parameters.get("mat_type"),
+            form_compiler_parameters=self.form_compiler_parameters)
         self.solver = self.backend.LinearSolver(
             self.lhs, solver_parameters=self.solver_parameters)
 
@@ -643,7 +660,7 @@ class SupermeshProjectBlock(Block, Backend):
 
     @property
     def rhs(self):
-        with self.source.dat.vec_ro as vsrc, self._rhs.dat.vec_ro as vrhs:
+        with self.source.dat.vec_ro as vsrc, self._rhs.dat.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)  # Step 1
         return self._rhs
 
@@ -652,7 +669,16 @@ class SupermeshProjectBlock(Block, Backend):
 
     @property
     def apply_massinv(self):
-        return self.solver.solve  # TODO: Account for non-const Jacobian, slate
+        if not self.constant_jacobian:
+            self.backend.assemble(self.lhs.a, tensor=self.lhs, bcs=self.bc,
+                                  form_compiler_parameters=self.form_compiler_parameters)
+        if self.use_slate_for_inverse:
+            def solve(x, b):
+                with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
+                    self.lhs.petscmat.mult(b_, x_)
+            return solve
+        else:
+            return self.solver.solve
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         target = self.backend.Function(self.target_space)
@@ -672,18 +698,16 @@ class SupermeshProjectBlock(Block, Backend):
         from firedrake.petsc import PETSc
         if len(adj_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-
-        # Seed vector, intermediate and output
         seed = adj_inputs[0]
         tmp = self.backend.Function(self.target_space)
         out = self.backend.Function(self.source_space)
 
-        # Adjoint of projection
         ksp = PETSc.KSP().create()
-        ksp.setOperators(self.lhs.M.handle.transpose())
-        with seed.dat.vec_ro as vin, tmp.dat.vec_ro as v_, out.dat.vec_ro as vout:
-            ksp.solve(vin, v_)                       # Adjoint of step 2
-            self.mixed_mass.multTranspose(v_, vout)  # Adjoint of step 1
+        ksp.setOperators(self.lhs.petscmat)
+        with seed.dat.vec_ro as vin, out.dat.vec_wo as vout:
+            vtmp = vin.copy()
+            ksp.solveTranspose(vin, vtmp)              # Adjoint of step 2
+            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
         return out
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):

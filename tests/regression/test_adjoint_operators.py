@@ -593,8 +593,7 @@ def test_supermesh_project_gradient(vector):
     rf = ReducedFunctional(J, control)
 
     # Taylor test
-    m = Function(source)
     h = Function(source_space)
     h.vector()[:] = rand(source_space.dim())
-    minconv = taylor_test(rf, m, h)
+    minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
