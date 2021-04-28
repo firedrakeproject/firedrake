@@ -115,7 +115,7 @@ try:
     _openblas_lib = find_library('openblas')
     _openblas_dll = cdll.LoadLibrary(_openblas_lib)
     _openblas_dll.openblas_set_num_threads(1)
-except OSError:
+except (OSError, AttributeError):
     warning('Cannot set OpenBLAS threads, if you are using another BLAS'
             'implementation, be sure to limit the number of threads to 1')
 
