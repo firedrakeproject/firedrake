@@ -277,14 +277,10 @@ class GenericSolveBlock(Block, Backend):
             tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
             return [tmp_bc]
         elif isinstance(c, self.backend.EquationBC):
-            bcs_list = []
-            bcs = tuple(c.extract_form('ad_J'))
-            for i in bcs:
-                if isinstance(i, self.backend.DirichletBC):
-                    bcs_list.append(self.compat.create_bc(i, value=self.compat.extract_subfunction(adj_sol_bdy, i.function_space())))
-                else:
-                    bcs_list.append(i)
-            return [bcs_list]
+            tmp_bc = c.reconstruct(V = c.u.function_space(), field = None, u = adj_sol_bdy, 
+                                   subu = self.compat.extract_subfunction(adj_sol_bdy, 
+                                                                          c.u.function_space()))
+            return [tmp_bc]
         elif isinstance(c, self.compat.MeshType):
             # Using CoordianteDerivative requires us to do action before
             # differentiating, might change in the future.
@@ -333,12 +329,14 @@ class GenericSolveBlock(Block, Backend):
             c = block_variable.output
             c_rep = block_variable.saved_output
 
-            if isinstance(c, (self.backend.DirichletBC, self.backend.EquationBC)):
+            if isinstance(c, self.backend.DirichletBC):
                 if tlm_value is None:
                     bcs.append(self.compat.create_bc(c, homogenize=True))
                 else:
                     bcs.append(tlm_value)
                 continue
+            elif isinstance(c, self.backend.EquationBC):
+                raise NotImplementedError("Evaluate tlm not implemented for EquationBC.")               
             elif isinstance(c, self.compat.MeshType):
                 X = self.backend.SpatialCoordinate(c)
                 c_rep = X
@@ -540,11 +538,12 @@ class GenericSolveBlock(Block, Backend):
                 else:
                     bc_rhs = bc.eq.rhs
                 bbcs = []
-                for block_variable in bc.block.get_dependencies():
-                    c = block_variable.output
-                    c_rep = block_variable.saved_output
-                    if isinstance(c, (self.backend.DirichletBC)):
-                        bbcs.append(c_rep)
+                if bc.block is not None:
+                    for block_variable in bc.block.get_dependencies():
+                        c = block_variable.output
+                        c_rep = block_variable.saved_output
+                        if isinstance(c, (self.backend.DirichletBC)):
+                            bbcs.append(c_rep)
                 bcs_new.append(self.backend.EquationBC(bc_lhs == bc_rhs, func, bc.sub_domain, bcs=bbcs))
             else:
                 bcs_new.append(bc)
