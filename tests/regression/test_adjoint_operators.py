@@ -36,6 +36,11 @@ def power(request):
     return request.param
 
 
+@pytest.fixture(params=[True, False])
+def vector(request):
+    return request.param
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_constant():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
@@ -262,7 +267,7 @@ def test_interpolate_hessian_linear_expr():
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
 
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test, get_working_tape
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
     # Get tape instead of creating a new one for consistency with other tests
     tape = get_working_tape()
@@ -320,7 +325,7 @@ def test_interpolate_hessian_nonlinear_expr():
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
 
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test, get_working_tape
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
     # Get tape instead of creating a new one for consistency with other tests
     tape = get_working_tape()
@@ -378,7 +383,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
 
-    from firedrake_adjoint import ReducedFunctional, Control, taylor_test, get_working_tape
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
     # Get tape instead of creating a new one for consistency with other tests
     tape = get_working_tape()
@@ -498,16 +503,18 @@ def test_ioperator_replay(op, order, power):
         assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
 
 
-def supermesh_setup():
+def supermesh_setup(vector=False):
+    fs = VectorFunctionSpace if vector else FunctionSpace
     source_mesh = UnitSquareMesh(20, 25, diagonal="left")
-    source_space = FunctionSpace(source_mesh, "CG", 1)
-    x, y = SpatialCoordinate(source_mesh)
-    source = interpolate(sin(pi*x)*sin(pi*y), source_space)
+    source_space = fs(source_mesh, "CG", 1)
+    expr = [sin(pi*xi) for xi in SpatialCoordinate(source_mesh)]
+    source = interpolate(as_vector(expr) if vector else expr[0]*expr[1], source_space)
     target_mesh = UnitSquareMesh(20, 20, diagonal="right")
-    target_space = FunctionSpace(target_mesh, "CG", 1)
+    target_space = fs(target_mesh, "CG", 1)
     return source, target_space
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_supermesh_project():
     from firedrake_adjoint import ReducedFunctional, Control
     source, target_space = supermesh_setup()
@@ -530,6 +537,7 @@ def test_self_supermesh_project():
     assert np.isclose(rf(h), 10.0)
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_function():
     from firedrake_adjoint import ReducedFunctional, Control
     source, target_space = supermesh_setup()
@@ -552,6 +560,7 @@ def test_supermesh_project_function():
     assert np.isclose(rf(h), 10.0)
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_to_function_space():
     from firedrake_adjoint import ReducedFunctional, Control
     source, target_space = supermesh_setup()
@@ -571,3 +580,21 @@ def test_supermesh_project_to_function_space():
     h = Function(source)
     h.assign(10.0)
     assert np.isclose(rf(h), 10.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_supermesh_project_gradient(vector):
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+    source, target_space = supermesh_setup()
+    source_space = source.function_space()
+    control = Control(source)
+    target = project(source, target_space)
+    J = assemble(inner(target, target)*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Taylor test
+    m = Function(source)
+    h = Function(source_space)
+    h.vector()[:] = rand(source_space.dim())
+    minconv = taylor_test(rf, m, h)
+    assert minconv > 1.9
