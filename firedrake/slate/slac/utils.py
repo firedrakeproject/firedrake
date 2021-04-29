@@ -341,7 +341,12 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
     # FIXME for some reason the temporaries in the tsfc kernels don't have a shape
     all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
     # Construct args
+    import loopy
     args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, list(all_kernels))
+    for a in slate_loopy.args:
+        if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
+            ac = a.copy(address_space=loopy.AddressSpace.LOCAL)
+            args.append(ac)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = slate_loopy.domains + builder.bag.index_creator.domains
