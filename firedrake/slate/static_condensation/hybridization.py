@@ -287,9 +287,9 @@ class HybridizationPC(SCBase):
         split_trace_op = dict(split_form(K.form))
 
         # Generate reconstruction calls
-        self._reconstruction_calls(split_mixed_op, split_trace_op, local_matfree=local_matfree, mat_type=mat_type)
+        self._reconstruction_calls(split_mixed_op, split_trace_op, local_matfree=local_matfree, mat_type=mat_type, prefix=prefix, pc=pc)
 
-    def _reconstruction_calls(self, split_mixed_op, split_trace_op, local_matfree=False, mat_type=None):
+    def _reconstruction_calls(self, split_mixed_op, split_trace_op, local_matfree=False, mat_type=None, prefix=None, pc=None):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -298,7 +298,8 @@ class HybridizationPC(SCBase):
         :arg split_trace_op: a ``dict`` of split forms that make up the trace
                              contribution in the hybridized mixed system.
         """
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import (allocate_matrix,
+                                        create_assembly_callable)
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -330,30 +331,69 @@ class HybridizationPC(SCBase):
             self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
         else:
             self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-            M = D - C * A.inv * B
+            M = D - C * A.solve(B, matfree=True)
             R = (K_1.T - C * A.solve(K_0.T, matfree=True)) * lambdar
-            
-            # FIXME for now M is matrix-explicit. How can we rewrite this to be locally matrix-free?
-            # for the matrix-explicit solve to work the rhs needs to be assembled for now
-            # -> change that when switching to fully matrix-free
-            from firedrake import assemble
-            rhs = AssembledVector(assemble(f - C * A.solve(g, matfree=True) - R,
-                                           form_compiler_parameters={"optimise_slate": True,
-                                                                     "replace_mul_with_action": True,
-                                                                     "visual_debug": False}))
-            u_rec = M.solve(rhs)
-            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
-        self._sub_unknown = create_assembly_callable(u_rec,
+            rhs = f - C * A.solve(g, matfree=True) - R
+            self.Mrhs_u = u
+            self._assemble_Mrhs_u = create_assembly_callable(rhs,
                                                      tensor=u,
                                                      form_compiler_parameters=self.ctx.fc_params)
+
+            self.M_u = allocate_matrix(M, bcs=None, # do we need bcs here?
+                                 form_compiler_parameters=self.ctx.fc_params,
+                                 mat_type=mat_type,
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
+            self._assemble_M_u = create_assembly_callable(M,
+                                                        tensor=self.M_u,
+                                                        bcs=None, # do we need bcs here?
+                                                        form_compiler_parameters=self.ctx.fc_params,
+                                                        mat_type=mat_type)
+
+            # solve for urec here 
+            self.solve_for_urec(pc, prefix)              
+        # self._sub_unknown = create_assembly_callable(u_rec,
+        #                                              tensor=u,
+        #                                              form_compiler_parameters=self.ctx.fc_params)
         if local_matfree:
             self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params,
-                                                      mat_type=mat_type)
+                                                      form_compiler_parameters=self.ctx.fc_params,)
+
+    def solve_for_urec(self, pc, prefix):
+        # dm associated with the trace problem
+        trace_dm = TraceSpace.dm
+
+        # KSP for the system of Lagrange multipliers
+        trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.incrementTabLevel(1, parent=pc)
+
+        # Set the dm for the trace solver
+        trace_ksp.setDM(trace_dm)
+        trace_ksp.setDMActive(False)
+        trace_ksp.setOptionsPrefix(prefix)
+        trace_ksp.setOperators(self.M_u.petscmat, self.M_u.petscmat)
+
+        with dmhooks.add_hooks(trace_dm, self,
+                            appctx=self._ctx_ref,
+                            save=False):
+            trace_ksp.setFromOptions()
+
+        dm = trace_ksp.getDM()
+
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+
+        # Solve the system for the Lagrange multipliers
+        with self.M_u.dat.vec_ro as b:
+            if self.trace_ksp.getInitialGuessNonzero():
+                acc = self.trace_solution.dat.vec
+            else:
+                acc = self.trace_solution.dat.vec_wo
+            with acc as x_trace:
+                trace_ksp.solve(b, x_trace) 
 
     @timed_function("HybridUpdate")
     def update(self, pc):
