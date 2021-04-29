@@ -299,12 +299,18 @@ class VecAccessMixin(metaclass=abc.ABCMeta):
     def _vec(self):
         pass
 
+    @abc.abstractmethod
+    def update_dat_version(self):
+        pass
+
     @property
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
+        # Update dat_version of base.DataCarrier objects (relies on MRO of self):
+        self.update_dat_version()
         return self.vec_context(access=base.RW)
 
     @property
@@ -314,6 +320,8 @@ class VecAccessMixin(metaclass=abc.ABCMeta):
 
         You're allowed to modify the data you get back from this view,
         but you cannot read from it."""
+        # Update dat_version of base.DataCarrier objects (relies on MRO of self):
+        self.update_dat_version()
         return self.vec_context(access=base.WRITE)
 
     @property
@@ -537,6 +545,7 @@ class MatBlock(base.Mat):
         self._parent._flush_assembly()
 
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+        self.update_dat_version()
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
         if rbs > 1:
@@ -553,6 +562,7 @@ class MatBlock(base.Mat):
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
+        self.update_dat_version()
         self.change_assembly_state(Mat.ADD_VALUES)
         if len(values) > 0:
             self.handle.setValuesBlockedLocal(rows, cols, values,
@@ -560,6 +570,7 @@ class MatBlock(base.Mat):
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
+        self.update_dat_version()
         self.change_assembly_state(Mat.INSERT_VALUES)
         if len(values) > 0:
             self.handle.setValuesBlockedLocal(rows, cols, values,
@@ -813,6 +824,9 @@ class Mat(base.Mat):
     @collective
     def zero(self):
         """Zero the matrix."""
+        # Update dat_version
+        self.update_dat_version()
+        # Zero the matrix
         self.assemble()
         self.handle.zeroEntries()
 
@@ -823,6 +837,9 @@ class Mat(base.Mat):
         strong boundary conditions.
 
         :param rows: a :class:`Subset` or an iterable"""
+        # Update dat_version
+        self.update_dat_version()
+        # Zeroes the specified rows
         self.assemble()
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
@@ -840,6 +857,9 @@ class Mat(base.Mat):
         The indices in ``rows`` should index the process-local rows of
         the matrix (no mapping to global indexes is applied).
         """
+        # Update dat_version
+        self.update_dat_version()
+        # Set the diagonal entry
         rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
         if rbs > 1:
@@ -873,6 +893,7 @@ class Mat(base.Mat):
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
+        self.update_dat_version()
         self.change_assembly_state(Mat.ADD_VALUES)
         if len(values) > 0:
             self.handle.setValuesBlockedLocal(rows, cols, values,
@@ -880,6 +901,7 @@ class Mat(base.Mat):
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
+        self.update_dat_version()
         self.change_assembly_state(Mat.INSERT_VALUES)
         if len(values) > 0:
             self.handle.setValuesBlockedLocal(rows, cols, values,

@@ -1274,6 +1274,9 @@ class DataCarrier(object):
         the product of the dim tuple."""
         return self._cdim
 
+    def update_dat_version(self):
+        self.dat_version += 1
+
 
 class _EmptyDataMixin(object):
     """A mixin for :class:`Dat` and :class:`Global` objects that takes
@@ -1432,6 +1435,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :meth:`data_with_halos`.
 
         """
+        # Update dat_version since this accessor assumes that you will modify the data
+        self.update_dat_version()
+
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         self.halo_valid = False
@@ -1542,6 +1548,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Zero the data associated with this :class:`Dat`
 
         :arg subset: A :class:`Subset` of entries to zero (optional)."""
+        # Update dat_version
+        self.update_dat_version()
+
         if hasattr(self, "_zero_parloops"):
             loops = self._zero_parloops
         else:
@@ -1874,12 +1883,17 @@ class Dat(DataCarrier, _EmptyDataMixin):
         if halo is None:
             return
         if not self.halo_valid and access_mode in {READ, RW}:
+            # Dat's halos are not up to date: Update dat_version
+            self.update_dat_version()
             halo.global_to_local_end(self, WRITE)
             self.halo_valid = True
         elif access_mode in {INC, MIN, MAX}:
             self.halo_valid = False
         else:
             # WRITE
+            if access_mode in {WRITE, RW}:
+                # When Dat's halos are up to date and access_mode is READ, data will not be modified.
+                self.update_dat_version()
             pass
 
     @collective
@@ -1900,6 +1914,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo = self.dataset.halo
         if halo is None:
             return
+        if insert_mode in {WRITE, RW}:
+            # Update dat_version
+            self.update_dat_version()
         halo.local_to_global_end(self, insert_mode)
         self.halo_valid = False
 
@@ -2343,7 +2360,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data(self):
         """Data array."""
-        self.dat_version += 1
+        self.update_dat_version()
         if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
@@ -2361,7 +2378,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @data.setter
     def data(self, value):
-        self.dat_version += 1
+        self.update_dat_version()
         self._data[:] = verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -2393,7 +2410,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     @collective
     def zero(self):
-        self.dat_version += 1
+        self.update_dat_version()
         self._data[...] = 0
 
     @collective
