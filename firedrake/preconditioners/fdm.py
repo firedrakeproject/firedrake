@@ -4,7 +4,10 @@ import numpy as np
 from pyop2 import op2
 from pyop2.sparsity import get_preallocation
 
-from ufl import FiniteElement, TensorElement, Jacobian, JacobianInverse, dx, inner, dot, inv
+from ufl import FiniteElement, VectorElement, TensorElement, Jacobian, JacobianInverse
+from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
+from ufl.algorithms.ad import expand_derivatives
+
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.base import PCBase
@@ -60,7 +63,7 @@ class FDMPC(PCBase):
         else:
             self.bc_nodes = np.empty(0, dtype=PETSc.IntType)
 
-        bcflags = self.get_bc_flags(self.mesh, self.bcs, solverctx._problem.J)
+        bcflags = self.get_bc_flags(V, self.mesh, self.bcs, solverctx._problem.J)
 
         self.weight = self.multiplicity(V)
         with self.weight.dat.vec as w:
@@ -87,7 +90,7 @@ class FDMPC(PCBase):
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
-            Gq, Bq = self.assemble_coef(mu, helm, Nq)
+            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True)
             Pmat = self.assemble_affine(P, V, Gq, Bq, Afdm, Dfdm, bcflags)
         else:
             raise ValueError("Unknown fdm_type")
@@ -275,8 +278,12 @@ class FDMPC(PCBase):
 
         ncomp = V.value_size
         ndim = V.mesh().topological_dimension()
-        idsym = [0, 3, 5] if ndim == 3 else [0, 2]
-        idsym = idsym[:ndim]
+        idsym = None
+        ele = Gq.ufl_element()
+        if ele.reference_value_size() != ele.value_size():
+            # We need to extract the diagonal of a symmetric tensor
+            idsym = [0, ndim, 2*ndim-1]
+            idsym = idsym[:ndim]
 
         nx1 = Afdm[0][0].shape[0]
         pshape = (nx1,)*ndim
@@ -291,32 +298,37 @@ class FDMPC(PCBase):
         facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
         for e in range(nel):
-            rows = ncomp * lgmap.apply(lexico_cell(e))
+            ie = ncomp * lgmap.apply(lexico_cell(e))
             mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
-            mue = mue[idsym]
+            bce = bcflags[e]
             for j in range(ncomp):
-                fbc = bcflags[e] @ flag2id
+                bcj = bce[j] if len(bce.shape) == 2 else bce
+                muj = mue[j] if len(mue.shape) == 2 else mue
+                if idsym:
+                    muj = muj[idsym]
+
+                fbc = bcj @ flag2id
                 be = Afdm[fbc[0]][1]
-                ae = Afdm[fbc[0]][0] * mue[0]
+                ae = Afdm[fbc[0]][0] * muj[0]
                 if Bq is not None:
                     ae += be * sum(Bq.dat.data_ro[bid(e)])
 
                 if ndim > 1:
                     ae = kron(ae, Afdm[fbc[1]][1], format="csr")
-                    ae += kron(be, Afdm[fbc[1]][0] * mue[1], format="csr")
+                    ae += kron(be, Afdm[fbc[1]][0] * muj[1], format="csr")
                     if ndim > 2:
                         be = kron(be, Afdm[fbc[1]][1], format="csr")
                         ae = kron(ae, Afdm[fbc[2]][1], format="csr")
-                        ae += kron(be, Afdm[fbc[2]][0] * mue[2], format="csr")
+                        ae += kron(be, Afdm[fbc[2]][0] * muj[2], format="csr")
 
                 cell_csr.append(ae)
-                self.index_bcs(rows, pshape, bcflags[e] == strong, -1)
+                rows = j + ie
+                self.index_bcs(rows, pshape, bcj == strong, -1)
                 cols = rows[ae.indices]
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
                     prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-                rows += 1
 
         if needs_interior_facet:
             assert ncomp == 1
@@ -334,8 +346,12 @@ class FDMPC(PCBase):
 
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
-                mu0 = mu0[idsym[idir[0]]]
-                mu1 = mu1[idsym[idir[1]]]
+                if idsym:
+                    mu0 = mu0[idsym[idir[0]]]
+                    mu1 = mu1[idsym[idir[1]]]
+                else:
+                    mu0 = mu0[idir[0]]
+                    mu1 = mu1[idir[1]]
 
                 i0 = -(facet_data[f, 0] % 2)
                 i1 = -(facet_data[f, 1] % 2)
@@ -375,12 +391,14 @@ class FDMPC(PCBase):
         # Assemble global matrix
         for e, ae in enumerate(cell_csr):
             if e % ncomp == 0:
+                bce = bcflags[e // ncomp]
                 ie = ncomp * lgmap.apply(lexico_cell(e // ncomp))
             else:
                 ie += 1
 
+            bcj = bce[e % ncomp] if len(bce.shape) == 2 else bce
             rows = ie.copy()
-            self.index_bcs(rows, pshape, bcflags[e // ncomp] == strong, -1)
+            self.index_bcs(rows, pshape, bcj == strong, -1)
             adiag = ae.diagonal()
             adiag = adiag[rows == -1]
             ibc = ie[rows == -1]
@@ -408,7 +426,7 @@ class FDMPC(PCBase):
         Pmat.assemble()
         return Pmat
 
-    def assemble_coef(self, mu, helm, Nq=0):
+    def assemble_coef(self, mu, helm, Nq=0, diagonal=False):
         ndim = self.mesh.topological_dimension()
         gdim = self.mesh.geometric_dimension()
         gshape = (ndim, ndim)
@@ -419,8 +437,13 @@ class FDMPC(PCBase):
                 G = dot(Finv, Finv.T)
             elif mu.ufl_shape == gshape:
                 G = dot(dot(Finv, mu), Finv.T)
-            else:  # treat mu as scalar
+            elif mu.ufl_shape == gshape + gshape:
+                i1, i2, i3, i4, j1, j3 = indices(6)
+                G = as_tensor(Finv[i1, j1] * Finv[i3, j3] * mu[j1, i2, j3, i4], (i1, i2, i3, i4))
+            elif mu.ufl_shape == ():
                 G = mu * dot(Finv, Finv.T)
+            else:
+                raise ValueError("I don't know how to ")
         else:
             F = Jacobian(self.mesh)
             G = inv(dot(F.T, F))
@@ -428,8 +451,21 @@ class FDMPC(PCBase):
                 G = mu * G
             # I don't know how to use tensor viscosity on embedded manifolds
 
-        Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
-                           quad_scheme="default", shape=gshape, symmetry=True)
+        if diagonal:
+            if len(G.ufl_shape) == 2:
+                G = diag_vector(G)
+                Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                                   quad_scheme="default", dim=np.prod(G.ufl_shape))
+            elif len(G.ufl_shape) == 4:
+                G = as_tensor([[G[i, j, i, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[1])])
+                Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                                   quad_scheme="default", shape=G.ufl_shape)
+            else:
+                raise ValueError("I don't know how to get the diagonal of a tensor of shape ", G.ufl_shape)
+        else:
+            Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                               quad_scheme="default", shape=G.ufl_shape, symmetry=True)
+
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.assemble(inner(G, q)*dx(degree=Nq))
@@ -466,32 +502,32 @@ class FDMPC(PCBase):
     def fdm_cg(Ahat, Bhat):
         from scipy.linalg import eigh
         from scipy.sparse import csr_matrix
-        k0 = 1
-        k1 = -1
         rd = (0, -1)
+        kd = slice(1, -1)
         Vfdm = np.eye(Ahat.shape[0])
-        _, Vfdm[k0:k1, k0:k1] = eigh(Ahat[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
-        Vfdm[k0:k1, rd] = -Vfdm[k0:k1, k0:k1] @ ((Vfdm[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vfdm[np.ix_(rd, rd)])
+        _, Vfdm[kd, kd] = eigh(Ahat[kd, kd], Bhat[kd, kd])
+        Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[np.ix_(rd, rd)])
 
         def apply_strong_bcs(Ahat, Bhat, bc0, bc1):
             k0 = 0 if bc0 == 1 else 1
             k1 = Ahat.shape[0] if bc1 == 1 else -1
+            ki = slice(k0, k1)
             A = Ahat.copy()
             a = A.diagonal().copy()
-            A[k0:k1, k0:k1] = 0.0E0
+            A[ki, ki] = 0.0E0
             np.fill_diagonal(A, a)
 
             B = Bhat.copy()
             b = B.diagonal().copy()
-            B[k0:k1, k0:k1] = 0.0E0
+            B[ki, ki] = 0.0E0
             np.fill_diagonal(B, b)
             return [csr_matrix(A), csr_matrix(B)]
 
         Afdm = []
         Ak = Vfdm.T @ Ahat @ Vfdm
         Bk = Vfdm.T @ Bhat @ Vfdm
-        Bk[rd, k0:k1] = 0.0E0
-        Bk[k0:k1, rd] = 0.0E0
+        Bk[rd, kd] = 0.0E0
+        Bk[kd, rd] = 0.0E0
         for bc1 in range(3):
             for bc0 in range(3):
                 Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
@@ -522,12 +558,11 @@ class FDMPC(PCBase):
         Dfacet = basis[(1,)]
         Dfacet[:, 0] = -Dfacet[:, 0]
 
-        k0 = 1
-        k1 = -1
         rd = (0, -1)
+        kd = slice(1, -1)
         Vfdm = np.eye(Ahat.shape[0])
-        _, Vfdm[k0:k1, k0:k1] = eigh(Ahat[k0:k1, k0:k1], Bhat[k0:k1, k0:k1])
-        Vfdm[k0:k1, rd] = -Vfdm[k0:k1, k0:k1] @ ((Vfdm[k0:k1, k0:k1].T @ Bhat[k0:k1, rd]) @ Vfdm[np.ix_(rd, rd)])
+        _, Vfdm[kd, kd] = eigh(Ahat[kd, kd], Bhat[kd, kd])
+        Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[np.ix_(rd, rd)])
 
         def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
@@ -543,15 +578,15 @@ class FDMPC(PCBase):
 
         A = Vfdm.T @ Ahat @ Vfdm
         a = A.diagonal().copy()
-        A[k0:k1, k0:k1] = 0.0E0
+        A[kd, kd] = 0.0E0
         np.fill_diagonal(A, a)
 
         B = Vfdm.T @ Bhat @ Vfdm
         b = B.diagonal().copy()
-        B[k0:k1, k0:k1] = 0.0E0
+        B[kd, kd] = 0.0E0
+        B[rd, kd] = 0.0E0
+        B[kd, rd] = 0.0E0
         np.fill_diagonal(B, b)
-        B[rd, k0:k1] = 0.0E0
-        B[k0:k1, rd] = 0.0E0
 
         Dfdm = Vfdm.T @ Dfacet
         Afdm = []
@@ -882,7 +917,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def get_bc_flags(mesh, bcs, J):
+    def get_bc_flags(V, mesh, bcs, J):
         extruded = mesh.cell_set._extruded
         ndim = mesh.topological_dimension()
         nface = 2*ndim
@@ -942,23 +977,29 @@ class FDMPC(PCBase):
         # 0 => Natural, do nothing
         # 1 => Strong Dirichlet
         # 2 => Interior facet
-        maskall = False
-        labels = tuple()
+        maskall = []
+        comp = dict()
         for bc in bcs:
             if isinstance(bc, firedrake.DirichletBC):
+                labels = comp.get(bc._indices, ())
                 bs = bc.sub_domain
                 if bs == "on_boundary":
-                    maskall = True
+                    maskall.append(bc._indices)
                 elif bs == "bottom":
                     labels += (-2,)
                 elif bs == "top":
                     labels += (-4,)
                 else:
                     labels += bs if type(bs) == tuple else (bs,)
+                comp[bc._indices] = labels
 
+        # TODO add support for weak component BCs
+        # The Neumann integral may still be present but it's zero
+        J = expand_derivatives(J)
         for it in J.integrals():
             itype = it.integral_type()
             if itype.startswith("exterior_facet"):
+                labels = comp.get((), ())
                 bs = it.subdomain_id()
                 if bs == "everywhere":
                     if itype == "exterior_facet_bottom":
@@ -966,14 +1007,30 @@ class FDMPC(PCBase):
                     elif itype == "exterior_facet_top":
                         labels += (-4,)
                     else:
-                        maskall = True
+                        maskall.append(())
                 else:
                     labels += bs if type(bs) == tuple else (bs,)
+                comp[()] = labels
 
+        labels = comp.get((), ())
         labels = list(set(labels))
         fbc = np.isin(sub, labels).astype(PETSc.IntType)
-        if maskall:
+
+        if () in maskall:
             fbc[sub >= -1] = 1
         fbc[flags != 0] = 2
 
+        others = set(comp.keys()) - set(())
+        if others:
+            # We have bcs on individual vector components
+            fbc = np.tile(fbc, (V.value_size, 1, 1))
+            for j in range(V.value_size):
+                key = (j,)
+                labels = comp.get(key, ())
+                labels = list(set(labels))
+                fbc[j] |= np.isin(sub, labels)
+                if key in maskall:
+                    fbc[j][sub >= -1] = 1
+
+            fbc = np.transpose(fbc, (1, 0, 2))
         return fbc

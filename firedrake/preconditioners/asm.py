@@ -82,12 +82,14 @@ class ASMPatchPC(PCBase):
         else:
             raise ValueError(f"Unknown backend type f{backend}")
 
+        dosort = PETSc.Options().getBool(self.prefix + "sort", default=True)
+        asmpc.setASMSortIndices(dosort)
         asmpc.setFromOptions()
         self.asmpc = asmpc
 
     @abc.abstractmethod
     def get_patches(self, V):
-        ''' Get the patches used for PETSc PSASM
+        ''' Get the patches used for PETSc PCASM
 
         :param  V: the :class:`~.FunctionSpace`.
 
@@ -143,6 +145,16 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+
+            # Nested dissection reordering
+            num_pt = len(pt_array)
+            subgraph = [numpy.intersect1d(pt_array, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in pt_array]
+            cols = numpy.concatenate(subgraph).astype('int32')
+            rows = numpy.zeros(num_pt+1, dtype='int32')
+            rows[1:] = numpy.cumsum([len(neigh) for neigh in subgraph])
+            G = PETSc.Mat().createAIJ((num_pt, num_pt), csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
+            rperm, cperm = G.getOrdering(PETSc.Mat.OrderingType.ND)
+            pt_array = pt_array[rperm.getIndices()]
 
             # Get DoF indices for patch
             indices = []
