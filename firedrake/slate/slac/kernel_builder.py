@@ -390,7 +390,7 @@ class LocalLoopyKernelBuilder(object):
 
     coordinates_arg = "coords"
     cell_facets_arg = "cell_facets"
-    local_facet_array_arg = "facet_array"
+    local_facet_array_arg = "facet"
     layer_arg = "layer"
     layer_count = "layer_count"
     cell_size_arg = "cell_sizes"
