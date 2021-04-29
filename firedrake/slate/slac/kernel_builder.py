@@ -809,7 +809,7 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
         for tensor_temp in tensor2temp.values():
-            if tensor_temp.name not in [arg.name for arg in args]:
+            if tensor_temp.name not in [arg.name for arg in args] and not tensor_temp.name.startswith("S"):
                 args.append(tensor_temp)
 
         for knl in templated_subkernels:
