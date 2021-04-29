@@ -813,11 +813,12 @@ class LocalLoopyKernelBuilder(object):
                 args.append(tensor_temp)
 
         for knl in templated_subkernels:
-            if isinstance(knl, loopy.program.Program):
-                knl = knl.root_kernel
-            for arg in knl.temporary_variables.values():
-                if arg.name not in [arg.name for arg in args]:
-                    args.append(arg)
+            if knl:
+                if isinstance(knl, loopy.program.Program):
+                    knl = knl.root_kernel
+                for arg in knl.temporary_variables.values():
+                    if arg.name not in [arg.name for arg in args]:
+                        args.append(arg)
 
         return args
 
