@@ -585,11 +585,11 @@ class PlaneSmoother(object):
         bary /= len(closure_of_p)
         return bary
 
-    def sort_entities(self, dm, axis, dir, ndiv=-1, divisions=None):
+    def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
 
-        if ndiv == -1 and divisions is None:
+        if ndiv is None and divisions is None:
             raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
 
         mesh = dm.getAttr("__firedrake_mesh__")
@@ -624,7 +624,7 @@ class PlaneSmoother(object):
 
         if divisions is None:
             divisions = numpy.linspace(minx, maxx, ndiv+1)
-        if ndiv == -1:
+        if ndiv is None:
             ndiv = numpy.size(divisions)-1
         (entities, coords) = zip(*s)
         coords = [c[axis] for c in coords]
