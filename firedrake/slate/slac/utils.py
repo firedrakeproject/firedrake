@@ -358,7 +358,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
     # we remove all existing dependencies and make them sequential instead
     insns_new = []
     for i, insn in enumerate(insns):
-        insns_new.append(insn.copy(depends_on=frozenset({})))
+        if insn:
+            insns_new.append(insn.copy(depends_on=frozenset({})))
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns_new, args, name="slate_wrapper",
@@ -368,16 +369,17 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
     prg = make_program(slate_wrapper)
     loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
     for knl in loop:
+        if knl:
         # FIXME we might need to inline properly here for inlining the tsfc calls
         # that is so, because we first inline the solve calls with a cg loopy kernel
         # which contains actions and then we inline those actions after that
-        if isinstance(knl, lp.program.Program):
-            prg = inline_kernel_properly(prg, knl)
-        else:
-            prg = register_callable_kernel(prg, knl)
-            from loopy.transform.callable import _match_caller_callee_argument_dimension_
-            prg = _match_caller_callee_argument_dimension_(prg, knl.name)
-            prg = inline_callable_kernel(prg, knl.name)
+            if isinstance(knl, lp.program.Program):
+                prg = inline_kernel_properly(prg, knl)
+            else:
+                prg = register_callable_kernel(prg, knl)
+                from loopy.transform.callable import _match_caller_callee_argument_dimension_
+                prg = _match_caller_callee_argument_dimension_(prg, knl.name)
+                prg = inline_callable_kernel(prg, knl.name)
     return prg
 
 
@@ -467,23 +469,26 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
-                tsfc_knl_list.extend(tsfc_knls)
+                if tsfc_calls[0] and tsfc_knls[0]:
+                    tsfc_knl_list.extend(tsfc_knls)
 
-                if isinstance(slate_node, sl.Action):
-                    # substitute action call with the generated tsfc call for that action
-                    # but keep the lhs so that the following instructions still act on the right temporaries
-                    for i, tsfc_call in enumerate(tsfc_calls):
-                        insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                                        tsfc_call.expression,
-                                                                        id=insn.id+"_inlined_tsfc_"+str(i),
-                                                                        within_inames=insn.within_inames,
-                                                                        predicates=tsfc_call.predicates))
+                    if isinstance(slate_node, sl.Action):
+                        # substitute action call with the generated tsfc call for that action
+                        # but keep the lhs so that the following instructions still act on the right temporaries
+                        for i, tsfc_call in enumerate(tsfc_calls):
+                            insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                                            tsfc_call.expression,
+                                                                            id=insn.id+"_inlined_tsfc_"+str(i),
+                                                                            within_inames=insn.within_inames,
+                                                                            predicates=tsfc_call.predicates))
+                    else:
+                        # TODO we need to be able to this in case someone wants a matrix explicit solve
+                        # If we want an explicit solve, we need to assemble matrix first
+                        # FIXME in fact this does not work yet, we got trouble with instructions not containing the right temps
+                        insns.append(tsfc_calls[0])
+                        insns.append(insn)
                 else:
-                    # TODO we need to be able to this in case someone wants a matrix explicit solve
-                    # If we want an explicit solve, we need to assemble matrix first
-                    # FIXME in fact this does not work yet, we got trouble with instructions not containing the right temps
-                    insns.append(tsfc_calls[0])
-                    insns.append(insn)
+                    insns.append(lp.kernel.instruction.Assignment(insn.assignees[0].subscript, insn.expression.parameters[1].subscript))
 
         else:
             insns.append(insn)
