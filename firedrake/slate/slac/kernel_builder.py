@@ -763,11 +763,12 @@ class LocalLoopyKernelBuilder(object):
                                 dtype=self.tsfc_parameters["scalar_type"])]
 
         for loopy_inner in templated_subkernels:
-            for arg in loopy_inner.args[1:]:
-                if arg.name == self.cell_orientations_arg or\
-                   arg.name == self.cell_size_arg:
-                    if arg.name not in [arg.name for arg in args]:
-                        args.append(arg)
+            if loopy_inner:
+                for arg in loopy_inner.args[1:]:
+                    if arg.name == self.cell_orientations_arg or\
+                    arg.name == self.cell_size_arg:
+                        if arg.name not in [arg.name for arg in args]:
+                            args.append(arg)
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
@@ -807,11 +808,12 @@ class LocalLoopyKernelBuilder(object):
                 args.append(tensor_temp)
 
         for knl in templated_subkernels:
-            if isinstance(knl, loopy.program.Program):
-                knl = knl.root_kernel
-            for arg in knl.temporary_variables.values():
-                if arg.name not in [arg.name for arg in args]:
-                    args.append(arg)
+            if knl:
+                if isinstance(knl, loopy.program.Program):
+                    knl = knl.root_kernel
+                for arg in knl.temporary_variables.values():
+                    if arg.name not in [arg.name for arg in args]:
+                        args.append(arg)
 
         return args
 
