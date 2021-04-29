@@ -82,6 +82,7 @@ cell_to_facets_dtype = np.dtype(np.int8)
 class SlateKernel(TSFCKernel):
     @classmethod
     def _cache_key(cls, expr, tsfc_parameters, coffee):
+        print(expr.expression_hash)
         return md5((expr.expression_hash
                     + str(sorted(tsfc_parameters.items()))
                     + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
@@ -157,6 +158,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         from firedrake.slate.slac.utils import visualise
         visualise(slate_expr, "tree")
 
+    print("not optimised", slate_expr)
     if tsfc_parameters["optimise_slate"]:
         from firedrake.slate.slac.optimise import optimise
         slate_expr = optimise(slate_expr, tsfc_parameters)
@@ -165,12 +167,15 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
         from firedrake.slate.slac.utils import visualise
         visualise(slate_expr, "tree")
 
+    print("optimised", slate_expr)
+
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     gem_expr, var2terminal = slate_to_gem(slate_expr)
 
     scalar_type = tsfc_parameters["scalar_type"]
     (slate_loopy, gem2pym), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+    print(slate_loopy)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
@@ -184,7 +189,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
-
+    print(loopy_merged)
     # loopykernel = op2.Kernel(loopy_merged, loopy_merged.name,
     #                          include_dirs=BLASLAPACK_INCLUDE.split(),
     #                          ldargs=BLASLAPACK_LIB.split(),
@@ -653,9 +658,12 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)]
-            + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
-               for var in var2terminal.keys()])
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)])
+    for var in var2terminal.keys():
+        if var.name.startswith("S"):
+            args.append(loopy.TemporaryVariable(var.name, shape=var.shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
+        else:
+            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type))
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
