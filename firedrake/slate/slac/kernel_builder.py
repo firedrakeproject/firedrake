@@ -887,7 +887,7 @@ def match_kernel_argnames(insn, code):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, prefix="", new_coeffs=None):
+    def __init__(self, coeffs, prefix="", new_coeffs=None, name=""):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.inames = OrderedDict()
@@ -897,6 +897,12 @@ class SlateWrapperBag(object):
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
         self.index_creator = IndexCreator("i_"+prefix)
+        self.name = name
+    
+    def update_coefficients(self, coeffs, prefix, new_coeffs):
+        self.coefficients = coeffs
+        self.action_coefficients = new_coeffs
+        self.call_name_generator(prefix)
 
 
 class IndexCreator(object):

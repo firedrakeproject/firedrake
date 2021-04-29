@@ -380,7 +380,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs, _ = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs)
+    builder.bag = SlateWrapperBag(coeffs, slate_loopy.name)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
@@ -447,9 +447,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 old_coeffs.update(old_coeff)
 
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff)
-                builder.bag.call_name_generator("_"+str(c))
-                # FIXME have a better way of updating the builder bag with coeffs
+                if not builder.bag:
+                    builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff)
+                    builder.bag.call_name_generator("_"+str(c))
+                else:
+                    builder.bag.update_coefficients(old_coeffs, "_"+str(c), new_coeff)
 
                 if terminal not in tensor2temps.keys():
                     inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
@@ -497,8 +499,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
     # Get all coeffs into the wrapper kernel
     # so that we can generate the right wrapper kernel args of it
-    builder.bag.coefficients = init_coeffs
-    builder.bag.action_coefficients = new_coeffs
+    builder.bag.update_coefficients(init_coeffs, "_"+str(c), new_coeffs)
 
     return tensor2temps, tsfc_knl_list, insns, builder
 
