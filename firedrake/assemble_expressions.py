@@ -240,7 +240,6 @@ class Assign(object):
         """Coefficients appearing in the rvalue."""
         return extract_coefficients(self.rvalue)
 
-    @PETSc.Log.EventDecorator()
     @cached_property
     def split(self):
         """A tuple of assignment expressions, separated by subspace for mixed spaces."""
@@ -314,7 +313,6 @@ class Assign(object):
         rvalue, = map_expr_dags(self.relabeller, [self.rvalue])
         return (type(self), hash(self.lvalue), hash(rvalue))
 
-    @PETSc.Log.EventDecorator()
     @cached_property
     def par_loop_args(self):
         """Arguments for a parallel loop to evaluate this expression.

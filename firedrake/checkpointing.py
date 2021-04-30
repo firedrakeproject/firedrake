@@ -1,6 +1,7 @@
 from firedrake.petsc import PETSc
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from firedrake.cython import hdf5interface as h5i
+from firedrake.petsc import PETSc
 import firedrake
 import numpy as np
 import os
@@ -63,6 +64,7 @@ class DumbCheckpoint(object):
         self._fidx = 0
         self.new_file()
 
+    @PETSc.Log.EventDecorator()
     def set_timestep(self, t, idx=None):
         r"""Set the timestep for output.
 
@@ -85,6 +87,7 @@ class DumbCheckpoint(object):
         new_steps = np.concatenate((steps, [self._time]))
         self.write_attribute("/", "stored_time_steps", new_steps)
 
+    @PETSc.Log.EventDecorator()
     def get_timesteps(self):
         r"""Return all the time steps (and time indices) in the current
         checkpoint file.
@@ -96,6 +99,7 @@ class DumbCheckpoint(object):
         steps = self.read_attribute("/", "stored_time_steps", [])
         return steps, indices
 
+    @PETSc.Log.EventDecorator()
     def new_file(self, name=None):
         r"""Open a new on-disk file for writing checkpoint data.
 
@@ -165,6 +169,7 @@ class DumbCheckpoint(object):
         self._h5file = h5i.get_h5py_file(self.vwr)
         return self._h5file
 
+    @PETSc.Log.EventDecorator()
     def close(self):
         r"""Close the checkpoint file (flushing any pending writes)"""
         if hasattr(self, "_vwr"):
@@ -190,6 +195,7 @@ class DumbCheckpoint(object):
             self.h5file.require_group(group)
             self.write_attribute(group, "timestep", self._time)
 
+    @PETSc.Log.EventDecorator()
     def store(self, function, name=None):
         r"""Store a function in the checkpoint file.
 
@@ -215,6 +221,7 @@ class DumbCheckpoint(object):
             v.setName(oname)
             self.vwr.popGroup()
 
+    @PETSc.Log.EventDecorator()
     def load(self, function, name=None):
         r"""Store a function from the checkpoint file.
 
@@ -376,6 +383,7 @@ class HDF5File(object):
         r"""Flush any pending writes."""
         self._h5file.flush()
 
+    @PETSc.Log.EventDecorator()
     def write(self, function, path, timestamp=None):
         r"""Store a function in the checkpoint file.
 
@@ -408,6 +416,7 @@ class HDF5File(object):
             attr["timestamp"] = timestamp
             self._set_timestamp(timestamp)
 
+    @PETSc.Log.EventDecorator()
     def read(self, function, path, timestamp=None):
         r"""Store a function from the checkpoint file.
 

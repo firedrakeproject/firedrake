@@ -174,6 +174,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
@@ -315,6 +316,7 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
 
+    @PETSc.Log.EventDecorator()
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP

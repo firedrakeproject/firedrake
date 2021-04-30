@@ -17,6 +17,18 @@ del sys, config
 
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
+
+# Initialise PETSc events for both import and entire duration of program
+_main_event = petsc.PETSc.Log.Event("firedrake")
+_main_event.begin()
+
+_init_event = petsc.PETSc.Log.Event("firedrake.__init__")
+_init_event.begin()
+
+import atexit
+atexit.register(lambda: _main_event.end())
+
+del atexit
 del petsc
 
 # UFL Exprs come with a custom __del__ method, but we hold references
@@ -128,3 +140,6 @@ if (_omp_num_threads is None) or (_omp_num_threads > 1):
     warning('OMP_NUM_THREADS is not set or is set to a value greater than 1,'
             ' we suggest setting OMP_NUM_THREADS=1 to improve performance')
 del _openblas_lib, _openblas_dll, _omp_num_threads, os, cdll, find_library
+
+# Stop profiling Firedrake import
+_init_event.end()

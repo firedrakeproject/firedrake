@@ -13,10 +13,12 @@ from tsfc import compile_expression_dual_evaluation
 import firedrake
 from firedrake import utils
 from firedrake.adjoint import annotate_interpolate
+from firedrake.petsc import PETSc
 
 __all__ = ("interpolate", "Interpolator")
 
 
+@PETSc.Log.EventDecorator()
 def interpolate(expr, V, subset=None, access=op2.WRITE):
     """Interpolate an expression onto a new function in V.
 
@@ -83,6 +85,7 @@ class Interpolator(object):
         self.expr = expr
         self.V = V
 
+    @PETSc.Log.EventDecorator()
     @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
@@ -142,6 +145,7 @@ class Interpolator(object):
                     return assembled_interpolator
 
 
+@PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
@@ -318,6 +322,7 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
+@PETSc.Log.EventDecorator()
 def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
     function provided."""

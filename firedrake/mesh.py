@@ -70,6 +70,8 @@ class _Facets(object):
     .. warning::
 
        The unique_markers argument **must** be the same on all processes."""
+    
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
 
@@ -126,6 +128,7 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -171,6 +174,7 @@ class _Facets(object):
         else:
             return self.subset(subdomain_id)
 
+    @PETSc.Log.EventDecorator()
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
@@ -202,6 +206,7 @@ class _Facets(object):
                        "facet_to_cell_map")
 
 
+@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -219,6 +224,7 @@ def _from_gmsh(filename, comm=None):
     return gmsh_plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_exodus(filename, comm):
     """Read an Exodus .e or .exo file from `filename`.
 
@@ -229,6 +235,7 @@ def _from_exodus(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cgns(filename, comm):
     """Read a CGNS .cgns file from `filename`.
 
@@ -238,6 +245,7 @@ def _from_cgns(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_triangle(filename, dim, comm):
     """Read a set of triangle mesh files from `filename`.
 
@@ -305,6 +313,7 @@ def _from_triangle(filename, dim, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cell_list(dim, cells, coords, comm):
     """
     Create a DMPlex from a list of cells and coords.
@@ -560,6 +569,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def cell_set(self):
         pass
 
+    @PETSc.Log.EventDecorator()
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
 
@@ -602,6 +612,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                                                     subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -825,6 +836,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
+    @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
@@ -921,6 +933,7 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    @PETSc.Log.EventDecorator()
     def set_partitioner(self, distribute, partitioner_type=None):
         """Set partitioner for (re)distributing underlying plex over comm.
 
@@ -969,6 +982,7 @@ class MeshTopology(AbstractMeshTopology):
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, layers):
         """Build an extruded mesh topology from an input mesh topology
 
@@ -1074,6 +1088,7 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
@@ -1091,6 +1106,7 @@ class ExtrudedMeshTopology(MeshTopology):
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
@@ -1166,6 +1182,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     another mesh.
     """
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, swarm, parentmesh, name, reorder):
         """
         Half-initialise a mesh topology.
@@ -1472,6 +1489,7 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None):
         """Locate cell containg given point.
 
@@ -1527,6 +1545,7 @@ values from f.)"""
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
@@ -1576,6 +1595,7 @@ values from f.)"""
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
 
+@PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
@@ -1877,6 +1897,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     return self
 
 
+@PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices
@@ -2063,6 +2084,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     return swarm
 
 
+@PETSc.Log.EventDecorator()
 def SubDomainData(geometric_expr):
     """Creates a subdomain data object from a boolean-valued UFL expression.
 
