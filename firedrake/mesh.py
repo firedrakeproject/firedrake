@@ -70,7 +70,7 @@ class _Facets(object):
     .. warning::
 
        The unique_markers argument **must** be the same on all processes."""
-    
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
