@@ -251,10 +251,14 @@ class ASMLinesmoothPC(ASMPatchPC):
         mesh = V._mesh
         assert mesh.cell_set._extruded
         dm = mesh.topology_dm
-        section = V.dm.getDefaultSection()
+        #section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
         codim_list = [int(ii) for ii in codim_list.split(",")]
+
+        V_local_ises_indices = []
+        for (i, W) in enumerate(V):
+            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
 
         # Build index sets for the patches
         ises = []
@@ -263,12 +267,22 @@ class ASMLinesmoothPC(ASMPatchPC):
                 # Only want to build patches over owned faces
                 if dm.getLabelValue("pyop2_ghost", p) != -1:
                     continue
-                dof = section.getDof(p)
-                if dof <= 0:
-                    continue
-                off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype='int32')
+                Q, _ = dm.getTransitiveClosure(p, useCone=False)
+                # Get DoF indices for patch
+                indices = []
+                for (i, W) in enumerate(V):
+                    section = W.dm.getDefaultSection()
+                    for q in Q.tolist():
+                        dof = section.getDof(q)
+                        if dof <= 0:
+                            continue
+                        off = section.getOffset(q)
+                        # Local indices within W
+                        W_indices = numpy.arange(off * W.value_size, W.value_size * (off + dof), dtype='int32')
+                        indices.extend(V_local_ises_indices[i][W_indices])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
-
         return ises
+
+
+
