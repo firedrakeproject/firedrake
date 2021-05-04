@@ -894,7 +894,7 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False):
+def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
@@ -903,6 +903,8 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
     :arg on_base: If True, assume extruded space is actually Foo x Real.
+    :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
+        to get the true data layout.
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
@@ -959,7 +961,7 @@ def create_section(mesh, nodes_per_entity, on_base=False):
                 else:
                     layers = layer_extents[p, 1] - layer_extents[p, 0]
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
-            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
+            CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
     section.setUp()
     return section
 
@@ -3023,3 +3025,39 @@ def fill_reference_coordinates_function(reference_coordinates_f):
     swarm.restoreField("refcoord")
 
     return reference_coordinates_f
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def compute_point_cone_global_sizes(PETSc.DM dm):
+    """Compute the total number of DMPlex points and the global sum of cone sizes for dm.
+
+    :arg dm: The dm.
+    :returns: A list of global number of points and global sum of cone sizes.
+    """
+    cdef:
+        PETSc.SF sf
+        PetscInt nleaves
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
+        PetscInt i, p, pStart, pEnd, coneSize
+        np.ndarray[PetscInt, ndim=1, mode="c"] arraySizes
+        np.ndarray[PetscInt, ndim=1, mode="c"] out
+
+    sf = dm.getPointSF()
+    CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
+    if nleaves < 0:
+        # comm.size == 1
+        nleaves = 0
+    CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
+    arraySizes = np.zeros((2, ), dtype=IntType)
+    arraySizes[0] = (pEnd - pStart) - nleaves
+    for p in range(pStart, pEnd):
+        CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
+        arraySizes[1] += coneSize;
+    for i in range(nleaves):
+        CHKERR(DMPlexGetConeSize(dm.dm, ilocal[i], &coneSize))
+        arraySizes[1] -= coneSize;
+    out = np.zeros((2, ), dtype=IntType)
+    dm.comm.tompi4py().Allreduce(arraySizes, out, op=MPI.SUM)
+    return out
