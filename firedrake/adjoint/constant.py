@@ -1,4 +1,5 @@
 from functools import wraps
+from pyadjoint.adjfloat import AdjFloat
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
@@ -24,6 +25,11 @@ class ConstantMixin(OverloadedType):
                                     _ad_outputs=kwargs.pop("_ad_outputs", None),
                                     annotate=kwargs.pop("annotate", True), **kwargs)
             init(self, *args, **kwargs)
+
+            other = args[0]
+            if isinstance(other, int):
+                other = AdjFloat(other)
+            self.assign(other, annotate=annotate_tape(kwargs))
         return wrapper
 
     @staticmethod
