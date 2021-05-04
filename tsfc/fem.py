@@ -136,9 +136,10 @@ class CoordinateMapping(PhysicalGeometry):
         :arg context: The translation context.
         :returns: A new UFL expression
         """
-        ifacet = self.interface.integral_type.startswith("interior_facet")
+        is_facet = (self.interface.integration_dim !=
+                    self.interface.fiat_cell.get_dimension())
         return preprocess_expression(expr, complex_mode=context.complex_mode,
-                                     do_apply_restrictions=ifacet)
+                                     do_apply_restrictions=is_facet)
 
     @property
     def config(self):
