@@ -37,6 +37,7 @@ from firedrake.petsc import PETSc
 __all__ = ("get_shared_data", )
 
 
+@PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
     finat_element = _create_element(ufl_element)
     if isinstance(finat_element, finat.TensorFiniteElement):
@@ -67,7 +68,7 @@ def cached(f, mesh, key, *args, **kwargs):
 
 
 @cached
-def get_global_numbering(mesh, key):
+def get_global_numbering(mesh, key, global_numbering=None):
     """Get a PETSc Section describing the global numbering.
 
     This numbering associates function space nodes with topological
@@ -80,6 +81,8 @@ def get_global_numbering(mesh, key):
         degenerate fs x Real tensorproduct.
     :returns: A new PETSc Section.
     """
+    if global_numbering:
+        return global_numbering
     nodes_per_entity, real_tensorproduct = key
     return mesh.create_section(nodes_per_entity, real_tensorproduct)
 

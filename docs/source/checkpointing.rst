@@ -8,13 +8,158 @@
 
 In addition to the ability to :doc:`write field data to vtu files
 <visualisation>`, suitable for visualisation in Paraview_, Firedrake
-has some support for checkpointing state to disk.  This enables
+has support for checkpointing state to disk.  This enables
 pausing, and subsequently resuming, a simulation at a later time.
 
-Restrictions on checkpointing
-=============================
+Checkpointing with CheckpointFile
+=================================
 
-The current support for checkpointing is somewhat limited.  One may
+:class:`~.CheckpointFile` class facilitates saving/loading meshes and
+:class:`~.Function` s to/from an HDF5_ file. 
+The implementation is scalable in that :class:`~.Function` s are
+saved to and loaded from the file entirely in parallel without needing
+to pass through a single process.
+It also supports flexible checkpointing, where one can save meshes and
+:class:`~.Function` s on :math:`N` processes and later load them on
+:math:`P` processes.
+
+Saving
+------
+
+In the following example we save in "example.h5" file two :class:`~.Function` s,
+along with the mesh on which they are defined.
+
+.. code-block:: python3
+
+    mesh = UnitSquareMesh(10, 10, name="meshA")
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "CG", 1)
+    Z = V * W
+    f = Function(V, name="f")
+    g = Function(Z, name="g")
+    with CheckpointFile("example.h5", 'w') as afile:
+        afile.save_mesh(mesh)  # optional
+        afile.save_function(f)
+        afile.save_function(g)
+
+If the mesh name is not provided by the user when constructing the mesh, the
+default mesh name, :data:`~.DEFAULT_MESH_NAME`, is assigned, which is then
+used when saving in the file. We, however, strongly encourage users to name
+each mesh.
+
+Inspecting saved data
+---------------------
+
+Now "example.h5" file has been created and the mesh and :class:`~.Function`
+data have been saved.
+One can view the contents of the HDF5 file with "h5dump" utility shipped with
+the HDF5 installation; "h5dump -n example.h5", for instance, shows:
+
+::
+
+    HDF5 "example.h5" {
+    FILE_CONTENTS {
+     group      /
+     group      /topologies
+     group      /topologies/firedrake_mixed_meshes
+     group      /topologies/firedrake_mixed_meshes/meshA
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/0
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/1
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/firedrake_functions
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/firedrake_functions/g
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/firedrake_functions/g/0
+     group      /topologies/firedrake_mixed_meshes/meshA/firedrake_mixed_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>_meshA_<CG1 on a triangle>/firedrake_functions/g/1
+     group      /topologies/meshA_topology
+     group      /topologies/meshA_topology/dms
+     group      /topologies/meshA_topology/dms/coordinateDM
+     dataset    /topologies/meshA_topology/dms/coordinateDM/order
+     group      /topologies/meshA_topology/dms/coordinateDM/section
+     dataset    /topologies/meshA_topology/dms/coordinateDM/section/atlasDof
+     dataset    /topologies/meshA_topology/dms/coordinateDM/section/atlasOff
+     group      /topologies/meshA_topology/dms/coordinateDM/section/field0
+     dataset    /topologies/meshA_topology/dms/coordinateDM/section/field0/atlasDof
+     dataset    /topologies/meshA_topology/dms/coordinateDM/section/field0/atlasOff
+     group      /topologies/meshA_topology/dms/coordinateDM/section/field0/component0
+     group      /topologies/meshA_topology/dms/coordinateDM/section/field0/component1
+     group      /topologies/meshA_topology/dms/coordinateDM/vecs
+     group      /topologies/meshA_topology/dms/coordinateDM/vecs/coordinates
+     dataset    /topologies/meshA_topology/dms/coordinateDM/vecs/coordinates/coordinates
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/order
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/section
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/section/atlasDof
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/section/atlasOff
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/vecs
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/vecs/g[1]
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_1/vecs/g[1]/g[1]
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/order
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/section
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/section/atlasDof
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/section/atlasOff
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/vecs
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/vecs/meshA_coordinates
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_0_0_False_2/vecs/meshA_coordinates/meshA_coordinates
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/order
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/section
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/section/atlasDof
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/section/atlasOff
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/vecs
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/vecs/f
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/vecs/f/f
+     group      /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/vecs/g[0]
+     dataset    /topologies/meshA_topology/dms/firedrake_dm_1_1_0_False_1/vecs/g[0]/g[0]
+     group      /topologies/meshA_topology/firedrake_meshes
+     group      /topologies/meshA_topology/firedrake_meshes/meshA
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG1 on a triangle>
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG1 on a triangle>/firedrake_functions
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG1 on a triangle>/firedrake_functions/g[1]
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>/firedrake_functions
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>/firedrake_functions/f
+     group      /topologies/meshA_topology/firedrake_meshes/meshA/firedrake_function_spaces/firedrake_function_space_meshA_<CG2 on a triangle>/firedrake_functions/g[0]
+     group      /topologies/meshA_topology/labels
+     group      /topologies/meshA_topology/labels/...
+     ...
+     group      /topologies/meshA_topology/topology
+     dataset    /topologies/meshA_topology/topology/cells
+     dataset    /topologies/meshA_topology/topology/cones
+     dataset    /topologies/meshA_topology/topology/order
+     dataset    /topologies/meshA_topology/topology/orientation
+     }
+    }
+
+Loading
+-------
+
+We can load the mesh and :class:`~.Function` s in "example.h5" as in the
+following.
+
+.. code-block:: python3
+
+    with CheckpointFile("example.h5", 'r') as afile:
+        mesh = afile.load_mesh("meshA")
+        f = afile.load_function(mesh, "f")
+        g = afile.load_function(mesh, "g") 
+
+Note that one needs to load the mesh before loading the :class:`~.Function` s
+that are defined on it. If the default mesh name, :data:`~.DEFAULT_MESH_NAME`,
+was used when saving, the mesh name can be ommitted when loading.
+
+Checkpointing with DumbCheckpoint
+=================================
+
+.. warning::
+
+   :class:`~.DumbCheckpoint` will be deprecated after 01/01/2022.
+   Instead, users are encouraged to use :class:`~.CheckpointFile`,
+   which is more robust and scalable.
+
+The support for :class:`~.DumbCheckpoint` is somewhat limited.  One may
 only store :class:`~.Function`\s in the checkpoint object.  Moreover,
 no remapping of data is performed.  This means that resuming the
 checkpoint is only possible on the same number of processes as used to
@@ -22,15 +167,6 @@ create the checkpoint file.  Additionally, the *same* ``Mesh``
 must be used: that is a ``Mesh`` constructed identically to the
 mesh used to generate the saved checkpoint state.
 
-.. note::
-
-   In the future, this restriction will be lifted and Firedrake will
-   be able to store and resume checkpoints on different number of
-   processes, as long as the mesh topology remains unchanged.
-
-
-Creating and using checkpoint files
-===================================
 
 Opening a checkpoint
 --------------------
@@ -200,7 +336,7 @@ function at a different time level, we just call
 value.
 
 Inspecting available time levels
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--------------------------------
 
 The stored time levels in the checkpoint object are available as
 attributes in the file.  They may be inspected by calling
