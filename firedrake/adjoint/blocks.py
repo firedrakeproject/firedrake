@@ -544,6 +544,7 @@ class GenericSolveBlock(Block, Backend):
                         c_rep = block_variable.saved_output
                         if isinstance(c, (self.backend.DirichletBC)):
                             bbcs.append(c_rep)
+                import ipdb; ipdb.set_trace()
                 bcs_new.append(self.backend.EquationBC(bc_lhs == bc_rhs, func, bc.sub_domain, bcs=bbcs))
             else:
                 bcs_new.append(bc)

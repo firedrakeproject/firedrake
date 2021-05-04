@@ -16,7 +16,9 @@ class Backend:
 class EquationBCBlock(Block, Backend):
     def __init__(self, *args, **kwargs):
         Block.__init__(self)
+
         self.args = args
+        self.eq = args[0]
         self.add_dependency(args[1])
         self.func = args[1]
         self.function_space = self.args[1].function_space()
@@ -24,9 +26,18 @@ class EquationBCBlock(Block, Backend):
             for bc in kwargs['bcs']:
                 self.add_dependency(bc, no_duplicates=True)
 
+        if isinstance(self.eq.lhs, ufl.Form) and isinstance(self.eq.rhs, ufl.Form):
+            self.linear = True
+        else:
+            self.linear = False
+
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        raise NotImplementedError("Taking the derivative where EquationBC depends\
-                                  on the control is not implemented")
+        if self.func == block_variable.output:
+            return None
+        else:
+            raise NotImplementedError("Taking the derivative where EquationBC depends\
+                                      on the control is not implemented")            
+        
 
     @no_annotations
     def recompute(self):
@@ -85,10 +96,10 @@ class EquationBCMixin(FloatingType):
         i_func = []
         i_bc = 0
         for i in range(len(checkpoint)):
-              if isinstance(checkpoint[i].saved_output, (type(self), DirichletBC)):
-                  i_bc = i
-              if isinstance(checkpoint[i].saved_output, (Constant, Function)):
-                  i_func.append(i)
+             if isinstance(checkpoint[i].saved_output, (type(self), DirichletBC)):
+                 i_bc = i
+             if isinstance(checkpoint[i].saved_output, (Constant, Function)):
+                 i_func.append(i)
             
         if self.is_linear:
             bc_rhs_tmp = self.eq.rhs
@@ -103,8 +114,8 @@ class EquationBCMixin(FloatingType):
             bc_lhs_tmp = self._replace_map(bc_lhs_tmp, checkpoint[j])
         bc_lhs = bc_lhs_tmp
 
-        #if i_bc != 0:
-        #    return type(self)(bc_lhs == bc_rhs, checkpoint[0].saved_output, self.sub_domain, bcs = checkpoint[i_bc].saved_output)
-        #else:
-        #    return type(self)(bc_lhs == bc_rhs, checkpoint[0].saved_output, self.sub_domain)
-        return self
+        if i_bc != 0:
+            return type(self)(bc_lhs == bc_rhs, checkpoint[0].saved_output, self.sub_domain, bcs = checkpoint[i_bc].saved_output)
+        else:
+            return type(self)(bc_lhs == bc_rhs, checkpoint[0].saved_output, self.sub_domain)
+        #return self
