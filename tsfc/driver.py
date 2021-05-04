@@ -350,6 +350,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Translate to GEM
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
+                      # FIXME: change if we ever implement
+                      # interpolation on facets.
+                      integral_type="cell",
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
