@@ -174,8 +174,6 @@ def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
                     options_prefix=None):
     r"""Allocate a matrix given an expression.
 
-    To be used with :func:`create_assembly_callable`.
-
     .. warning::
 
        Do not use this function unless you know what you're doing.
@@ -197,6 +195,10 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
     This is really only designed to be used inside residual and
     jacobian callbacks, since it always assembles back into the
     initially provided tensor.  See also :func:`allocate_matrix`.
+
+    .. warning::
+
+        This function is now deprecated.
 
     .. warning::
 
