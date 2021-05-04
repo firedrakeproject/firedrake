@@ -202,6 +202,12 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
 
        Really do not use this function unless you know what you're doing.
     """
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("always", DeprecationWarning)
+        warnings.warn("create_assembly_callable is now deprecated. Please use assemble instead.",
+                      DeprecationWarning)
+
     if tensor is None:
         raise ValueError("Have to provide tensor to write to")
     return functools.partial(assemble, expr,
