@@ -71,7 +71,7 @@ class FDMPC(PCBase):
 
         # Get problem coefficients
         appctx = self.get_appctx(pc)
-        mu = appctx.get("mu", None)  # sets the viscosity
+        mu = appctx.get("viscosity", None)  # sets the viscosity
         helm = appctx.get("helm", None)  # sets the potential
         hflag = helm is not None
 
@@ -86,12 +86,12 @@ class FDMPC(PCBase):
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             self.stencil = firedrake.Function(W)
             Gq, Bq = self.assemble_coef(mu, helm, Nq)
-            Pmat = self.assemble_stencil(P, V, Gq, Bq, N, bcflags)
+            Pmat = self.assemble_stencil(A, V, Gq, Bq, N, bcflags)
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
             Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True)
-            Pmat = self.assemble_affine(P, V, Gq, Bq, Afdm, Dfdm, bcflags)
+            Pmat = self.assemble_affine(A, V, Gq, Bq, Afdm, Dfdm, bcflags)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -277,6 +277,7 @@ class FDMPC(PCBase):
         bid, _ = self.glonum_fun(Bq) if Bq is not None else (None, nel)
 
         ncomp = V.value_size
+        ndof = ncomp * V.dof_dset.set.size
         ndim = V.mesh().topological_dimension()
         idsym = None
         ele = Gq.ufl_element()
@@ -297,8 +298,9 @@ class FDMPC(PCBase):
         cell_csr = []
         facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
+
         for e in range(nel):
-            ie = ncomp * lgmap.apply(lexico_cell(e))
+            ie = ncomp * lexico_cell(e)
             mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
             bce = bcflags[e]
             for j in range(ncomp):
@@ -322,7 +324,10 @@ class FDMPC(PCBase):
                         ae += kron(be, Afdm[fbc[2]][0] * muj[2], format="csr")
 
                 cell_csr.append(ae)
-                rows = j + ie
+                rows = lgmap.apply(j + ie)
+                for row in rows:
+                    prealloc.setValue(row, row, 1.0E0, imode)
+
                 self.index_bcs(rows, pshape, bcj == strong, -1)
                 cols = rows[ae.indices]
                 for i, row in enumerate(rows):
@@ -377,10 +382,6 @@ class FDMPC(PCBase):
                     prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
                     prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
 
-        ndof = ncomp * V.dof_dset.set.size
-        for row in range(ndof):
-            prealloc.setValue(row, row, 1.0E0, imode)
-
         prealloc.assemble()
         nnz = get_preallocation(prealloc, ndof)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
@@ -392,16 +393,18 @@ class FDMPC(PCBase):
         for e, ae in enumerate(cell_csr):
             if e % ncomp == 0:
                 bce = bcflags[e // ncomp]
-                ie = ncomp * lgmap.apply(lexico_cell(e // ncomp))
+                ie = ncomp * lexico_cell(e // ncomp)
             else:
                 ie += 1
 
             bcj = bce[e % ncomp] if len(bce.shape) == 2 else bce
-            rows = ie.copy()
+            rows = lgmap.apply(ie)
+            ibc = rows.copy()
+
             self.index_bcs(rows, pshape, bcj == strong, -1)
             adiag = ae.diagonal()
             adiag = adiag[rows == -1]
-            ibc = ie[rows == -1]
+            ibc = ibc[rows == -1]
             for row, val in zip(ibc, adiag):
                 Pmat.setValue(row, row, val, imode)
 
@@ -1020,7 +1023,7 @@ class FDMPC(PCBase):
             fbc[sub >= -1] = 1
         fbc[flags != 0] = 2
 
-        others = set(comp.keys()) - set(())
+        others = set(comp.keys()) - {()}
         if others:
             # We have bcs on individual vector components
             fbc = np.tile(fbc, (V.value_size, 1, 1))
