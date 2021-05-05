@@ -253,7 +253,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Make sure the DM has this solver's callback functions
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
-           
+
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         for dbc in self._problem.dirichlet_bcs():
