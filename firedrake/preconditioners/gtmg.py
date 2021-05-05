@@ -15,8 +15,8 @@ class GTMGPC(PCBase):
 
     def initialize(self, pc):
 
-        from firedrake import TestFunction, parameters
-        from firedrake.assemble import allocate_matrix, assemble
+        from firedrake import TestFunction, assemble, parameters
+        from firedrake.assemble import allocate_matrix
         from firedrake.interpolation import Interpolator
         from firedrake.solving_utils import _SNESContext
         from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -63,7 +63,8 @@ class GTMGPC(PCBase):
                                                        tensor=self.fine_op,
                                                        bcs=fine_bcs,
                                                        form_compiler_parameters=fcp,
-                                                       mat_type=fine_mat_type)
+                                                       mat_type=fine_mat_type,
+                                                       assembly_type="residual")
             self._assemble_fine_op()
             fine_petscmat = self.fine_op.petscmat
         else:
@@ -105,7 +106,8 @@ class GTMGPC(PCBase):
                                                      coarse_operator,
                                                      tensor=self.coarse_op,
                                                      bcs=coarse_space_bcs,
-                                                     form_compiler_parameters=fcp)
+                                                     form_compiler_parameters=fcp,
+                                                     assembly_type="residual")
         self._assemble_coarse_op()
         coarse_opmat = self.coarse_op.petscmat
 

@@ -119,7 +119,8 @@ class PCDPC(PCBase):
                                               fp,
                                               tensor=self.Fp,
                                               form_compiler_parameters=context.fc_params,
-                                              mat_type=self.Fp_mat_type)
+                                              mat_type=self.Fp_mat_type,
+                                              assembly_type="residual")
         self._assemble_Fp()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]

@@ -61,7 +61,8 @@ class AssembledPC(PCBase):
                                              tensor=self.P,
                                              bcs=bcs,
                                              form_compiler_parameters=fcp,
-                                             mat_type=mat_type)
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
         self._assemble_P()
 
         # Transfer nullspace over

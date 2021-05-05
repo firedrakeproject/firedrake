@@ -85,7 +85,7 @@ class ImplicitMatrixContext(object):
     """
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
-        from firedrake import assemble
+        from firedrake.assemble import assemble
 
         self.a = a
         self.aT = adjoint(a)
@@ -141,7 +141,8 @@ class ImplicitMatrixContext(object):
                                                   self.action,
                                                   tensor=self._y,
                                                   bcs=self.bcs_action,
-                                                  form_compiler_parameters=self.fc_params)
+                                                  form_compiler_parameters=self.fc_params,
+                                                  assembly_type="residual")
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -159,14 +160,16 @@ class ImplicitMatrixContext(object):
                                       action(adjoint(ebc.f), self._y),
                                       tensor=self._xbc,
                                       bcs=None,
-                                      form_compiler_parameters=self.fc_params))
+                                      form_compiler_parameters=self.fc_params,
+                                      assembly_type="residual"))
         # Domain last
         self._assemble_actionT.append(
             functools.partial(assemble,
                               self.actionT,
                               tensor=self._x if len(self.bcs) == 0 else self._xbc,
                               bcs=None,
-                              form_compiler_parameters=self.fc_params))
+                              form_compiler_parameters=self.fc_params,
+                              assembly_type="residual"))
 
     @cached_property
     def _diagonal(self):
@@ -176,12 +179,13 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake import assemble
+        from firedrake.assemble import assemble
         return functools.partial(assemble,
                                  self.a,
                                  tensor=self._diagonal,
                                  form_compiler_parameters=self.fc_params,
-                                 diagonal=True)
+                                 diagonal=True,
+                                 assembly_type="residual")
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()
