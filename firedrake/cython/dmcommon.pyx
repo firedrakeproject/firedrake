@@ -2694,9 +2694,8 @@ def fill_reference_coordinates_function(reference_coordinates_f):
     # get reference coord field - NOTE isn't copied so could have GC issues!
     reference_coords = swarm.getField("refcoord").reshape((num_vertices, parent_tdim))
 
-    # find parent cell numbers
-    for i in range(num_vertices):
-        reference_coordinates_f.dat.data[i] = reference_coords[i]
+    # store reference coord field in Function Dat.
+    reference_coordinates_f.dat.data[:] = reference_coords[:]
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("refcoord")
