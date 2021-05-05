@@ -593,16 +593,16 @@ class SupermeshProjectBlock(Block, Backend):
     r"""
     Annotates supermesh projection.
 
-    Suppose we have a source space, :math:`V_S`, and a target space, :math:`V_T`.
-    Projecting a source from :math:`V_S` to :math:`V_T` amounts to solving the
+    Suppose we have a source space, :math:`V_A`, and a target space, :math:`V_B`.
+    Projecting a source from :math:`V_A` to :math:`V_B` amounts to solving the
     linear system
 
   ..math::
-        M_T * v_T = M_{ST} * v_S,
+        M_B * v_B = M_{AB} * v_A,
 
-    where :math:`M_T` is the mass matrix on :math:`V_T`, :math:`M_{ST}` is the
-    mixed mass matrix for :math:`V_S` and :math:`V_T` and :math:`v_S` and
-    :math:`v_T` are vector representations of the source and target
+    where :math:`M_B` is the mass matrix on :math:`V_B`, :math:`M_{AB}` is the
+    mixed mass matrix for :math:`V_A` and :math:`V_B` and :math:`v_A` and
+    :math:`v_B` are vector representations of the source and target
     :class:`Function`s.
 
     This can be broken into two steps:
@@ -614,6 +614,9 @@ class SupermeshProjectBlock(Block, Backend):
         import firedrake.supermeshing as supermesh
         from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 
+        # Process args and kwargs
+        if not isinstance(source, self.backend.Function):
+            raise NotImplementedError(f"Source function must be a Function, not {type(source)}.")
         sp = kwargs.get('solver_parameters')
         self.solver_parameters = {} if sp is None else sp.copy()
         self.form_compiler_parameters = kwargs.get('form_compiler_parameters')
@@ -648,24 +651,14 @@ class SupermeshProjectBlock(Block, Backend):
         self.solver = self.backend.LinearSolver(
             self.lhs, solver_parameters=self.solver_parameters)
 
-        # Form RHS
+        # Assemble mixed mass matrix
         self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
             source.function_space(), target_space)
-        self._rhs = firedrake.Function(target_space)
 
         # Add dependencies
         self.add_dependency(source, no_duplicates=True)
         for bc in bcs:
             self.add_dependency(bc, no_duplicates=True)
-
-    @property
-    def rhs(self):
-        with self.source.dat.vec_ro as vsrc, self._rhs.dat.vec_wo as vrhs:
-            self.mixed_mass.mult(vsrc, vrhs)  # Step 1
-        return self._rhs
-
-    def prepare_recompute_component(self, inputs, relevant_outputs):
-        self.source.assign(inputs[0])
 
     @property
     def apply_massinv(self):
@@ -680,48 +673,59 @@ class SupermeshProjectBlock(Block, Backend):
         else:
             return self.solver.solve
 
+    def apply_mixedmass(self, a):
+        b = self.backend.Function(self.target_space)
+        with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
+            self.mixed_mass.mult(vsrc, vrhs)
+        return b
+
     def recompute_component(self, inputs, block_variable, idx, prepared):
+        if not isinstance(inputs[0], self.backend.Function):
+            raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
         target = self.backend.Function(self.target_space)
-        self.apply_massinv(target, self.rhs)  # Step 2
+        rhs = self.apply_mixedmass(self.source)  # Step 1
+        self.apply_massinv(target, rhs)          # Step 2
         return target
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
         """
         Recall that the forward propagation can be broken down as
-          Step 1. multiply :math:`w^{tmp} := M_{ST} * v_S`;
-          Step 2. solve :math:`M_T * v_T = w^{tmp}`.
+          Step 1. multiply :math:`w := M_{AB} * v_A`;
+          Step 2. solve :math:`M_B * v_B = w`.
 
-        For a seed vector :math:`v_T^{seed}` from the target space, the adjoint is given by
-          Adjoint of step 2. solve :math:`M_T^T * w^{tmp} = v_T^{seed}`;
-          Adjoint of step 1. multiply :math:`v_S^{adj} := M_{ST}^T * w^{tmp}`.
+        For a seed vector :math:`v_B^{seed}` from the target space, the adjoint is given by
+          Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
+          Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
         """
-        from firedrake.petsc import PETSc
         if len(adj_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-        seed = adj_inputs[0]
-        tmp = self.backend.Function(self.target_space)
         out = self.backend.Function(self.source_space)
-
-        ksp = PETSc.KSP().create()
-        ksp.setOperators(self.lhs.petscmat)
-        with seed.dat.vec_ro as vin, out.dat.vec_wo as vout:
+        with adj_inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
             vtmp = vin.copy()
-            ksp.solveTranspose(vin, vtmp)              # Adjoint of step 2
+            self.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
             self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
         return out
 
-    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
-        raise NotImplementedError  # TODO
-
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
-        raise NotImplementedError  # TODO
-
-    def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
-        raise NotImplementedError  # TODO
+        """
+        Given that the input is a `Function`, we just have a linear operation. As such,
+        the tlm is just the sum of each tlm input projected into the target space.
+        """
+        dJdm = self.backend.Function(self.target_space)
+        tmp = self.backend.Function(dJdm)
+        for tlm_input in tlm_inputs:
+            if tlm_input is None:
+                continue
+            elif not isinstance(tlm_input, self.backend.Function):
+                raise NotImplementedError(f"Source function must be a Function, not {type(tlm_input)}.")
+            rhs = self.apply_mixedmass(tlm_input)  # Tangent of step 1
+            self.apply_massinv(tmp, rhs)           # Tangent of step 2
+            dJdm += tmp
+        return dJdm
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
         if len(adj_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-        raise NotImplementedError  # TODO
+        raise NotImplementedError("Hessian for SuperProjectBlock not yet considered")  # TODO

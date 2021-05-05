@@ -23,10 +23,10 @@ def annotate_project(project):
                 # block should be created before project because output might also be an input that needs checkpointing
                 output = args[1]
                 V = output.function_space()
-                if args[0].ufl_domain() != V.mesh():
-                    block = SupermeshProjectBlock(args[0], V, output, bcs, **sb_kwargs)
-                else:
+                if args[0].ufl_domain() == V.mesh():
                     block = ProjectBlock(args[0], V, output, bcs, **sb_kwargs)
+                else:
+                    block = SupermeshProjectBlock(args[0], V, output, bcs, **sb_kwargs)
 
         with stop_annotating():
             output = project(*args, **kwargs)
@@ -34,10 +34,10 @@ def annotate_project(project):
         if annotate:
             tape = get_working_tape()
             if not isinstance(args[1], function.Function):
-                if args[0].ufl_domain() != args[1].mesh():
-                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
-                else:
+                if args[0].ufl_domain() == args[1].mesh():
                     block = ProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
+                else:
+                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
             tape.add_block(block)
             block.add_output(output.create_block_variable())
 
