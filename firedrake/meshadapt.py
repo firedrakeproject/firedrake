@@ -54,7 +54,7 @@ class AnisotropicAdaptation(AdaptationBase):
         """
         Generates the adapted mesh wrt the metric
         """
-        plex = self.mesh.topology._topology_dm
+        plex = self.mesh.topology_dm
         dim = self.mesh._topological_dimension
         # PETSc adapt routine expects that the right coordinate section is set
         # hence the following bloc of code

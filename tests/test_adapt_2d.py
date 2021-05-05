@@ -1,8 +1,5 @@
 from __future__ import absolute_import, print_function, division
-
-import numpy as np
 from os.path import abspath, join, dirname
-
 from firedrake import *
 
 
@@ -34,12 +31,12 @@ assert(np.allclose(gnew.dat.data, hnew.dat.data))
 
 # test preservation of boundary labels
 
-plex = mesh._topology_dm
+plex = mesh.topology_dm
 bdLabelSize = plex.getLabelSize("Face Sets")
 lis = plex.getLabelIdIS("Face Sets")
 bdLabelVal = lis.getIndices()
 
-plexnew = newmesh._topology_dm
+plexnew = newmesh.topology_dm
 bdLabelSizenew = plexnew.getLabelSize("Face Sets")
 assert(bdLabelSizenew == bdLabelSize)
 lisnew = plexnew.getLabelIdIS("Face Sets")
