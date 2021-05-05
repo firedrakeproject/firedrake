@@ -203,7 +203,39 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, result)
 
-# TODO: Add parallel tests
-# @pytest.mark.parallel
-# def test_scalar_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
-#     test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords)
+
+@pytest.mark.parallel
+def test_scalar_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
+    test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords)
+
+
+@pytest.mark.parallel
+def test_scalar_function_interpolation_parallel(parentmesh, vertexcoords, fs):
+    test_scalar_function_interpolation(parentmesh, vertexcoords, fs)
+
+
+@pytest.mark.parallel
+def test_scalar_function_interpolator_parallel(parentmesh, vertexcoords, fs):
+    test_scalar_function_interpolator(parentmesh, vertexcoords, fs)
+
+
+@pytest.mark.parallel
+def test_vector_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
+    test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords)
+
+
+@pytest.mark.skip(reason="Skipping parallel tests using in-test logic is buggy")
+@pytest.mark.parallel
+def test_vector_function_interpolation_parallel(parentmesh, vertexcoords, vfs):
+    test_vector_function_interpolation(parentmesh, vertexcoords, vfs)
+
+
+@pytest.mark.parallel
+def test_tensor_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
+    test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords)
+
+
+@pytest.mark.skip(reason="Skipping parallel tests using in-test logic is buggy")
+@pytest.mark.parallel
+def test_tensor_function_interpolation_parallel(parentmesh, vertexcoords, tfs):
+    test_tensor_function_interpolation(parentmesh, vertexcoords, tfs)
