@@ -364,14 +364,20 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
     # But some the dependencies in the local matfree kernel are hand written and depend on the
     # original action id. At this point all the instructions should be ensured to be sorted, so
     # we remove all existing dependencies and make them sequential instead
+    # also help scheduling by setting within_inames_is_final on everything
     insns_new = []
     for i, insn in enumerate(insns):
         if insn:
-            insns_new.append(insn.copy(depends_on=frozenset({})))
+            insns_new.append(insn.copy(depends_on=frozenset({}),
+            priority=len(insns)-i,
+            within_inames_is_final=True))
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns_new, args, name="slate_wrapper",
                                      seq_dependencies=True, target=lp.CTarget())
+
+    # Prevent loopy interchange by loopy
+    slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
 
     # Generate program from kernel, so that one can register kernels
     prg = make_program(slate_wrapper)
