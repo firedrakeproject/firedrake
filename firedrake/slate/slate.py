@@ -1199,8 +1199,16 @@ class Solve(BinaryOp):
 
         if matfree:
             # keep track of the actions, which we need for the local matrixfree solve
-            self._Aonx = Aonx
-            self._Aonp = Aonp
+            if Aonx:
+                self._Aonx = Aonx
+            else:
+                arbitrary_coeff_x = AssembledVector(Coefficient(A.arg_function_spaces[pick_op]))
+                self._Aonx = Action(A, arbitrary_coeff_x, pick_op)
+            if Aonp:
+                self._Aonp = Aonp
+            else:
+                arbitrary_coeff_p = AssembledVector(Coefficient(A.arg_function_spaces[pick_op]))
+                self._Aonp = Action(A, arbitrary_coeff_p, pick_op)
             # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
