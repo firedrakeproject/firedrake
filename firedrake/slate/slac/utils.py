@@ -432,7 +432,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
     # invert dict
     import pymbolic.primitives as pym
-    pyms = [pyms if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
+    pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     c = 0 
     for insn in slate_loopy.instructions:
@@ -444,15 +444,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # the name of the lhs can change due to inlining,
                 # the indirections do only partially contain the right information
                 lhs = insn.assignees[0].subscript.aggregate
-                inlined_name = lhs.name
-                # we need to cut down the new name of the lhs matf_<old_name>
-                # and retrieve information about the slate node from the indirection
-                # with the cut down name
-                lhs.name = lhs.name[5:] if lhs.name.startswith("matf") else lhs.name
-                gem_action_node = pym2gem[lhs]  # we only need this node to the shape
-                slate_node = var2terminal[Variable(lhs.name, gem_action_node.shape)]
-                # rest of the code works with the inlined Variable
-                lhs.name = inlined_name
+                gem_action_node = pym2gem[lhs.name]  # we only need this node to the shape
+                slate_node = var2terminal[gem_action_node]
                 gem_inlined_node = Variable(lhs.name, gem_action_node.shape)
                 terminal = slate_node.action()
 
