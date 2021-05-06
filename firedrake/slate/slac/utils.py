@@ -462,7 +462,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
                 if not builder.bag:
-                    builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff)
+                    builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff, name)
                     builder.bag.call_name_generator("_"+str(c))
                 else:
                     builder.bag.update_coefficients(old_coeffs, "_"+str(c), new_coeff)
