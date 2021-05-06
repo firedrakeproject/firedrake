@@ -139,7 +139,7 @@ def _drop_double_transpose_action(expr, self):
 
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_action(expr, self):
-    return type(expr)(*map(self, expr.children), matfree=expr.is_matfree)
+    return type(expr)(*map(self, expr.children), matfree=expr.is_matfree, Aonx=expr._Aonx, Aonp=expr._Aonp)
 
 
 @singledispatch
@@ -183,7 +183,12 @@ def _action_solve(expr, self, state):
             expr1, expr2 = expr.children
             assert expr2.rank == 1
             coeff = self(expr2, state)
-            return self(expr1, ActionBag(coeff, state.swap_op, state.pick_op))
+            from ufl import Coefficient
+            arbitrary_coeff_x = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
+            arbitrary_coeff_p = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
+            Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
+            Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
+            return Solve(expr1, coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
     else:
         # swap operands if we are currently premultiplying due to a former transpose
         if state.pick_op == 0:
