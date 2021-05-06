@@ -475,7 +475,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                     insns.append(*inits)
                 
                 # local assembly of the action or the matrix for the solve
-                tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+                tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
                 if tsfc_calls[0] and tsfc_knls[0]:
                     tsfc_knl_list.extend(tsfc_knls)
 
