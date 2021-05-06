@@ -472,7 +472,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
                     # temporaries that are filled with calls, which get inlined later,
                     # need to be initialised
-                    insns.append(*inits)
+                    for init in inits:
+                        insns.append(init)
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
