@@ -952,7 +952,10 @@ class IndexCreator(object):
         for ext in extents:
             name = self.namer()
             indices.append(pym.Variable(name))
-            self.inames[name] = int(ext)
+            if not name in self.inames.keys():
+                self.inames[name] = int(ext)
+            else:
+                assert self.inames[name] == ext, "Why do you suddenly want a different extent for this index?"
         return tuple(indices)
 
     @property
