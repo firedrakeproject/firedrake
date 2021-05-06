@@ -181,7 +181,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
                                       tsfc_parameters=tsfc_parameters)
 
     if tsfc_parameters["optimise_slate"]:
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, "when_needed", slate_expr)
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, "when_needed", slate_expr, tsfc_parameters)
     else:
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, "terminals_first")
 
