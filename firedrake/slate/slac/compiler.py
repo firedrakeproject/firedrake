@@ -648,7 +648,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name="slate_loopy", out_name="output"):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
     :return slate_loopy: 2-tuple of loopy kernel for slate operations
@@ -658,7 +658,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)])
+    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type)])
     for var in var2terminal.keys():
         if var.name.startswith("S"):
             args.append(loopy.TemporaryVariable(var.name, shape=var.shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
@@ -675,7 +675,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], return_ctx=True), args[0].copy()
+    return generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True), args[0].copy()
 
 
 def slate_to_cpp(expr, temps, prec=None):
