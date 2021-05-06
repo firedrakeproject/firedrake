@@ -718,8 +718,9 @@ class LocalLoopyKernelBuilder(object):
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
-                inits.append(loopy.Assignment(var, "0.",
-                                              within_inames=frozenset(inames)))
+                inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
+                                              within_inames=frozenset(inames),
+                                              within_inames_is_final=True))
 
             elif isinstance(slate_tensor, slate.AssembledVector):
                 f = slate_tensor._function
@@ -736,8 +737,9 @@ class LocalLoopyKernelBuilder(object):
                     name = names[i] if ismixed else names
                     var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
                     c = pym.Subscript(pym.Variable(name), indices)
-                    inits.append(loopy.Assignment(var, c, id="init%d" % len(inits),
-                                                  within_inames=frozenset(inames)))
+                    inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
+                                                  within_inames=frozenset(inames),
+                                                  within_inames_is_final=True))
                     offset += shp
 
         return inits, tensor2temp
