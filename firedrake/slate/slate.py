@@ -1143,7 +1143,7 @@ class Solve(BinaryOp):
     :arg matfree: True when the local solve operates matrix-free.
     """
 
-    def __new__(cls, A, B, decomposition=None, matfree=False):
+    def __new__(cls, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
@@ -1168,7 +1168,7 @@ class Solve(BinaryOp):
 
         return super().__new__(cls)
 
-    def __init__(self, A, B, decomposition=None, matfree=False):
+    def __init__(self, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
         """Constructor for the Solve class."""
 
         # LU with partial pivoting is a stable default.
@@ -1191,16 +1191,16 @@ class Solve(BinaryOp):
         else:
             A_factored = A
 
-        super(Solve, self).__init__(A_factored, B)
+            super(Solve, self).__init__(A_factored, B)
 
-        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+            self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
         self._matfree = matfree
 
         if matfree:
             # keep track of the actions, which we need for the local matrixfree solve
-            self._Aonx = Action(A, AssembledVector(Coefficient(A.arg_function_spaces[pick_op])), pick_op)
-            self._Aonp = Action(A, AssembledVector(Coefficient(A.arg_function_spaces[pick_op])), pick_op)
+            self._Aonx = Aonx
+            self._Aonp = Aonp
             # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
