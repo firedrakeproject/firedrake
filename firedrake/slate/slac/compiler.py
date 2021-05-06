@@ -669,7 +669,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name="slate_loopy", ou
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
     # glue assignments to return variable
-    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+    assignments = list(zip([gem.Indexed(gem.Variable(out_name, shape), idx)], preprocessed_gem_expr))
 
     # Part A: slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
