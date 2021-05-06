@@ -900,13 +900,16 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
-        self.index_creator = IndexCreator("i_"+prefix)
+        self.index_creator = IndexCreator(prefix)
         self.name = name
     
     def update_coefficients(self, coeffs, prefix, new_coeffs):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.call_name_generator(prefix)
+
+    def update_iname_prefix(self, prefix):
+        self.index_creator.rename(prefix)
 
 
 class IndexCreator(object):
@@ -956,3 +959,6 @@ class IndexCreator(object):
     def domains(self):
         """ISL domains for the currently known indices."""
         return create_domains(self.inames.items())
+
+    def rename(self, forced_prefix):
+        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
