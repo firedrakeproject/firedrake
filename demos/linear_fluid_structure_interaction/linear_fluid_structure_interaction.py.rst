@@ -190,6 +190,8 @@ Now we can construct special boundary conditions that limit the solvers only to 
     BC_exclude_beyond_surface = surface_BC()
     BC_exclude_beyond_surface_mixed = surface_BC_mixed()
     BC_exclude_beyond_solid = MyBC( V_B, 0, I_cg_B )
+    BC_exclude_beyond_water_mixed = MyBC(mixed_V.sub(0), 0, I_cg_W)
+    BC_exclude_beyond_solid_mixed = MyBC(mixed_V.sub(1), 0, I_cg_B)
 
 Finally, we are ready to define the solvers of our equations. First, equation for :math:`\phi` at the free surface::
 
@@ -224,15 +226,15 @@ Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in
         a_U += dot( avg(v_s), n_int ) * avg(trial_f) * dS       # avg(...) necessary here and below
         L_U += dot( avg(v_s), n_int ) * avg(phi) * dS
         a_phi += - dot( n_int, avg(trial_s) ) * avg(v_f) * dS
-    LVP_U_phi = LinearVariationalProblem( a_U + a_phi, L_U, result_mixed, bcs = [BC_phi_f, BC_bottom_mixed] )
+    LVP_U_phi = LinearVariationalProblem( a_U + a_phi, L_U, result_mixed, bcs = [BC_phi_f, BC_bottom_mixed, BC_exclude_beyond_solid_mixed, BC_exclude_beyond_water_mixed] )
     LVS_U_phi = LinearVariationalSolver( LVP_U_phi )
 
     # eta
-    a_eta = trial_f * v_f * ds(top_id)
-    L_eta = eta * v_f * ds(top_id) + dt * dot( grad(v_f), grad(phi) ) * dx(fluid_id)
+    a_eta = trial_W * v_W * ds(top_id)
+    L_eta = eta * v_W * ds(top_id) + dt * dot( grad(v_W), grad(phi) ) * dx(fluid_id)
     if coupling:
-        L_eta += - dt * dot( n_int, avg(U) ) * avg(v_f) * dS
-    LVP_eta = LinearVariationalProblem( a_eta, L_eta, result_mixed, bcs=BC_exclude_beyond_surface_mixed )
+        L_eta += - dt * dot( n_int, avg(U) ) * avg(v_W) * dS
+    LVP_eta = LinearVariationalProblem( a_eta, L_eta, eta, bcs=BC_exclude_beyond_surface )
     LVS_eta = LinearVariationalSolver( LVP_eta )
 
 Let us set the initial condition. We choose no motion at the beginning in both fluid and structure, zero displacement in the structure and deflected free surface in the fluid. The shape of the deflection is computed from the analytical solution::
@@ -288,8 +290,6 @@ In the end, we proceed with the actual computation loop::
         phi.assign(tmp_f)
         U.assign(tmp_s)
         LVS_eta.solve()
-        tmp_f, _ = result_mixed.split()
-        eta.assign(tmp_f)
         LVS_X.solve()
 
         output_data()
