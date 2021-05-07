@@ -35,6 +35,9 @@ def py_file(rst_file, tmpdir, monkeypatch):
     geos = glob.glob("%s/*.geo" % dirname(rst_file))
     for geo in geos:
         name = "%s.msh" % splitext(basename(geo))[0]
+        if os.path.exists(name):
+            # No need to generate if it's already there
+            continue
         try:
             subprocess.check_call(["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))])
         except (subprocess.CalledProcessError, OSError):
