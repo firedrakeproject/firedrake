@@ -27,7 +27,7 @@ from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
-from firedrake.utils import complex_mode, ScalarType_c, as_cstr
+from firedrake.utils import complex_mode, ScalarType_c, as_cstr, get_eigen_include_dir
 from ufl.log import GREEN
 from gem.utils import groupby
 from gem import impero_utils
@@ -59,13 +59,12 @@ BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
 if not complex_mode:
     if COMM_WORLD.rank == 0:
-        petsc_variables = get_petsc_variables()
-        EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
+        EIGEN_INCLUDE_DIR = get_eigen_include_dir()
         if EIGEN_INCLUDE_DIR is None:
             raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-        EIGEN_INCLUDE_DIR = EIGEN_INCLUDE_DIR.lstrip('-I')
         EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
+        petsc_variables = get_petsc_variables()
         BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
         BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
         BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")

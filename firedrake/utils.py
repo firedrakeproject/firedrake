@@ -1,11 +1,14 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
+import functools
+
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from firedrake_configuration import get_config
+from firedrake.petsc import get_petsc_variables
 
 _current_uid = 0
 
@@ -74,3 +77,20 @@ def known_pyop2_safe(f):
         finally:
             opts["type_check"] = check
     return decorator(wrapper, f)
+
+@functools.lru_cache(maxsize=None)
+def get_eigen_include_dir():
+    """Return the include directory for Eigen.
+    
+    Depending on how Eigen was installed this will either be defined in
+    petscvariables or the Firedrake configuration file.
+
+    Returns ``None`` if not found.
+    """
+    try:
+        return get_petsc_variables()["EIGEN_INCLUDE_DIR"].lstrip("-I")
+    except KeyError:
+        try:
+            return get_config()["libraries"]["EIGEN_INCLUDE_DIR"]
+        except KeyError:
+            return None
