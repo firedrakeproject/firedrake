@@ -64,6 +64,7 @@ if not complex_mode:
             raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
         EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
+        petsc_variables = get_petsc_variables()
         BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
         BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
         BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
