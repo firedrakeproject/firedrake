@@ -78,7 +78,7 @@ def known_pyop2_safe(f):
             opts["type_check"] = check
     return decorator(wrapper, f)
 
-@functools.cache
+@functools.lru_cache(maxsize=None)
 def get_eigen_include_dir():
     """Return the include directory for Eigen.
     
