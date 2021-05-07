@@ -118,9 +118,9 @@ x-axis. ::
 
 We define function spaces::
 
-  Vdg = FunctionSpace(mesh,"DG",1)               # DG elements for Potential Vorticity (PV)
+  Vdg = FunctionSpace(mesh,"DQ",1)               # DQ elements for Potential Vorticity (PV)
   Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
-  Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
+  Vu  = VectorFunctionSpace(mesh,"DQ",0)          # DQ elements for velocity
 
 and initial conditions for the potential vorticity, here we use
 Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`. ::
@@ -159,11 +159,11 @@ function at the top and bottom of the domain. ::
 
   bc1 = DirichletBC(Vcg, 0., (1, 2))
 
-  psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1)
+  psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1,constant_jacobian=True)
   psi_solver = LinearVariationalSolver(psi_problem,
                                        solver_parameters={
           'ksp_type':'cg',
-          'pc_type':'sor'
+          'pc_type':'hypre'
           })
 
 Next we'll set up the advection equation, for which we need an
@@ -221,8 +221,6 @@ execute the time loop. ::
   T = 10.
   dumpfreq = 5
   tdump = 0
-
-  v0 = Function(Vu)
 
   while(t < (T-Dt/2)):
 
