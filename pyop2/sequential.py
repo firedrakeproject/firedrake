@@ -45,7 +45,7 @@ from pyop2 import petsc_base
 from pyop2.base import par_loop                          # noqa: F401
 from pyop2.base import READ, WRITE, RW, INC, MIN, MAX    # noqa: F401
 from pyop2.base import ALL
-from pyop2.base import Map, MixedMap, Sparsity, Halo      # noqa: F401
+from pyop2.base import Map, MixedMap, PermutedMap, Sparsity, Halo  # noqa: F401
 from pyop2.base import Set, ExtrudedSet, MixedSet, Subset  # noqa: F401
 from pyop2.base import DatView                           # noqa: F401
 from pyop2.base import Kernel                            # noqa: F401

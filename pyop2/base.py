@@ -2623,6 +2623,41 @@ class Map(object):
         return self == o
 
 
+class PermutedMap(Map):
+    """Composition of a standard :class:`Map` with a constant permutation.
+
+    :arg map_: The map to permute.
+    :arg permutation: The permutation of the map indices.
+
+    Where normally staging to element data is performed as
+
+    .. code-block::
+
+       local[i] = global[map[i]]
+
+    With a :class:`PermutedMap` we instead get
+
+    .. code-block::
+
+       local[i] = global[map[permutation[i]]]
+
+    This might be useful if your local kernel wants data in a
+    different order to the one that the map provides, and you don't
+    want two global-sized data structures.
+    """
+    def __init__(self, map_, permutation):
+        self.map_ = map_
+        self.permutation = np.asarray(permutation, dtype=Map.dtype)
+        assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
+
+    @cached_property
+    def _wrapper_cache_key_(self):
+        return super()._wrapper_cache_key_ + (tuple(self.permutation),)
+
+    def __getattr__(self, name):
+        return getattr(self.map_, name)
+
+
 class MixedMap(Map, ObjectCached):
     r"""A container for a bag of :class:`Map`\s."""
 
