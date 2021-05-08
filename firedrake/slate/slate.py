@@ -1151,8 +1151,6 @@ class TensorShell(TensorBase):
     operands = ()
 
     def __init__(self, A):
-        assert isinstance(A, TensorOp), "The Tensor Shell object is sitting on top of Slate expressions which are not terminel.\
-                                        Consider using the Action class instead."
         super(TensorShell, self).__init__()
         self.tensor = A
 
