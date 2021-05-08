@@ -344,39 +344,7 @@ class HybridizationPC(SCBase):
                             matfree=True)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params,)
-
-    def solve_for_urec(self, pc, prefix):
-        # dm associated with the trace problem
-        trace_dm = TraceSpace.dm
-
-        # KSP for the system of Lagrange multipliers
-        trace_ksp = PETSc.KSP().create(comm=pc.comm)
-        trace_ksp.incrementTabLevel(1, parent=pc)
-
-        # Set the dm for the trace solver
-        trace_ksp.setDM(trace_dm)
-        trace_ksp.setDMActive(False)
-        trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(self.M_u.petscmat, self.M_u.petscmat)
-
-        with dmhooks.add_hooks(trace_dm, self,
-                            appctx=self._ctx_ref,
-                            save=False):
-            trace_ksp.setFromOptions()
-
-        dm = trace_ksp.getDM()
-
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-
-        # Solve the system for the Lagrange multipliers
-        with self.M_u.dat.vec_ro as b:
-            if self.trace_ksp.getInitialGuessNonzero():
-                acc = self.trace_solution.dat.vec
-            else:
-                acc = self.trace_solution.dat.vec_wo
-            with acc as x_trace:
-                trace_ksp.solve(b, x_trace) 
+                                                      form_compiler_parameters=self.ctx.fc_params)
 
     @timed_function("HybridUpdate")
     def update(self, pc):
