@@ -36,7 +36,8 @@ import hashlib
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve', 'Diagonal', 'Action']
+           'Add', 'Mul', 'Solve', 'Diagonal', 'Action',
+           'TensorShell']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -1130,6 +1131,75 @@ class Action(BinaryOp):
         op1, op2 = self.operands
         return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
 
+
+class TensorShell(TensorBase):
+    """A representation of tensorial expressions which are never explicitly locally assembled.
+    TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
+    translation to a backend. This class wraps the relevant information of the associated expression.
+
+    :arg A: An optimised (*), non-terminal Slate expression, i.e. and object of type TensorOp
+            (*) optimised = The Slate expression only contains up to rank-1 Tensors
+    """
+
+    operands = ()
+
+    def __init__(self, A):
+        assert isinstance(A, TensorOp), "The Tensor Shell object is sitting on top of Slate expressions which are not terminel.\
+                                        Consider using the Action class instead."
+        super(TensorShell, self).__init__()
+        self.tensor = A
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        return self.tensor.arg_function_spaces
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        return self.tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed.
+        """
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        return par("{{%s} -> {}}" % self.tensor._output_string(prec=self.prec))
+
+    @cached_property
+    def shape(self):
+        return self.tensor.shape
+    
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.tensor.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return self.tensor.ufl_domains()
+
+    def subdomain_data(self):
+        return self.tensor.subdomain_data()
+    
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.tensor)
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        return "TensorShell(%r)" % self.tensor
+
+
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
     This object is a direct solver, utilizing the application of the inverse
@@ -1289,7 +1359,7 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor, Diagonal],
+    [AssembledVector, Block, Factorization, Tensor, Diagonal, TensorShell],
     [Add],
     [Mul, Action, Solve],
     [UnaryOp],
