@@ -111,6 +111,7 @@ def _drop_double_transpose(expr, self):
 
 @_drop_double_transpose.register(Tensor)
 @_drop_double_transpose.register(AssembledVector)
+@_drop_double_transpose.register(TensorShell)
 def _drop_double_transpose_terminals(expr, self):
     return expr
 
@@ -188,7 +189,7 @@ def _action_solve(expr, self, state):
             arbitrary_coeff_p = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
             Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
             Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
-            return Solve(expr1, coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
+            return Solve(TensorShell(expr1), coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
     else:
         # swap operands if we are currently premultiplying due to a former transpose
         if state.pick_op == 0:
