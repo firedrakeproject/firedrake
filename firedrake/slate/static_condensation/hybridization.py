@@ -242,7 +242,6 @@ class HybridizationPC(SCBase):
             self._assemble_S()
 
         Smat = self.S.petscmat
-        raise CheckSchurComplement(self.ctx, "The Schur complement.")
 
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
         if nullspace is not None:
