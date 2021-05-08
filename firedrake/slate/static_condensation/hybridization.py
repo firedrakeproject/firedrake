@@ -333,31 +333,15 @@ class HybridizationPC(SCBase):
             M = D - C * A.solve(B, matfree=True)
             R = (K_1.T - C * A.solve(K_0.T, matfree=True)) * lambdar
             rhs = f - C * A.solve(g, matfree=True) - R
-            self.Mrhs_u = u
-            self._assemble_Mrhs_u = create_assembly_callable(rhs,
+            u_rec = M.solve(rhs, matfree=True)
+
+        self._sub_unknown = create_assembly_callable(u_rec,
                                                      tensor=u,
                                                      form_compiler_parameters=self.ctx.fc_params)
 
-            self.M_u = allocate_matrix(M, bcs=None, # do we need bcs here?
-                                 form_compiler_parameters=self.ctx.fc_params,
-                                 mat_type=mat_type,
-                                 options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
-            self._assemble_M_u = create_assembly_callable(M,
-                                                        tensor=self.M_u,
-                                                        bcs=None, # do we need bcs here?
-                                                        form_compiler_parameters=self.ctx.fc_params,
-                                                        mat_type=mat_type)
-
-            # solve for urec here 
-            self.solve_for_urec(pc, prefix)              
-        # self._sub_unknown = create_assembly_callable(u_rec,
-        #                                              tensor=u,
-        #                                              form_compiler_parameters=self.ctx.fc_params)
-        if local_matfree:
-            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU")
+                            decomposition="PartialPivLU",
+                            matfree=True)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.ctx.fc_params,)
