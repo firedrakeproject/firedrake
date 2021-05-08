@@ -224,18 +224,20 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Action)
 def _slate2gem_action(expr, self):
+    children = map(self, expr.children)
     name = f"A{len(self.var2terminal)}"
     assert expr not in self.var2terminal.values()
-    var = Action(*map(self, expr.children), name, expr.pick_op)
+    var = Action(*children, name, expr.pick_op)
     self.var2terminal[var] = expr
     return var
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
     if expr.is_matfree():
+        children = map(self, expr.children)
         name = f"S{len(self.var2terminal)}"
         assert expr not in self.var2terminal.values()
-        var = Solve(*map(self, expr.children), name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
+        var = Solve(*children, name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
         self.var2terminal[var] = expr
         return var
     else:
@@ -363,6 +365,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
         args.append(v)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
+    builder.bag.index_creator.make_domains()
     domains = slate_loopy.domains + builder.bag.index_creator.domains
 
     # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
@@ -425,6 +428,7 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
 
 
 def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym, tsfc_parameters, name, init_temporaries=True):
+    print(slate_loopy)
     insns = []
     tsfc_knl_list = []
     tensor2temps = OrderedDict()
@@ -435,6 +439,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     coeffs = {}  # all coefficients including the ones for the action
     new_coeffs = {}  # coeffs coming from action
     old_coeffs = {}  # only old coeffs minus the ones replaced by the action coefficients
+    init_coeffs = {}
 
     # invert dict
     import pymbolic.primitives as pym
@@ -446,9 +451,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
                 c += 1
+                if builder.bag:
+                    builder.bag.update_iname_prefix(insn.id)
 
-                # the name of the lhs can change due to inlining,
-                # the indirections do only partially contain the right information
                 lhs = insn.assignees[0].subscript.aggregate
                 gem_action_node = pym2gem[lhs.name]  # we only need this node to the shape
                 slate_node = var2terminal[gem_action_node]
@@ -459,19 +464,30 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                     coeff = [slate_node.ufl_coefficient]
                     names = {coeff[0]._ufl_function_space:coeff_name}
                 else:
+                    # Make a kernel for what we want to replace the action call with
+                    # retrigger gem2loopy for the expression
                     from firedrake.slate.slac.compiler import gem_to_loopy
-                    (action_wrapper_knl, action_gem2pym, action_indices), action_output_arg = gem_to_loopy(gem_action_node,
+                    name = "kernel_"+insn.id
+                    (action_wrapper_knl, action_gem2pym), action_output_arg = gem_to_loopy(gem_action_node,
                                                       var2terminal,
                                                       tsfc_parameters["scalar_type"],
-                                                      "loopy_"+insn.expression.function.name,
-                                                      lhs.name)
+                                                      knl_name=name,
+                                                      out_name=lhs.name)
+
                     if isinstance(action_wrapper_knl, lp.program.Program):
                         action_wrapper_knl = action_wrapper_knl.root_kernel
-                    builder.bag.name = action_wrapper_knl.name
-                    builder.bag.index_creator.inames.update(action_indices)
+                    
+                    # Prepare a new action inlining sweep
+                    # FIXME I should just generate a new bag
                     gem2pym.update(action_gem2pym)
-                    old_namer = builder.bag.index_creator.namer
-                    builder.bag.update_iname_prefix("loopy_"+insn.expression.function.name+"_")
+                    builder.bag.name = name
+                    builder.bag.index_creator.update_domains(action_wrapper_knl.domains)
+                    builder.bag.update_iname_prefix(insn.id + "post")
+                    builder.expression = slate_node
+                    action_init_coeffs, _ = builder.collect_coefficients()
+                    init_coeffs.update(action_init_coeffs)
+
+                    # A new action inlining sweep to resolve terminal actions within the action kernel
                     action_tensor2temps, action_tsfc_knl_list, action_insns, builder, _ = assemble_when_needed(builder,
                                                                                                         var2terminal,
                                                                                                         action_wrapper_knl,
@@ -480,8 +496,10 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                                                                                                         tsfc_parameters,
                                                                                                         action_wrapper_knl.name,
                                                                                                         init_temporaries=False)
-                    # builder.bag = old_bag
-                    builder.bag.index_creator.namer = old_namer
+                    
+                    # Prepare data structues for a next sweep of inlining terminal actions
+                    # builder.bag.update_iname_prefix(insn.id+"post")
+                    builder.expression = slate_expr
                     tensor2temps.update(action_tensor2temps)
                     tsfc_knl_list.extend(action_tsfc_knl_list)
                     insns.extend(action_insns)
@@ -500,10 +518,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
                 from firedrake.slate.slac.kernel_builder import SlateWrapperBag
                 if not builder.bag:
-                    builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff, name)
-                    builder.bag.call_name_generator("_"+str(c))
+                    builder.bag = SlateWrapperBag(old_coeffs, insn.id, new_coeff, name)
                 else:
-                    builder.bag.update_coefficients(old_coeffs, "_"+str(c), new_coeff)
+                    builder.bag.update_coefficients(old_coeffs, insn.id, new_coeff)
 
                 if terminal not in tensor2temps.keys():
                     inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
@@ -540,8 +557,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                     # maybe when the kernel would just be an identity operation?
                     rhs = insn.expression.parameters[1]
                     var = insn.assignees[0].subscript.aggregate
-                    lhs = pym.Subscript(var, var.index)
-                    rhs = pym.Subscript(rhs.subscript.aggregate, var.index)
+                    lhs = pym.Subscript(var, 0)
+                    rhs = pym.Subscript(rhs.subscript.aggregate, 0)
                     insns.append(lp.kernel.instruction.Assignment(lhs, rhs, 
                                                                   id=insn.id+"_whatsthis"))
 
@@ -552,7 +569,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
         # Initialise the very first temporary
         # For that we need to get the temporary which
         # links to the same coefficient as the rhs of this node and init it              
-        init_coeffs,_ = builder.collect_coefficients()
+        slate_init_coeffs, _ = builder.collect_coefficients()
+        init_coeffs.update(slate_init_coeffs)
+
+        # Get all coeffs into the wrapper kernel
+        # so that we can generate the right wrapper kernel args of it
+        builder.bag.update_coefficients(init_coeffs, insn.id + "init", new_coeffs)
+
         var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
                                     for (cv,ct) in init_coeffs.items()
                                     if isinstance(t, sl.AssembledVector)
@@ -561,10 +584,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
         tensor2temps.update(tensor2temp)
         for i in inits:
             insns.insert(0, i)
-
-        # Get all coeffs into the wrapper kernel
-        # so that we can generate the right wrapper kernel args of it
-        builder.bag.update_coefficients(init_coeffs, "_"+str(c), new_coeffs)
 
     return tensor2temps, tsfc_knl_list, insns, builder, tvs
 

@@ -902,18 +902,24 @@ class SlateWrapperBag(object):
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
         self.index_creator = IndexCreator(prefix)
         self.name = name
+        self.prefixes = [prefix]
     
     def update_coefficients(self, coeffs, prefix, new_coeffs):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.call_name_generator(prefix)
+        self.call_name_generator(prefix)
 
     def update_iname_prefix(self, prefix):
+        while prefix in self.prefixes:
+            prefix += "_new"
+        self.prefixes.append(prefix)
         self.index_creator.rename(prefix)
 
 
 class IndexCreator(object):
     inames = OrderedDict()  # pym variable -> extent
+    domains = []
     
     def __init__(self, forced_prefix):
         self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
@@ -955,13 +961,28 @@ class IndexCreator(object):
             if not name in self.inames.keys():
                 self.inames[name] = int(ext)
             else:
-                assert self.inames[name] == ext, "Why do you suddenly want a different extent for this index?"
+                continue #assert self.inames[name] == ext, "Why do you suddenly want a different extent for this index?"
         return tuple(indices)
 
-    @property
-    def domains(self):
+    def make_domains(self):
         """ISL domains for the currently known indices."""
-        return create_domains(self.inames.items())
+        unique_domains = [*self.uniquify(create_domains(self.inames.items()))]
+        self.domains += unique_domains
+    
+    def update_domains(self, domains):
+        """ISL domains for the currently known indices."""
+        unique_domains = [*self.uniquify(domains)]
+        self.domains += unique_domains
+
+    def uniquify(self, domains):
+        for d1 in domains:
+            unique = True
+            for d2 in self.domains:
+                if str(d1) == str(d2):
+                    unique = False
+                    break
+            if unique:
+                yield d1
 
     def rename(self, forced_prefix):
         self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
