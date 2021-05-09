@@ -121,10 +121,10 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 10):
-    print("""\nCan not install Firedrake with Python 3.10 at the moment:
-Some wheels are not yet available for Python 3.10 for some required package(s).
-Please install with Python 3.9 (or an earlier version >= 3.6).""")
+if sys.version_info >= (3, 11):
+    print("""\nCan not install Firedrake with Python 3.11 at the moment:
+Some wheels are not yet available for Python 3.11 for some required package(s).
+Please install with Python 3.10 (or an earlier version >= 3.6).""")
     sys.exit(1)
 elif sys.version_info < (3, 6):
     if mode == "install":
