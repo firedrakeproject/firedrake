@@ -652,7 +652,6 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name="slate_loopy", ou
                 args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
             else:
                 args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type))
-    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
