@@ -816,8 +816,9 @@ class LocalLoopyKernelBuilder(object):
 
         for knl in templated_subkernels:
             if knl:
-                if isinstance(knl, loopy.program.Program):
-                    knl = knl.root_kernel
+                if isinstance(knl, loopy.TranslationUnit):
+                    knl_name, = knl.callables_table
+                    knl = knl.callables_table[knl_name].subkernel
                 for arg in knl.temporary_variables.values():
                     if arg.name not in [arg.name for arg in args]:
                         args.append(arg)
