@@ -14,7 +14,6 @@ from gem.node import pre_traversal as traverse_dags
 from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
-from loopy.transform.callable import merge
 import itertools
 
 
