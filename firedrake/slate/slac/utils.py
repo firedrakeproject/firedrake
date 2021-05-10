@@ -384,22 +384,18 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strateg
     # Prevent loopy interchange by loopy
     slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
 
-    # Generate program from kernel, so that one can register kernels
-    prg = make_program(slate_wrapper)
+    # Register kernels
+    from loopy.kernel.function_interface import CallableKernel
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
     loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
     for knl in loop:
         if knl:
-        # FIXME we might need to inline properly here for inlining the tsfc calls
-        # that is so, because we first inline the solve calls with a cg loopy kernel
-        # which contains actions and then we inline those actions after that
-            if isinstance(knl, lp.program.Program):
-                prg = inline_kernel_properly(prg, knl)
-            else:
-                prg = register_callable_kernel(prg, knl)
-                from loopy.transform.callable import _match_caller_callee_argument_dimension_
-                prg = _match_caller_callee_argument_dimension_(prg, knl.name)
-                prg = inline_callable_kernel(prg, knl.name)
-    return prg
+            slate_wrapper = loopy.merge([slate_wrapper, knl])
+            names = knl.callables_table
+            for name in names:
+                if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+                    slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+    return slate_wrapper
 
 
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
