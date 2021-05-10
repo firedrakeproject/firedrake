@@ -799,6 +799,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
             parloops.append(op2.ParLoop(*args, **kwargs))
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+    return tuple(parloops)
 
 
 @utils.known_pyop2_safe
