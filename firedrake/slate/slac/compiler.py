@@ -173,7 +173,8 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr)
 
     scalar_type = tsfc_parameters["scalar_type"]
-    (slate_loopy, gem2pym), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+    slate_loopy_name = "slate_loopy"
+    (slate_loopy, gem2pym), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, slate_loopy_name)
     print(slate_loopy)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
@@ -634,7 +635,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name="slate_loopy", out_name="output"):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output"):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
     :return slate_loopy: 2-tuple of loopy kernel for slate operations

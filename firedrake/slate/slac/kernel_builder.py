@@ -416,7 +416,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -430,6 +430,7 @@ class LocalLoopyKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.bag = None
         self.kernel_counter = count()
+        self.slate_loopy_name = slate_loopy_name
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
