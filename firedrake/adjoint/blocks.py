@@ -687,6 +687,8 @@ class SupermeshProjectBlock(Block, Backend):
         return target
 
     def _recompute_component_transpose(self, inputs):
+        if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
+            raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
         out = self.backend.Function(self.source_space)
         with inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
             vtmp = vin.copy()
@@ -706,7 +708,7 @@ class SupermeshProjectBlock(Block, Backend):
         """
         if len(adj_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-        return self._recompute_component_transpose(adj_inputs)
+        return self._recompute_component_transpose(adj_inputs).vector()
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
         """
@@ -723,6 +725,6 @@ class SupermeshProjectBlock(Block, Backend):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        if len(adj_inputs) != 1:
+        if len(hessian_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-        raise NotImplementedError("Hessian for SuperProjectBlock not yet considered")  # TODO
+        return self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx).vector()

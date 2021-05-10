@@ -618,3 +618,34 @@ def test_supermesh_project_tlm(vector):
 
     assert J.block_variable.tlm_value is not None
     assert taylor_test(rf, source, h, dJdm=J.block_variable.tlm_value) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_supermesh_project_hessian(vector):
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+    source, target_space = supermesh_setup()
+    control = Control(source)
+    target = project(source, target_space)
+    J = assemble(inner(target, target)**2*dx)
+    rf = ReducedFunctional(J, control)
+
+    source_space = source.function_space()
+    h = Function(source_space)
+    h.vector()[:] = 10*rand(source_space.dim())
+
+    J.block_variable.adj_value = 1.0
+    source.block_variable.tlm_value = h
+
+    tape = get_working_tape()
+    tape.evaluate_adj()
+    tape.evaluate_tlm()
+
+    J.block_variable.hessian_value = 0.0
+
+    tape.evaluate_hessian()
+
+    dJdm = J.block_variable.tlm_value
+    assert isinstance(source.block_variable.adj_value, Vector)
+    assert isinstance(source.block_variable.hessian_value, Vector)
+    Hm = source.block_variable.hessian_value.inner(h.vector())
+    assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
