@@ -597,3 +597,24 @@ def test_supermesh_project_gradient(vector):
     h.vector()[:] = rand(source_space.dim())
     minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_supermesh_project_tlm(vector):
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+    source, target_space = supermesh_setup()
+    control = Control(source)
+    target = project(source, target_space)
+    J = assemble(inner(target, target)*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Test replay with different input
+    h = Function(source)
+    h.assign(1.0)
+    source.block_variable.tlm_value = h
+
+    tape = get_working_tape()
+    tape.evaluate_tlm()
+
+    assert J.block_variable.tlm_value is not None
+    assert taylor_test(rf, source, h, dJdm=J.block_variable.tlm_value) > 1.9

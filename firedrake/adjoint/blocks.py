@@ -686,6 +686,14 @@ class SupermeshProjectBlock(Block, Backend):
         self.apply_massinv(target, rhs)        # Step 2
         return target
 
+    def _recompute_component_transpose(self, inputs):
+        out = self.backend.Function(self.source_space)
+        with inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
+            vtmp = vin.copy()
+            self.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
+            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
+        return out
+
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
         """
         Recall that the forward propagation can be broken down as
@@ -698,12 +706,7 @@ class SupermeshProjectBlock(Block, Backend):
         """
         if len(adj_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
-        out = self.backend.Function(self.source_space)
-        with adj_inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
-            vtmp = vin.copy()
-            self.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
-            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
-        return out
+        return self._recompute_component_transpose(adj_inputs)
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
         """
@@ -711,15 +714,10 @@ class SupermeshProjectBlock(Block, Backend):
         the tlm is just the sum of each tlm input projected into the target space.
         """
         dJdm = self.backend.Function(self.target_space)
-        tmp = self.backend.Function(dJdm)
         for tlm_input in tlm_inputs:
             if tlm_input is None:
                 continue
-            elif not isinstance(tlm_input, self.backend.Function):
-                raise NotImplementedError(f"Source function must be a Function, not {type(tlm_input)}.")
-            rhs = self.apply_mixedmass(tlm_input)  # Tangent of step 1
-            self.apply_massinv(tmp, rhs)           # Tangent of step 2
-            dJdm += tmp
+            dJdm += self.recompute_component([tlm_input], block_variable, idx, prepared)
         return dJdm
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
