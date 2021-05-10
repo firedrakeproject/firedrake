@@ -206,7 +206,7 @@ def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_paramete
     """
     import warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("always", DeprecationWarning)
+        warnings.simplefilter("once", DeprecationWarning)
         warnings.warn("create_assembly_callable is now deprecated. Please use assemble instead.",
                       DeprecationWarning)
 
