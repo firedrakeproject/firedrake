@@ -847,7 +847,7 @@ class LocalLoopyKernelBuilder(object):
                 output_var = pym.Variable(loopy_tensor.name)
                 reads.append(output_var)
                 output = self.generate_lhs(slate_tensor, output_var)
-                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
+                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
                 # Generate predicates for different integral types
