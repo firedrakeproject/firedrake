@@ -636,7 +636,6 @@ class SupermeshProjectBlock(Block, Backend):
         mesh = kwargs.pop("mesh", None)
         if mesh is None:
             mesh = target_space.mesh()
-        self.source = source
         self.source_space = source.function_space()
         self.target_space = target_space
 
@@ -683,8 +682,8 @@ class SupermeshProjectBlock(Block, Backend):
         if not isinstance(inputs[0], self.backend.Function):
             raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
         target = self.backend.Function(self.target_space)
-        rhs = self.apply_mixedmass(self.source)  # Step 1
-        self.apply_massinv(target, rhs)          # Step 2
+        rhs = self.apply_mixedmass(inputs[0])  # Step 1
+        self.apply_massinv(target, rhs)        # Step 2
         return target
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
