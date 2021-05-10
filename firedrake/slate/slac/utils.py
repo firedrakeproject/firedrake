@@ -339,8 +339,8 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal, gem2pym, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     
-    if isinstance(slate_loopy, lp.program.Program):
-        slate_loopy = slate_loopy.root_kernel
+    if isinstance(slate_loopy, lp.TranslationUnit):
+        slate_loopy = slate_loopy.callables_table[builder.slate_loopy_name].subkernel
 
     tvs = {}
     if strategy == "terminals_first":
