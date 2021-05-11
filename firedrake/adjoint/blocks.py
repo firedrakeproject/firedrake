@@ -597,13 +597,13 @@ class SupermeshProjectBlock(Block, Backend):
     Projecting a source from :math:`V_A` to :math:`V_B` amounts to solving the
     linear system
 
-  ..math::
+ .. math::
         M_B * v_B = M_{AB} * v_A,
 
     where :math:`M_B` is the mass matrix on :math:`V_B`, :math:`M_{AB}` is the
     mixed mass matrix for :math:`V_A` and :math:`V_B` and :math:`v_A` and
     :math:`v_B` are vector representations of the source and target
-    :class:`Function`s.
+    :class:`.Function`s.
 
     This can be broken into two steps:
       Step 1. form RHS, multiplying the source with the mixed mass matrix;
