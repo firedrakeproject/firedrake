@@ -13,6 +13,7 @@ from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
+from firedrake.petsc import PETSc
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
@@ -120,8 +121,8 @@ def assemble(expr, tensor=None, bcs=None, *,
         instead of a :class:`.Function`. However, since cofunctions are not
         currently supported in UFL, functions are used instead.
     """
-    if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
+    if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
+        return assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
                              mat_type, sub_mat_type,
                              appctx, options_prefix)
@@ -129,6 +130,86 @@ def assemble(expr, tensor=None, bcs=None, *,
         return assemble_expressions.assemble_expression(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
+
+def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
+                  form_compiler_parameters,
+                  mat_type, sub_mat_type,
+                  appctx, options_prefix):
+    stack = [expr]
+    visited = {}
+    while stack:
+        e = stack.pop()
+        unvisted_children = []
+        operands = base_form_operands(e)
+        for arg in operands:
+            if arg not in visited:
+                unvisted_children.append(arg)
+        
+        if unvisted_children:
+            stack.append(e)
+            stack.extend(unvisted_children)
+        else:
+            visited[e] = base_form_visitor(e, tensor, bcs, diagonal, assembly_type,
+                form_compiler_parameters,
+                mat_type, sub_mat_type,
+                appctx, options_prefix, *(visited[arg] for arg in operands))
+    return visited[expr]
+
+def base_form_operands(expr):
+    if isinstance(expr, ufl.form.FormSum):
+        return expr.components()
+    if isinstance(expr, ufl.Adjoint):
+        return [expr.form()]
+    if isinstance(expr, ufl.Action):
+        return [expr.left(), expr.right()]
+    return []
+
+def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
+                  form_compiler_parameters,
+                  mat_type, sub_mat_type,
+                  appctx, options_prefix, *args):
+    if isinstance(expr, ufl.form.Form):
+        return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
+                            form_compiler_parameters,
+                            mat_type, sub_mat_type,
+                            appctx, options_prefix)
+    if isinstance(expr, ufl.Adjoint):
+        if (len(args) != 1): 
+            raise TypeError("Not enough operands for Adjoint")
+        matrix = args[0] 
+        petsc_mat = matrix.M.handle
+        res = PETSc.Mat().create()
+        PETSc.Mat().hermitian(petsc_mat,res)
+        return res
+    if isinstance(expr, ufl.Action):
+        if (len(args) != 2): 
+            raise TypeError("Not enough operands for Action")
+        matrix = args[0] 
+        vector = args[1]
+        with vector.dat.vec_ro as v_vec:
+            petsc_v = v_vec.copy()
+        petsc_mat = matrix.M.handle
+        res = petsc_v.copy()
+        petsc_mat.mult(petsc_v, res)
+        PETSc.Mat().MatMul(petsc_mat, petsc_v, res)
+        return res
+    if isinstance(expr, ufl.FormSum):
+        if (len(args) != len(expr.weights())):
+            raise TypeError("Mismatching weights and operands in FormSum")
+        sum = None
+        for (op,w) in zip(args, expr.weights()):
+            #handle matrices here too? throw error if mismatched
+            with op.dat.vec as v: 
+                PETSc.Mat().VecScale(v,w)
+                if sum:
+                    sum = sum + v
+                else:
+                    sum = v
+        return sum
+    if isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
+        return expr
+    else:
+        raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
 
 def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
