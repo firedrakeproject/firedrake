@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Learn Firedrake 12 January 2019.
 
 Firedrake Tutorial 11 January 2019.

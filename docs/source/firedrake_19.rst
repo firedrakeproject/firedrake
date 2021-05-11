@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Firedrake '19
 
 .. image:: images/durham_cathedral.jpg

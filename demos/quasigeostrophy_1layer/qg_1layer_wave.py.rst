@@ -261,3 +261,4 @@ A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
    :keyprefix: QG-
+   :labelprefix: QG-

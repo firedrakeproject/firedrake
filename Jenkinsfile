@@ -85,24 +85,6 @@ pipeline {
               }
             }
           }
-          stage('Test build documentation') {
-            when { environment name: 'SCALAR_TYPE', value: 'real' }
-            steps {
-              dir('tmp') {
-                timestamps {
-                  sh '''
-  . ./firedrake/bin/activate
-  echo $PATH
-  echo $VIRTUAL_ENV
-  ls $VIRTUAL_ENV/bin
-  firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/bibliography.bib
-  firedrake-preprocess-bibtex --validate firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
-  cd firedrake/src/firedrake/docs; make html
-  '''
-                }
-              }
-            }
-          }
           stage('Docker'){
             when {
               allOf {

@@ -1,12 +1,15 @@
 """
+Overview
+========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
 and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
-**Generator**
+Generator
+---------
 
-:class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
+A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
 and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
 
@@ -25,17 +28,19 @@ Example:
     # prints:
     # [0.0075147 0.40893448 0.18390776 0.46192167 0.20055854 0.02231147 0.47424777 0.24177973 0.55937075]
 
-**BitGenerator**
+BitGenerator
+------------
 
-:class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
-A :class:`.BitGenerator` takes an additional keyword argument `comm` (=`pyop2.mpi.COMM_WORLD` by default).
-If `comm.Get_rank() > 1`, :class:`.PCG64` or :class:`.Philox` must be used, as these bit generators are known to be prallel-safe.
+A :class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
+A :class:`.BitGenerator` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
+If ``comm.Get_rank() > 1``, :class:`.PCG64` or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
 
-*PCG64*
+PCG64
+~~~~~
 
 :class:`.PCG64` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
-If `seed` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the `seed` as the following before
+If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
+To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
 .. code-block:: python3
@@ -47,7 +52,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    `inc` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset "state" after construction as:
+    ``inc`` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -56,10 +61,11 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
         state['state'] = {'state': seed, 'inc': inc}
         pcg.state = state
 
-*Philox*
+Philox
+~~~~~~
 
 :class:`.Philox` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
-If `key` keyword is not provided by the user, :class:`.Philox` computes the default key as:
+If the ``key`` keyword is not provided by the user, :class:`.Philox` computes a default key as:
 
 .. code-block:: python3
 
@@ -81,9 +87,10 @@ _deprecated_attributes = ['RandomGenerator', ]
 
 __all__ = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)] + _deprecated_attributes
 
-
-_known_attributes = ['beta', 'binomial', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf', 'Generator', 'RandomState', 'SeedSequence', 'MT19937', 'Philox', 'PCG64', 'SFC64', 'default_rng', 'BitGenerator']
-_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+# >>> [name for name, _ in inspect.getmembers(numpy.random) if not name.startswith('_')]
+_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+# >>> [name for name, _ in inspect.getmembers(numpy.random.Generator) if not name.startswith('_')]
+_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 
 
 def __getattr__(module_attr):
@@ -240,7 +247,7 @@ def __getattr__(module_attr):
                 continue
             elif class_attr in ['bit_generator', ]:
                 continue
-            elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation']:
+            elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation', 'permuted']:
                 # These methods are not to be used with V.
                 # class_attr is mutable, so we have to wrap func with
                 # another function to lock the value of class_attr
@@ -344,7 +351,7 @@ def __getattr__(module_attr):
                  "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
         _Wrapper = type(module_attr, (_Base,), _dict)
         return _Wrapper
-    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'default_rng', 'get_state', 'seed', 'set_state']:
+    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'bit_generator', 'default_rng', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
         return getattr(randomgen, module_attr)
     elif not module_attr.startswith('_'):
         # module_attr not in _known_attributes + _deprecated_attributes
