@@ -115,7 +115,7 @@ def convert_finiteelement(element, **kwargs):
         if degree is None or scheme is None:
             raise ValueError("Quadrature scheme and degree must be specified!")
 
-        return finat.QuadratureElement(cell, degree, scheme), set()
+        return finat.make_quadrature_element(cell, degree, scheme), set()
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":
