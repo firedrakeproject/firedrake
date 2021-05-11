@@ -1569,6 +1569,7 @@ if mode == "install":
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
+    packages.append("petsc4py")
     packages += ["firedrake"]
 
     for p in options["packages"]:
