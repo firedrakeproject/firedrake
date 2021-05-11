@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint.blocks import ProjectBlock, SupermeshProjectBlock
-from firedrake import function
+from firedrake import function, constant
 
 
 def annotate_project(project):
@@ -34,7 +34,7 @@ def annotate_project(project):
         if annotate:
             tape = get_working_tape()
             if not isinstance(args[1], function.Function):
-                if args[0].ufl_domain() == args[1].mesh():
+                if isinstance(args[0], constant.Constant) or args[0].ufl_domain() == args[1].mesh():
                     block = ProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
                 else:
                     block = SupermeshProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
