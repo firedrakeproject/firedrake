@@ -17,15 +17,14 @@ jobs:
       CC: mpicc
       PETSC_DIR: ${{ github.workspace }}/petsc
       PETSC_ARCH: default
-      PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1
+      PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1 --with-c2html=0 --with-fortran-bindings=0
 
     steps:
       - name: Install system dependencies
         shell: bash
         run: |
-          sudo apt install  \
-            build-essential python3-dev git python3-pip libopenmpi-dev  \
-            openmpi-bin libblas-dev liblapack-dev gfortran
+          sudo apt install build-essential mpich libmpich-dev \
+              libblas-dev liblapack-dev gfortran
 
       - name: Set correct Python version
         uses: actions/setup-python@v2
@@ -56,13 +55,13 @@ jobs:
         uses: actions/checkout@v2
         with:
           path: PyOP2
-      
+
       - name: Install PyOP2
         shell: bash
         working-directory: PyOP2
         run: |
           python -m pip install pip==20.2  # pip 20.2 needed for loopy install to work.
-          
+
           # xargs is used to force installation of requirements in the order we specified.
           xargs -l1 python -m pip install < requirements-ext.txt
           xargs -l1 python -m pip install < requirements-git.txt
@@ -79,3 +78,18 @@ jobs:
         shell: bash
         working-directory: PyOP2
         run: pytest test -v --tb=native
+
+      - name: Build documentation
+        shell: bash
+        working-directory: PyOP2
+        run: |
+          python -m pip install sphinx
+          make -C doc/sphinx html
+      - name: Upload to github pages
+        if: ${{ github.ref == 'refs/heads/master' && github.event_name == 'push' }}
+        uses: crazy-max/ghaction-github-pages@v2.2.0
+        with:
+          build_dir: PyOP2/doc/sphinx/build/html
+          jekyll: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
