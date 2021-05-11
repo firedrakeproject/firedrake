@@ -1,6 +1,6 @@
 import numpy as np
 
-from firedrake.assemble import vector_arg
+from firedrake.assemble import _vector_arg
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
@@ -142,10 +142,10 @@ void apply_cholesky(double *__restrict__ z,
         return x.cell_node_map()
     i, _ = mass_ker.indices
 
-    z_arg = vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
-    b_arg = vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
+    z_arg = _vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
+    b_arg = _vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
     coords = mesh.coordinates
-    volumes = vector_arg(op2.READ, get_map, i, function=vol, V=DG0)
+    volumes = _vector_arg(op2.READ, get_map, i, function=vol, V=DG0)
 
     op2.par_loop(cholesky_kernel,
                  mesh.cell_set,
