@@ -1568,8 +1568,7 @@ if mode == "install":
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
-    packages = clone_dependencies("PyOP2") + packages
-    packages.append("petsc4py")
+    packages = clone_dependencies("PyOP2") + ["petsc4py"] + packages
     packages += ["firedrake"]
 
     for p in options["packages"]:
