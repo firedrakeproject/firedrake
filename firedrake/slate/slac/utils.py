@@ -508,11 +508,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
                 if tsfc_calls[0] and tsfc_knls[0]:
-                    tsfc_knl_list.extend(tsfc_knls)
-
-                    if isinstance(slate_node, sl.Action):
-                        # substitute action call with the generated tsfc call for that action
-                        # but keep the lhs so that the following instructions still act on the right temporaries
+                    knl_list.update(tsfc_knls[0])
+                    # substitute action call with the generated tsfc call for that action
+                    # but keep the lhs so that the following instructions still act on the right temporaries
                         for i, tsfc_call in enumerate(tsfc_calls):
                             insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
                                                                             tsfc_call.expression,
