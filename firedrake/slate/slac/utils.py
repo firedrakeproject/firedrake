@@ -16,8 +16,6 @@ import firedrake.slate.slate as sl
 import loopy as lp
 import itertools
 
-from firedrake.slate.slac.compiler import gem_to_loopy
-
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 from loopy.kernel.function_interface import CallableKernel
 def visualise(dag, how = None):
@@ -484,6 +482,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         # terminal as the tensor to be acted on
 
                         # FIXME This still need to be updated to the new loopy
+                        from firedrake.slate.slac.compiler import gem_to_loopy
                         action_wrapper_knl_name = "wrap_" + insn.expression.function.name
                         var2terminal_actions = {g:var2terminal[g] for p,g in pym2gem.items() if p in reads}
                         (action_wrapper_knl, action_gem2pym), action_output_arg = gem_to_loopy(gem_action_node,
