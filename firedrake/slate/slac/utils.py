@@ -337,7 +337,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, gem2pym, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
     if strategy == "terminals_first":
