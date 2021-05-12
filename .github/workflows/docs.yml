@@ -20,6 +20,9 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
+      - name: Checkout branch
+        run: |
+          git -C /home/firedrake/firedrake/src/firedrake checkout ${GITHUB_HEAD_REF}
       - name: Fix permissions
         # Firedrake's Dockerfile sets USER to firedrake instead of
         # using the default user, so we need to update file
@@ -28,11 +31,10 @@ jobs:
         # (copied from https://help.github.com/en/actions/migrating-to-github-actions/migrating-from-circleci-to-github-actions)
         run: |
           sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
-      - uses: actions/checkout@v2
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pip install -e .
+          python -m pip install -e /home/firedrake/firedrake/src/firedrake
           python -m pip install sphinx
           python -m pip install sphinxcontrib-bibtex
           python -m pip install bibtexparser
@@ -40,11 +42,14 @@ jobs:
       - name: Check bibtex
         run: |
           . /home/firedrake/firedrake/bin/activate
-          cd docs
-          firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
-          firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+          firedrake-preprocess-bibtex --validate /home/firedrake/firedrake/src/firedrake/docs/source/_static/bibliography.bib
+          firedrake-preprocess-bibtex --validate /home/firedrake/firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
       - name: Build docs
+        # PETSC dir and arch are mock variables
         run: |
           . /home/firedrake/firedrake/bin/activate
-          cd docs
-          make html
+          firedrake-status
+          export PETSC_DIR=/home/firedrake/firedrake/src/petsc
+          export PETSC_ARCH=default
+          firedrake-update --honour-petsc-dir 
+          make -C /home/firedrake/firedrake/src/firedrake/docs html
