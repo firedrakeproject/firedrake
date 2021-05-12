@@ -513,9 +513,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                     knl_list.update(tsfc_knls[0])
                     # substitute action call with the generated tsfc call for that action
                     # but keep the lhs so that the following instructions still act on the right temporaries
-                        for i, tsfc_call in enumerate(tsfc_calls):
-                            insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                                            tsfc_call.expression,
+                    for (i, tsfc_call),((knl_name,knl),) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
+                        insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                                           tsfc_call.expression,
                                                                            id=insn.id,
                                                                            within_inames=insn.within_inames,
                                                                            predicates=tsfc_call.predicates))
