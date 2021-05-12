@@ -433,7 +433,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     c = 0 
-    for insn in slate_loopy.instructions:
+    slate_loopy_name = builder.slate_loopy_name
+    for insn in slate_loopy[slate_loopy_name].instructions:
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("solve")):
