@@ -445,10 +445,34 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 slate_node = var2terminal[gem_action_node]
                 gem_inlined_node = Variable(lhs.name, gem_action_node.shape)
                 coeff_name = insn.expression.parameters[1].subscript.aggregate.name
+
+                def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
+                    new_coeffs = {}
+                    old_coeffs = {}
+                    for coeff, name, terminal in zip(coeffs, names, terminals):  
+                        old_coeff, new_coeff = builder.collect_coefficients(coeff,
+                                                                            names=name,
+                                                                            action_node=terminal)
+                        new_coeffs.update(new_coeff)
+                        old_coeffs.update(old_coeff)
+
+                    from firedrake.slate.slac.kernel_builder import SlateWrapperBag
+                    if not builder.bag:
+                        builder.bag = SlateWrapperBag(old_coeffs, "k_"+str(c), new_coeff, builder.slate_loopy_name)
+                        builder.bag.call_name_generator("k_"+str(c))
+                    else:
+                        builder.bag.update_coefficients(old_coeffs, "k_"+str(c), new_coeff)
+                    return builder, new_coeffs, old_coeffs
+
+                def get_coeff(slate_nodes, coeff_names):
+                    for slate_node, coeff_name in zip(slate_nodes, coeff_names):
+                        terminal = slate_node.action()
+                        coeff = slate_node.ufl_coefficient
+                        names = {coeff._ufl_function_space:coeff_name}
+                        yield terminal, coeff, names
+                 
                 if isinstance(slate_node, sl.Action):
-                    terminal = slate_node.action()
-                    coeff = [slate_node.ufl_coefficient]
-                    names = {coeff[0]._ufl_function_space:coeff_name}
+                    terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
                 else:
                     from firedrake.slate.slac.compiler import gem_to_loopy
                     (action_wrapper_knl, action_gem2pym, action_indices), action_output_arg = gem_to_loopy(gem_action_node,
