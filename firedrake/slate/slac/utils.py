@@ -516,9 +516,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                         for i, tsfc_call in enumerate(tsfc_calls):
                             insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
                                                                             tsfc_call.expression,
-                                                                            id=insn.id+"_inlined_tsfc_"+str(i),
-                                                                            within_inames=insn.within_inames,
-                                                                            predicates=tsfc_call.predicates))
+                                                                           id=insn.id,
+                                                                           within_inames=insn.within_inames,
+                                                                           predicates=tsfc_call.predicates))
                     else:
                         # TODO we need to be able to this in case someone wants a matrix explicit solve
                         # If we want an explicit solve, we need to assemble matrix first
