@@ -484,7 +484,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                         # terminal as the tensor to be acted on
 
                         # FIXME This still need to be updated to the new loopy
-                    from firedrake.slate.slac.compiler import gem_to_loopy
                         action_wrapper_knl_name = "wrap_" + insn.expression.function.name
                         var2terminal_actions = {g:var2terminal[g] for p,g in pym2gem.items() if p in reads}
                         (action_wrapper_knl, action_gem2pym), action_output_arg = gem_to_loopy(gem_action_node,
