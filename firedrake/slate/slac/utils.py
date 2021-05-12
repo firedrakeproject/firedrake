@@ -504,21 +504,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                     tvs.update({lhs.name:action_wrapper_knl.arg_dict[lhs.name].copy(address_space=lp.AddressSpace.LOCAL)})
                     continue
 
-                # link the coefficient of the action to the right tensor
-                old_coeff, new_coeff = builder.collect_coefficients(coeff,
-                                                                    names=names,
-                                                                    action_node=terminal)
-                coeffs.update(old_coeff)
-                coeffs.update(new_coeff)
+                builder, new_coeff, old_coeff = link_action_coeff(builder, [coeff], [names], [terminal])
                 new_coeffs.update(new_coeff)
                 old_coeffs.update(old_coeff)
-
-                from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                if not builder.bag:
-                    builder.bag = SlateWrapperBag(old_coeffs, "_"+str(c), new_coeff, name)
-                    builder.bag.call_name_generator("_"+str(c))
-                else:
-                    builder.bag.update_coefficients(old_coeffs, "_"+str(c), new_coeff)
 
                 if terminal not in tensor2temps.keys():
                     inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
