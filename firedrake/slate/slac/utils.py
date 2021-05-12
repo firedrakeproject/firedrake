@@ -507,6 +507,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 
                 # local assembly of the action or the matrix for the solve
                 tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+
+                #FIXME we need to cover a case for explicit solves I think
                 if tsfc_calls[0] and tsfc_knls[0]:
                     knl_list.update(tsfc_knls[0])
                     # substitute action call with the generated tsfc call for that action
@@ -517,12 +519,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                                                                            id=insn.id,
                                                                            within_inames=insn.within_inames,
                                                                            predicates=tsfc_call.predicates))
-                    else:
-                        # TODO we need to be able to this in case someone wants a matrix explicit solve
-                        # If we want an explicit solve, we need to assemble matrix first
-                        # FIXME in fact this does not work yet, we got trouble with instructions not containing the right temps
-                        insns.append(tsfc_calls[0])
-                        insns.append(insn)
                 else:
                     # This code path covers the case that the tsfc compiler doesn't give a kernel back
                     # I don't quite know yet what the cases are where it does not
