@@ -431,6 +431,7 @@ class LocalLoopyKernelBuilder(object):
         self.bag = None
         self.kernel_counter = count()
         self.slate_loopy_name = slate_loopy_name
+        self.matfree_solve_knls = []
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
@@ -761,6 +762,147 @@ class LocalLoopyKernelBuilder(object):
         slate_kernel_call_output = self.generate_lhs(self.expression, output_var)
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return insn
+
+    def generate_matfsolve_call(self, ctx, insn, expr):
+        """
+            Matrix-free solve. Currently implemented as CG. WIP.
+        """
+        import numpy as np
+        from gem import Variable
+
+        # Generate args and reads
+        args = []
+        reads = []
+        child1, child2 = expr.children
+        reads1, reads2 = insn.expression.parameters
+        # str2name = {child1.name:reads1.subscript.aggregate.name}
+        str2name = {}
+        def make_reads(child2, name):
+            var_reads = pym.Variable(name)
+            child_reads = Variable(name, child2.shape)
+            idx_reads = self.bag.index_creator(child2.shape)
+            # inames = {var.name for var in indices}
+            return child_reads, SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+
+        child_coords, reads_coords = make_reads(child2, "coords")
+        child_out, reads_out = make_reads(child2, insn.assignee_name)
+        reads = [reads1, reads_out, reads_coords, reads2]
+        children = [child1, child_out, child_coords, child2]
+        local_names = ["A", "output", "coords", "b"]
+        dtype = self.tsfc_parameters["scalar_type"]
+
+        for name, (child, var_reads) in zip(local_names, zip(children, reads)):
+            # args to kernel
+            args.append(loopy.GlobalArg(var_reads.subscript.aggregate.name, dtype, shape=child.shape))
+
+            # map from kernel arg name to call arg name
+            str2name.update({name:var_reads.subscript.aggregate.name})
+
+        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x"
+        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
+        str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
+    
+        # WORKAROUND to inline cinstruction for breaking the loop properly:
+        # prepend the name of the kernel to the variable which the stop criterion depends on
+        name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 0.000000001)
+        shape = expr.shape
+        output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=shape, is_output=True, is_input=True, target=loopy.CTarget())
+
+        # The last line in the loop to convergence is another WORKAROUND
+        # bc the initialisation of A_on_p in the action call does not get inlined properly either
+
+        knl = loopy.make_function(
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17]: 
+                    0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
+                    and 0<=i_5<n and 0<=i_6<=3*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n}""" ,
+                ["""
+                    x[i_0] = {b}[i_0] {{id=x0}} 
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
+                    <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
+                    p[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
+                    <> rk_norm = 0 {{dep=projector0, id=rk_norm0}}
+                    rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
+                    for i_6
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
+                        <> p_on_Ap = 0 {{dep=Aonp, id=ponAp0}}
+                        p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
+                        <> alpha = rk_norm / p_on_Ap {{dep=ponAp, id=alpha}}
+                        x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
+                        r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
+                        <> rkp1_norm = 0 {{dep=rk, id=rkp1_norm0}}
+                        rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id=rkp1_normk}}
+                    """.format(**str2name),
+                        stop_criterion,
+                        """<> beta = rkp1_norm / rk_norm {{dep=cond, id=beta}}
+                        rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
+                        p[i_15] = beta * p[i_15] - r[i_15] {{dep=rk_normk, id=projectork}}
+                        {A_on_p}[i_17] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
+                    end
+                    {output}[i_16] = x[i_16] {{dep=Aonp0, id=out}}
+                """.format(**str2name)],
+                [*args,
+                loopy.TemporaryVariable("x", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+                loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+                loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+                loopy.TemporaryVariable("p", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+                target=loopy.CTarget(),
+                name=name,
+                lang_version=(2018, 2))
+
+        knl = loopy.fix_parameters(knl, n=shape[0])
+
+        # update gem to pym mapping
+        # by linking the actions of the matrix-free solve kernel
+        # to the their pymbolic variables
+        knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name = A_on_x_name
+        knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name = A_on_p_name
+        _ = ctx.pymbolic_variable(expr._Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
+        _ = ctx.pymbolic_variable(expr._Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        
+        call = insn.copy(expression=pym.Call(pym.Variable(name),
+                                             reads))
+        
+        self.matfree_solve_knls.append(knl)
+        return call, (name, knl), output_arg
+
+    def generate_code_for_stop_criterion(self, var_name, stop_value):
+        """ This method is workaround need since Loo.py does not support while loops yet.
+            FIXME whenever while loops become available
+
+            The workaround uses a Loo.py CInstruction. The Loo.py Cinstruction allows to write C code
+            so that the code (defined via its second argument) will appear unaltered in the final
+            produced code for the kernel. Meaning, there are no transformations happening on this
+            bit of code.
+            First example where this becomes a problem is in a kernel containing the Cinstruction,
+            which gets inlined in another kernel. In that case the variables in the instruction
+            are not renamed properly in the inlining process.
+            Another example is, that the variable in the code of the Cinstruction does not get
+            vectorised when prompted.
+
+            Inlining and vectorisation are made available through this ugly bit of code.
+        """
+        import pyop2
+        # not sure where I can get the prefix, which the variable has in a vectorised kernel,
+        # dynamically from variable_name = var_name
+        condition = " < " + str(stop_value)
+        if pyop2.configuration["simd_width"]:
+            # vectorisation of the stop criterion
+            variable = variable_name+ "["+str(0)+"]" + condition
+            for i in range(int(pyop2.configuration["simd_width"])-1):
+                variable += "&& " + variable_name + "["+str(i+1)+"]" + condition
+        else:
+            variable = var_name + condition
+        # note that depends_on and id need to match the instructions in the kernel,
+        # which uses the stop criterion
+        return loopy.CInstruction("",
+                            "if (" + variable +") break;",
+                            read_variables=[var_name],
+                            depends_on="rkp1_normk",
+                            id="cond")
+
 
     def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
