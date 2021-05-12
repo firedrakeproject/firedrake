@@ -713,7 +713,8 @@ class LocalLoopyKernelBuilder(object):
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
                                                    shape=gem_tensor.shape,
-                                                   address_space=loopy.AddressSpace.LOCAL)
+                                                   address_space=loopy.AddressSpace.LOCAL,
+                                                   target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
 
             if isinstance(slate_tensor, slate.Tensor):
