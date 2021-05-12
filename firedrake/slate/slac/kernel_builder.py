@@ -971,15 +971,6 @@ class LocalLoopyKernelBuilder(object):
             if tensor_temp.name not in [arg.name for arg in args]:
                 args.append(tensor_temp)
 
-        for knl in templated_subkernels:
-            if knl:
-                if isinstance(knl, loopy.TranslationUnit):
-                    knl_name, = knl.callables_table
-                    knl = knl.callables_table[knl_name].subkernel
-                for arg in knl.temporary_variables.values():
-                    if arg.name not in [arg.name for arg in args]:
-                        args.append(arg)
-
         return args
 
     def generate_tsfc_calls(self, terminal, loopy_tensor):
