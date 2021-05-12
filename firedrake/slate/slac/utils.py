@@ -418,9 +418,10 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
 
 def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, init_temporaries=True, tensor2temp={}, output_arg=None):
     insns = []
-    tsfc_knl_list = []
-    tensor2temps = OrderedDict()
-    tvs = {}
+    tensor2temps = tensor2temp
+    slate_wrapper = slate_loopy.copy()
+    knl_list = {}
+    gem2pym = ctx_g2l.gem_to_pymbolic
 
     # Keeping track off all coefficients upfront
     # saves us the effort of one of those ugly dict comparisons
