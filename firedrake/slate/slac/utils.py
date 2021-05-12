@@ -474,34 +474,66 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
                 if isinstance(slate_node, sl.Action):
                     terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
                 else:
+                    # Generate a kernel for the statements the action is supposed to be inlined with
+                    slate_wrapper_bag = builder.bag
+
+                    if not isinstance(slate_node, sl.Solve):
+                        # This path handles the inlining of action which don't have a 
+                        # terminal as the tensor to be acted on
+
+                        # FIXME This still need to be updated to the new loopy
                     from firedrake.slate.slac.compiler import gem_to_loopy
-                    (action_wrapper_knl, action_gem2pym, action_indices), action_output_arg = gem_to_loopy(gem_action_node,
-                                                      var2terminal,
-                                                      tsfc_parameters["scalar_type"],
-                                                      "loopy_"+insn.expression.function.name,
-                                                      lhs.name)
-                    if isinstance(action_wrapper_knl, lp.program.Program):
-                        action_wrapper_knl = action_wrapper_knl.root_kernel
-                    builder.bag.name = action_wrapper_knl.name
-                    builder.bag.index_creator.inames.update(action_indices)
-                    gem2pym.update(action_gem2pym)
-                    old_namer = builder.bag.index_creator.namer
-                    builder.bag.update_iname_prefix("loopy_"+insn.expression.function.name+"_")
-                    action_tensor2temps, action_tsfc_knl_list, action_insns, builder, _ = assemble_when_needed(builder,
-                                                                                                        var2terminal,
-                                                                                                        action_wrapper_knl,
-                                                                                                        slate_node,
-                                                                                                        gem2pym,
-                                                                                                        tsfc_parameters,
-                                                                                                        action_wrapper_knl.name,
-                                                                                                        init_temporaries=False)
-                    # builder.bag = old_bag
-                    builder.bag.index_creator.namer = old_namer
-                    tensor2temps.update(action_tensor2temps)
-                    tsfc_knl_list.extend(action_tsfc_knl_list)
-                    insns.extend(action_insns)
-                    tvs.update(action_wrapper_knl.temporary_variables)
-                    tvs.update({lhs.name:action_wrapper_knl.arg_dict[lhs.name].copy(address_space=lp.AddressSpace.LOCAL)})
+                        action_wrapper_knl_name = "wrap_" + insn.expression.function.name
+                        var2terminal_actions = {g:var2terminal[g] for p,g in pym2gem.items() if p in reads}
+                        (action_wrapper_knl, action_gem2pym), action_output_arg = gem_to_loopy(gem_action_node,
+                                                                                               var2terminal,
+                                                                                               tsfc_parameters["scalar_type"],
+                                                                                               action_wrapper_knl_name,
+                                                                                               "wrap_"+insn.assignee_name)
+                        
+                        # Generate an instruction which call the action wrapper kernel
+                        action_insn = insn.copy(expression=pym.Call(pym.Variable(builder.slate_loopy_name),
+                                                                    insn.expression.parameters))
+
+                        # Prepare data structures for a new swipe
+                        slate_wrapper_bag = builder.bag
+                        builder.slate_loopy_name = action_wrapper_knl_name 
+                        builder.bag = builder.bag.copy(action_wrapper_knl_name+"_", action_wrapper_knl_name)
+                        ctx2gl.gem_to_pymbolic = action_gem2pym
+                    else:
+                        # Generate matfree solve call and knl
+                        action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
+
+                        # Prepare data structures for a new swipe
+                        slate_wrapper_bag = builder.bag
+                        builder.slate_loopy_name = action_wrapper_knl_name
+                        builder.bag = builder.bag.copy("j_",
+                                                        action_wrapper_knl_name)
+
+                    child1, child2 = slate_node.children
+                    action_tensor2temp = {child2:action_wrapper_knl.callables_table[builder.slate_loopy_name].subkernel.args[-1]}
+
+                    
+                    # Repeat for the actions which might be in the action wrapper kernel
+                    action_tensor2temps, builder, action_wrapper_knl = assemble_when_needed(builder,
+                                                                        var2terminal,
+                                                                        action_wrapper_knl,
+                                                                        slate_node,
+                                                                        ctx_g2l,
+                                                                        tsfc_parameters,
+                                                                        init_temporaries=False,
+                                                                        tensor2temp=action_tensor2temp,
+                                                                        output_arg=action_output_arg)
+
+                    # Update data structure before next instruction is processed
+                    knl_list[builder.slate_loopy_name] = action_wrapper_knl 
+                    builder.bag = slate_wrapper_bag
+                    builder.slate_loopy_name = slate_loopy_name
+                    tvs = slate_loopy.callables_table[slate_loopy_name].subkernel.temporary_variables
+                    tensor2temps[slate_node] = tvs[insn.assignee_name].copy(target=lp.CTarget())
+                    droppedAparams = action_insn.expression.parameters[1:]
+                    insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function,
+                                                                    droppedAparams)))
                     continue
 
                 builder, new_coeff, old_coeff = link_action_coeff(builder, [coeff], [names], [terminal])
