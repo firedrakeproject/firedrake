@@ -1078,8 +1078,19 @@ class SlateWrapperBag(object):
         self.action_coefficients = new_coeffs
         self.call_name_generator(prefix)
 
-    def update_iname_prefix(self, prefix):
-        self.index_creator.rename(prefix)
+    def copy(self, prefix, name):
+        new = SlateWrapperBag(self.coefficients)
+        new.action_coefficients = self.action_coefficients
+        new.inames = self.inames
+        new.needs_cell_orientations = self.needs_cell_orientations
+        new.needs_cell_sizes = self.needs_cell_sizes
+        new.needs_cell_facets = self.needs_cell_facets
+        new.needs_mesh_layers = self.needs_mesh_layers
+        new.call_name_generator = self.call_name_generator
+        new.index_creator = self.index_creator
+        new.index_creator.rename(prefix)
+        new.name = name
+        return new
 
 
 class IndexCreator(object):
