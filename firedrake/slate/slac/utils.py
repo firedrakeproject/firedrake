@@ -18,6 +18,9 @@ import itertools
 
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 from loopy.kernel.function_interface import CallableKernel
+
+# FIXME Move all slac loopy in separate file
+
 def visualise(dag, how = None):
     """
         Visualises a slate dag. Can for example used to show the original expression
