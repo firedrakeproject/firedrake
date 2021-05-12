@@ -747,9 +747,7 @@ class LocalLoopyKernelBuilder(object):
 
         return inits, tensor2temp
 
-    def slate_call(self, prg, temporaries):
-        name, = prg.callables_table.keys()
-        kernel = prg.callables_table[name].subkernel
+    def slate_call(self, kernel, temporaries):
         output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
         reads = [output_var]
