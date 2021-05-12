@@ -1650,7 +1650,7 @@ else:
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
-    packages = list(deps.keys())
+    packages = ["petsc4py"] + list(deps.keys())
     packages += ["firedrake"]
 
     # update packages.
