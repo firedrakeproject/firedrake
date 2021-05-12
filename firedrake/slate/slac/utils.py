@@ -603,20 +603,20 @@ def inline_kernel_properly(wrapper, kernel):
 
     from loopy.transform.callable import _match_caller_callee_argument_dimension_
 
-    # Generate program from kernel, so that one can register kernels
-    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-    from loopy.kernel.function_interface import CallableKernel
+    # Register all resolved functions of root_kernel in wrapper
+    for name, callable in kernel.callables_table.resolved_functions.items():
+        if isinstance(callable, lp.CallableKernel):
+            wrapper = lp.register_callable_kernel(wrapper, callable.subkernel)
+        else:
+            # Mathcallables e.g. do not have subkernels so add by hand
+            combined_callables = wrapper.callables_table.resolved_functions
+            combined_callables[name] = callable
+            combined_callables_table = wrapper.callables_table.copy(
+                resolved_functions=combined_callables)
+            wrapper = wrapper.copy(callables_table=combined_callables_table)
 
-    for tsfc_loopy in tsfc_kernels:
-        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
-        names = tsfc_loopy.callables_table
-        for name in names:
-            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-    slate_wrapper = merge([slate_wrapper, slate_loopy])
-    names = slate_loopy.callables_table
-    for name in names:
-        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+        wrapper = _match_caller_callee_argument_dimension_(wrapper, kernel.name)
+        wrapper = lp.inline_callable_kernel(wrapper, kernel.name)
+    return wrapper
 
-    return slate_wrapper
+    return tensor2temps, builder, slate_loopy
