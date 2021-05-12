@@ -16,6 +16,7 @@ import firedrake.slate.slate as sl
 import loopy as lp
 import itertools
 
+from firedrake.slate.slac.compiler import gem_to_loopy
 
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 from loopy.kernel.function_interface import CallableKernel
