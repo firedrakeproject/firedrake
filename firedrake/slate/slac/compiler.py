@@ -178,10 +178,18 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     print(slate_loopy)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
-                                      tsfc_parameters=tsfc_parameters)
+                                      tsfc_parameters=tsfc_parameters,
+                                      slate_loopy_name=slate_loopy_name)
+    
+    if tsfc_parameters["optimise_slate"]:
+        # here we reuse the loopy kernel and call tsfc kernels from within
+        name = "slate_loopy"
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "when_needed", slate_expr, tsfc_parameters)
+    else:
+        # here we generate a new kernel where the the slate loopy kernel is called from
+        name = "wrap_slate_loopy"
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, "terminals_first")
 
-    name = "slate_wrapper"
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
