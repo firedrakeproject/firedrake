@@ -656,11 +656,12 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output
     args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type)])
     for var in var2terminal.keys():
         if hasattr(var, "name") and var.name not in [a.name for a in args]:
+            # FIXME we should probably just have two dicts
             if var.name.startswith("S") or var.name.startswith("A"):
                 t_shape = var.shape if var.shape else (1,)
-                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
+                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
             else:
-                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type))
+                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type, target=loopy.CTarget()))
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
