@@ -653,7 +653,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type)])
+    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
     for var in var2terminal.keys():
         if hasattr(var, "name") and var.name not in [a.name for a in args]:
             # FIXME we should probably just have two dicts
