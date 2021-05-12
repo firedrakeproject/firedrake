@@ -442,8 +442,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
 
                 # the name of the lhs can change due to inlining,
                 # the indirections do only partially contain the right information
-                lhs = insn.assignees[0].subscript.aggregate
-                gem_action_node = pym2gem[lhs.name]  # we only need this node to the shape
+                gem_action_node = pym2gem[insn.assignee_name]  # we only need this node to the shape
                 slate_node = var2terminal[gem_action_node]
                 gem_inlined_node = Variable(lhs.name, gem_action_node.shape)
                 coeff_name = insn.expression.parameters[1].subscript.aggregate.name
