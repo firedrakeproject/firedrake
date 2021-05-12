@@ -1032,7 +1032,7 @@ class LocalLoopyKernelBuilder(object):
 
                 code = kinfo.kernel.code
                 code = match_kernel_argnames(insn, code)
-                yield insn, code
+                yield insn, {kinfo.kernel.name: code}
 
         if not cxt_kernels:
             yield (None, None)
