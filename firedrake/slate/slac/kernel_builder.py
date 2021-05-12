@@ -699,13 +699,14 @@ class LocalLoopyKernelBuilder(object):
                     coeff_dict[c] = (name, self.extent(c))
         return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2terminal, coefficients):
+    def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
             :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
         """
-
+        from gem import Variable as gVar
+        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
