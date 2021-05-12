@@ -597,26 +597,49 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
         # so that we can generate the right wrapper kernel args of it
         builder.bag.update_coefficients(init_coeffs, "_"+str(c), new_coeffs)
 
-    return tensor2temps, tsfc_knl_list, insns, builder, tvs
-
-def inline_kernel_properly(wrapper, kernel):
-
-    from loopy.transform.callable import _match_caller_callee_argument_dimension_
-
-    # Register all resolved functions of root_kernel in wrapper
-    for name, callable in kernel.callables_table.resolved_functions.items():
-        if isinstance(callable, lp.CallableKernel):
-            wrapper = lp.register_callable_kernel(wrapper, callable.subkernel)
+    # FIXME Refactor into generate wrapper kernel function
+    # 1) Prepare the wrapper kernel: scheduling of instructions
+    # We remove all existing dependencies and make them sequential instead
+    # also help scheduling by setting within_inames_is_final on everything
+    new_insns = []
+    for i, insn in enumerate(insns):
+        if insn:
+            if i == 0:
+                last_id=insns[0].id
+                new_insns.append(insn.copy(priority=len(insns)-i,
+                within_inames_is_final=True))
+            else:
+                new_insns.append(insn.copy(depends_on=frozenset({last_id}),
+                priority=len(insns)-i,
+                within_inames_is_final=True))
+                last_id=insn.id
+    
+    # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions
+    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps, list(knl_list.values()))
+    # new_args = [a.copy(target=lp.CTarget()) for a in old_new_args]
+    global_args = []
+    local_args = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.temporary_variables
+    for n in new_args:
+        if n.address_space==lp.AddressSpace.GLOBAL:
+            global_args += [n]
         else:
-            # Mathcallables e.g. do not have subkernels so add by hand
-            combined_callables = wrapper.callables_table.resolved_functions
-            combined_callables[name] = callable
-            combined_callables_table = wrapper.callables_table.copy(
-                resolved_functions=combined_callables)
-            wrapper = wrapper.copy(callables_table=combined_callables_table)
+            local_args.update({n.name: n})
 
-        wrapper = _match_caller_callee_argument_dimension_(wrapper, kernel.name)
-        wrapper = lp.inline_callable_kernel(wrapper, kernel.name)
-    return wrapper
+    # 3) Prepare the wrapper kernel: generate domains for indices used in the CallInstructions
+    new_domains = slate_loopy[builder.slate_loopy_name].domains 
+    new_domains += builder.bag.index_creator.domains
+
+    # Final: Adjusted wrapper kernel
+    copy_args = {"args": global_args, "domains":new_domains, "temporary_variables":local_args, "instructions":new_insns}
+    slate_loopy.callables_table[builder.slate_loopy_name].subkernel = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.copy(**copy_args)
+
+    # Link action/matfree kernels to wrapper kernel
+    # Match tsfc kernel args to the wrapper kernel callinstruction args,
+    # because tsfc kernels have flattened indices
+    for name, knl in knl_list.items():
+        slate_loopy = lp.merge([slate_loopy, knl])
+        print(slate_loopy)
+        if not name.startswith("mtf"):
+            slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
 
     return tensor2temps, builder, slate_loopy
