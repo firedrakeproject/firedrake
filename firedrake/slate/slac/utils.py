@@ -17,6 +17,8 @@ import loopy as lp
 import itertools
 
 
+from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+from loopy.kernel.function_interface import CallableKernel
 def visualise(dag, how = None):
     """
         Visualises a slate dag. Can for example used to show the original expression
@@ -383,18 +385,14 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, g
     # Prevent loopy interchange by loopy
     slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
 
-    # Register kernels
-    from loopy.kernel.function_interface import CallableKernel
-    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-    loop = itertools.chain(tsfc_kernels, [slate_loopy]) if strategy == "terminals_first" else tsfc_kernels
-    for knl in loop:
-        if knl:
-            slate_wrapper = loopy.merge([slate_wrapper, knl])
-            names = knl.callables_table
-            for name in names:
-                if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-                    slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-    return slate_wrapper
+        # Register kernels
+        loop = itertools.chain([k.items() for k in tsfc_kernels], [{slate_loopy.name:slate_loopy_prg}.items()])
+        for l in loop:
+            (name, knl), = tuple(l)
+            if knl:
+                slate_wrapper = loopy.merge([slate_wrapper, knl])
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+        return slate_wrapper
 
 
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
