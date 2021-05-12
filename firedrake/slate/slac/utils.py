@@ -437,7 +437,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym
     for insn in slate_loopy[slate_loopy_name].instructions:
         if isinstance(insn, lp.kernel.instruction.CallInstruction):
             if (insn.expression.function.name.startswith("action") or
-                insn.expression.function.name.startswith("solve")):
+                insn.expression.function.name.startswith("mtf")):
                 c += 1
 
                 # the name of the lhs can change due to inlining,
