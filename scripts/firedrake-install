@@ -23,6 +23,8 @@ arch = platform.uname().machine
 WHEEL_BLACKLIST = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
 PARALLEL_PACKAGES = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake", "TinyASM"]
+# Record of obsolete packages which --clean should remove from old installs.
+OLD_GIT_PACKAGES = ["dolfin-adjoint", "libadjoint"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -138,7 +140,7 @@ You should run firedrake-install with python3.""")
             # Existing install trying to update past the py2/py3 barrier
             print("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
 Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
-            sys.exit(1)
+            sys.exit(1)  # Notes: Do we really still need this???
         else:
             # Accidentally (?) running firedrake-update with python2.
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
@@ -488,10 +490,6 @@ options = config["options"]
 # Apply short cut package names. pyadjoint shoud no longer turn up the packages list because it is a hard dependency.
 options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"] if not p.endswith("pyadjoint")]
 
-
-# Record of obsolete packages which --clean should remove from old installs.
-old_git_packages = ["dolfin-adjoint", "libadjoint"]
-
 if mode == "install":
     firedrake_env = os.path.abspath(args.venv_name)
 else:
@@ -504,15 +502,32 @@ if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
 python = "%s/bin/python" % firedrake_env
 
 
-class Pip:
-    # Notes: Object for running pip and associated functionality
-    def __init__(self, *command, **kwargs):
-        self._pip = list(command)
-        self._parallel_env = kwargs.get('parallel_env', {})
+class CommandLine:
+    ''' Base class used to make command line programs can behave like
+    Python classes
+    '''
+    # Notes: Not sure whether to be proud of or disgusted with myself
+    def __init__(self, *program):
+        self._cmd = list(program)
 
     def __call__(self, *args):
-        # Notes: Replaces `run_pip()`
-        return check_call(self._pip + list(args))
+        print(self._cmd + list(args))
+        return check_call(self._cmd + list(args))
+
+    def __getattr__(self, command):
+        if command in self.__dir__():
+            ret = self.command
+        else:
+            ret = partial(self, command)
+        return ret
+
+
+class Pip(CommandLine):
+    # Notes: Object for running pip and associated functionality
+    def __init__(self, *command, **kwargs):
+        super().__init__(*command)
+        # Notes: __call__ method replaces `run_pip()`
+        self._parallel_env = kwargs.get('parallel_env', {})
 
     def install(self, *args):
         # Notes: replaces 'run_pip_install()' and
@@ -539,7 +554,7 @@ class Pip:
         else:
             env = blas
         with environment(**env):
-            output = check_call(self._pip + install_options + list(args))
+            output = self(*install_options, *args)
         return output
 
     def uninstall(self, package):
@@ -615,6 +630,96 @@ def pip_requirements(package, parallel_compiler_env):
         log.info("No dependencies found. Skipping.")
 
 
+class Git(CommandLine):
+    def __init__(self):
+        super().__init__('git')
+
+    @staticmethod
+    def url(plain_url, protocol):
+        # Notes: replaces git_url()
+        if protocol == "ssh":
+            return "git@%s:%s" % tuple(plain_url.split("/", 1))
+        elif protocol == "https":
+            return "https://%s" % plain_url
+        else:
+            raise ValueError("Unknown git protocol: %s" % protocol)
+
+    @staticmethod
+    def split_requirements_url(url):
+        # Notes: replaces split_requirements_url()
+        # Notes: Could we combine with url()^^
+        name = url.split(".git")[0].split("#")[0].split("/")[-1]
+        plain_url, *branch = url.split("://")[1].split("#")[0].split("@")
+        if not branch:
+            branch = ["master"]
+        return name, plain_url, branch[0]
+
+    def clone_branch(self, url):
+        # Notes: replaces git_clone()
+        name, plain_url, branch = self.split_requirements_url(url)
+        if name == "petsc" and args.honour_petsc_dir:
+            log.info("Using existing PETSc installation\n")
+            return name
+        elif name == "petsc4py" and use_petsc4py_in_petsc:
+            log.info("Not cloning petsc4py from firedrake-project repo: using petsc4py in PETSc source tree.\n")
+            return name
+        log.info("Cloning %s\n" % name)
+        branch = branches.get(name.lower(), branch)
+        try:
+            if options["disable_ssh"]:
+                raise InstallError("Skipping ssh clone because --disable-ssh")
+            # note: so far only loopy requires submodule
+            self.clone("-q", "--recursive", self.url(plain_url, "ssh"))
+            log.info("Successfully cloned repository %s" % name)
+        except (subprocess.CalledProcessError, InstallError):
+            if not options["disable_ssh"]:
+                log.warning("Failed to clone %s using ssh, falling back to https." % name)
+            try:
+                self.clone("-q", "--recursive", self.url(plain_url, "https"))
+                log.info("Successfully cloned repository %s." % name)
+            except subprocess.CalledProcessError:
+                log.error("Failed to clone %s branch %s." % (name, branch))
+                raise
+        with directory(name):
+            try:
+                log.info("Checking out branch %s" % branch)
+                self.checkout("-q", branch)
+                log.info("Successfully checked out branch %s" % branch)
+            except subprocess.CalledProcessError:
+                log.error("Failed to check out branch %s" % branch)
+                raise
+            try:
+                log.info("Updating submodules.")
+                self.submodule("update", "--recursive")
+                log.info("Successfully updated submodules.")
+            except subprocess.CalledProcessError:
+                log.error("Failed to update submodules.")
+                raise
+        return name
+
+    def update(self, name, url=None):
+        # Notes: replaces git_update()
+        # Update the named git repo and return true if the current branch actually changed.
+        log.info("Updating the git repository for %s" % name)
+        with directory(name):
+            git_sha = self("rev-parse", "HEAD")
+            # Ensure remotes get updated if and when we move repositories.
+            if url:
+                plain_url = self.split_requirements_url(url)[1]
+                current_url = self.remote("-v").split()[1]
+                protocol = "https" if current_url.startswith("https") else "ssh"
+                new_url = self.url(plain_url, protocol)
+                # Ensure we only change from bitbucket to github and not the reverse.
+                if new_url != current_url and "bitbucket.org" in current_url \
+                   and ("github.com/firedrakeproject" in plain_url
+                        or "github.com/dolfin-adjoint" in plain_url):
+                    log.info("Updating git remote for %s" % name)
+                    self.remote("set-url", "origin", new_url)
+            self.pull("--recurse-submodules")
+            git_sha_new = self("rev-parse", "HEAD")
+        return git_sha != git_sha_new
+
+
 if mode == "install":
     # "petsc4py" is in `branches` when we are explicitly asking for a petsc4py
     # branch that lives in firedrake-project/petsc4py. This happens when we do:
@@ -645,8 +750,6 @@ def check_call(arguments, logcall=True):
 # Variant of check_call without logging
 check_output = partial(check_call, logcall=False)
 
-
-pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -777,75 +880,12 @@ def apt_install(names):
         subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
 
-def split_requirements_url(url):
-    name = url.split(".git")[0].split("#")[0].split("/")[-1]
-    spliturl = url.split("://")[1].split("#")[0].split("@")
-    try:
-        plain_url, branch = spliturl
-    except ValueError:
-        plain_url = spliturl[0]
-        branch = "master"
-    return name, plain_url, branch
-
-
-def git_url(plain_url, protocol):
-    if protocol == "ssh":
-        return "git@%s:%s" % tuple(plain_url.split("/", 1))
-    elif protocol == "https":
-        return "https://%s" % plain_url
-    else:
-        raise ValueError("Unknown git protocol: %s" % protocol)
-
-
-def git_clone(url):
-    name, plain_url, branch = split_requirements_url(url)
-    if name == "petsc" and args.honour_petsc_dir:
-        log.info("Using existing PETSc installation\n")
-        return name
-    elif name == "petsc4py" and use_petsc4py_in_petsc:
-        log.info("Not cloning petsc4py from firedrake-project repo: using petsc4py in PETSc source tree.\n")
-        return name
-    log.info("Cloning %s\n" % name)
-    branch = branches.get(name.lower(), branch)
-    try:
-        if options["disable_ssh"]:
-            raise InstallError("Skipping ssh clone because --disable-ssh")
-        # note: so far only loopy requires submodule
-        check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "ssh")])
-        log.info("Successfully cloned repository %s" % name)
-    except (subprocess.CalledProcessError, InstallError):
-        if not options["disable_ssh"]:
-            log.warning("Failed to clone %s using ssh, falling back to https." % name)
-        try:
-            check_call(["git", "clone", "-q", "--recursive", git_url(plain_url, "https")])
-            log.info("Successfully cloned repository %s." % name)
-        except subprocess.CalledProcessError:
-            log.error("Failed to clone %s branch %s." % (name, branch))
-            raise
-    with directory(name):
-        try:
-            log.info("Checking out branch %s" % branch)
-            check_call(["git", "checkout", "-q", branch])
-            log.info("Successfully checked out branch %s" % branch)
-        except subprocess.CalledProcessError:
-            log.error("Failed to check out branch %s" % branch)
-            raise
-        try:
-            log.info("Updating submodules.")
-            check_call(["git", "submodule", "update", "--recursive"])
-            log.info("Successfully updated submodules.")
-        except subprocess.CalledProcessError:
-            log.error("Failed to update submodules.")
-            raise
-    return name
-
-
 def list_cloned_dependencies(name):
     log.info("Finding dependencies of %s\n" % name)
     deps = OrderedDict()
     try:
         for dep in open(name + "/requirements-git.txt", "r"):
-            name = split_requirements_url(dep.strip())[0]
+            name = Git.split_requirements_url(dep.strip())[0]
             deps[name] = dep.strip()
     except IOError:
         pass
@@ -857,48 +897,20 @@ def clone_dependencies(name):
     deps = []
     try:
         for dep in open(name + "/requirements-git.txt", "r"):
-            deps.append(git_clone(dep.strip()))
+            deps.append(Git().clone_branch(dep.strip()))
     except IOError:
         pass
     return deps
 
 
-def git_update(name, url=None):
-    # Update the named git repo and return true if the current branch actually changed.
-    log.info("Updating the git repository for %s" % name)
-    with directory(name):
-        git_sha = check_output(["git", "rev-parse", "HEAD"])
-        # Ensure remotes get updated if and when we move repositories.
-        if url:
-            plain_url = split_requirements_url(url)[1]
-            current_url = check_output(["git", "remote", "-v"]).split()[1]
-            protocol = "https" if current_url.startswith("https") else "ssh"
-            new_url = git_url(plain_url, protocol)
-            # Ensure we only change from bitbucket to github and not the reverse.
-            if new_url != current_url and "bitbucket.org" in current_url \
-               and ("github.com/firedrakeproject" in plain_url
-                    or "github.com/dolfin-adjoint" in plain_url):
-                log.info("Updating git remote for %s" % name)
-                check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull", "--recurse-submodules"])
-        git_sha_new = check_output(["git", "rev-parse", "HEAD"])
-    return git_sha != git_sha_new
-
-
-def install_spack():
-    git_clone("https://github.com/spack/spack.git@develop")
-
-
-def run_spack(args):
-    if args.use_existing_spack:
-        spack = "spack"
-    else:
-        spack = f"{firedrake_env}/src/spack/bin/spack"
-    check_call([spack] + args)
-
-
-def run_spack_install(args):
-    run_spack(["install"] + args)
+class Spack(CommandLine):
+    def __init__(system=False):
+        # Notes: invoke with spack = Spack(system=args.use_existing_spack) ??
+        if system:
+            super().__init__("spack")
+        else:
+            Git().clone_branch("https://github.com/spack/spack.git@develop")
+            super().__init__(f"{firedrake_env}/src/spack/bin/spack")
 
 
 def clean(package):
@@ -998,32 +1010,32 @@ def build_and_install_petsc():
 
 def build_and_install_h5py():
     log.info("Installing h5py")
-    # Clean up old downloads
-    if os.path.exists("h5py-2.5.0"):
-        log.info("Removing old h5py-2.5.0 source")
-        shutil.rmtree("h5py-2.5.0")
-    if os.path.exists("h5py.tar.gz"):
-        log.info("Removing old h5py.tar.gz")
-        os.remove("h5py.tar.gz")
+    # Clean up old downloads Notes: 5 years old! Safe to remove?
+    # ~ if os.path.exists("h5py-2.5.0"):
+        # ~ log.info("Removing old h5py-2.5.0 source")
+        # ~ shutil.rmtree("h5py-2.5.0")
+    # ~ if os.path.exists("h5py.tar.gz"):
+        # ~ log.info("Removing old h5py.tar.gz")
+        # ~ os.remove("h5py.tar.gz")
 
     url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
     if os.path.exists("h5py"):
         changed = False
         with directory("h5py"):
             # Rewrite old h5py/h5py remote to firedrakeproject/h5py remote.
-            plain_url = split_requirements_url(url)[1]
-            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            plain_url = Git.split_requirements_url(url)[1]
+            current_remote = Git().remote("-v").split()[1]
             proto = "https" if current_remote.startswith("https") else "ssh"
-            new_remote = git_url(plain_url, proto)
+            new_remote = Git.url(plain_url, proto)
             if new_remote != current_remote and "h5py/h5py.git" in current_remote:
                 log.info("Updating git remote for h5py from %s to %s", current_remote, new_remote)
-                check_call(["git", "remote", "set-url", "origin", new_remote])
-                check_call(["git", "fetch", "-p", "origin"])
-                check_call(["git", "checkout", "firedrake"])
+                Git().remote("set-url", "origin", new_remote)
+                Git().fetch("-p", "origin")
+                Git().checkout("firedrake")
                 changed = True
-        changed |= git_update("h5py")
+        changed |= Git().update("h5py")
     else:
-        git_clone(url)
+        Git.clone_branch(url)
         changed = True
 
     petsc_dir, petsc_arch = get_petsc_dir()
@@ -1038,7 +1050,7 @@ def build_and_install_h5py():
             pip.uninstall("h5py")
             # Pip installing from dirty directory is potentially unsafe.
             with directory("h5py/"):
-                check_call(["git", "clean", "-fdx"])
+                Git().clean("-f", "-d", "-x")
             pip.install("--no-build-isolation", "--no-deps", "h5py/")
     else:
         log.info("No need to rebuild h5py")
@@ -1050,20 +1062,20 @@ def build_and_install_libsupermesh():
     if os.path.exists("libsupermesh"):
         log.info("Updating the git repository for libsupermesh")
         with directory("libsupermesh"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            Git().fetch()
+            git_sha = Git()("rev-parse", "HEAD")
+            git_sha_new = Git()("rev-parse", "@{u}")
             changed = git_sha != git_sha_new
             if changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
+                Git().reset("--hard")
+                Git().pull()
     else:
-        git_clone(url)
+        Git().clone_branch(url)
         changed = True
     if changed:
         with directory("libsupermesh"):
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
+            Git().reset("--hard")
+            Git().clean("-f", "-x", "-d")
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
                 check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
@@ -1082,10 +1094,10 @@ def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
     if not os.path.exists("pythonocc-core"):
-        git_clone(url)
+        Git().clone_branch(url)
         with directory("pythonocc-core"):
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
+            Git().reset("--hard")
+            Git().clean("-f", "-x", "-d")
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
                 check_call(["cmake", "..",
@@ -1105,22 +1117,22 @@ def build_and_install_libspatialindex():
     if os.path.exists("libspatialindex"):
         log.info("Updating the git repository for libspatialindex")
         with directory("libspatialindex"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            Git().fetch()
+            git_sha = Git()("rev-parse", "HEAD")
+            git_sha_new = Git()("rev-parse", "@{u}")
             libspatialindex_changed = git_sha != git_sha_new
             if libspatialindex_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
+                Git().reset("--hard")
+                Git().pull()
     else:
-        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
+        Git().clone_branch("git+https://github.com/firedrakeproject/libspatialindex.git")
         libspatialindex_changed = True
 
     if libspatialindex_changed:
         with directory("libspatialindex"):
             # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
+            Git().reset("--hard")
+            Git().clean("-f", "-x", "-d")
             # Patch Makefile.am to skip building test
             check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
             # Build and install
@@ -1145,9 +1157,9 @@ def build_and_install_slepc():
         log.info("Installing SLEPc.")
         url = "git+https://github.com/firedrakeproject/slepc.git@firedrake"
         if os.path.exists("slepc"):
-            slepc_changed |= git_update("slepc")
+            slepc_changed |= Git().update("slepc")
         else:
-            git_clone(url)
+            Git.clone_branch(url)
             slepc_changed = True
         if slepc_changed:
             with directory("slepc"):
@@ -1165,18 +1177,18 @@ def build_and_install_slepc():
     if not use_slepc4py_in_slepc:
         if os.path.exists("slepc4py"):
             with directory("slepc4py"):
-                plain_url = split_requirements_url(url)[1]
-                current_remote = check_output(["git", "remote", "-v"]).split()[1]
+                plain_url = Git.split_requirements_url(url)[1]
+                current_remote = Git().remote("-v").split()[1]
                 proto = "https" if current_remote.startswith("https") else "ssh"
-                new_remote = git_url(plain_url, proto)
+                new_remote = Git.url(plain_url, proto)
                 if new_remote != current_remote:
                     log.info("Updating git remote for slepc4py from %s to %s", current_remote, new_remote)
-                    check_call(["git", "remote", "set-url", "origin", new_remote])
-                    check_call(["git", "fetch", "-p", "origin"])
-                    check_call(["git", "checkout", "firedrake"])
+                    Git().remote("set-url", "origin", new_remote)
+                    Git().fetch("-p", "origin")
+                    Git().checkout("firedrake")
         else:
             log.info("Cloning slepc4py from %s" % url)
-            git_clone(url)
+            Git().clone_branch(url)
 
 
 def install_documentation_dependencies():
@@ -1193,7 +1205,7 @@ def install_documentation_dependencies():
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     pip = Pip(python, "-m", "pip")
-    for package in old_git_packages:
+    for package in OLD_GIT_PACKAGES:
         pip.uninstall(package)
         if package in dirs:
             shutil.rmtree(package)
@@ -1515,7 +1527,7 @@ if mode == "install":
     if jenkins and ci_testing_firedrake:
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
-        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        Git().clone_branch("git+https://github.com/firedrakeproject/firedrake.git")
 
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
@@ -1524,11 +1536,12 @@ if mode == "install":
     if args.use_existing_spack:
         try:
             check_call(["spack", "--version"])
-        except:
+        except subprocess.CalledProcessError:
             quit("--use-existing-spack is specified but we cannot find it on your "
-                "PATH. Please check that your install works properly.")
-    else:
-        pass #install_spack()
+                 "PATH. Please check that your install works properly.")
+    # ~ else:
+        # ~ pass #install_spack()
+    # spack = Spack(system=args.use_existing_spack)
 
     # Pre-install requested packages
     if args.pip_packages is not None:
@@ -1558,7 +1571,7 @@ if mode == "install":
     packages += ["firedrake"]
 
     for p in options["packages"]:
-        name = git_clone(p)
+        name = Git().clone_branch(p)
         packages.extend(clone_dependencies(name))
         packages += [name]
 
@@ -1622,7 +1635,7 @@ else:
 
     if args.update_script:
         # Pull firedrake, rebuild update script, launch new script
-        git_update("firedrake")
+        Git().update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
 
@@ -1630,7 +1643,7 @@ else:
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
-        name = split_requirements_url(p)[0]
+        name = Git.split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
     packages = list(deps.keys())
@@ -1638,7 +1651,7 @@ else:
 
     # update packages.
     if not args.honour_petsc_dir:
-        petsc_changed = git_update("petsc", deps["petsc"])
+        petsc_changed = Git().update("petsc", deps["petsc"])
     else:
         petsc_changed = False
     if os.path.exists(os.path.join(firedrake_env, "src/petsc4py")):
@@ -1662,15 +1675,16 @@ else:
             pip.uninstall("petsc4py")
 
     # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
+    # Notes: remove?? We've been building our own PETSc for a while now
     petsc_changed = pip.uninstall("petsc") or petsc_changed
 
     for p in packages:
         try:
-            git_update(p, deps.get(p, None))
+            Git().update(p, deps.get(p, None))
         except OSError as e:
             if e.errno == 2:
                 log.warning("%s missing, cloning anew.\n" % p)
-                git_clone(deps[p])
+                Git().clone_branch(deps[p])
             else:
                 raise
 
@@ -1696,15 +1710,6 @@ else:
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
-
-    if args.rebuild or petsc_changed or petsc4py_changed:
-        # If not honour_petsc_dir, we have a version of petsc that contains
-        # petsc4py in its source tree (old petsc must have been updated
-        # in the above).
-        # If honour_petsc_dir, we can get here (e.g., with --rebuild flag)
-        # without obtaining the latest petsc in the above:
-        # thus, we must check if the user installed petsc contains petsc4py.
-        pass
 
     # Note: Always rebuild petsc4py it's often missed on install failures and isn't picked up by update
     if args.honour_petsc_dir:
