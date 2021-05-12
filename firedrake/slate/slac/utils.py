@@ -339,51 +339,46 @@ def topological_sort(exprs):
 
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, gem2pym, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
-    
-    if isinstance(slate_loopy, lp.TranslationUnit):
-        slate_loopy = slate_loopy.callables_table[builder.slate_loopy_name].subkernel
 
     tvs = {}
     if strategy == "terminals_first":
+        slate_loopy_prg = slate_loopy
+        slate_loopy = slate_loopy[builder.slate_loopy_name]
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
-    elif strategy == "when_needed":
-        tensor2temp, tsfc_kernels, insns, builder, tvs = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, gem2pym, tsfc_parameters, "slate_wrapper")
+        all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
+        # Construct args
+        import loopy
+        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, list(all_kernels))
+        for a in slate_loopy.args:
+            if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
+                ac = a.copy(address_space=loopy.AddressSpace.LOCAL)
+                args.append(ac)
 
-    # FIXME for some reason the temporaries in the tsfc kernels don't have a shape
-    all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
-    # Construct args
-    import loopy
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, list(all_kernels))
-    for a in slate_loopy.args:
-        if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
-            ac = a.copy(address_space=loopy.AddressSpace.LOCAL)
-            args.append(ac)
+        for v in tvs.values():
+            args.append(v)
 
-    for v in tvs.values():
-        args.append(v)
+        # Inames come from initialisations + loopyfying kernel args and lhs
+        domains = slate_loopy.domains + builder.bag.index_creator.domains
 
-    # Inames come from initialisations + loopyfying kernel args and lhs
-    domains = slate_loopy.domains + builder.bag.index_creator.domains
+        # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
+        # So we need to introduce new ids on those calls to keep them unique.
+        # But some the dependencies in the local matfree kernel are hand written and depend on the
+        # original action id. At this point all the instructions should be ensured to be sorted, so
+        # we remove all existing dependencies and make them sequential instead
+        # also help scheduling by setting within_inames_is_final on everything
+        insns_new = []
+        for i, insn in enumerate(insns):
+            if insn:
+                insns_new.append(insn.copy(depends_on=frozenset({}),
+                priority=len(insns)-i,
+                within_inames_is_final=True))
 
-    # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
-    # So we need to introduce new ids on those calls to keep them unique.
-    # But some the dependencies in the local matfree kernel are hand written and depend on the
-    # original action id. At this point all the instructions should be ensured to be sorted, so
-    # we remove all existing dependencies and make them sequential instead
-    # also help scheduling by setting within_inames_is_final on everything
-    insns_new = []
-    for i, insn in enumerate(insns):
-        if insn:
-            insns_new.append(insn.copy(depends_on=frozenset({}),
-            priority=len(insns)-i,
-            within_inames_is_final=True))
+        # Generates the loopy wrapper kernel
+        slate_wrapper = lp.make_function(domains, insns_new, args, name=wrapper_name,
+                                        seq_dependencies=True, target=lp.CTarget())
 
-    # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns_new, args, name="slate_wrapper",
-                                     seq_dependencies=True, target=lp.CTarget())
-
-    # Prevent loopy interchange by loopy
-    slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
+        # Prevent loopy interchange by loopy
+        slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
 
         # Register kernels
         loop = itertools.chain([k.items() for k in tsfc_kernels], [{slate_loopy.name:slate_loopy_prg}.items()])
