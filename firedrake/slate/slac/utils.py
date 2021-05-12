@@ -340,7 +340,6 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, gem2pym, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
-    tvs = {}
     if strategy == "terminals_first":
         slate_loopy_prg = slate_loopy
         slate_loopy = slate_loopy[builder.slate_loopy_name]
@@ -388,6 +387,11 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, g
                 slate_wrapper = loopy.merge([slate_wrapper, knl])
                 slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
         return slate_wrapper
+
+    elif strategy == "when_needed":
+        tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr,
+                                                    ctx_g2l, tsfc_parameters, True, {}, output_arg)
+        return slate_loopy
 
 
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
