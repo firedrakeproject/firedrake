@@ -352,9 +352,6 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
                 ac = a.copy(address_space=loopy.AddressSpace.LOCAL)
                 args.append(ac)
 
-        for v in tvs.values():
-            args.append(v)
-
         # Inames come from initialisations + loopyfying kernel args and lhs
         domains = slate_loopy.domains + builder.bag.index_creator.domains
 
