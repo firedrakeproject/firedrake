@@ -221,6 +221,33 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+def count_labelled_points(PETSc.DM dm, name,
+                          PetscInt start, PetscInt end):
+    """Return the number of points in the chart [start, end)
+    that are marked by the given label.
+
+    .. note::
+
+       This destroys any index on the label.
+
+    :arg dm: The DM containing the label
+    :arg name: The label name.
+    :arg start: The smallest point to consider.
+    :arg end: One past the largest point to consider."""
+    cdef PetscInt pStart, pEnd, p, n
+    cdef PetscBool has_point
+    cdef DMLabel label
+    get_chart(dm.dm, &pStart, &pEnd)
+    CHKERR(DMGetLabel(dm.dm, name.encode(), &label))
+    CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
+    n = 0
+    for p in range(start, end):
+        CHKERR(DMLabelHasPoint(label, p, &has_point))
+        if has_point:
+            n += 1
+    CHKERR(DMLabelDestroyIndex(label))
+    return n
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
@@ -827,17 +854,16 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
     ndof = cell_nodes.shape[1]
 
-    nfacet = dm.getStratumSize(label, 1)
+    get_chart(dm.dm, &pStart, &pEnd)
+    nfacet = count_labelled_points(dm, label, fStart, fEnd)
     shape = {"interior_facets": (nfacet, ndof*2),
              "exterior_facets": (nfacet, ndof)}[label]
 
     facet_nodes = np.full(shape, -1, dtype=IntType)
 
-    label = label.encode()
-    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
-    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+    CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
+    CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
-    get_chart(dm.dm, &pStart, &pEnd)
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
 
@@ -874,93 +900,81 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def boundary_nodes(V, sub_domain, method):
-    """Extract boundary nodes from a function space..
+def facet_closure_nodes(V, sub_domain):
+    """Extract nodes in the closure of facets with a given marker.
+
+    This works fine for interior as well as exterior facets.
 
     :arg V: the function space
-    :arg sub_domain: a mesh marker selecting the part of the boundary
-        (may be "on_boundary" indicating the entire boundary).
-    :arg method: how to identify boundary dofs on the reference cell.
-    :returns: a numpy array of unique nodes on the boundary of the
-        requested subdomain.
+    :arg sub_domain: a tuple of mesh markers selecting the facets, or
+        the magic string "on_boundary" indicating the entire boundary.
+    :returns: a numpy array of unique nodes in the closure of facets
+        with the given marker.
     """
     cdef:
-        np.ndarray[np.int32_t, ndim=2, mode="c"] local_nodes
-        np.ndarray[PetscInt, ndim=1, mode="c"] offsets
-        np.ndarray[np.uint32_t, ndim=1, mode="c"] local_facets
+        PETSc.Section sec = V.dm.getSection()
+        PETSc.DM dm = V.mesh().topology_dm
+        PetscInt nnodes, p, i, dof, offset, n, j, d
+        np.ndarray[PetscInt, ndim=1, mode="c"] points
         np.ndarray[PetscInt, ndim=1, mode="c"] nodes
-        np.ndarray[PetscInt, ndim=2, mode="c"] facet_node_list
-        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        np.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
-        int f, i, j, dof, facet, idx
-        int nfacet, nlocal, layers
-        PetscInt local_facet
-        PetscInt offset
-        bint all_facets
-        bint variable, extruded
-
-    mesh = V.mesh()
-    variable = mesh.variable_layers
-    extruded = mesh.cell_set._extruded
-
-    facet_dim = mesh.facet_dimension()
-    if method == "topological":
-        boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
-    elif method == "geometric":
-        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
-
-    local_nodes = np.empty((len(boundary_dofs),
-                            len(boundary_dofs[0])),
-                           dtype=np.int32)
-    for k, v in boundary_dofs.items():
-        local_nodes[k, :] = v
-
-    facets = V.mesh().exterior_facets
-    local_facets = facets.local_facet_dat.data_ro_with_halos
-    nlocal = local_nodes.shape[1]
-
     if sub_domain == "on_boundary":
-        subset = facets.set
-        all_facets = True
+        label = "exterior_facets"
+        sub_domain = (1, )
     else:
-        all_facets = False
-        subset = facets.subset(sub_domain)
-        facet_indices = subset.indices
+        label = FACE_SETS_LABEL
+        if V.mesh().variable_layers:
+            # We can't use the generic code in this case because we
+            # need to manually take closure of facets on each external
+            # face (rather than using the label completion and section
+            # information).
+            # The reason for this is that (for example) a stack of
+            # vertices may extend higher than the faces
+            #
+            #            Y---.
+            #            |   |
+            #    .---x---x---.
+            #    |   | O |
+            #    .---x---x
+            #    |   |
+            #    .---Y
+            #
+            # BCs on the facet marked with 'O' should produce 4 values
+            # for a P1 field (marked X). But if we just include
+            # everything from the sections we'd get 6: additionally we
+            # see the points marked Y.
+            from firedrake.cython import extrusion_numbering as extnum
+            return extnum.facet_closure_nodes(V, sub_domain)
 
-    nfacet = subset.total_size
-    offsets = V.offset
-    facet_node_list = V.exterior_facet_node_map().values_with_halo
+    if not dm.hasLabel(label) or all(dm.getStratumSize(label, marker)
+                                     for marker in sub_domain) == 0:
+        return np.empty(0, dtype=IntType)
 
-    if variable:
-        layer_extents = subset.layers_array
-        maxsize = local_nodes.shape[1] * np.sum((layer_extents[:, 1] - layer_extents[:, 0]) - 1)
-    elif extruded:
-        layers = subset.layers
-        maxsize = local_nodes.shape[1] * nfacet * (layers - 1)
-    else:
-        layers = 2
-        offset = 0
-        maxsize = local_nodes.shape[1] * nfacet
+    nnodes = 0
+    for marker in sub_domain:
+        n = dm.getStratumSize(label, marker)
+        if n == 0:
+            continue
+        points = dm.getStratumIS(label, marker).indices
+        for i in range(n):
+            p = points[i]
+            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+            nnodes += dof
 
-    nodes = np.empty(maxsize, dtype=IntType)
-    idx = 0
-    for f in range(nfacet):
-        if all_facets:
-            facet = f
-        else:
-            facet = facet_indices[f]
-        local_facet = local_facets[facet]
-        if variable:
-            layers = layer_extents[f, 1] - layer_extents[f, 0]
-        for i in range(nlocal):
-            dof = local_nodes[local_facet, i]
-            for j in range(layers - 1):
-                if extruded:
-                    offset = j * offsets[dof]
-                nodes[idx] = facet_node_list[facet, dof] + offset
-                idx += 1
-
-    assert idx == nodes.shape[0]
+    nodes = np.empty(nnodes, dtype=IntType)
+    j = 0
+    for marker in sub_domain:
+        n = dm.getStratumSize(label, marker)
+        if n == 0:
+            continue
+        points = dm.getStratumIS(label, marker).indices
+        for i in range(n):
+            p = points[i]
+            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+            CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
+            for d in range(dof):
+                nodes[j] = offset + d
+                j += 1
+    assert j == nnodes
     return np.unique(nodes)
 
 
@@ -975,13 +989,14 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     :arg label_boundary: if False, don't label the boundary faces
          (they must have already been labelled)."""
     cdef:
-        PetscInt fStart, fEnd, facet
+        PetscInt fStart, fEnd, facet, pStart, pEnd
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
+    get_chart(plex.dm, &pStart, &pEnd)
     plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
 
@@ -991,13 +1006,25 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
 
-    CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
+    CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
         # Not marked, must be interior
         if not has_point:
             CHKERR(DMLabelSetValue(lbl_int, facet, 1))
     CHKERR(DMLabelDestroyIndex(lbl_ext))
+
+
+def complete_facet_labels(PETSc.DM dm):
+    """Transfer label values from the facet labels to everything in
+    the closure of the facets."""
+    cdef PETSc.DMLabel label
+
+    for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
+        if dm.hasLabel(name):
+            label = dm.getLabel(name)
+            CHKERR( DMPlexLabelComplete(dm.dm, label.dmlabel) )
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -1021,7 +1048,7 @@ def cell_facet_labeling(PETSc.DM plex,
     """
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
-        PetscInt f, fstart, fend, point, marker
+        PetscInt f, fstart, fend, point, marker, pstart, pend
         PetscBool is_exterior
         const PetscInt *facets
         DMLabel exterior = NULL, subdomain = NULL
@@ -1030,13 +1057,15 @@ def cell_facet_labeling(PETSc.DM plex,
     from firedrake.slate.slac.compiler import cell_to_facets_dtype
     nclosure = cell_closures.shape[1]
     get_height_stratum(plex.dm, 0, &cstart, &cend)
+    # FIXME: wrong for mixed element meshes
     nfacet = plex.getConeSize(cstart)
     get_height_stratum(plex.dm, 1, &fstart, &fend)
     cell_facets = np.full((cend - cstart, nfacet, 2), -1, dtype=cell_to_facets_dtype)
 
+    get_chart(plex.dm, &pstart, &pend)
     CHKERR(DMGetLabel(plex.dm, "exterior_facets".encode(), &exterior))
     CHKERR(DMGetLabel(plex.dm, FACE_SETS_LABEL.encode(), &subdomain))
-    CHKERR(DMLabelCreateIndex(exterior, fstart, fend))
+    CHKERR(DMLabelCreateIndex(exterior, pstart, pend))
 
     for c in range(cstart, cend):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -1238,7 +1267,7 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     :returns: A numpy array (possibly empty) of the cell ids.
     """
     cdef:
-        PetscInt i, cEnd, offset, c
+        PetscInt i, j, n, offset, c, cStart, cEnd, ncells
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
@@ -1261,13 +1290,26 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     if subdomain_id not in vals:
         return np.empty(0, dtype=IntType)
 
+    n = dm.getStratumSize(CELL_SETS_LABEL, subdomain_id)
+    if n == 0:
+        return np.empty(0, dtype=IntType)
     indices = dm.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
-    cells = np.empty(indices.shape[0], dtype=IntType)
-    cEnd = indices.shape[0]
-    for i in range(cEnd):
+    ncells = 0
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    for i in range(n):
         c = indices[i]
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
-        cells[i] = offset
+        if cStart <= c < cEnd:
+            ncells += 1
+    if ncells == 0:
+        return np.empty(0, dtype=IntType)
+    cells = np.empty(ncells, dtype=IntType)
+    j = 0
+    for i in range(n):
+        c = indices[i]
+        if cStart <= c < cEnd:
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
+            cells[j] = offset
+            j += 1
     return cells
 
 
@@ -1335,7 +1377,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     """
     cdef:
         PetscInt dim, fi, ci, nfacets, nclass, lbl_val, o, f, fStart, fEnd
-        PetscInt pStart, pEnd
+        PetscInt pStart, pEnd, i, n
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         PetscBool has_point, is_class
@@ -1345,13 +1387,13 @@ def get_facets_by_class(PETSc.DM plex, label,
     dim = get_topological_dimension(plex)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
-    CHKERR(DMGetLabel(plex.dm, <const char*>label, &lbl_facets))
-    CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
-    nfacets = plex.getStratumSize(label, 1)
+    nfacets = count_labelled_points(plex, label, fStart, fEnd)
     facets = np.empty(nfacets, dtype=IntType)
     facet_classes = [0, 0, 0]
     fi = 0
 
+    CHKERR(DMGetLabel(plex.dm, label.encode(), &lbl_facets))
+    CHKERR(DMLabelCreateIndex(lbl_facets, pStart, pEnd))
     for i, op2class in enumerate([b"pyop2_core",
                                   b"pyop2_owned",
                                   b"pyop2_ghost"]):
@@ -2496,7 +2538,7 @@ def set_adjacency_callback(PETSc.DM dm not None):
     This is used during DMPlexDistributeOverlap to determine where to
     grow the halos."""
     cdef:
-        PetscInt fStart, fEnd, p
+        PetscInt pStart, pEnd, p
         DMLabel label = NULL
         PETSc.SF sf
         PetscInt nleaves
@@ -2512,10 +2554,10 @@ def set_adjacency_callback(PETSc.DM dm not None):
         CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
         dm.createLabel("ghost_region")
         CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
-        get_chart(dm.dm, &fStart, &fEnd)
+        get_chart(dm.dm, &pStart, &pEnd)
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(label, ilocal[p], 1))
-        CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
+        CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
 
 

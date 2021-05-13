@@ -349,7 +349,7 @@ class ImplicitMatrixContext(object):
 
         for bc in self.bcs:
             if isinstance(bc, DirichletBC):
-                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
             elif isinstance(bc, EquationBCSplit):
                 bc_temp = bc.reconstruct(field=row_inds, V=Wrow, row_field=row_inds, col_field=col_inds, use_split=True)
             if bc_temp is not None:
@@ -360,7 +360,7 @@ class ImplicitMatrixContext(object):
         else:
             for bc in self.bcs_col:
                 if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
                 elif isinstance(bc, EquationBCSplit):
                     bc_temp = bc.reconstruct(field=col_inds, V=Wcol, row_field=row_inds, col_field=col_inds, use_split=True)
                 if bc_temp is not None:

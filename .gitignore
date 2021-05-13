@@ -38,3 +38,4 @@ __pycache__/
 /firedrake/cython/supermeshimpl.c
 /firedrake_configuration/configuration.json
 /firedrake.egg-info
+/docs/source/element_list.csv
