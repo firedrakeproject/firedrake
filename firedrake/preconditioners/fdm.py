@@ -90,7 +90,7 @@ class FDMPC(PCBase):
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
-            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True)
+            Gq, Bq = self.assemble_coef(mu, helm, 0, diagonal=True)
             Pmat = self.assemble_affine(A, V, Gq, Bq, Afdm, Dfdm, bcflags)
         else:
             raise ValueError("Unknown fdm_type")
@@ -276,12 +276,17 @@ class FDMPC(PCBase):
         gid, _ = self.glonum_fun(Gq)
         bid, _ = self.glonum_fun(Bq) if Bq is not None else (None, nel)
 
-        ncomp = V.value_size
-        ndof = ncomp * V.dof_dset.set.size
+        ele = V.ufl_element()
+        ncomp = ele.value_size()
+        bsize = V.value_size
+        needs_hdiv = bsize != ncomp
+
+        ndof = bsize * V.dof_dset.set.size
         ndim = V.mesh().topological_dimension()
         idsym = None
-        ele = Gq.ufl_element()
-        if ele.reference_value_size() != ele.value_size():
+
+        gele = Gq.ufl_element()
+        if gele.reference_value_size() != gele.value_size():
             # We need to extract the diagonal of a symmetric tensor
             idsym = [0, ndim, 2*ndim-1]
             idsym = idsym[:ndim]
@@ -300,7 +305,10 @@ class FDMPC(PCBase):
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
 
         for e in range(nel):
-            ie = ncomp * lexico_cell(e)
+            ie = lexico_cell(e)
+            if needs_hdiv:
+                ie = np.reshape(ie, (ncomp, -1))
+
             mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
             bce = bcflags[e]
             for j in range(ncomp):
@@ -324,7 +332,9 @@ class FDMPC(PCBase):
                         ae += kron(be, Afdm[fbc[2]][0] * muj[2], format="csr")
 
                 cell_csr.append(ae)
-                rows = lgmap.apply(j + ie)
+
+                rows = lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie)
+
                 for row in rows:
                     prealloc.setValue(row, row, 1.0E0, imode)
 
@@ -385,20 +395,21 @@ class FDMPC(PCBase):
         prealloc.assemble()
         nnz = get_preallocation(prealloc, ndof)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-        Pmat.setBlockSize(ncomp)
+        Pmat.setBlockSize(bsize)
         Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
 
         # Assemble global matrix
         for e, ae in enumerate(cell_csr):
-            if e % ncomp == 0:
+            j = e % ncomp
+            if j == 0:
                 bce = bcflags[e // ncomp]
-                ie = ncomp * lexico_cell(e // ncomp)
-            else:
-                ie += 1
+                ie = lexico_cell(e // ncomp)
+                if needs_hdiv:
+                    ie = np.reshape(ie, (ncomp, -1))
 
             bcj = bce[e % ncomp] if len(bce.shape) == 2 else bce
-            rows = lgmap.apply(ie)
+            rows = lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie)
             ibc = rows.copy()
 
             self.index_bcs(rows, pshape, bcj == strong, -1)
