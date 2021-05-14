@@ -470,6 +470,9 @@ def tensor_product_space_query(V):
             # Multiple variants
             variant = "unsupported"
             use_tensorproduct = False
+    if isinstance(ele, firedrake.EnrichedElement):
+        family = {"NCF"}  # FIXME
+        variant = None
     else:
         family = {ele.family()}
         variant = ele.variant()
@@ -485,16 +488,14 @@ def tensor_product_space_query(V):
 
 def get_permuted_map(V):
     from pyop2 import PermutedMap
-    _, N, ndim, family, _ = tensor_product_space_query(V)
-
-    if family <= {"RTCF", "NCF"}:
-        sdim = V.finat_element.space_dimension()
-        permutation = np.reshape(np.arange(0, sdim), (ndim, -1))
-        for k in range(ndim):
-            cdim = ndim-1-k
-            pshape = [N]*ndim
-            pshape[cdim] = -1
-            permutation[k] = np.reshape(np.moveaxis(np.reshape(permutation[k], pshape), cdim, 0), (-1,))
+    use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
+    if use_tensorproduct and family <= {"RTCF", "NCF"}:
+        ncomp, = V.finat_element.value_shape
+        permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
+        pshape = [N]*ndim
+        pshape[0] = -1
+        for k in range(ncomp):
+            permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
 
         permutation = np.reshape(permutation, (-1,))
         return PermutedMap(V.cell_node_map(), permutation)
@@ -540,19 +541,19 @@ def get_line_nodes(V):
     use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
     assert use_tensorproduct
     cell = UFCInterval()
-    if variant == "equispaced":
+    if variant == "equispaced" and family <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
         return [cell.make_points(1, 0, N+1)]*ndim
-    elif family <= {"Q", "Lagrange"}:
+    elif variant == "spectral" and family <= {"Q", "Lagrange"}:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
-    elif family <= {"DQ", "Discontinuous Lagrange"}:
+    elif variant == "spectral" and family <= {"DQ", "Discontinuous Lagrange"}:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
     elif family <= {"RTCF", "NCF"}:
         cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
         points = [cg.get_points()]
-        for j in range(1, ndim()):
+        for j in range(1, ndim):
             points.append(dg.get_points())
         return points
     else:
