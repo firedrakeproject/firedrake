@@ -45,11 +45,7 @@ jobs:
           firedrake-preprocess-bibtex --validate /home/firedrake/firedrake/src/firedrake/docs/source/_static/bibliography.bib
           firedrake-preprocess-bibtex --validate /home/firedrake/firedrake/src/firedrake/docs/source/_static/firedrake-apps.bib
       - name: Build docs
-        # PETSC dir and arch are mock variables
         run: |
           . /home/firedrake/firedrake/bin/activate
           firedrake-status
-          export PETSC_DIR=/home/firedrake/firedrake/src/petsc
-          export PETSC_ARCH=default
-          firedrake-update --honour-petsc-dir 
           make -C /home/firedrake/firedrake/src/firedrake/docs html
