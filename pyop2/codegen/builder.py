@@ -51,7 +51,7 @@ class Map(object):
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
         if isinstance(map_, PermutedMap):
-            self.permutation = NamedLiteral(map_.permutation, name=values.name + "_permutation")
+            self.permutation = NamedLiteral(map_.permutation, parent=values, suffix="permutation")
             if offset is not None:
                 offset = offset[map_.permutation]
         else:
@@ -60,7 +60,7 @@ class Map(object):
             if len(set(map_.offset)) == 1:
                 offset = Literal(offset[0], casting=True)
             else:
-                offset = NamedLiteral(offset, name=values.name + "_offset")
+                offset = NamedLiteral(offset, parent=values, suffix="offset")
 
         self.values = values
         self.offset = offset

@@ -15,7 +15,6 @@ import pymbolic.primitives as pym
 from collections import OrderedDict, defaultdict
 from functools import singledispatch, reduce
 import itertools
-import re
 import operator
 
 from pyop2.codegen.node import traversal, Node, Memoizer, reuse_if_untouched
@@ -430,24 +429,35 @@ def generate(builder, wrapper_name=None):
     instructions = instructions + initialiser
     mapper.initialisers = [tuple(merger(i) for i in inits) for inits in mapper.initialisers]
 
-    # rename indices and nodes (so that the counters start from zero)
-    pattern = re.compile(r"^([a-zA-Z_]+)([0-9]+)(_offset)?$")
-    replacements = {}
-    counter = defaultdict(itertools.count)
-    for node in traversal(instructions):
-        if isinstance(node, (Index, RuntimeIndex, Variable, Argument, NamedLiteral)):
-            match = pattern.match(node.name)
-            if match is None:
-                continue
-            prefix, _, postfix = match.groups()
-            if postfix is None:
-                postfix = ""
-            replacements[node] = "%s%d%s" % (prefix, next(counter[(prefix, postfix)]), postfix)
+    def name_generator(prefix):
+        yield from (f"{prefix}{i}" for i in itertools.count())
 
-    instructions = rename_nodes(instructions, replacements)
-    mapper.initialisers = [rename_nodes(inits, replacements) for inits in mapper.initialisers]
-    parameters.wrapper_arguments = rename_nodes(parameters.wrapper_arguments, replacements)
-    s, e = rename_nodes([mapper(e) for e in builder.layer_extents], replacements)
+    # rename indices and nodes (so that the counters start from zero)
+    node_names = {}
+    node_namers = dict((cls, name_generator(prefix))
+                       for cls, prefix in [(Index, "i"), (Variable, "t")])
+
+    def renamer(expr):
+        if isinstance(expr, Argument):
+            if expr._name is not None:
+                # Some arguments have given names
+                return expr._name
+            else:
+                # Otherwise generate one with their given prefix.
+                namer = node_namers.setdefault((type(expr), expr.prefix),
+                                               name_generator(expr.prefix))
+        else:
+            namer = node_namers[type(expr)]
+        try:
+            return node_names[expr]
+        except KeyError:
+            return node_names.setdefault(expr, next(namer))
+
+    instructions = rename_nodes(instructions, renamer)
+    mapper.initialisers = [rename_nodes(inits, renamer)
+                           for inits in mapper.initialisers]
+    parameters.wrapper_arguments = rename_nodes(parameters.wrapper_arguments, renamer)
+    s, e = rename_nodes([mapper(e) for e in builder.layer_extents], renamer)
     parameters.layer_start = s.name
     parameters.layer_end = e.name
 
