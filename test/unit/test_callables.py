@@ -75,7 +75,7 @@ class TestCallables:
         loopy.set_caching_enabled(False)
 
         k = loopy.make_kernel(
-            ["{[i,j] : 0 <= i,j < 2}"],
+            ["{ : }"],
             """
             B[:,:] = inverse(A[:,:])
             """,
@@ -99,7 +99,7 @@ class TestCallables:
         loopy.set_caching_enabled(False)
 
         k = loopy.make_kernel(
-            ["{[i,j] : 0 <= i,j < 2}"],
+            ["{ : }"],
             """
             x[:] = solve(A[:,:], b[:])
             """,

@@ -50,7 +50,7 @@ def compute_ind_extr(nums,
                      map,
                      lsize):
     count = 0
-    ind = numpy.zeros(lsize, dtype=numpy.int)
+    ind = numpy.zeros(lsize, dtype=numpy.int32)
     len1 = len(mesh2d)
     for mm in range(lins):
         offset = 0
