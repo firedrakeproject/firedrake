@@ -346,7 +346,6 @@ class FDMPC(PCBase):
                     prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
         if needs_interior_facet:
-            assert ncomp == 1
             eta = nx1*(nx1+1)
             adense = np.zeros((nx1, nx1))
 
@@ -357,40 +356,43 @@ class FDMPC(PCBase):
 
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
+                k0 = -(facet_data[f, 0] % 2)
+                k1 = -(facet_data[f, 1] % 2)
                 idir = facet_data[f] // 2
+                if idsym:
+                    idir = idsym[idir]
 
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
-                if idsym:
-                    mu0 = mu0[idsym[idir[0]]]
-                    mu1 = mu1[idsym[idir[1]]]
-                else:
-                    mu0 = mu0[idir[0]]
-                    mu1 = mu1[idir[1]]
+                ie = lexico_facet(f)
+                if needs_hdiv:
+                    ie = np.reshape(ie, (ncomp, -1))
 
-                i0 = -(facet_data[f, 0] % 2)
-                i1 = -(facet_data[f, 1] % 2)
-                adense.fill(0.0E0)
-                adense[:, i1] += (0.5E0*mu0) * Dfdm[:, i0]
-                adense[i0, :] += (0.5E0*mu1) * Dfdm[:, i1]
-                adense[i0, i1] -= eta * 0.5E0*(mu0 + mu1)
-                ae = csr_matrix(adense)
-                if ndim > 1:
-                    # Here we are assuming that the mesh is oriented
-                    ae = kron(ae, Afdm[0][1], format="csr")
-                    if ndim > 2:
+                for j in range(ncomp):
+                    mu0j = mu0[j][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]]
+                    mu1j = mu1[j][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]
+
+                    adense.fill(0.0E0)
+                    adense[:, k1] += (0.5E0*mu0j) * Dfdm[:, k0]
+                    adense[k0, :] += (0.5E0*mu1j) * Dfdm[:, k1]
+                    adense[k0, k1] -= eta * 0.5E0*(mu0j + mu1j)
+                    ae = csr_matrix(adense)
+                    if ndim > 1:
+                        # Here we are assuming that the mesh is oriented
                         ae = kron(ae, Afdm[0][1], format="csr")
+                        if ndim > 2:
+                            ae = kron(ae, Afdm[0][1], format="csr")
 
-                facet_csr.append(ae)
-                icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
-                rows = self.pull_facet(icell[0], pshape, facet_data[f, 0])
-                cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
-                cols = cols[ae.indices]
-                for i, row in enumerate(rows):
-                    i0 = ae.indptr[i]
-                    i1 = ae.indptr[i+1]
-                    prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-                    prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
+                    facet_csr.append(ae)
+                    icell = np.reshape(lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie), (2, -1))
+                    rows = self.pull_facet(icell[0], pshape, facet_data[f, 0])
+                    cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
+                    cols = cols[ae.indices]
+                    for i, row in enumerate(rows):
+                        i0 = ae.indptr[i]
+                        i1 = ae.indptr[i+1]
+                        prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                        prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, ndof)
@@ -427,9 +429,16 @@ class FDMPC(PCBase):
 
         if needs_interior_facet:
             for f, ae in enumerate(facet_csr):
-                icell = np.reshape(lgmap.apply(lexico_facet(f)), (2, -1))
-                rows = self.pull_facet(icell[0], pshape, facet_data[f, 0])
-                cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
+                j = f % ncomp
+                if j == 0:
+                    bce = bcflags[f // ncomp]
+                    ie = lexico_facet(f // ncomp)
+                    if needs_hdiv:
+                        ie = np.reshape(ie, (ncomp, -1))
+
+                icell = np.reshape(lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie), (2, -1))
+                rows = self.pull_facet(icell[0], pshape, facet_data[f // ncomp, 0])
+                cols = self.pull_facet(icell[1], pshape, facet_data[f // ncomp, 1])
                 cols = cols[ae.indices]
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
