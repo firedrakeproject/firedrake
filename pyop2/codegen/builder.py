@@ -730,7 +730,10 @@ class WrapperBuilder(object):
             if arg._is_mixed:
                 packs = []
                 for a in arg:
-                    shape = (None, *a.data.shape[1:])
+                    shape = a.data.shape[1:]
+                    if shape == ():
+                        shape = (1,)
+                    shape = (None, *shape)
                     argument = Argument(shape, a.data.dtype, pfx="mdat")
                     packs.append(a.data.pack(argument, arg.access, self.map_(a.map, unroll=a.unroll_map),
                                              interior_horizontal=interior_horizontal,
@@ -746,7 +749,10 @@ class WrapperBuilder(object):
                 else:
                     view_index = None
                     data = arg.data
-                shape = (None, *data.shape[1:])
+                shape = data.shape[1:]
+                if shape == ():
+                    shape = (1,)
+                shape = (None, *shape)
                 argument = Argument(shape,
                                     arg.data.dtype,
                                     pfx="dat")
@@ -806,6 +812,19 @@ class WrapperBuilder(object):
             self.maps[key] = map_
             return map_
 
+    @cached_property
+    def loopy_argument_accesses(self):
+        """Loopy wants the CallInstruction to have argument access
+        descriptors aligned with how the callee treats the function.
+        In the cases of TSFC kernels with WRITE access, this is not
+        how we treats the function, so we have to keep track of the
+        difference here."""
+        if self.requires_zeroed_output_arguments:
+            mapping = {WRITE: INC}
+        else:
+            mapping = {}
+        return list(mapping.get(a, a) for a in self.argument_accesses)
+
     @property
     def kernel_args(self):
         return tuple(p.kernel_arg(self.loop_indices) for p in self.packed_args)
@@ -828,7 +847,7 @@ class WrapperBuilder(object):
 
     def kernel_call(self):
         args = self.kernel_args
-        access = tuple(self.argument_accesses)
+        access = tuple(self.loopy_argument_accesses)
         # assuming every index is free index
         free_indices = set(itertools.chain.from_iterable(arg.multiindex for arg in args))
         # remove runtime index

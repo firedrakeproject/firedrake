@@ -33,7 +33,7 @@
 
 import pytest
 import loopy
-from pyop2.codegen.rep2loopy import inv_fn_lookup, solve_fn_lookup
+from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 import numpy as np
 from pyop2 import op2
 
@@ -77,7 +77,7 @@ class TestCallables:
         k = loopy.make_kernel(
             ["{[i,j] : 0 <= i,j < 2}"],
             """
-            B[:,:] = inv(A[:,:])
+            B[:,:] = inverse(A[:,:])
             """,
             [loopy.GlobalArg('B', dtype=np.float64, shape=(2, 2)),
              loopy.GlobalArg('A', dtype=np.float64, shape=(2, 2))],
@@ -85,11 +85,11 @@ class TestCallables:
             name="callable_kernel",
             lang_version=(2018, 2))
 
-        k = loopy.register_function_id_to_in_knl_callable_mapper(k, inv_fn_lookup)
+        k = loopy.register_callable(k, INVCallable.name, INVCallable())
         code = loopy.generate_code_v2(k).device_code()
         code.replace('void callable_kernel', 'static void callable_kernel')
 
-        loopykernel = op2.Kernel(code, k.name, ldargs=["-llapack"])
+        loopykernel = op2.Kernel(code, "callable_kernel", ldargs=["-llapack"])
 
         op2.par_loop(loopykernel, zero_mat.dataset.set, zero_mat(op2.WRITE), inv_mat(op2.READ))
         expected = np.linalg.inv(inv_mat.data)
@@ -110,10 +110,10 @@ class TestCallables:
             name="callable_kernel2",
             lang_version=(2018, 2))
 
-        k = loopy.register_function_id_to_in_knl_callable_mapper(k, solve_fn_lookup)
+        k = loopy.register_callable(k, SolveCallable.name, SolveCallable())
         code = loopy.generate_code_v2(k).device_code()
         code.replace('void callable_kernel2', 'static void callable_kernel2')
-        loopykernel = op2.Kernel(code, k.name, ldargs=["-llapack"])
+        loopykernel = op2.Kernel(code, "callable_kernel2", ldargs=["-llapack"])
         args = [zero_vec(op2.READ), solve_mat(op2.READ), solve_vec(op2.WRITE)]
 
         op2.par_loop(loopykernel, solve_mat.dataset.set, *args)

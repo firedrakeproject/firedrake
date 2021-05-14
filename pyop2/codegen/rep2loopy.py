@@ -20,7 +20,7 @@ import operator
 
 from pyop2.codegen.node import traversal, Node, Memoizer, reuse_if_untouched
 
-from pyop2.base import READ
+from pyop2.base import READ, WRITE
 from pyop2.datatypes import as_ctypes
 
 from pyop2.codegen.optimise import index_merger, rename_nodes
@@ -35,6 +35,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           Symbol, Zero, Sum, Min, Max, Product)
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
+from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 
 # Read c files  for linear algebra callables in on import
 import os
@@ -64,7 +65,7 @@ def symbol_mangler(kernel, name):
 
 class PetscCallable(loopy.ScalarCallable):
 
-    def with_types(self, arg_id_to_dtype, kernel, callables_table):
+    def with_types(self, arg_id_to_dtype, callables_table):
         new_arg_id_to_dtype = arg_id_to_dtype.copy()
         return (self.copy(
             name_in_target=self.name,
@@ -98,32 +99,30 @@ def register_petsc_function(name):
     petsc_functions.add(name)
 
 
-def petsc_function_lookup(target, identifier):
-    if identifier in petsc_functions:
-        return PetscCallable(name=identifier)
-    return None
-
-
 class LACallable(loopy.ScalarCallable, metaclass=abc.ABCMeta):
     """
     The LACallable (Linear algebra callable)
     replaces loopy.CallInstructions to linear algebra functions
     like solve or inverse by LAPACK calls.
     """
-    def __init__(self, name, arg_id_to_dtype=None,
+    def __init__(self, name=None, arg_id_to_dtype=None,
                  arg_id_to_descr=None, name_in_target=None):
-
-        super(LACallable, self).__init__(name,
+        if name is not None:
+            assert name == self.name
+        super(LACallable, self).__init__(self.name,
                                          arg_id_to_dtype=arg_id_to_dtype,
                                          arg_id_to_descr=arg_id_to_descr)
-        self.name = name
-        self.name_in_target = name_in_target if name_in_target else name
+        self.name_in_target = name_in_target if name_in_target else self.name
+
+    @abc.abstractproperty
+    def name(self):
+        pass
 
     @abc.abstractmethod
     def generate_preambles(self, target):
         pass
 
-    def with_types(self, arg_id_to_dtype, kernel, callables_table):
+    def with_types(self, arg_id_to_dtype, callables_table):
         dtypes = OrderedDict()
         for i in range(len(arg_id_to_dtype)):
             if arg_id_to_dtype.get(i) is None:
@@ -173,16 +172,11 @@ class INVCallable(LACallable):
     The InverseCallable replaces loopy.CallInstructions to "inverse"
     functions by LAPACK getri.
     """
+    name = "inverse"
+
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
         yield ("inverse", inverse_preamble)
-
-
-def inv_fn_lookup(target, identifier):
-    if identifier == 'inv':
-        return INVCallable(name='inverse')
-    else:
-        return None
 
 
 class SolveCallable(LACallable):
@@ -190,16 +184,11 @@ class SolveCallable(LACallable):
     The SolveCallable replaces loopy.CallInstructions to "solve"
     functions by LAPACK getrs.
     """
+    name = "solve"
+
     def generate_preambles(self, target):
         assert isinstance(target, loopy.CTarget)
         yield ("solve", solve_preamble)
-
-
-def solve_fn_lookup(target, identifier):
-    if identifier == 'solve':
-        return SolveCallable(name='solve')
-    else:
-        return None
 
 
 class _PreambleGen(ImmutableRecord):
@@ -216,14 +205,14 @@ class PyOP2KernelCallable(loopy.ScalarCallable):
     """Handles PyOP2 Kernel passed in as a string
     """
 
-    fields = set(["name", "access", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target"])
-    init_arg_names = ("name", "access", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target")
+    fields = set(["name", "parameters", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target"])
+    init_arg_names = ("name", "parameters", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target")
 
-    def __init__(self, name, access, arg_id_to_dtype=None, arg_id_to_descr=None, name_in_target=None):
+    def __init__(self, name, parameters, arg_id_to_dtype=None, arg_id_to_descr=None, name_in_target=None):
         super(PyOP2KernelCallable, self).__init__(name, arg_id_to_dtype, arg_id_to_descr, name_in_target)
-        self.access = access
+        self.parameters = parameters
 
-    def with_types(self, arg_id_to_dtype, kernel, callables_table):
+    def with_types(self, arg_id_to_dtype, callables_table):
         new_arg_id_to_dtype = arg_id_to_dtype.copy()
         return self.copy(
             name_in_target=self.name,
@@ -248,20 +237,7 @@ class PyOP2KernelCallable(loopy.ScalarCallable):
 
     def emit_call_insn(self, insn, target, expression_to_code_mapper):
         # reorder arguments, e.g. a,c = f(b,d) to f(a,b,c,d)
-        parameters = []
-        reads = iter(insn.expression.parameters)
-        writes = iter(insn.assignees)
-        for ac in self.access:
-            if ac is READ:
-                parameters.append(next(reads))
-            else:
-                parameters.append(next(writes))
-
-        # pass layer argument if needed
-        for layer in reads:
-            parameters.append(layer)
-
-        par_dtypes = tuple(expression_to_code_mapper.infer_type(p) for p in parameters)
+        par_dtypes = tuple(expression_to_code_mapper.infer_type(p) for p in self.parameters)
 
         from loopy.expression import dtype_to_type_context
         from pymbolic.mapper.stringifier import PREC_NONE
@@ -271,31 +247,10 @@ class PyOP2KernelCallable(loopy.ScalarCallable):
             expression_to_code_mapper(
                 par, PREC_NONE, dtype_to_type_context(target, par_dtype),
                 par_dtype).expr
-            for par, par_dtype in zip(parameters, par_dtypes)]
+            for par, par_dtype in zip(self.parameters, par_dtypes)]
 
         assignee_is_returned = False
         return var(self.name_in_target)(*c_parameters), assignee_is_returned
-
-
-class PyOP2KernelLookup(object):
-
-    def __init__(self, name, code, access):
-        self.name = name
-        self.code = code
-        self.access = access
-
-    def __hash__(self):
-        return hash(self.name + self.code)
-
-    def __eq__(self, other):
-        if isinstance(other, PyOP2KernelLookup):
-            return self.name == other.name and self.code == other.code
-        return False
-
-    def __call__(self, target, identifier):
-        if identifier == self.name:
-            return PyOP2KernelCallable(name=identifier, access=self.access)
-        return None
 
 
 @singledispatch
@@ -507,6 +462,7 @@ def generate(builder, wrapper_name=None):
     context.conditions = []
     context.index_ordering = []
     context.instruction_dependencies = deps
+    context.kernel_parameters = {}
 
     statements = list(statement(insn, context) for insn in instructions)
     # remove the dummy instructions (they were only used to ensure
@@ -541,7 +497,8 @@ def generate(builder, wrapper_name=None):
     # sometimes masks are not used, but we still need to create the function arguments
     for i, arg in enumerate(parameters.wrapper_arguments):
         if parameters.kernel_data[i] is None:
-            arg = loopy.GlobalArg(arg.name, dtype=arg.dtype, shape=arg.shape)
+            arg = loopy.GlobalArg(arg.name, dtype=arg.dtype, shape=arg.shape,
+                                  strides=loopy.auto)
             parameters.kernel_data[i] = arg
 
     if wrapper_name is None:
@@ -579,27 +536,33 @@ def generate(builder, wrapper_name=None):
     preamble = "\n".join(sorted(headers))
 
     from coffee.base import Node
+    from loopy.kernel.function_interface import CallableKernel
 
-    if isinstance(kernel._code, loopy.LoopKernel):
-        from loopy.transform.callable import _match_caller_callee_argument_dimension_
+    if isinstance(kernel._code, loopy.TranslationUnit):
         knl = kernel._code
-        wrapper = loopy.register_callable_kernel(wrapper, knl)
-        wrapper = _match_caller_callee_argument_dimension_(wrapper, knl.name)
+        wrapper = loopy.merge([wrapper, knl])
+        names = knl.callables_table
+        for name in names:
+            if isinstance(wrapper.callables_table[name], CallableKernel):
+                wrapper = _match_caller_callee_argument_dimension_(wrapper, name)
     else:
         # kernel is a string, add it to preamble
         if isinstance(kernel._code, Node):
             code = kernel._code.gencode()
         else:
             code = kernel._code
-        wrapper = loopy.register_function_id_to_in_knl_callable_mapper(
+        wrapper = loopy.register_callable(
             wrapper,
-            PyOP2KernelLookup(kernel.name, code, tuple(builder.argument_accesses)))
+            kernel.name,
+            PyOP2KernelCallable(name=kernel.name,
+                                parameters=context.kernel_parameters[kernel.name]))
         preamble = preamble + "\n" + code
 
     wrapper = loopy.register_preamble_generators(wrapper, [_PreambleGen(preamble)])
 
     # register petsc functions
-    wrapper = loopy.register_function_id_to_in_knl_callable_mapper(wrapper, petsc_function_lookup)
+    for identifier in petsc_functions:
+        wrapper = loopy.register_callable(wrapper, identifier, PetscCallable(name=identifier))
 
     return wrapper
 
@@ -647,6 +610,7 @@ def statement_assign(expr, context):
     id, depends_on = context.instruction_dependencies[expr]
     predicates = frozenset(context.conditions)
     return loopy.Assignment(lvalue, rvalue, within_inames=within_inames,
+                            within_inames_is_final=True,
                             predicates=predicates,
                             id=id,
                             depends_on=depends_on, depends_on_is_final=True)
@@ -656,6 +620,12 @@ def statement_assign(expr, context):
 def statement_functioncall(expr, context):
     parameters = context.parameters
 
+    # We cannot reconstruct the correct calling convention for C-string kernels
+    # without providing some additional context about the argument ordering.
+    # This is processed inside the ``emit_call_insn`` method of
+    # :class:`.PyOP2KernelCallable`.
+    context.kernel_parameters[expr.name] = []
+
     free_indices = set(i.name for i in expr.free_indices)
     writes = []
     reads = []
@@ -663,19 +633,22 @@ def statement_functioncall(expr, context):
         var = expression(child, parameters)
         if isinstance(var, pym.Subscript):
             # tensor argument
-            indices = []
             sweeping_indices = []
             for index in var.index_tuple:
-                indices.append(index)
                 if isinstance(index, pym.Variable) and index.name in free_indices:
                     sweeping_indices.append(index)
             arg = SubArrayRef(tuple(sweeping_indices), var)
         else:
             # scalar argument or constant
             arg = var
+        context.kernel_parameters[expr.name].append(arg)
+
         if access is READ or (isinstance(child, Argument) and isinstance(child.dtype, OpaqueType)):
             reads.append(arg)
+        elif access is WRITE:
+            writes.append(arg)
         else:
+            reads.append(arg)
             writes.append(arg)
 
     within_inames = context.within_inames[expr]
@@ -686,6 +659,7 @@ def statement_functioncall(expr, context):
 
     return loopy.CallInstruction(tuple(writes), call,
                                  within_inames=within_inames,
+                                 within_inames_is_final=True,
                                  predicates=predicates,
                                  id=id,
                                  depends_on=depends_on, depends_on_is_final=True)
@@ -794,7 +768,8 @@ def expression_argument(expr, parameters):
     else:
         arg = loopy.GlobalArg(name,
                               dtype=dtype,
-                              shape=shape)
+                              shape=shape,
+                              strides=loopy.auto)
     idx = parameters.wrapper_arguments.index(expr)
     parameters.kernel_data[idx] = arg
     return pym.Variable(name)
@@ -895,7 +870,3 @@ def expression_bitshift(expr, parameters):
 def expression_indexed(expr, parameters):
     aggregate, multiindex = (expression(c, parameters) for c in expr.children)
     return pym.Subscript(aggregate, multiindex)
-    extents = [int(numpy.prod(expr.aggregate.shape[i+1:])) for i in range(len(multiindex))]
-    make_sum = lambda x, y: pym.Sum((x, y))
-    index = reduce(make_sum, [pym.Product((e, m)) for e, m in zip(extents, multiindex)])
-    return pym.Subscript(aggregate, (index,))

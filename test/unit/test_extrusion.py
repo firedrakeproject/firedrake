@@ -99,7 +99,7 @@ partition_size = 300
 
 mesh2d = numpy.array([3, 3, 1])
 mesh1d = numpy.array([2, 1])
-A = numpy.array([[0, 1], [0]])
+A = [[0, 1], [0]]
 
 dofs = numpy.array([[2, 0], [0, 0], [0, 1]])
 dofs_coords = numpy.array([[2, 0], [0, 0], [0, 0]])
