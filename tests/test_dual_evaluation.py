@@ -11,7 +11,7 @@ def test_ufl_only_simple():
     expr = ufl.inner(v, v)
     W = V
     to_element = create_element(W.ufl_element())
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, *_ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     assert first_coeff_fake_coords is False
 
 
@@ -22,7 +22,7 @@ def test_ufl_only_spatialcoordinate():
     expr = x*y - y**2 + x
     W = V
     to_element = create_element(W.ufl_element())
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, *_ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     assert first_coeff_fake_coords is True
 
 
@@ -33,7 +33,7 @@ def test_ufl_only_from_contravariant_piola():
     expr = ufl.inner(v, v)
     W = ufl.FunctionSpace(mesh, ufl.FiniteElement("P", ufl.triangle, 2))
     to_element = create_element(W.ufl_element())
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, *_ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     assert first_coeff_fake_coords is True
 
 
@@ -44,7 +44,7 @@ def test_ufl_only_to_contravariant_piola():
     expr = ufl.as_vector([v, v])
     W = ufl.FunctionSpace(mesh, ufl.FiniteElement("RT", ufl.triangle, 1))
     to_element = create_element(W.ufl_element())
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, *_ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
     assert first_coeff_fake_coords is True
 
 
@@ -58,4 +58,4 @@ def test_ufl_only_shape_mismatch():
     to_element = create_element(W.ufl_element())
     assert to_element.value_shape == (2,)
     with pytest.raises(ValueError):
-        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, *_ = compile_expression_dual_evaluation(expr, to_element, coffee=False)

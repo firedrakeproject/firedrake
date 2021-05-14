@@ -224,16 +224,11 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
 
     # Create loopy kernel
     knl = lp.make_function(domains, instructions, data, name=kernel_name, target=lp.CTarget(),
-                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
+                           lang_version=(2018, 2))
 
     # Prevent loopy interchange by loopy
     knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
-
-    # Help loopy in scheduling by assigning priority to instructions
-    insn_new = []
-    for i, insn in enumerate(knl.instructions):
-        insn_new.append(insn.copy(priority=len(knl.instructions) - i))
-    knl = knl.copy(instructions=insn_new)
 
     return knl
 
@@ -335,7 +330,7 @@ def statement_evaluate(leaf, ctx):
         idx_reads = ctx.pymbolic_multiindex(expr.children[0].shape)
         var_reads = ctx.pymbolic_variable(expr.children[0])
         reads = (SubArrayRef(idx_reads, p.Subscript(var_reads, idx_reads)),)
-        rhs = p.Call(p.Variable("inv"), reads)
+        rhs = p.Call(p.Variable("inverse"), reads)
 
         return [lp.CallInstruction(lhs, rhs, within_inames=ctx.active_inames())]
     elif isinstance(expr, gem.Solve):
