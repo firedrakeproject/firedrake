@@ -1,5 +1,6 @@
 import abc
 import itertools
+import ufl
 
 from pyop2 import op2
 from pyop2.utils import as_tuple
@@ -70,7 +71,7 @@ class MatrixBase(object, metaclass=abc.ABCMeta):
                                                self.a, self.bcs)
 
 
-class Matrix(MatrixBase):
+class Matrix(ufl.Matrix, MatrixBase):
     """A representation of an assembled bilinear form.
 
     :arg a: the bilinear form this :class:`Matrix` represents.
@@ -94,7 +95,8 @@ class Matrix(MatrixBase):
 
     def __init__(self, a, bcs, mat_type, *args, **kwargs):
         # sets self._a, self._bcs, and self._mat_type
-        super(Matrix, self).__init__(a, bcs, mat_type)
+        ufl.Matrix.__init__(self, a.arguments()[1].function_space(), a.arguments()[0].function_space())
+        MatrixBase.__init__(self, a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
         self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle

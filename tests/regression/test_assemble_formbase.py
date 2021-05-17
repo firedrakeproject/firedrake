@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.utils import ScalarType
+import ufl
 
 
 @pytest.fixture(scope='module')
@@ -85,16 +86,30 @@ def M(fs):
 
 @pytest.fixture
 def A(fs):
-    return Matrix(fs,fs)
+    v = TestFunction(fs)
+    return inner(v,v) * dx
 
 
-def test_matrix(M, f):
-    assembled_matrix = assemble(M)
-    preassemble_action = assemble(action(M,f))
-    postassemble_action = assemble(action(assembled_matrix, f))
+# def test_matrix(M, f):
+#     assembled_matrix = assemble(M)
+#     # preassemble_action = assemble(action(M,f))
+#     postassemble_action = assemble(action(assembled_matrix, f))
 
-    assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)
+    # assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)
 
+def test_assemble_matrix(M):
+    res = assemble(M)
+    assert(isinstance(res, ufl.Matrix))
+
+# def test_assemble_adjoint(M):
+#     res = assemble(adjoint(M))
+#     assembledM = assemble(M)
+#     res2 = assemble(ufl.adjoint(assembledM))
+#     assert(isinstance(res, ufl.Matrix))
+
+def test_assemble_one_form(A):
+    res = assemble(A)
+    assert(isinstance(res, ufl.Cofunction))
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))

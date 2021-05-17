@@ -169,19 +169,26 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                   mat_type, sub_mat_type,
                   appctx, options_prefix, *args):
     if isinstance(expr, ufl.form.Form):
+        print("Form")
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                             form_compiler_parameters,
                             mat_type, sub_mat_type,
                             appctx, options_prefix)
-    if isinstance(expr, ufl.Adjoint):
+    elif isinstance(expr, ufl.Adjoint):
+        print("Adjoint")
         if (len(args) != 1): 
             raise TypeError("Not enough operands for Adjoint")
         matrix = args[0] 
-        petsc_mat = matrix.M.handle
         res = PETSc.Mat().create()
-        PETSc.Mat().hermitian(petsc_mat,res)
+        petsc_mat = matrix.M.handle
+        print(petsc_mat.hermitian)
+        print(petsc_mat.isHermitian())
+        print(dir(petsc_mat))
+        # PETSc.Mat().hermitian(petsc_mat,res)
+        # petsc_mat.Hermitian(res)
         return res
-    if isinstance(expr, ufl.Action):
+    elif isinstance(expr, ufl.Action):
+        print("Action")
         if (len(args) != 2): 
             raise TypeError("Not enough operands for Action")
         matrix = args[0] 
@@ -191,24 +198,32 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         petsc_mat = matrix.M.handle
         res = petsc_v.copy()
         petsc_mat.mult(petsc_v, res)
-        PETSc.Mat().MatMul(petsc_mat, petsc_v, res)
+        _make_vector
         return res
-    if isinstance(expr, ufl.FormSum):
+    elif isinstance(expr, ufl.FormSum):
+        print("FORMSUM")
         if (len(args) != len(expr.weights())):
             raise TypeError("Mismatching weights and operands in FormSum")
         sum = None
         for (op,w) in zip(args, expr.weights()):
             #handle matrices here too? throw error if mismatched
-            with op.dat.vec as v: 
-                PETSc.Mat().VecScale(v,w)
-                if sum:
-                    sum = sum + v
-                else:
-                    sum = v
+            with op.dat.vec_ro as v_vec:
+                petsc_v = v_vec.copy()
+            
+            petsc_v.scale(w)
+            if sum:
+                sum = sum + petsc_v
+            else:
+                sum = petsc_v
         return sum
-    if isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
+    elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
+        print("Other")
+        return expr
+    elif isinstance(expr, ufl.Coefficient):
+        print("Coefficient")
         return expr
     else:
+        print(type(expr))
         raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
 
@@ -417,7 +432,9 @@ def _make_vector(V):
 
     :returns: An empty :class:`.Function`.
     """
-    return firedrake.Function(V.function_space())
+    vec = firedrake.Cofunction(V.function_space())
+    # vec2 = firedrake.Function(V.function_space())
+    return vec
 
 
 def _make_matrix(expr, bcs, opts):
