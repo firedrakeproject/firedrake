@@ -9,6 +9,7 @@ from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
+from firedrake.preconditioners.pmg import get_permuted_map
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.base import PCBase
 from firedrake.utils import IntType_c
@@ -42,6 +43,7 @@ class FDMPC(PCBase):
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
         self.uc = firedrake.Function(V)
+        self.cell_node_map = get_permuted_map(V)
 
         ndim = self.mesh.topological_dimension()
         nscal = V.value_size
@@ -75,7 +77,7 @@ class FDMPC(PCBase):
         helm = appctx.get("helm", None)  # sets the potential
         hflag = helm is not None
 
-        self.restrict_kernel, self.prolong_kernel, self.stencil_kernel, Afdm, Dfdm = self.assemble_matfree(ndim, nscal, N, Nq, needs_interior_facet, hflag)
+        self.restrict_kernel, self.prolong_kernel, self.stencil_kernel, Afdm, Dfdm = self.assemble_matfree(V, N, Nq, needs_interior_facet, hflag)
 
         self.stencil = None
         if fdm_type == "stencil":
@@ -122,9 +124,9 @@ class FDMPC(PCBase):
             x.copy(xf)
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.uc.cell_node_map()),
-                     self.uf.dat(op2.READ, self.uf.cell_node_map()),
-                     self.weight.dat(op2.READ, self.weight.cell_node_map()))
+                     self.uc.dat(op2.INC, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map),
+                     self.weight.dat(op2.READ, self.cell_node_map))
 
         for bc in self.bcs:
             bc.zero(self.uc)
@@ -136,8 +138,8 @@ class FDMPC(PCBase):
             bc.zero(self.uf)
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.WRITE, self.uc.cell_node_map()),
-                     self.uf.dat(op2.READ, self.uf.cell_node_map()))
+                     self.uc.dat(op2.WRITE, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map))
 
         with self.uc.dat.vec_ro as xc:
             xc.copy(y)
@@ -279,6 +281,8 @@ class FDMPC(PCBase):
         ele = V.ufl_element()
         ncomp = ele.value_size()
         bsize = V.value_size
+        sdim = V.finat_element.space_dimension()
+
         needs_hdiv = bsize != ncomp
 
         ndof = bsize * V.dof_dset.set.size
@@ -347,17 +351,20 @@ class FDMPC(PCBase):
 
         if needs_interior_facet:
             eta = nx1*(nx1+1)
-            adense = np.zeros((nx1, nx1))
+            adense = np.zeros((2*nx1, 2*nx1), dtype=PETSc.RealType)
 
             # TODO extrude these arrays
             lexico_facet, nfacet = self.glonum_fun(V, interior_facet=True)
             facet_cells = self.mesh.interior_facets.facet_cell_map.values
             facet_data = self.mesh.interior_facets.local_facet_dat.data
+            rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
+
+            be = Afdm[0][1]
+            if ndim > 2:
+                be = kron(be, Afdm[0][1], format="csr")
 
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
-                k0 = -(facet_data[f, 0] % 2)
-                k1 = -(facet_data[f, 1] % 2)
                 idir = facet_data[f] // 2
                 if idsym:
                     idir = idsym[idir]
@@ -366,33 +373,43 @@ class FDMPC(PCBase):
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e1)], axis=0))
                 ie = lexico_facet(f)
                 if needs_hdiv:
-                    ie = np.reshape(ie, (ncomp, -1))
+                    ie = np.reshape(ie, (2, ncomp, -1))
 
                 for j in range(ncomp):
-                    mu0j = mu0[j][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]]
-                    mu1j = mu1[j][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]
+                    muj = [mu0[j][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
+                           mu1[j][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
 
+                    penalty = eta * 0.5E0*(muj[0] + muj[1])
                     adense.fill(0.0E0)
-                    adense[:, k1] += (0.5E0*mu0j) * Dfdm[:, k0]
-                    adense[k0, :] += (0.5E0*mu1j) * Dfdm[:, k1]
-                    adense[k0, k1] -= eta * 0.5E0*(mu0j + mu1j)
+                    for ccell, cface in enumerate(facet_data[f]):
+                        j0 = ccell * nx1
+                        j1 = j0 + nx1
+                        jj = j0 + (nx1-1) * (cface % 2)
+                        for rcell, rface in enumerate(facet_data[f]):
+                            i0 = rcell * nx1
+                            i1 = i0 + nx1
+                            ii = i0 + (nx1-1) * (rface % 2)
+                            sij = 1.0E0 if rcell == ccell else -1.0E0
+                            adense[i0:i1, jj] -= sij*(0.5E0*muj[rcell]) * Dfdm[:, -(rface % 2)]
+                            adense[ii, j0:j1] -= sij*(0.5E0*muj[ccell]) * Dfdm[:, -(cface % 2)]
+                            adense[ii, jj] += sij*penalty 
+
+                    print(adense)
                     ae = csr_matrix(adense)
                     if ndim > 1:
                         # Here we are assuming that the mesh is oriented
-                        ae = kron(ae, Afdm[0][1], format="csr")
-                        if ndim > 2:
-                            ae = kron(ae, Afdm[0][1], format="csr")
+                        ae = kron(ae, be, format="csr")
 
                     facet_csr.append(ae)
                     icell = np.reshape(lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie), (2, -1))
-                    rows = self.pull_facet(icell[0], pshape, facet_data[f, 0])
-                    cols = self.pull_facet(icell[1], pshape, facet_data[f, 1])
-                    cols = cols[ae.indices]
+
+                    rows[:sdim] = self.pull_facet(icell[0], pshape, facet_data[f, 0])
+                    rows[sdim:] = self.pull_facet(icell[1], pshape, facet_data[f, 1])
+                    cols = rows[ae.indices]
                     for i, row in enumerate(rows):
                         i0 = ae.indptr[i]
                         i1 = ae.indptr[i+1]
                         prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-                        prealloc.setValues(cols[i0:i1], row, ae.data[i0:i1], imode)
 
         prealloc.assemble()
         nnz = get_preallocation(prealloc, ndof)
@@ -426,20 +443,20 @@ class FDMPC(PCBase):
                 i0 = ae.indptr[i]
                 i1 = ae.indptr[i+1]
                 Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-
+        
         if needs_interior_facet:
+            rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
             for f, ae in enumerate(facet_csr):
                 j = f % ncomp
                 if j == 0:
-                    bce = bcflags[f // ncomp]
                     ie = lexico_facet(f // ncomp)
                     if needs_hdiv:
                         ie = np.reshape(ie, (ncomp, -1))
 
                 icell = np.reshape(lgmap.apply(ie[j] if needs_hdiv else j+bsize*ie), (2, -1))
-                rows = self.pull_facet(icell[0], pshape, facet_data[f // ncomp, 0])
-                cols = self.pull_facet(icell[1], pshape, facet_data[f // ncomp, 1])
-                cols = cols[ae.indices]
+                rows[:sdim] = self.pull_facet(icell[0], pshape, facet_data[f // ncomp, 0])
+                rows[sdim:] = self.pull_facet(icell[1], pshape, facet_data[f // ncomp, 1])
+                cols = rows[ae.indices]
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
@@ -458,15 +475,15 @@ class FDMPC(PCBase):
             Finv = JacobianInverse(self.mesh)
             if mu is None:
                 G = dot(Finv, Finv.T)
+            elif mu.ufl_shape == ():
+                G = mu * dot(Finv, Finv.T)
             elif mu.ufl_shape == gshape:
                 G = dot(dot(Finv, mu), Finv.T)
             elif mu.ufl_shape == gshape + gshape:
                 i1, i2, i3, i4, j1, j3 = indices(6)
                 G = as_tensor(Finv[i1, j1] * Finv[i3, j3] * mu[j1, i2, j3, i4], (i1, i2, i3, i4))
-            elif mu.ufl_shape == ():
-                G = mu * dot(Finv, Finv.T)
             else:
-                raise ValueError("I don't know how to ")
+                raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
             F = Jacobian(self.mesh)
             G = inv(dot(F.T, F))
@@ -591,10 +608,9 @@ class FDMPC(PCBase):
             Abc = Ahat.copy()
             Bbc = Bhat.copy()
             for j in (0, -1):
-                if bcs[j]:
-                    mult = 1.0E0 / bcs[j]
-                    Abc[:, j] -= mult * Dfacet[:, j]
-                    Abc[j, :] -= mult * Dfacet[:, j]
+                if bcs[j] == 1:
+                    Abc[:, j] -= Dfacet[:, j]
+                    Abc[j, :] -= Dfacet[:, j]
                     Abc[j, j] += eta
 
             return [csr_matrix(Abc), csr_matrix(Bbc)]
@@ -625,19 +641,22 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def assemble_matfree(ndim, nscal, N, Nq, needs_interior_facet, helm=False):
+    def assemble_matfree(V, N, Nq, needs_interior_facet, helm=False):
         # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
+        bsize = V.value_size
+        nscal = V.ufl_element().value_size()
+        sdim = V.finat_element.space_dimension()
+        ndim = V.ufl_domain().topological_dimension()
         nsym = (ndim * (ndim+1)) // 2
+        lwork = bsize * sdim
 
         Ahat, Bhat, Jhat, Dhat, _ = FDMPC.semhat(N, Nq)
         nx = Ahat.shape[0]
         ny = nx if ndim >= 2 else 1
         nz = nx if ndim >= 3 else 1
-        nxyz = nx*ny*nz
-        ntot = nscal*nxyz
-        lwork = ntot
+        
         nv = nx * nx
 
         nxq = Jhat.shape[1]
@@ -709,40 +728,38 @@ class FDMPC(PCBase):
         transfer_code = f"""
         {kronmxv_code}
 
-        void prolongation(PetscScalar *y,
-                      PetscScalar *x){{
+        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
             PetscScalar V[{Vsize}] = {{ {Vhex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 
-            for({IntType_c} j=0; j<{nxyz}; j++)
-                for({IntType_c} i=0; i<{nscal}; i++)
-                    t0[j + {nxyz}*i] = x[i + {nscal}*j];
+            for({IntType_c} j=0; j<{sdim}; j++)
+                for({IntType_c} i=0; i<{bsize}; i++)
+                    t0[j + {sdim}*i] = x[i + {bsize}*j];
 
             kronmxv(1, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {VX},{VY},{VZ}, t0, t1);
 
-            for({IntType_c} j=0; j<{nxyz}; j++)
-                for({IntType_c} i=0; i<{nscal}; i++)
-                   y[i + {nscal}*j] = t1[j + {nxyz}*i];
+            for({IntType_c} j=0; j<{sdim}; j++)
+                for({IntType_c} i=0; i<{bsize}; i++)
+                   y[i + {bsize}*j] = t1[j + {sdim}*i];
             return;
         }}
 
-        void restriction(PetscScalar *y,
-                      PetscScalar *x,
-                      PetscScalar *w){{
+        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
+                         const PetscScalar *restrict w){{
             PetscScalar V[{Vsize}] = {{ {Vhex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 
-            for({IntType_c} j=0; j<{nxyz}; j++)
-                for({IntType_c} i=0; i<{nscal}; i++)
-                    t0[j + {nxyz}*i] = x[i + {nscal}*j] * w[i + {nscal}*j];
+            for({IntType_c} j=0; j<{sdim}; j++)
+                for({IntType_c} i=0; i<{bsize}; i++)
+                    t0[j + {sdim}*i] = x[i + {bsize}*j] * w[i + {bsize}*j];
 
             kronmxv(0, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {VX},{VY},{VZ}, t0, t1);
 
-            for({IntType_c} j=0; j<{nxyz}; j++)
-                for({IntType_c} i=0; i<{nscal}; i++)
-                   y[i + {nscal}*j] += t1[j + {nxyz}*i];
+            for({IntType_c} j=0; j<{sdim}; j++)
+                for({IntType_c} i=0; i<{bsize}; i++)
+                    y[i + {bsize}*j] += t1[j + {sdim}*i];
             return;
         }}
         """
@@ -812,10 +829,10 @@ class FDMPC(PCBase):
             PetscScalar BX[{4 * nb}];
             PetscScalar BY[{4 * nb}];
             PetscScalar BZ[{4 * nb}];
-            PetscScalar t0[{nquad}], t1[{nquad}], t2[{nxyz}] = {{0.0E0}};
+            PetscScalar t0[{nquad}], t1[{nquad}], t2[{sdim}] = {{0.0E0}};
             PetscScalar scal;
             {IntType_c} k, ix, iy, iz;
-            {IntType_c} ndiag = {nxyz}, nquad = {nquad}, nstencil = {2*ndim+1}, inc = 1;
+            {IntType_c} ndiag = {sdim}, nquad = {nquad}, nstencil = {2*ndim+1}, inc = 1;
 
             get_basis(dom1, JX, DX, BX);
             get_basis(dom2, JY, DY, BY);
