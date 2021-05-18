@@ -92,7 +92,6 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @PETSc.Log.EventDecorator()
     @utils.cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
@@ -128,7 +127,6 @@ class BCBase(object):
             s.append((ndim - 1 - i, as_tuple(sd[i])))
         return as_tuple(s)
 
-    @PETSc.Log.EventDecorator()
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
