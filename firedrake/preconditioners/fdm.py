@@ -301,7 +301,7 @@ class FDMPC(PCBase):
         # Build elemental sparse matrices and preallocate matrix
         cell_csr = []
         facet_csr = []
-        flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [3]])
+        flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
         pshape = [Ak[0][0].shape[0] for Ak in Afdm]
         N = pshape[-1]
 
@@ -408,8 +408,10 @@ class FDMPC(PCBase):
                     if needs_hdiv:
                         qshape = [N]*ncomp
                         qshape[j] = -1
-                        rows[:sdim] = self.pull_facet(icell[0][j], qshape, idir[0])
-                        rows[sdim:] = self.pull_facet(icell[1][j], qshape, idir[1])
+                        j0 = j
+                        j1 = (j+idir[0]-idir[1]) % ncomp
+                        rows[:sdim] = self.pull_facet(icell[0][j0], qshape, idir[0])
+                        rows[sdim:] = self.pull_facet(icell[1][j1], qshape, idir[1])
                     else:
                         icell = np.reshape(lgmap.apply(j+bsize*ie), (2, -1))
                         rows[:sdim] = self.pull_facet(icell[0], pshape, idir[0])
@@ -468,8 +470,10 @@ class FDMPC(PCBase):
                 if needs_hdiv:
                     qshape = [N]*ncomp
                     qshape[j] = -1
-                    rows[:sdim] = self.pull_facet(icell[0][j], qshape, idir[0])
-                    rows[sdim:] = self.pull_facet(icell[1][j], qshape, idir[1])
+                    j0 = j
+                    j1 = (j+idir[0]-idir[1]) % ncomp
+                    rows[:sdim] = self.pull_facet(icell[0][j0], qshape, idir[0])
+                    rows[sdim:] = self.pull_facet(icell[1][j1], qshape, idir[1])
                 else:
                     icell = np.reshape(lgmap.apply(j+bsize*ie), (2, -1))
                     rows[:sdim] = self.pull_facet(icell[0], pshape, idir[0])
@@ -500,10 +504,10 @@ class FDMPC(PCBase):
                 if piola:
                     PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(Finv[i1, j1] * PF[i2, j2] * Finv[i3, j3] * PF[i4, j4] * mu[j1, j2, j3, j4], (i1, i2, i3, i4))
+                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * PF[j3, i3] * PF[j4, i4] * mu[j1, j2, j3, j4], (i1, i2, i3, i4))
                 else:
-                    i1, i2, i3, i4, j1, j3 = indices(6)
-                    G = as_tensor(Finv[i1, j1] * Finv[i3, j3] * mu[j1, i2, j3, i4], (i1, i2, i3, i4))
+                    i1, i2, i3, i4, j1, j2 = indices(6)
+                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * mu[j1, j2, i3, i4], (i1, i2, i3, i4))
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
@@ -519,11 +523,11 @@ class FDMPC(PCBase):
                 Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", dim=np.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
-                G = as_tensor([[G[i, j, i, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[1])])
+                G = as_tensor([[G[i, i, j, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])])
                 Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
-                raise ValueError("I don't know how to get the diagonal of a tensor of shape ", G.ufl_shape)
+                raise ValueError("I don't know how to get the diagonal of a tensor with shape ", G.ufl_shape)
         else:
             Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                quad_scheme="default", shape=G.ufl_shape, symmetry=True)
@@ -591,8 +595,8 @@ class FDMPC(PCBase):
         Bk = Vfdm.T @ Bhat @ Vfdm
         Bk[rd, kd] = 0.0E0
         Bk[kd, rd] = 0.0E0
-        for bc1 in range(3):
-            for bc0 in range(3):
+        for bc1 in range(2):
+            for bc0 in range(2):
                 Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
 
         return Afdm, Vfdm, None
@@ -653,13 +657,13 @@ class FDMPC(PCBase):
 
         Dfdm = Vfdm.T @ Dfacet
         Afdm = []
-        for bc1 in range(3):
-            for bc0 in range(3):
+        for bc1 in range(2):
+            for bc0 in range(2):
                 bcs = (bc0, bc1)
                 Afdm.append(apply_weak_bcs(A, B, Dfdm, bcs, eta))
 
-        # Vfdm rotates GL residuals into modes obtained from GLL
         if not gll:
+            # Vfdm first rotates GL residuals into GLL modes
             Vfdm = Jipdg.T @ Vfdm
 
         return Afdm, Vfdm, Dfdm
@@ -1097,7 +1101,7 @@ class FDMPC(PCBase):
 
         if () in maskall:
             fbc[sub >= -1] = 1
-        fbc[flags != 0] = 2
+        fbc[flags != 0] = 0
 
         others = set(comp.keys()) - {()}
         if others:
