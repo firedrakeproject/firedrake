@@ -288,4 +288,3 @@ def test_par_loop_respects_shape():
     par_loop((domain, instructions), dx, {'A': (f_scalar, WRITE)},
              is_loopy_kernel=True)
     assert np.allclose(f_scalar.dat.data, 1.0)
-
