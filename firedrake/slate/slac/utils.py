@@ -436,10 +436,14 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     c = 0 
     slate_loopy_name = builder.slate_loopy_name
     for insn in slate_loopy[slate_loopy_name].instructions:
-        if isinstance(insn, lp.kernel.instruction.CallInstruction):
-            if (insn.expression.function.name.startswith("action") or
-                insn.expression.function.name.startswith("mtf")):
-                c += 1
+        # TODO specialise the call instruction node and dispatch based on its type
+        if (not isinstance(insn, lp.kernel.instruction.CallInstruction) or
+            not (insn.expression.function.name.startswith("action") or
+                insn.expression.function.name.startswith("mtf"))):
+                    # normal instructions can stay as they are
+                    insns.append(insn)
+        else:
+            c += 1
 
             # slate node corresponding to current instructions
             if isinstance(gem_action_node, Solve):
