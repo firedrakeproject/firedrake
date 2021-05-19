@@ -188,7 +188,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     else:
         # here we generate a new kernel where the the slate loopy kernel is called from
         name = "wrap_slate_loopy"
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, "terminals_first")
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "terminals_first", slate_expr, tsfc_parameters)
 
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
