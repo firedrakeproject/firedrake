@@ -458,8 +458,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-
-            if isinstance(slate_node, sl.Action):
+            _, coeff_node = slate_node.children
+            if (isinstance(slate_node, sl.Action)):
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
                     # split coefficients into a set of original coefficients (old_coeffs)
                     # and coefficients coming from the result of an action (new_coeffs)
