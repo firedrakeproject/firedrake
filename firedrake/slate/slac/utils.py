@@ -581,16 +581,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     
-                    # Repeat for the actions which might be in the action wrapper kernel
-                    action_tensor2temps, builder, action_wrapper_knl = assemble_when_needed(builder,
-                                                                        var2terminal,
-                                                                        action_wrapper_knl,
-                                                                        slate_node,
-                                                                        ctx_g2l,
-                                                                        tsfc_parameters,
-                                                                        init_temporaries=False,
-                                                                        tensor2temp=action_tensor2temp,
-                                                                        output_arg=action_output_arg)
+                # Repeat for the actions which might be in the action wrapper kernel
+                ctx_g2l_action.kernel_name = action_wrapper_knl_name
+                _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
+                                                                    var2terminal_actions,
+                                                                    action_wrapper_knl,
+                                                                    slate_node,
+                                                                    ctx_g2l_action,
+                                                                    tsfc_parameters,
+                                                                    init_temporaries=False,
+                                                                    tensor2temp=action_tensor2temp,
+                                                                    output_arg=action_output_arg)
 
                     # Update data structure before next instruction is processed
                     knl_list[builder.slate_loopy_name] = action_wrapper_knl 
