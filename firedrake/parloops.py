@@ -113,6 +113,13 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
         kernel_domains = "[] -> {[]}"
     try:
         key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        # Add shape, dtype and intent to the cache key
+        for func, intent in args.values():
+            if isinstance(func, Indexed):
+                for dat in func.ufl_operands[0].dat.split:
+                    key += (dat.shape, dat.dtype, intent)
+            else:
+                key += (func.dat.shape, func.dat.dtype, intent)
         if kernel_cache is not None:
             return kernel_cache[key]
         else:
