@@ -593,20 +593,29 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     tensor2temp=action_tensor2temp,
                                                                     output_arg=action_output_arg)
 
-                    # Update data structure before next instruction is processed
-                    knl_list[builder.slate_loopy_name] = action_wrapper_knl 
-                    builder.bag = slate_wrapper_bag
-                    builder.slate_loopy_name = slate_loopy_name
-                    tvs = slate_loopy.callables_table[slate_loopy_name].subkernel.temporary_variables
-                    tensor2temps[slate_node] = tvs[insn.assignee_name].copy(target=lp.CTarget())
-                    droppedAparams = action_insn.expression.parameters[1:]
-                    insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function,
-                                                                    droppedAparams)))
-                    continue
+                ctx_g2l.kernel_name = slate_loopy_name
+                # FIXME use a copy function
+                action_builder.bag.needs_cell_facets = modified_action_builder.bag.needs_cell_facets
+                action_builder.bag.needs_cell_orientations = modified_action_builder.bag.needs_cell_orientations
+                action_builder.bag.needs_cell_sizes = modified_action_builder.bag.needs_cell_sizes
+                action_builder.bag.needs_mesh_layers = modified_action_builder.bag.needs_mesh_layers
+                action_builder.bag.index_creator = builder.bag.index_creator
 
-                builder, new_coeff, old_coeff = link_action_coeff(builder, [coeff], [names], [terminal])
-                new_coeffs.update(new_coeff)
-                old_coeffs.update(old_coeff)
+                # Modify action wrapper kernel args and params in the call for this insn based on what the tsfc kernels inside need
+                action_insn, action_wrapper_knl, action_builder = update_kernel_call_and_knl(insn, gem_action_node, action_output_arg,
+                                                                                action_wrapper_knl, action_wrapper_knl_name,
+                                                                                action_builder)
+                builder.bag.index_creator.inames.update(action_builder.bag.index_creator.inames)
+                builder.bag.index_creator.domains.extend(action_builder.bag.index_creator.domains)
+
+                # Update with new insn and knl
+                droppedAparams = action_insn.expression.parameters
+                insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function,
+                                                                droppedAparams)))
+                knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
+                
+                # Update {slate_node -> loopy lhs} for processing of next instruction
+                tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
