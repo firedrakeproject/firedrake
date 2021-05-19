@@ -547,13 +547,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_builder.bag = action_builder.bag.copy(builder.bag.index_creator.namer.forced_prefix+"l_",
                                                     action_wrapper_knl_name)
 
-                        # Prepare data structures for a new swipe
-                        slate_wrapper_bag = builder.bag
-                        builder.slate_loopy_name = action_wrapper_knl_name 
-                        builder.bag = builder.bag.copy(action_wrapper_knl_name+"_", action_wrapper_knl_name)
-                        ctx2gl.gem_to_pymbolic = action_gem2pym
-                    else:
-                        # Generate matfree solve call and knl
+                    # link the action coeff to the newly generated kernel
+                    old_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
+                    new_var = insn.expression.parameters[1].subscript.aggregate
+                    new_arg = old_arg.copy(name=new_var.name)
+                    new_args = [action_wrapper_knl[action_wrapper_knl_name].args[0], new_arg] + action_wrapper_knl[action_wrapper_knl_name].args[2:]
+                    action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name:new_var})
+                    action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
+                    action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
+
+                else:
+                    # Generate matfree solve call and knl
                         action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
 
                         # Prepare data structures for a new swipe
