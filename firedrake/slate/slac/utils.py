@@ -627,9 +627,7 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
 
     return updated_bag, tensor2temps, inits
 
-
-
-    # FIXME Refactor into generate wrapper kernel function
+def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy):
     # 1) Prepare the wrapper kernel: scheduling of instructions
     # We remove all existing dependencies and make them sequential instead
     # also help scheduling by setting within_inames_is_final on everything
