@@ -459,7 +459,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
 
+            if isinstance(slate_node, sl.Action):
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
+                    # split coefficients into a set of original coefficients (old_coeffs)
+                    # and coefficients coming from the result of an action (new_coeffs)
+                    # and update the builder bag with them
                     new_coeffs = {}
                     old_coeffs = {}
                     for coeff, name, terminal in zip(coeffs, names, terminals):  
@@ -469,27 +473,41 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
-                    from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-                    if not builder.bag:
-                        builder.bag = SlateWrapperBag(old_coeffs, "k_"+str(c), new_coeff, builder.slate_loopy_name)
-                        builder.bag.call_name_generator("k_"+str(c))
-                    else:
-                        builder.bag.update_coefficients(old_coeffs, "k_"+str(c), new_coeff)
-                    return builder, new_coeffs, old_coeffs
-
+                    updated_bag = builder.update_bag_with_coefficients(old_coeffs, new_coeff, builder.bag.name)
+                    return updated_bag, new_coeffs, old_coeffs
                 def get_coeff(slate_nodes, coeff_names):
-                    for slate_node, coeff_name in zip(slate_nodes, coeff_names):
-                        terminal = slate_node.action()
-                        coeff = slate_node.ufl_coefficient
-                        names = {coeff._ufl_function_space:coeff_name}
-                        yield terminal, coeff, names
-                 
-                if isinstance(slate_node, sl.Action):
-                    terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
-                else:
-                    # Generate a kernel for the statements the action is supposed to be inlined with
-                    slate_wrapper_bag = builder.bag
+                        # get a terminal, ufl coeffiecient and ufl coefficient->name dict
+                        # for an Action node
+                        for slate_node, coeff_name in zip(slate_nodes, coeff_names):
+                            terminal = slate_node.action()
+                            coeff = slate_node.ufl_coefficient
+                            names = {coeff._ufl_function_space:coeff_name}
+                            yield terminal, coeff, names
 
+                terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
+
+                # separate action and non-action coefficients
+                updated_bag, new_coeff, old_coeff = link_action_coeff(builder, [coeff], [names], [terminal])
+                new_coeffs.update(new_coeff)
+                old_coeffs.update(old_coeff)
+                builder.bag = updated_bag
+
+                if terminal not in tensor2temps.keys():
+                    # gem terminal node corresponding to lhs of the instructions
+                    gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
+                    # temporaries that have calls assigned, which get inlined later,
+                    # need to be initialised, so e.g. the lhs of an action
+                    inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
+                    tensor2temps.update(tensor2temp)
+                    for init in inits:
+                        insns.append(init)
+                
+                # replaction action call with tsfc call, which gets linked to tsfc kernel later 
+                action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                insns += action_insns
+                knl_list.update(action_knl_list)
+
+            else:
                     if not isinstance(slate_node, sl.Solve):
                         # This path handles the inlining of action which don't have a 
                         # terminal as the tensor to be acted on
