@@ -444,6 +444,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     insns.append(insn)
         else:
             c += 1
+            # gem node correponding to current instruction
+            gem_action_node = pym2gem[insn.assignee_name]
 
             # slate node corresponding to current instructions
             if isinstance(gem_action_node, Solve):
