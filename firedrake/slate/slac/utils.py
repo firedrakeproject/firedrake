@@ -508,23 +508,44 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list.update(action_knl_list)
 
             else:
-                    if not isinstance(slate_node, sl.Solve):
-                        # This path handles the inlining of action which don't have a 
-                        # terminal as the tensor to be acted on
+                if not (isinstance(slate_node, sl.Solve)):
 
-                        # FIXME This still need to be updated to the new loopy
-                        from firedrake.slate.slac.compiler import gem_to_loopy
-                        action_wrapper_knl_name = "wrap_" + insn.expression.function.name
-                        var2terminal_actions = {g:var2terminal[g] for p,g in pym2gem.items() if p in reads}
-                        (action_wrapper_knl, action_gem2pym), action_output_arg = gem_to_loopy(gem_action_node,
-                                                                                               var2terminal,
-                                                                                               tsfc_parameters["scalar_type"],
-                                                                                               action_wrapper_knl_name,
-                                                                                               "wrap_"+insn.assignee_name)
-                        
-                        # Generate an instruction which call the action wrapper kernel
-                        action_insn = insn.copy(expression=pym.Call(pym.Variable(builder.slate_loopy_name),
-                                                                    insn.expression.parameters))
+                    # This path handles the inlining of action which don't have a 
+                    # terminal as the tensor to be acted on
+                    action_wrapper_knl_name = "wrap_" + insn.expression.function.name
+
+                    # We need to get the var2terminal which only contains information 
+                    # about the gem nodes which correspond to the currently looked at insn
+                    # There are two ways go do this:
+                    # A) we retrigger the slate2gem compilation
+                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node)
+
+                    # B) we walk through the gem node and fetch what we need
+                    # find var -> terminals which belong to this insn
+                    # var2terminal_actions = {}
+                    # for node in traverse_dags([gem_action_node]):
+                    #     try:
+                    #         var2terminal_actions[node] = var2terminal[node]
+                    #     except:
+                    #         continue
+
+                    from firedrake.slate.slac.compiler import gem_to_loopy
+                    (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
+                                                                                    var2terminal_actions,
+                                                                                    tsfc_parameters["scalar_type"],
+                                                                                    action_wrapper_knl_name,
+                                                                                    insn.assignee_name,
+                                                                                    matfree=True)
+                    
+                    # Prepare data structures of builder for a new swipe
+                    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    # FIXME use a copy function
+                    action_builder.kernel_counter = builder.kernel_counter
+                    action_builder.bag.action_coefficients = builder.bag.action_coefficients
+                    action_builder.bag.coefficients = builder.bag.coefficients
+                    action_builder.bag = action_builder.bag.copy(builder.bag.index_creator.namer.forced_prefix+"l_",
+                                                    action_wrapper_knl_name)
 
                         # Prepare data structures for a new swipe
                         slate_wrapper_bag = builder.bag
