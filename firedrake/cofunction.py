@@ -58,9 +58,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         # assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
         #                                    functionspaceimpl.MixedFunctionSpace)), \
-        # #     "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
+        #     "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        print("Firedrake cofun")
         ufl.Cofunction.__init__(self, function_space._ufl_function_space.dual())
 
         self.comm = function_space.comm
@@ -79,42 +78,26 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             self.dat = function_space.make_dat(val, dtype, self.name())
         
 
-
     def copy(self, deepcopy=False):
-        r"""Return a copy of this Function.
+        r"""Return a copy of this CoordinatelessFunction.
 
-        :kwarg deepcopy: If ``True``, the new :class:`Function` will
-            allocate new space and copy values.  If ``False``, the
-            default, then the new :class:`Function` will share the dof
-            values.
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
         """
-        val = self.topological.copy(deepcopy=deepcopy)
-        return type(self)(self.function_space(), val=val)
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
-        # def copy(self, deepcopy=False):
-        # r"""Return a copy of this CoordinatelessFunction.
-
-        # :kwarg deepcopy: If ``True``, the new
-        #     :class:`CoordinatelessFunction` will allocate new space
-        #     and copy values.  If ``False``, the default, then the new
-        #     :class:`CoordinatelessFunction` will share the dof values.
-        # """
-        # if deepcopy:
-        #     val = type(self.dat)(self.dat)
-        # else:
-        #     val = self.dat
-        # return type(self)(self.function_space(),
-        #                   val=val, name=self.name(),
-        #                   dtype=self.dat.dtype)
-
-
-    # def __dir__(self):
-    #     current = super(Cofunction, self).__dir__()
-    #     return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     @utils.cached_property
     def _split(self):
-        pass
+        return (type(self)(self.function_space(), self.dat),)
         # return tuple(type(self)(V, val)
                     #  for (V, val) in zip(self.function_space(), self.topological.split()))
 
@@ -122,8 +105,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        pass
-        # return self._split
+        return self._split
 
     @utils.cached_property
     def _components(self):

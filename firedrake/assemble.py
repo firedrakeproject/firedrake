@@ -183,6 +183,7 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         petsc_mat = matrix.M.handle
         print(petsc_mat.hermitian)
         print(petsc_mat.isHermitian())
+        print(petsc_mat.getHermitian())
         print(dir(petsc_mat))
         # PETSc.Mat().hermitian(petsc_mat,res)
         # petsc_mat.Hermitian(res)
@@ -193,29 +194,45 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             raise TypeError("Not enough operands for Action")
         matrix = args[0] 
         vector = args[1]
-        with vector.dat.vec_ro as v_vec:
-            petsc_v = v_vec.copy()
         petsc_mat = matrix.M.handle
-        res = petsc_v.copy()
-        petsc_mat.mult(petsc_v, res)
-        _make_vector
-        return res
+        (row, col) = matrix.a.arguments()
+        res = _make_vector(col)
+        
+        with vector.dat.vec_ro as v_vec:
+            print(type(v_vec))
+            print(type(res.dat))
+            with res.dat.vec as res_vec:
+                petsc_mat.mult(v_vec, res_vec)
+        return firedrake.Cofunction(row.function_space(), val = res.dat)
     elif isinstance(expr, ufl.FormSum):
         print("FORMSUM")
         if (len(args) != len(expr.weights())):
             raise TypeError("Mismatching weights and operands in FormSum")
-        sum = None
-        for (op,w) in zip(args, expr.weights()):
-            #handle matrices here too? throw error if mismatched
-            with op.dat.vec_ro as v_vec:
-                petsc_v = v_vec.copy()
-            
-            petsc_v.scale(w)
-            if sum:
-                sum = sum + petsc_v
-            else:
-                sum = petsc_v
-        return sum
+        if len(args) == 0:
+            raise TypeError("Empty FormSum")
+        if all([isinstance(op, firedrake.Cofunction) for op in args]):
+            print("vectors")
+            # check all are in same function space?
+            res = sum([w*op.dat for (op,w) in zip(args, expr.weights())])
+            return firedrake.Cofunction(args[0].function_space(), res)
+        elif all([isinstance(op, ufl.Matrix) for op in args]):
+            print("matrices")
+            res = PETSc.Mat().create()
+            set = False
+            for (op,w) in zip(args, expr.weights()):
+                print(w)
+                petsc_mat = op.M.handle
+                petsc_mat.scale(w)
+                if set:
+                    res = res + petsc_mat
+                    # res = new
+                else:
+                    res = petsc_mat
+                    set = True
+            return res
+           
+        else:
+            raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
         print("Other")
         return expr
@@ -377,6 +394,7 @@ def _assemble_vector(expr, vector, bcs, opts):
             raise ValueError("Form's argument does not match provided result tensor")
         vector.dat.zero()
     else:
+        print(type(test))
         vector = _make_vector(test)
 
     # Might have gotten here without EquationBC objects preprocessed.
@@ -433,7 +451,6 @@ def _make_vector(V):
     :returns: An empty :class:`.Function`.
     """
     vec = firedrake.Cofunction(V.function_space())
-    # vec2 = firedrake.Function(V.function_space())
     return vec
 
 

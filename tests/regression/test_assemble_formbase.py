@@ -85,17 +85,20 @@ def M(fs):
     return inner(uhat, v) * dx
 
 @pytest.fixture
-def A(fs):
+def a(fs, f):
     v = TestFunction(fs)
-    return inner(v,v) * dx
+    return inner(f, v) * dx
 
-
-# def test_matrix(M, f):
+# def test_action(M, f):
 #     assembled_matrix = assemble(M)
-#     # preassemble_action = assemble(action(M,f))
+#     preassemble_action = assemble(action(M,f))
 #     postassemble_action = assemble(action(assembled_matrix, f))
 
-    # assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)
+#     print(preassemble_action.dat)
+#     print(postassemble_action.dat)
+    # assert abs(preassemble_action.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+#     assert abs(postassemble_action.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+    # assert np.allclose(preassemble_action.dat, postassemble_action.dat, rtol=1e-14)
 
 def test_assemble_matrix(M):
     res = assemble(M)
@@ -107,9 +110,42 @@ def test_assemble_matrix(M):
 #     res2 = assemble(ufl.adjoint(assembledM))
 #     assert(isinstance(res, ufl.Matrix))
 
-def test_assemble_one_form(A):
-    res = assemble(A)
-    assert(isinstance(res, ufl.Cofunction))
+def test_assemble_action(M, f):
+    res = assemble(action(M, f))
+    assembledM = assemble(M)
+    res2 = assemble(action(assembledM, f))
+    assert(isinstance(res2, Cofunction))
+    assert(isinstance(res, Cofunction))
+    assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
+    for f in res2.split():
+        if f.function_space().rank == 2:
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+        else:
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+
+
+def test_vector_formsum(a):
+    res = assemble(a)
+    preassemble = assemble(a + a)
+    formsum = res + a
+    res2 = assemble(formsum)
+
+    assert(isinstance(formsum, ufl.form.FormSum))
+    assert isinstance(res2, Cofunction)
+    assert isinstance(preassemble, Cofunction)
+    
+    assert abs(preassemble.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
+    
+
+# def test_matrix_formsum(M):
+#     res = assemble(M)
+#     print(type(M))
+#     print(type(res))
+#     formsum = res + M
+#     print(type(formsum))
+#     assert(isinstance(formsum, ufl.form.FormSum))
+#     res2 = assemble(formsum)
+    
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
