@@ -1,8 +1,6 @@
 import numpy
 import pytest
 
-from coffee.visitors import EstimateFlops
-
 from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
                  TestFunction, TrialFunction, TensorProductCell,
                  EnrichedElement, HCurlElement, HDivElement,
@@ -68,7 +66,8 @@ def split_vector_laplace(cell, degree):
 
 def count_flops(form):
     kernel, = compile_form(form, parameters=dict(mode='spectral'))
-    return EstimateFlops().visit(kernel.ast)
+    flops = kernel.flop_count
+    return flops
 
 
 @pytest.mark.parametrize(('cell', 'order'),
