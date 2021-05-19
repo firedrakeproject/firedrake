@@ -240,6 +240,10 @@ def _slate2gem_solve(expr, self):
         assert expr not in self.var2terminal.values()
         var = Solve(*map(self, expr.children), name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
         self.var2terminal[var] = expr
+        # FIXME something is happening to the solve action node hash
+        # so that gem node cannot be found in var2terminal even though it is there
+        # so we save solve node by name for now
+        self.var2terminal[name] = expr
         return var
     else:
         return Solve(*map(self, expr.children))
@@ -438,9 +442,14 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 insn.expression.function.name.startswith("mtf")):
                 c += 1
 
-                # the name of the lhs can change due to inlining,
-                # the indirections do only partially contain the right information
-                gem_action_node = pym2gem[insn.assignee_name]  # we only need this node to the shape
+            # slate node corresponding to current instructions
+            if isinstance(gem_action_node, Solve):
+                # FIXME something is happening to the solve action node hash
+                # so that gem node cannot be found in var2terminal even though it is there
+                # so we save solve node by name for now
+                gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
+                slate_node = var2terminal[insn.assignee_name]
+            else:
                 slate_node = var2terminal[gem_action_node]
                 gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
                 coeff_name = insn.expression.parameters[1].subscript.aggregate.name
