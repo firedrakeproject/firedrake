@@ -609,7 +609,7 @@ class SupermeshProjectBlock(Block, Backend):
       Step 1. form RHS, multiplying the source with the mixed mass matrix;
       Step 2. solve linear system.
     """
-    def __init__(self, source, target_space, target, bcs=[], *args, **kwargs):
+    def __init__(self, source, target_space, target, bcs=[], **kwargs):
         super(SupermeshProjectBlock, self).__init__()
         import firedrake.supermeshing as supermesh
         from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
@@ -617,20 +617,8 @@ class SupermeshProjectBlock(Block, Backend):
         # Process args and kwargs
         if not isinstance(source, self.backend.Function):
             raise NotImplementedError(f"Source function must be a Function, not {type(source)}.")
-        sp = kwargs.get('solver_parameters')
-        self.solver_parameters = {} if sp is None else sp.copy()
-        self.form_compiler_parameters = kwargs.get('form_compiler_parameters')
-        self.constant_jacobian = kwargs.get('constant_jacobian', True)
-        use_slate_for_inverse = kwargs.get('use_slate_for_inverse', True)
-        try:
-            element = target_space.finat_element
-            is_dg = element.entity_dofs() == element.entity_closure_dofs()
-            is_variable_layers = target_space.mesh().variable_layers
-        except AttributeError:
-            is_dg = False
-            is_variable_layers = True
-        self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
-                                      and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+        if bcs != []:
+            raise NotImplementedError(f"Boundary conditions not yet considered.")
 
         # Store spaces
         mesh = kwargs.pop("mesh", None)
@@ -638,17 +626,7 @@ class SupermeshProjectBlock(Block, Backend):
             mesh = target_space.mesh()
         self.source_space = source.function_space()
         self.target_space = target_space
-
-        # Form LHS
-        dx = self.backend.dx(domain=mesh)
-        w = self.backend.TestFunction(target_space)
-        Pv = self.backend.TrialFunction(target_space)
-        self.lhs = self.backend.assemble(
-            self.backend.inner(Pv, w)*dx, bcs=bcs,
-            mat_type=self.solver_parameters.get("mat_type"),
-            form_compiler_parameters=self.form_compiler_parameters)
-        self.solver = self.backend.LinearSolver(
-            self.lhs, solver_parameters=self.solver_parameters)
+        self.projector = firedrake.Projector(source, target_space, **kwargs)
 
         # Assemble mixed mass matrix
         self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
@@ -658,19 +636,6 @@ class SupermeshProjectBlock(Block, Backend):
         self.add_dependency(source, no_duplicates=True)
         for bc in bcs:
             self.add_dependency(bc, no_duplicates=True)
-
-    @property
-    def apply_massinv(self):
-        if not self.constant_jacobian:
-            self.backend.assemble(self.lhs.a, tensor=self.lhs, bcs=self.bc,
-                                  form_compiler_parameters=self.form_compiler_parameters)
-        if self.use_slate_for_inverse:
-            def solve(x, b):
-                with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
-                    self.lhs.petscmat.mult(b_, x_)
-            return solve
-        else:
-            return self.solver.solve
 
     def apply_mixedmass(self, a):
         b = self.backend.Function(self.target_space)
@@ -682,8 +647,8 @@ class SupermeshProjectBlock(Block, Backend):
         if not isinstance(inputs[0], self.backend.Function):
             raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
         target = self.backend.Function(self.target_space)
-        rhs = self.apply_mixedmass(inputs[0])  # Step 1
-        self.apply_massinv(target, rhs)        # Step 2
+        rhs = self.apply_mixedmass(inputs[0])      # Step 1
+        self.projector.apply_massinv(target, rhs)  # Step 2
         return target
 
     def _recompute_component_transpose(self, inputs):
@@ -692,8 +657,8 @@ class SupermeshProjectBlock(Block, Backend):
         out = self.backend.Function(self.source_space)
         with inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
             vtmp = vin.copy()
-            self.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
-            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
+            self.projector.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
+            self.mixed_mass.multTranspose(vtmp, vout)            # Adjoint of step 1
         return out
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
