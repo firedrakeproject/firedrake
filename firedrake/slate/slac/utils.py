@@ -558,17 +558,28 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                 else:
                     # Generate matfree solve call and knl
-                        action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
-
-                        # Prepare data structures for a new swipe
-                        slate_wrapper_bag = builder.bag
-                        builder.slate_loopy_name = action_wrapper_knl_name
-                        builder.bag = builder.bag.copy("j_",
-                                                        action_wrapper_knl_name)
-
-                    child1, child2 = slate_node.children
-                    action_tensor2temp = {child2:action_wrapper_knl.callables_table[builder.slate_loopy_name].subkernel.args[-1]}
-
+                    action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg, ctx_g2l = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
+                    
+                    # Prepare data structures of builder for a new swipe
+                    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    # FIXME use a copy function
+                    action_builder.kernel_counter = builder.kernel_counter
+                    action_builder.bag.action_coefficients = builder.bag.action_coefficients
+                    action_builder.bag.coefficients = builder.bag.coefficients
+                    action_builder.slate_loopy_name = action_wrapper_knl_name
+                    action_builder.bag = action_builder.bag.copy(builder.bag.index_creator.namer.forced_prefix+"j_",
+                                                    action_wrapper_knl_name)
+                    action_builder.bag.index_creator.inames.update(builder.bag.index_creator.inames)
+                    action_builder.bag.index_creator.domains.extend(builder.bag.index_creator.domains)
+                    builder.bag.index_creator.inames.update(action_builder.bag.index_creator.inames)
+                    builder.bag.index_creator.domains.extend(action_builder.bag.index_creator.domains)
+  
+                    # Prepare data structures of tensor2temp for a new swipe
+                    _, child2 = slate_node.children
+                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
+                    var2terminal_actions = var2terminal
+                    ctx_g2l_action = ctx_g2l
                     
                     # Repeat for the actions which might be in the action wrapper kernel
                     action_tensor2temps, builder, action_wrapper_knl = assemble_when_needed(builder,
