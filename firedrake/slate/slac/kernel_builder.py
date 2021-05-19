@@ -428,7 +428,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = SlateWrapperBag(None)
+        self.bag = SlateWrapperBag({})
         self.kernel_counter = count()
         self.slate_loopy_name = slate_loopy_name
         self.matfree_solve_knls = []
