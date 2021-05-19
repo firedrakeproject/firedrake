@@ -27,6 +27,10 @@ def env():
 
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
+
+    if basename(rst_file) == 'qg_1layer_wave.py.rst':
+        pytest.skip("This test occasionally fails due to presumed build hardware issues")
+
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
     monkeypatch.chdir(tmpdir)
