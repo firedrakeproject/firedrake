@@ -667,8 +667,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     # because tsfc kernels have flattened indices
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
-        print(slate_loopy)
-        if not name.startswith("mtf"):
-            slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
+        slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
 
     return tensor2temps, builder, slate_loopy
