@@ -571,9 +571,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 new_coeffs.update(new_coeff)
                 old_coeffs.update(old_coeff)
 
-                if terminal not in tensor2temps.keys():
-                    inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
-                    tensor2temps.update(tensor2temp)
+    if init_temporaries:
+        # We need to do this at the end, when we know all temps
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
+        builder.bag = updated_bag
+        for i in inits:
+            insns.insert(0, i)
 
                     # temporaries that are filled with calls, which get inlined later,
                     # need to be initialised
@@ -605,26 +608,26 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     insns.append(lp.kernel.instruction.Assignment(lhs, rhs, 
                                                                   id=insn.id+"_whatsthis"))
 
-        else:
-            insns.append(insn)
 
-    if init_temporaries:
-        # Initialise the very first temporary
-        # For that we need to get the temporary which
-        # links to the same coefficient as the rhs of this node and init it              
-        init_coeffs,_ = builder.collect_coefficients()
-        var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
-                                    for (cv,ct) in init_coeffs.items()
-                                    if isinstance(t, sl.AssembledVector)
-                                    and t._function==cv}
-        inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
-        tensor2temps.update(tensor2temp)
-        for i in inits:
-            insns.insert(0, i)
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
+    # Initialise the very first temporary
+    # For that we need to get the temporary which
+    # links to the same coefficient as the rhs of this node and init it             
+    init_coeffs,_ = builder.collect_coefficients()
+    var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
+                                for (cv,ct) in init_coeffs.items()
+                                if isinstance(t, sl.AssembledVector)
+                                and t._function==cv}
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
+    tensor2temps.update(tensor2temp)
 
-        # Get all coeffs into the wrapper kernel
-        # so that we can generate the right wrapper kernel args of it
-        builder.bag.update_coefficients(init_coeffs, "_"+str(c), new_coeffs)
+    # Get all coeffs into the wrapper kernel
+    # so that we can generate the right wrapper kernel args of it
+    updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
+
+    return updated_bag, tensor2temps, inits
+
+
 
     # FIXME Refactor into generate wrapper kernel function
     # 1) Prepare the wrapper kernel: scheduling of instructions
