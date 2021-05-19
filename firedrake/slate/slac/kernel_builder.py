@@ -903,7 +903,7 @@ class LocalLoopyKernelBuilder(object):
                             id="cond")
 
 
-    def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
+    def generate_wrapper_kernel_args(self, temporaries=[], templated_subkernels=None, append_args=[], prepend_args=[]):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"],
@@ -969,9 +969,17 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.ValueArg(self.layer_arg,
                         dtype=np.int32))
 
-        for tensor_temp in tensor2temp.values():
+        for tensor_temp in temporaries:
             if tensor_temp.name not in [arg.name for arg in args]:
                 args.append(tensor_temp)
+
+        for append in append_args:
+            if append.name not in [arg.name for arg in args]:
+                args.append(append)
+        
+        for prepend in prepend_args:
+            if prepend.name not in [arg.name for arg in args]:
+                args.insert(0, prepend)
 
         return args
 
