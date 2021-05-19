@@ -647,7 +647,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values(), list(knl_list.values()))
     # new_args = [a.copy(target=lp.CTarget()) for a in old_new_args]
     global_args = []
-    local_args = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.temporary_variables
+    local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:
         if n.address_space==lp.AddressSpace.GLOBAL:
             global_args += [n]
