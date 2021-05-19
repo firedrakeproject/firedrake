@@ -612,13 +612,12 @@ class SupermeshProjectBlock(Block, Backend):
     def __init__(self, source, target_space, target, bcs=[], **kwargs):
         super(SupermeshProjectBlock, self).__init__()
         import firedrake.supermeshing as supermesh
-        from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 
         # Process args and kwargs
         if not isinstance(source, self.backend.Function):
             raise NotImplementedError(f"Source function must be a Function, not {type(source)}.")
         if bcs != []:
-            raise NotImplementedError(f"Boundary conditions not yet considered.")
+            raise NotImplementedError("Boundary conditions not yet considered.")
 
         # Store spaces
         mesh = kwargs.pop("mesh", None)
