@@ -949,7 +949,8 @@ class LocalLoopyKernelBuilder(object):
             # Arg for is exterior (==0)/interior (==1) facet or not
             args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
                                         dtype=np.int8, is_input=True, is_output=False,
-                                        target=loopy.CTarget()))
+                                        target=loopy.CTarget(),
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
             args.append(
                 loopy.TemporaryVariable(self.local_facet_array_arg,
@@ -957,7 +958,9 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=np.uint32,
                                         address_space=loopy.AddressSpace.LOCAL,
                                         read_only=True,
-                                        initializer=np.arange(self.num_facets, dtype=np.uint32),))
+                                        initializer=np.arange(self.num_facets, dtype=np.uint32),
+                                        target=loopy.CTarget(),
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
         if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(1,),
