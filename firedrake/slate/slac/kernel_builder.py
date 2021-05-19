@@ -1038,6 +1038,13 @@ class LocalLoopyKernelBuilder(object):
             yield (None, None)
 
 
+    def update_bag_with_coefficients(self, coeffs, new_coeffs, name):
+        bag = self.bag.copy(name=name)
+        bag.coefficients = coeffs
+        bag.action_coefficients = new_coeffs
+        return bag
+
+
 def match_kernel_argnames(insn, code):
     # FIXME we should do this before generating the knl
     knl_name, = code.callables_table
@@ -1061,7 +1068,7 @@ def match_kernel_argnames(insn, code):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, prefix="", new_coeffs=None, name=""):
+    def __init__(self, coeffs, prefix="", new_coeffs={}, name=""):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.inames = OrderedDict()
@@ -1072,13 +1079,7 @@ class SlateWrapperBag(object):
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
         self.index_creator = IndexCreator(prefix)
         self.name = name
-    
-    def update_coefficients(self, coeffs, prefix, new_coeffs):
-        self.coefficients = coeffs
-        self.action_coefficients = new_coeffs
-        self.call_name_generator(prefix)
-
-    def copy(self, prefix, name):
+    def copy(self, prefix=None, name=None):
         new = SlateWrapperBag(self.coefficients)
         new.action_coefficients = self.action_coefficients
         new.inames = self.inames
@@ -1088,16 +1089,17 @@ class SlateWrapperBag(object):
         new.needs_mesh_layers = self.needs_mesh_layers
         new.call_name_generator = self.call_name_generator
         new.index_creator = self.index_creator
-        new.index_creator.rename(prefix)
+        if prefix:
+            new.index_creator.rename(prefix)
         new.name = name
         return new
 
 
 class IndexCreator(object):
-    inames = OrderedDict()  # pym variable -> extent
     
     def __init__(self, forced_prefix):
         self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
+        self.inames = OrderedDict()  # pym variable -> extent
 
     def __call__(self, extents, namer=""):
         """Create new indices with specified extents.
