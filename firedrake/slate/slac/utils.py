@@ -452,12 +452,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # FIXME something is happening to the solve action node hash
                 # so that gem node cannot be found in var2terminal even though it is there
                 # so we save solve node by name for now
-                gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
                 slate_node = var2terminal[insn.assignee_name]
             else:
                 slate_node = var2terminal[gem_action_node]
-                gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
-                coeff_name = insn.expression.parameters[1].subscript.aggregate.name
+
+            # get information about the coefficient we act on
+            coeff_name = insn.expression.parameters[1].subscript.aggregate.name
 
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
                     new_coeffs = {}
