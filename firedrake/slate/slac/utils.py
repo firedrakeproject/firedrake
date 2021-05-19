@@ -638,11 +638,13 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
         # substitute action call with the generated tsfc call for that action
         # but keep the lhs so that the following instructions still act on the right temporaries
         for (i, tsfc_call),((knl_name,knl),) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
-                        insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                                           tsfc_call.expression,
-                                                                           id=insn.id,
-                                                                           within_inames=insn.within_inames,
-                                                                           predicates=tsfc_call.predicates))
+            wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
+            insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                                tsfc_call.expression,
+                                                                id=insn.id+"_"+str(i),
+                                                                within_inames=wi,
+                                                                predicates=tsfc_call.predicates))
+            knl_list[knl_name] = knl
     else:
         # This code path covers the case that the tsfc compiler doesn't give a kernel back
         # I don't quite know yet what the cases are where it does not
