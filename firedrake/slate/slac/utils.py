@@ -349,11 +349,10 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
         all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
         # Construct args
-        import loopy
-        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, list(all_kernels))
+        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp.values(), list(all_kernels))
         for a in slate_loopy.args:
             if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
-                ac = a.copy(address_space=loopy.AddressSpace.LOCAL)
+                ac = a.copy(address_space=lp.AddressSpace.LOCAL)
                 args.append(ac)
 
         # Inames come from initialisations + loopyfying kernel args and lhs
@@ -384,7 +383,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         for l in loop:
             (name, knl), = tuple(l)
             if knl:
-                slate_wrapper = loopy.merge([slate_wrapper, knl])
+                slate_wrapper = lp.merge([slate_wrapper, knl])
                 slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
         return slate_wrapper
 
@@ -397,7 +396,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs, _ = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs, slate_loopy.name)
+    builder.bag = SlateWrapperBag(coeffs, name=slate_loopy.name)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
@@ -429,7 +428,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     old_coeffs = {}  # only old coeffs minus the ones replaced by the action coefficients
 
     # invert dict
-    import pymbolic.primitives as pym
     pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     c = 0 
@@ -614,7 +612,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 last_id=insn.id
     
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions
-    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps, list(knl_list.values()))
+    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values(), list(knl_list.values()))
     # new_args = [a.copy(target=lp.CTarget()) for a in old_new_args]
     global_args = []
     local_args = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.temporary_variables
