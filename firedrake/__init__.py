@@ -13,7 +13,7 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
 elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
-del os, sys, config
+del sys, config
 
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
@@ -100,3 +100,31 @@ del check
 from firedrake._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
+
+# Try to detect threading and either disable or warn user
+# Threading may come from
+# - OMP_NUM_THREADS: openmp,
+# - OPENBLAS_NUM_THREADS: openblas,
+# - MKL_NUM_THREADS: mkl,
+# - VECLIB_MAXIMUM_THREADS: accelerate,
+# - NUMEXPR_NUM_THREADS: numexpr
+# We only handle the first two cases
+from ctypes import cdll
+from ctypes.util import find_library
+try:
+    _openblas_lib = find_library('openblas')
+    _openblas_dll = cdll.LoadLibrary(_openblas_lib)
+    _openblas_dll.openblas_set_num_threads(1)
+except (OSError, AttributeError):
+    warning('Cannot set OpenBLAS threads, if you are using another BLAS'
+            'implementation, be sure to limit the number of threads to 1')
+
+# OMP_NUM_THREADS can be set to a comma-separated list of positive integers
+try:
+    _omp_num_threads = int(os.environ.get('OMP_NUM_THREADS'))
+except (ValueError, TypeError):
+    _omp_num_threads = None
+if (_omp_num_threads is None) or (_omp_num_threads > 1):
+    warning('OMP_NUM_THREADS is not set or is set to a value greater than 1,'
+            ' we suggest setting OMP_NUM_THREADS=1 to improve performance')
+del _openblas_lib, _openblas_dll, _omp_num_threads, os, cdll, find_library

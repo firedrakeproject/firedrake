@@ -610,6 +610,7 @@ else:
 if options.get("with_blas") == "download":
     # Download openblas if the user specifies.
     petsc_options.add("--download-openblas")
+    petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
     if osname == "Darwin":
         petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
 elif options.get("with_blas") is not None:
