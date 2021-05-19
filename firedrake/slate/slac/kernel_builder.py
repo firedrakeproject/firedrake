@@ -767,50 +767,31 @@ class LocalLoopyKernelBuilder(object):
         """
             Matrix-free solve. Currently implemented as CG. WIP.
         """
-        import numpy as np
-        from gem import Variable
 
-        # Generate args and reads
-        args = []
-        reads = []
-        child1, child2 = expr.children
-        reads1, reads2 = insn.expression.parameters
-        str2name = {}
-        def make_reads(child2, name):
-            var_reads = pym.Variable(name)
-            child_reads = Variable(name, child2.shape)
-            idx_reads = self.bag.index_creator(child2.shape)
-            # inames = {var.name for var in indices}
-            return child_reads, SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
-
-        child_coords, reads_coords = make_reads(child2, "coords")
-        child_out, reads_out = make_reads(child2, insn.assignee_name)
-        reads = [reads1, reads_out, reads_coords, reads2]
-        children = [child1, child_out, child_coords, child2]
-        local_names = ["A", "output", "coords", "b"]
         dtype = self.tsfc_parameters["scalar_type"]
+        args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
+        
+        # Map from local kernel arg name to global arg name
+        # FIXME maybe we don't need this local to global anymore with the new loopy
+        str2name = {}
+        local_names = ["A", "output", "b"]
+        for c, arg in enumerate(args):
+            if arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
+                            self.cell_size_arg, self.cell_orientations_arg]:
+                local_names.insert(c, arg.name)
+            str2name[local_names[c]] = arg.name
 
-        for name, (child, var_reads) in zip(local_names, zip(children, reads)):
-            # args to kernel
-            args.append(loopy.GlobalArg(var_reads.subscript.aggregate.name, dtype, shape=child.shape))
-
-            # map from kernel arg name to call arg name
-            str2name.update({name:var_reads.subscript.aggregate.name})
-
+        child1, child2 = expr.children
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x"
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
-        # WORKAROUND to inline cinstruction for breaking the loop properly:
-        # prepend the name of the kernel to the variable which the stop criterion depends on
         name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
         stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 0.000000001)
         shape = expr.shape
-        output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=shape, is_output=True, is_input=True, target=loopy.CTarget())
 
-        # The last line in the loop to convergence is another WORKAROUND
+        # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
-
         knl = loopy.make_function(
                 """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
@@ -856,8 +837,6 @@ class LocalLoopyKernelBuilder(object):
         # update gem to pym mapping
         # by linking the actions of the matrix-free solve kernel
         # to the their pymbolic variables
-        knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name = A_on_x_name
-        knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name = A_on_p_name
         _ = ctx.pymbolic_variable(expr._Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         _ = ctx.pymbolic_variable(expr._Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
         
@@ -902,6 +881,27 @@ class LocalLoopyKernelBuilder(object):
                             depends_on="rkp1_normk",
                             id="cond")
 
+    def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
+        child1, child2 = expr.children
+        reads1, reads2 = insn.expression.parameters
+        
+        # Generate kernel args
+        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=True, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=True, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
+                                     target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+
+        args = self.generate_wrapper_kernel_args(append_args=[arg2], prepend_args=[output_arg, arg1])
+        
+        # Generate call parameters
+        reads = []
+        for c, arg in enumerate(args):
+            var_reads = pym.Variable(arg.name)
+            idx_reads = self.bag.index_creator(arg.shape)
+            reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
+        return args, reads, output_arg
 
     def generate_wrapper_kernel_args(self, temporaries=[], templated_subkernels=None, append_args=[], prepend_args=[]):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
