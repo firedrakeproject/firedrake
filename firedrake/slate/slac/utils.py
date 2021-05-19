@@ -13,7 +13,6 @@ from gem.node import pre_traversal as traverse_dags
 
 from functools import singledispatch
 import firedrake.slate.slate as sl
-import loopy as lp
 import itertools
 
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
