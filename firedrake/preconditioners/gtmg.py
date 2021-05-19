@@ -1,3 +1,5 @@
+import functools
+
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -13,8 +15,8 @@ class GTMGPC(PCBase):
 
     def initialize(self, pc):
 
-        from firedrake import TestFunction, parameters
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
+        from firedrake import TestFunction, assemble, parameters
+        from firedrake.assemble import allocate_matrix
         from firedrake.interpolation import Interpolator
         from firedrake.solving_utils import _SNESContext
         from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -56,11 +58,13 @@ class GTMGPC(PCBase):
                                            form_compiler_parameters=fcp,
                                            mat_type=fine_mat_type,
                                            options_prefix=options_prefix)
-            self._assemble_fine_op = create_assembly_callable(fine_operator,
-                                                              tensor=self.fine_op,
-                                                              bcs=fine_bcs,
-                                                              form_compiler_parameters=fcp,
-                                                              mat_type=fine_mat_type)
+            self._assemble_fine_op = functools.partial(assemble,
+                                                       fine_operator,
+                                                       tensor=self.fine_op,
+                                                       bcs=fine_bcs,
+                                                       form_compiler_parameters=fcp,
+                                                       mat_type=fine_mat_type,
+                                                       assembly_type="residual")
             self._assemble_fine_op()
             fine_petscmat = self.fine_op.petscmat
         else:
@@ -98,10 +102,12 @@ class GTMGPC(PCBase):
                                          form_compiler_parameters=fcp,
                                          mat_type=coarse_mat_type,
                                          options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = create_assembly_callable(coarse_operator,
-                                                            tensor=self.coarse_op,
-                                                            bcs=coarse_space_bcs,
-                                                            form_compiler_parameters=fcp)
+        self._assemble_coarse_op = functools.partial(assemble,
+                                                     coarse_operator,
+                                                     tensor=self.coarse_op,
+                                                     bcs=coarse_space_bcs,
+                                                     form_compiler_parameters=fcp,
+                                                     assembly_type="residual")
         self._assemble_coarse_op()
         coarse_opmat = self.coarse_op.petscmat
 

@@ -1,11 +1,13 @@
 from collections import OrderedDict
+import functools
+import itertools
+
 from mpi4py import MPI
 import numpy
-import itertools
+
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
-
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 
@@ -83,6 +85,8 @@ class ImplicitMatrixContext(object):
     """
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
+        from firedrake.assemble import assemble
+
         self.a = a
         self.aT = adjoint(a)
         self.fc_params = fc_params
@@ -125,8 +129,6 @@ class ImplicitMatrixContext(object):
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
 
-        from firedrake.assemble import create_assembly_callable
-
         # For assembling action(f, self._x)
         self.bcs_action = []
         for bc in self.bcs:
@@ -135,8 +137,12 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = create_assembly_callable(self.action, tensor=self._y, bcs=self.bcs_action,
-                                                         form_compiler_parameters=self.fc_params)
+        self._assemble_action = functools.partial(assemble,
+                                                  self.action,
+                                                  tensor=self._y,
+                                                  bcs=self.bcs_action,
+                                                  form_compiler_parameters=self.fc_params,
+                                                  assembly_type="residual")
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -149,15 +155,21 @@ class ImplicitMatrixContext(object):
         # Deepest EquationBCs first
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
-                self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
-                                              tensor=self._xbc,
-                                              bcs=None,
-                                              form_compiler_parameters=self.fc_params))
+                self._assemble_actionT.append(
+                    functools.partial(assemble,
+                                      action(adjoint(ebc.f), self._y),
+                                      tensor=self._xbc,
+                                      bcs=None,
+                                      form_compiler_parameters=self.fc_params,
+                                      assembly_type="residual"))
         # Domain last
-        self._assemble_actionT.append(create_assembly_callable(self.actionT,
-                                                               tensor=self._x if len(self.bcs) == 0 else self._xbc,
-                                                               bcs=None,
-                                                               form_compiler_parameters=self.fc_params))
+        self._assemble_actionT.append(
+            functools.partial(assemble,
+                              self.actionT,
+                              tensor=self._x if len(self.bcs) == 0 else self._xbc,
+                              bcs=None,
+                              form_compiler_parameters=self.fc_params,
+                              assembly_type="residual"))
 
     @cached_property
     def _diagonal(self):
@@ -167,11 +179,13 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.a,
-                                        tensor=self._diagonal,
-                                        form_compiler_parameters=self.fc_params,
-                                        diagonal=True)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.a,
+                                 tensor=self._diagonal,
+                                 form_compiler_parameters=self.fc_params,
+                                 diagonal=True,
+                                 assembly_type="residual")
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()

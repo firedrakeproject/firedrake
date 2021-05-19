@@ -1,6 +1,7 @@
-import numpy
-
+import functools
 from itertools import chain
+
+import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
@@ -178,7 +179,8 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import assemble
+
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -231,10 +233,13 @@ class _SNESContext(object):
         self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
-        self._assemble_residual = create_assembly_callable(self.F,
-                                                           tensor=self._F,
-                                                           bcs=self.bcs_F,
-                                                           form_compiler_parameters=self.fcp)
+
+        self._assemble_residual = functools.partial(assemble,
+                                                    self.F,
+                                                    tensor=self._F,
+                                                    bcs=self.bcs_F,
+                                                    form_compiler_parameters=self.fcp,
+                                                    assembly_type="residual")
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -508,12 +513,14 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.J,
-                                        tensor=self._jac,
-                                        bcs=self.bcs_J,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.mat_type)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.J,
+                                 tensor=self._jac,
+                                 bcs=self.bcs_J,
+                                 form_compiler_parameters=self.fcp,
+                                 mat_type=self.mat_type,
+                                 assembly_type="residual")
 
     @cached_property
     def is_mixed(self):
@@ -534,12 +541,14 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.Jp,
-                                        tensor=self._pjac,
-                                        bcs=self.bcs_Jp,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.pmat_type)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.Jp,
+                                 tensor=self._pjac,
+                                 bcs=self.bcs_Jp,
+                                 form_compiler_parameters=self.fcp,
+                                 mat_type=self.pmat_type,
+                                 assembly_type="residual")
 
     @cached_property
     def _F(self):
