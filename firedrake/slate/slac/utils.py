@@ -17,7 +17,9 @@ import loopy as lp
 import itertools
 
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-from loopy.kernel.function_interface import CallableKernel
+import loopy as lp
+import pymbolic.primitives as pym
+from loopy.symbolic import SubArrayRef
 
 # FIXME Move all slac loopy in separate file
 
