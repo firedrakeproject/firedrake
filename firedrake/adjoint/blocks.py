@@ -655,10 +655,10 @@ class SupermeshProjectBlock(Block, Backend):
         if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
             raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
         out = self.backend.Function(self.source_space)
-        with inputs[0].dat.vec_ro as vin, out.dat.vec_wo as vout:
-            vtmp = vin.copy()
-            self.projector.solver.ksp.solveTranspose(vin, vtmp)  # Adjoint of step 2
-            self.mixed_mass.multTranspose(vtmp, vout)            # Adjoint of step 1
+        tmp = self.backend.Function(self.target_space)
+        self.projector.apply_massinv(tmp, inputs[0])   # Adjoint of step 2 (since mass self-adjoint)
+        with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:
+            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
         return out
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
