@@ -865,7 +865,7 @@ class LocalLoopyKernelBuilder(object):
                                              reads))
         
         self.matfree_solve_knls.append(knl)
-        return call, (name, knl), output_arg
+        return call, (name, knl), output_arg, ctx
 
     def generate_code_for_stop_criterion(self, var_name, stop_value):
         """ This method is workaround need since Loo.py does not support while loops yet.
