@@ -175,8 +175,6 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     scalar_type = tsfc_parameters["scalar_type"]
     slate_loopy_name = "slate_loopy"
     (slate_loopy, ctx_g2l), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, slate_loopy_name)
-    print(slate_loopy)
-
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters,
                                       slate_loopy_name=slate_loopy_name)
