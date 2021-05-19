@@ -669,5 +669,43 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
         slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
+    return slate_loopy
 
-    return tensor2temps, builder, slate_loopy
+
+def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_wrapper_knl, action_wrapper_knl_name, builder):
+    # Generate args and reads # FIXME reuse the new kernel builder function to generate the args
+    args = []
+    reads = []
+    _, reads2 = insn.expression.parameters  # loopy
+    def make_reads(child2, name):
+        var_reads = pym.Variable(name)
+        child_reads = Variable(name, child2.shape)
+        idx_reads = builder.bag.index_creator(child2.shape)
+        return child_reads, SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+
+    child_coords, reads_coords = make_reads(gem_action_node, "coords")
+    child_out, reads_out = make_reads(action_output_arg, insn.assignee_name)
+    child_coeff, reads_coeff = make_reads(gem_action_node, action_wrapper_knl[action_wrapper_knl_name].args[-1].name)
+    reads = [reads_out, reads_coords, reads_coeff]
+    children = [child_out, child_coords, child_coeff]
+    output = [True, False, False]
+    if builder.bag.needs_cell_facets:
+        child_facets, reads_facets = make_reads(child_coeff, builder.cell_facets_arg)
+        reads = [reads_out, reads_coords, reads_facets, reads_coeff]
+        children = [child_out, child_coords, child_facets, child_coeff]
+        output += [False]
+    
+    for (output,(child, var_reads)) in zip(output, zip(children, reads)):
+        # args to kernel
+        args.append(lp.GlobalArg(var_reads.subscript.aggregate.name, 
+                                dtype = builder.tsfc_parameters["scalar_type"],
+                                shape=child.shape,
+                                target=lp.CTarget(),
+                                dim_tags=None, strides=lp.auto, order="C",
+                                is_output=output, is_input=True))
+
+
+    action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name),
+                                                tuple(reads)))
+    action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=args)
+    return action_insn, action_wrapper_knl, builder
