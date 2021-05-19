@@ -1079,6 +1079,7 @@ class SlateWrapperBag(object):
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
         self.index_creator = IndexCreator(prefix)
         self.name = name
+
     def copy(self, prefix=None, name=None):
         new = SlateWrapperBag(self.coefficients)
         new.action_coefficients = self.action_coefficients
