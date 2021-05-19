@@ -189,7 +189,11 @@ def _action_solve(expr, self, state):
             arbitrary_coeff_p = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
             Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
             Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
-            return Solve(TensorShell(expr1), coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
+            if not isinstance(expr1, Tensor): # non terminal node 
+                mat = TensorShell(expr1)
+            else:
+                mat = expr1
+            return Solve(mat, coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
     else:
         # swap operands if we are currently premultiplying due to a former transpose
         if state.pick_op == 0:
