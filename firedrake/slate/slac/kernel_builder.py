@@ -775,7 +775,6 @@ class LocalLoopyKernelBuilder(object):
         reads = []
         child1, child2 = expr.children
         reads1, reads2 = insn.expression.parameters
-        # str2name = {child1.name:reads1.subscript.aggregate.name}
         str2name = {}
         def make_reads(child2, name):
             var_reads = pym.Variable(name)
