@@ -578,35 +578,35 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
         for i in inits:
             insns.insert(0, i)
 
-                    # temporaries that are filled with calls, which get inlined later,
-                    # need to be initialised
-                    for init in inits:
-                        insns.append(init)
-                
-                # local assembly of the action or the matrix for the solve
-                tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+    slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
+    return tensor2temps, builder, slate_loopy
 
-                #FIXME we need to cover a case for explicit solves I think
-                if tsfc_calls[0] and tsfc_knls[0]:
-                    knl_list.update(tsfc_knls[0])
-                    # substitute action call with the generated tsfc call for that action
-                    # but keep the lhs so that the following instructions still act on the right temporaries
-                    for (i, tsfc_call),((knl_name,knl),) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
+def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
+    insns = []
+    knl_list = {}
+    # local assembly of the action or the matrix for the solve
+    tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+
+    #FIXME we need to cover a case for explicit solves I think
+    if tsfc_calls[0] and tsfc_knls[0]:
+        # substitute action call with the generated tsfc call for that action
+        # but keep the lhs so that the following instructions still act on the right temporaries
+        for (i, tsfc_call),((knl_name,knl),) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
                         insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
                                                                            tsfc_call.expression,
                                                                            id=insn.id,
                                                                            within_inames=insn.within_inames,
                                                                            predicates=tsfc_call.predicates))
-                else:
-                    # This code path covers the case that the tsfc compiler doesn't give a kernel back
-                    # I don't quite know yet what the cases are where it does not
-                    # maybe when the kernel would just be an identity operation?
-                    rhs = insn.expression.parameters[1]
-                    var = insn.assignees[0].subscript.aggregate
-                    lhs = pym.Subscript(var, var.index)
-                    rhs = pym.Subscript(rhs.subscript.aggregate, var.index)
-                    insns.append(lp.kernel.instruction.Assignment(lhs, rhs, 
-                                                                  id=insn.id+"_whatsthis"))
+    else:
+        # This code path covers the case that the tsfc compiler doesn't give a kernel back
+        # I don't quite know yet what the cases are where it does not
+        # maybe when the kernel would just be an identity operation?
+        rhs = insn.expression.parameters[1]
+        var = insn.assignees[0].subscript.aggregate
+        lhs = pym.Subscript(var, 0)
+        rhs = pym.Subscript(rhs.subscript.aggregate, 0)
+        insns.append(lp.kernel.instruction.Assignment(lhs, rhs, id=insn.id+"_whatsthis"))
+    return insns, knl_list, builder
 
 
 def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
