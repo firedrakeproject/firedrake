@@ -340,7 +340,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
                   for name in ["ufl_cell", "index_cache", "scalar_type"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
-        expr, = compile_ufl(integrand, point_sum=True, **config)
+        expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
         return expr
 
     def facet_avg(self, o):
@@ -357,7 +357,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
                                "integral_type"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
-        expr, = compile_ufl(integrand, point_sum=True, **config)
+        expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
         return expr
 
     def modified_terminal(self, o):
@@ -517,7 +517,7 @@ def translate_cellvolume(terminal, mt, ctx):
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
     config.update(interface=interface, quadrature_degree=degree)
-    expr, = compile_ufl(integrand, point_sum=True, **config)
+    expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
 
@@ -531,7 +531,7 @@ def translate_facetarea(terminal, mt, ctx):
               for name in ["ufl_cell", "integration_dim", "scalar_type",
                            "entity_ids", "index_cache"]}
     config.update(interface=ctx, quadrature_degree=degree)
-    expr, = compile_ufl(integrand, point_sum=True, **config)
+    expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
 
@@ -693,14 +693,17 @@ def translate_coefficient(terminal, mt, ctx):
     return result
 
 
-def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
+def compile_ufl(expression, context, interior_facet=False, point_sum=False):
+    """Translate a UFL expression to GEM.
 
-    # kwargs must be context kwargs for a PointSetContext or GemPointContext
-    point_expr = kwargs.get("point_expr")
-    if point_expr:
-        context = GemPointContext(**kwargs)
-    else:
-        context = PointSetContext(**kwargs)
+    :arg expression: The UFL expression to compile.
+    :arg context: translation context - either a :class:`GemPointContext`
+        or :class:`PointSetContext`
+    :arg interior_facet: If ``true``, treat expression as an interior
+        facet integral (default ``False``)
+    :arg point_sum: If ``true``, return a `gem.IndexSum` of the final
+        gem expression along the ``context.point_indices`` (if present).
+   """
 
     # Abs-simplification
     expression = simplify_abs(expression, context.complex_mode)

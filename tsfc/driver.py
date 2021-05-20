@@ -204,8 +204,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
         expressions = fem.compile_ufl(integrand,
-                                      interior_facet=interior_facet,
-                                      **config)
+                                      fem.PointSetContext(**config),
+                                      interior_facet=interior_facet)
         reps = mode.Integrals(expressions, quadrature_multiindex,
                               argument_multiindices, params)
         for var, rep in zip(return_variables, reps):
@@ -386,8 +386,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
             # UnknownPointSet point set used to create the
             # QuadratureElement rule.
             point_set = finat_to_element._rule.point_set
-            # config for fem.GemPointContext
             config.update(point_indices=point_set.indices, point_expr=point_set.expression)
+            context = fem.GemPointContext(**config)
         else:
             qpoints = []
             # Everything is just a point evaluation.
@@ -408,7 +408,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                 quad_rule = QuadratureRule(point_set, to_element._weights)
                 config["quadrature_rule"] = quad_rule
 
-        expr, = fem.compile_ufl(expression, **config, point_sum=False)
+            context = fem.PointSetContext(**config)
+
+        expr, = fem.compile_ufl(expression, context, point_sum=False)
         # In some cases point_set.indices may be dropped from expr, but nothing
         # new should now appear
         assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
@@ -437,10 +439,12 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                     assert isnan(pts).all()
                     point_set = finat_to_element._rule.point_set
                     config.update(point_indices=point_set.indices, point_expr=point_set.expression)
+                    context = fem.GemPointContext(**config)
                 else:
                     point_set = PointSet(pts)
                     config.update(point_set=point_set)
-                expr, = fem.compile_ufl(expression, **config, point_sum=False)
+                    context = fem.PointSetContext(**config)
+                expr, = fem.compile_ufl(expression, context, point_sum=False)
                 # In some cases point_set.indices may be dropped from expr, but
                 # nothing new should now appear
                 assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
