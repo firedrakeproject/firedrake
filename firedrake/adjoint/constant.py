@@ -16,6 +16,7 @@ class ConstantMixin(OverloadedType):
     def _ad_annotate_init(init):
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            annotate = kwargs.pop("annotate", True)
             OverloadedType.__init__(self, *args,
                                     block_class=kwargs.pop("block_class", None),
                                     _ad_floating_active=kwargs.pop("_ad_floating_active", False),
@@ -23,8 +24,12 @@ class ConstantMixin(OverloadedType):
                                     output_block_class=kwargs.pop("output_block_class", None),
                                     _ad_output_args=kwargs.pop("_ad_output_args", None),
                                     _ad_outputs=kwargs.pop("_ad_outputs", None),
-                                    annotate=kwargs.pop("annotate", True), **kwargs)
+                                    annotate=annotate, **kwargs)
             init(self, *args, **kwargs)
+
+            other = args[0]
+            if isinstance(other, (type(self), AdjFloat)):
+                self.assign(other, annotate=annotate)
         return wrapper
 
     @staticmethod
