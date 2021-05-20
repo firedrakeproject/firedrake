@@ -263,6 +263,11 @@ class PMGBase(PCSNESBase):
                           options_prefix=fctx.options_prefix,
                           transfer_manager=fctx.transfer_manager)
 
+        # TODO coarsen nullspace
+        # cctx.set_nullspace(fctx._nullspace)
+        # cctx.set_nullspace(fctx._nullspace_T, transpose=True)
+        # cctx.set_nullspace(fctx._near_nullspace, near=True)
+
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
         fctx._coarse = cctx
@@ -543,10 +548,10 @@ def get_line_nodes(V):
     cell = UFCInterval()
     if variant == "equispaced" and family <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
         return [cell.make_points(1, 0, N+1)]*ndim
-    elif variant == "spectral" and family <= {"Q", "Lagrange"}:
+    elif family <= {"Q", "Lagrange"}:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
-    elif variant == "spectral" and family <= {"DQ", "Discontinuous Lagrange"}:
+    elif family <= {"DQ", "Discontinuous Lagrange"}:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
     elif family <= {"RTCF", "NCF"}:
