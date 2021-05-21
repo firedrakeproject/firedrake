@@ -178,7 +178,7 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         print("Adjoint")
         if (len(args) != 1): 
             raise TypeError("Not enough operands for Adjoint")
-        matrix = args[0] 
+        mat = args[0] 
         res = PETSc.Mat().create()
         petsc_mat = matrix.M.handle
         print(petsc_mat.hermitian)
@@ -187,15 +187,17 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         print(dir(petsc_mat))
         # PETSc.Mat().hermitian(petsc_mat,res)
         # petsc_mat.Hermitian(res)
-        return res
+        return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+                                     appctx=appctx,
+                                     options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
         print("Action")
         if (len(args) != 2): 
             raise TypeError("Not enough operands for Action")
-        matrix = args[0] 
+        mat = args[0] 
         vector = args[1]
-        petsc_mat = matrix.M.handle
-        (row, col) = matrix.a.arguments()
+        petsc_mat = mat.M.handle
+        (row, col) = mat.a.arguments()
         res = _make_vector(col)
         
         with vector.dat.vec_ro as v_vec:
@@ -229,7 +231,9 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                 else:
                     res = petsc_mat
                     set = True
-            return res
+            return matrix.AssembledMatrix(expr.arguments()[0], bcs, petsc_mat,
+                                     appctx=appctx,
+                                     options_prefix=options_prefix)
            
         else:
             raise TypeError("Mismatching FormSum shapes")

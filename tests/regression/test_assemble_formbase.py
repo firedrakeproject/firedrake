@@ -137,14 +137,13 @@ def test_vector_formsum(a):
     assert abs(preassemble.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
     
 
-# def test_matrix_formsum(M):
-#     res = assemble(M)
-#     print(type(M))
-#     print(type(res))
-#     formsum = res + M
-#     print(type(formsum))
-#     assert(isinstance(formsum, ufl.form.FormSum))
-#     res2 = assemble(formsum)
+def test_matrix_formsum(M):
+    res = assemble(M)
+    sumfirst = assemble(M+M)
+    formsum = res + M
+    assert(isinstance(formsum, ufl.form.FormSum))
+    res2 = assemble(formsum)
+    assert(isinstance(res2, ufl.Matrix))
     
 
 def test_zero_form(M, f, one):

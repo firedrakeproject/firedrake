@@ -167,4 +167,4 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if self._name is not None:
             return self._name
         else:
-            return super(Function, self).__str__()
+            return super(Cofunction, self).__str__()
