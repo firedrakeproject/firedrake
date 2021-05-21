@@ -655,9 +655,9 @@ def test_supermesh_project_hessian(vector):
 def test_init_constant():
     from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(1, 1)
-    c1 = Constant(1.0, domain=mesh)
-    c2 = Constant(c1, domain=mesh)
-    J = assemble(c2*dx)
+    c1 = Constant(1.0)
+    c2 = Constant(c1)
+    J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
     assert np.isclose(rf(-1.0), -1.0)
 
