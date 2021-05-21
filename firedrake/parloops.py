@@ -75,13 +75,15 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
     kargs = []
 
     for var, (func, intent) in args.items():
+        is_input = intent in [INC, READ, RW, MAX, MIN]
+        is_output = intent in [INC, RW, WRITE, MAX, MIN]
         if isinstance(func, constant.Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -93,7 +95,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim()  # == 1
-                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
                     continue
                 else:
                     if len(func.function_space()) > 1:
@@ -104,13 +106,20 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), is_input=is_input, is_output=is_output))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
     try:
         key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+        # Add shape, dtype and intent to the cache key
+        for func, intent in args.values():
+            if isinstance(func, Indexed):
+                for dat in func.ufl_operands[0].dat.split:
+                    key += (dat.shape, dat.dtype, intent)
+            else:
+                key += (func.dat.shape, func.dat.dtype, intent)
         if kernel_cache is not None:
             return kernel_cache[key]
         else:

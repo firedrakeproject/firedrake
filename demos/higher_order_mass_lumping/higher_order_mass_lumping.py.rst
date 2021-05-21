@@ -1,4 +1,3 @@
-
 Scalar wave equation with higher-order mass lumping
 ===================================================
 
@@ -83,7 +82,7 @@ Now we set the time-stepping variables performing a simulation for 1 second with
     t = 0
     step = 0
 
-Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :mathf_\text{peak}.
+Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :math:`\text{peak}`.
 
 Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant::
 

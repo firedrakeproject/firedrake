@@ -1,8 +1,10 @@
-import ufl
+import functools
 import numbers
-import numpy as np
-import firedrake.dmhooks as dmhooks
 
+import numpy as np
+import ufl
+
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -38,9 +40,8 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC)
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+                               DirichletBC, assemble)
+        from firedrake.assemble import allocate_matrix
         from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
@@ -201,10 +202,11 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
-            tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                K * Atilde.inv * AssembledVector(self.broken_residual),
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params,
+                                                assembly_type="residual")
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
@@ -214,11 +216,13 @@ class HybridizationPC(SCBase):
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
-        self._assemble_S = create_assembly_callable(schur_comp,
-                                                    tensor=self.S,
-                                                    bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type)
+        self._assemble_S = functools.partial(assemble,
+                                             schur_comp,
+                                             tensor=self.S,
+                                             bcs=trace_bcs,
+                                             form_compiler_parameters=self.ctx.fc_params,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
 
         with timed_region("HybridOperatorAssembly"):
             self._assemble_S()
@@ -279,7 +283,7 @@ class HybridizationPC(SCBase):
         :arg split_trace_op: a ``dict`` of split forms that make up the trace
                              contribution in the hybridized mixed system.
         """
-        from firedrake.assemble import create_assembly_callable
+        from firedrake import assemble
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -307,15 +311,19 @@ class HybridizationPC(SCBase):
         R = K_1.T - C * A.inv * K_0.T
         u_rec = M.solve(f - C * A.inv * g - R * lambdar,
                         decomposition="PartialPivLU")
-        self._sub_unknown = create_assembly_callable(u_rec,
-                                                     tensor=u,
-                                                     form_compiler_parameters=self.ctx.fc_params)
+        self._sub_unknown = functools.partial(assemble,
+                                              u_rec,
+                                              tensor=u,
+                                              form_compiler_parameters=self.ctx.fc_params,
+                                              assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = create_assembly_callable(sigma_rec,
-                                                      tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
+        self._elim_unknown = functools.partial(assemble,
+                                               sigma_rec,
+                                               tensor=sigma,
+                                               form_compiler_parameters=self.ctx.fc_params,
+                                               assembly_type="residual")
 
     @timed_function("HybridUpdate")
     def update(self, pc):

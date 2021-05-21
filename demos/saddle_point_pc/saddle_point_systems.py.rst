@@ -57,7 +57,7 @@ As ever, we begin by importing the Firedrake module::
     from firedrake import *
 
 Building the problem
--------------------
+--------------------
 
 Rather than defining a mesh and function spaces straight away, since
 we wish to consider the effect that mesh refinement has on the
