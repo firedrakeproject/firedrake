@@ -1,5 +1,6 @@
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
+import firedrake.cofunction as cofunction
 import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
@@ -128,12 +129,12 @@ class LinearSolver(OptionsManager):
         return blift
 
     def solve(self, x, b):
-        if not isinstance(x, (function.Function, vector.Vector)):
-            raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
+        if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
+            raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)
         if isinstance(b, vector.Vector):
             b = b.function
-        if not isinstance(b, function.Function):
-            raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
+        if not isinstance(b, (function.Function, cofunction.Cofunction)):
+            raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
 
         if len(self.trial_space) > 1 and self.nullspace is not None:
             self.nullspace._apply(self.trial_space.dof_dset.field_ises)
