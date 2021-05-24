@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint.blocks import ProjectBlock, SupermeshProjectBlock
-from firedrake import function, constant
+from firedrake import function
 
 
 def annotate_project(project):
