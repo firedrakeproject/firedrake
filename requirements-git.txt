@@ -1,4 +1,2 @@
-git+https://github.com/firedrakeproject/petsc.git@firedrake#egg=petsc
---no-deps git+https://github.com/firedrakeproject/petsc4py.git@firedrake#egg=petsc4py
 git+https://github.com/coneoproject/COFFEE.git#egg=coffee
 git+https://github.com/firedrakeproject/loopy.git@firedrake#egg=loopy

@@ -1,6 +1,6 @@
 from pyop2.codegen.node import traversal, reuse_if_untouched, Memoizer
 from functools import singledispatch
-from pyop2.codegen.representation import (Index, RuntimeIndex, FixedIndex, Node,
+from pyop2.codegen.representation import (Index, RuntimeIndex, Node,
                                           FunctionCall, Variable, Argument,
                                           NamedLiteral)
 
@@ -28,8 +28,6 @@ replace_indices.register(Node)(reuse_if_untouched)
 
 @replace_indices.register(Index)
 def replace_indices_index(node, self):
-    if node.extent == 1:
-        return FixedIndex(0)
     return self.subst.get(node, node)
 
 
@@ -77,12 +75,14 @@ def index_merger(instructions, cache=None):
 
         for i, ni in zip(indices, new_indices):
             if i in appeared:
-                subst.append((i, appeared[i]))
+                if isinstance(i, (Index)) and i.extent != 1 or isinstance(i, (RuntimeIndex)):
+                    subst.append((i, appeared[i]))
             if i != ni:
                 if i in appeared:
                     assert appeared[i] == ni
                 appeared[i] = ni
-                subst.append((i, ni))
+                if isinstance(i, (Index)) and i.extent != 1 or isinstance(i, (RuntimeIndex)):
+                    subst.append((i, ni))
 
     index_replacer.subst = dict(subst)
     return index_replacer

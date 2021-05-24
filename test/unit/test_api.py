@@ -785,11 +785,11 @@ class TestDatAPI:
         assert d.dataset.cdim == 1
 
     def test_dat_dtype_type(self, dset):
-        "The type of a Dat's dtype property should by numpy.dtype."
+        "The type of a Dat's dtype property should be a numpy.dtype."
         d = op2.Dat(dset)
-        assert type(d.dtype) == np.dtype
+        assert isinstance(d.dtype, np.dtype)
         d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
-        assert type(d.dtype) == np.dtype
+        assert isinstance(d.dtype, np.dtype)
 
     def test_dat_split(self, dat):
         "Splitting a Dat should yield a tuple with self"
