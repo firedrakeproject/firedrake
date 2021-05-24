@@ -19,7 +19,7 @@ from firedrake.functionspacedata import get_shared_data
 from firedrake.petsc import PETSc
 
 
-class WithGeometry(ufl.FunctionSpace):
+class WithGeometryBase(object):
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
     Function spaces on meshes with different geometry but the same
@@ -39,17 +39,17 @@ class WithGeometry(ufl.FunctionSpace):
         assert mesh.topology is not mesh
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
-        super(WithGeometry, self).__init__(mesh, element)
+        super(WithGeometryBase, self).__init__(mesh, element)
         self.topological = function_space
 
         if function_space.parent is not None:
-            self.parent = WithGeometry(function_space.parent, mesh)
+            self.parent = type(self)(function_space.parent, mesh)
         else:
             self.parent = None
 
     @utils.cached_property
     def _split(self):
-        return tuple(WithGeometry(subspace, self.mesh())
+        return tuple(type(self)(subspace, self.mesh())
                      for subspace in self.topological.split())
 
     mesh = ufl.FunctionSpace.ufl_domain
@@ -73,7 +73,7 @@ class WithGeometry(ufl.FunctionSpace):
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
-            return tuple(WithGeometry(self.topological.sub(i), self.mesh())
+            return tuple(type(self)(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
             return self._split
@@ -209,10 +209,10 @@ class WithGeometry(ufl.FunctionSpace):
         return len(self.topological)
 
     def __repr__(self):
-        return "WithGeometry(%r, %r)" % (self.topological, self.mesh())
+        return "%s(%r, %r)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __str__(self):
-        return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
+        return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __iter__(self):
         return iter(self._split)
@@ -232,11 +232,27 @@ class WithGeometry(ufl.FunctionSpace):
         return val
 
     def __dir__(self):
-        current = super(WithGeometry, self).__dir__()
+        current = super(type(self), self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
+
+class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
+
+    def __init__(self, function_space, mesh):
+        super(WithGeometry, self).__init__(function_space, mesh)
+    
+    def dual(self):
+        return FiredrakeDualSpace(self.topological, self.mesh())
+
+class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
+
+    def __init__(self, function_space, mesh):
+        super(FiredrakeDualSpace, self).__init__(function_space, mesh)
+
+    def dual(self):
+        return WithGeometry(self.topological, self.mesh())
 
 
 class FunctionSpace(object):

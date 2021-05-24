@@ -169,69 +169,66 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                   mat_type, sub_mat_type,
                   appctx, options_prefix, *args):
     if isinstance(expr, ufl.form.Form):
-        print("Form")
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                             form_compiler_parameters,
                             mat_type, sub_mat_type,
                             appctx, options_prefix)
     elif isinstance(expr, ufl.Adjoint):
-        print("Adjoint")
         if (len(args) != 1): 
             raise TypeError("Not enough operands for Adjoint")
         mat = args[0] 
         res = PETSc.Mat().create()
-        petsc_mat = matrix.M.handle
-        print(petsc_mat.hermitian)
-        print(petsc_mat.isHermitian())
-        print(petsc_mat.getHermitian())
+        petsc_mat = mat.M.handle
+        # print(petsc_mat.hermitian)
+        # print(petsc_mat.isHermitian())
+        # print(petsc_mat.getHermitian())
         print(dir(petsc_mat))
         # PETSc.Mat().hermitian(petsc_mat,res)
-        # petsc_mat.Hermitian(res)
-        return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+        # this should be hermitian
+        petsc_mat.transpose()
+        (row, col) = mat.arguments()
+        return matrix.AssembledMatrix(mat.a.arguments(), bcs, petsc_mat,
                                      appctx=appctx,
                                      options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
-        print("Action")
         if (len(args) != 2): 
             raise TypeError("Not enough operands for Action")
-        mat = args[0] 
-        vector = args[1]
-        petsc_mat = mat.M.handle
-        (row, col) = mat.a.arguments()
-        res = _make_vector(col)
-        
-        with vector.dat.vec_ro as v_vec:
-            print(type(v_vec))
-            print(type(res.dat))
-            with res.dat.vec as res_vec:
-                petsc_mat.mult(v_vec, res_vec)
-        return firedrake.Cofunction(row.function_space(), val = res.dat)
+        lhs = args[0] 
+        if not isinstance(lhs, matrix.MatrixBase):
+            raise TypeError("Incompatible LHS for Action")
+        rhs = args[1]
+        if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+            petsc_mat = lhs.M.handle
+            (row, col) = lhs.arguments()
+            res = _make_vector(col)
+            
+            with rhs.dat.vec_ro as v_vec:
+                with res.dat.vec as res_vec:
+                    petsc_mat.mult(v_vec, res_vec)
+            return firedrake.Cofunction(row.function_space(), val = res.dat)
+        else:
+            raise TypeError("Incompatible RHS for Action")
     elif isinstance(expr, ufl.FormSum):
-        print("FORMSUM")
         if (len(args) != len(expr.weights())):
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
         if all([isinstance(op, firedrake.Cofunction) for op in args]):
-            print("vectors")
             # check all are in same function space?
             res = sum([w*op.dat for (op,w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
-            print("matrices")
             res = PETSc.Mat().create()
             set = False
             for (op,w) in zip(args, expr.weights()):
-                print(w)
                 petsc_mat = op.M.handle
                 petsc_mat.scale(w)
                 if set:
                     res = res + petsc_mat
-                    # res = new
                 else:
                     res = petsc_mat
                     set = True
-            return matrix.AssembledMatrix(expr.arguments()[0], bcs, petsc_mat,
+            return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
                                      appctx=appctx,
                                      options_prefix=options_prefix)
            

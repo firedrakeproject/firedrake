@@ -21,12 +21,14 @@ class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
     :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
     """
     def __init__(self, a, bcs, mat_type):
-        if isinstance(a, ufl.Form):
-            self.a = a
-            test, trial = a.arguments()
-        else:
+        if isinstance(a, tuple):
             self.a = None
             test, trial = a
+            self._arguments = a
+        else:
+            self.a = a
+            test, trial = a.arguments()
+            self._arguments = None
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
@@ -41,6 +43,12 @@ class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
 
         Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
         or 'matfree' for matrix-free."""
+
+    def arguments(self):
+        if self.a:
+            return self.a.arguments()
+        else:
+            return self._arguments
 
     @property
     def has_bcs(self):
@@ -191,6 +199,10 @@ class AssembledMatrix(MatrixBase):
         appctx = kwargs.get("appctx", {})
 
         self.petscmat = petscmat
+
+        # self.M = { "handle": self.petscmat}
+
+    # def. 
 
     def __add__(self, other):
         if isinstance(other, AssembledMatrix):

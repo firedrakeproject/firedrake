@@ -89,33 +89,23 @@ def a(fs, f):
     v = TestFunction(fs)
     return inner(f, v) * dx
 
-# def test_action(M, f):
-#     assembled_matrix = assemble(M)
-#     preassemble_action = assemble(action(M,f))
-#     postassemble_action = assemble(action(assembled_matrix, f))
-
-#     print(preassemble_action.dat)
-#     print(postassemble_action.dat)
-    # assert abs(preassemble_action.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
-#     assert abs(postassemble_action.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
-    # assert np.allclose(preassemble_action.dat, postassemble_action.dat, rtol=1e-14)
-
 def test_assemble_matrix(M):
     res = assemble(M)
-    assert(isinstance(res, ufl.Matrix))
+    assert isinstance(res, ufl.Matrix) 
 
-# def test_assemble_adjoint(M):
-#     res = assemble(adjoint(M))
-#     assembledM = assemble(M)
-#     res2 = assemble(ufl.adjoint(assembledM))
-#     assert(isinstance(res, ufl.Matrix))
+def test_assemble_adjoint(M):
+    res = assemble(adjoint(M))
+    assembledM = assemble(M)
+    res2 = assemble(ufl.adjoint(assembledM))
+    assert isinstance(res, ufl.Matrix)
+    assert np.allclose(res.petscmat[:,:], res2.petscmat[:,:], rtol=1e-14)
 
 def test_assemble_action(M, f):
     res = assemble(action(M, f))
     assembledM = assemble(M)
     res2 = assemble(action(assembledM, f))
-    assert(isinstance(res2, Cofunction))
-    assert(isinstance(res, Cofunction))
+    assert isinstance(res2, Cofunction)
+    assert isinstance(res, Cofunction) 
     assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
     for f in res2.split():
         if f.function_space().rank == 2:
@@ -130,7 +120,7 @@ def test_vector_formsum(a):
     formsum = res + a
     res2 = assemble(formsum)
 
-    assert(isinstance(formsum, ufl.form.FormSum))
+    assert isinstance(formsum, ufl.form.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
     
@@ -141,9 +131,10 @@ def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)
     formsum = res + M
-    assert(isinstance(formsum, ufl.form.FormSum))
+    assert isinstance(formsum, ufl.form.FormSum)
     res2 = assemble(formsum)
-    assert(isinstance(res2, ufl.Matrix))
+    assert isinstance(res2, ufl.Matrix)
+    assert np.allclose(sumfirst.petscmat[:,:], res2.petscmat[:,:], rtol=1e-14)
     
 
 def test_zero_form(M, f, one):
