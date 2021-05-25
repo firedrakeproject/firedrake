@@ -259,7 +259,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # to_element's dual basis (which look rather like quadrature rules) can
         # have their pointset(s) directly replaced with run-time tabulated
         # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
-        to_element = rebuild(to_element, expr)
+        rt_var_name = 'rt_X'
+        to_element = rebuild(to_element, expr, rt_var_name)
         # The source domain is on the expression not the FunctionSpace/Function
         # we are interpolating into/onto
         source_coords_coeff = expr.ufl_domain().coordinates
@@ -308,10 +309,24 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         coefficients[0] = source_coords_coeff
 
     if trans_mesh:
-        # Add the coordinates of the target mesh quadrature points in the
-        # source mesh's reference cell as an extra argument for the inner loop.
-        # (with a vertex only mesh this is a single point for each vertex cell)
-        coefficients = coefficients + [target_mesh.reference_coordinates]
+        # NOTE: TSFC will sometimes drop run-time arguments in generated
+        # kernels if they are deemed not-necessary.
+        # FIXME: Checking for argument name in the inner kernel to decide
+        # whether to add an extra coefficient is a stopgap until
+        # compile_expression_dual_evaluation and compile_python_kernel
+        #   (a) output a coefficient map to indicate argument ordering in
+        #       parloops as `compile_form` does and
+        #   (b) allow the dual evaluation related coefficients to be suplied to
+        #       them rather than having to be added post-hoc (likely by
+        #       replacing `to_element` with a CoFunction/CoArgument as the
+        #       target `dual` which would contain `dual` related
+        #       coefficient(s))
+        if rt_var_name in [arg.name for arg in kernel.code[name].args]:
+            # Add the coordinates of the target mesh quadrature points in the
+            # source mesh's reference cell as an extra argument for the inner
+            # loop. (With a vertex only mesh this is a single point for each
+            # vertex cell.)
+            coefficients = coefficients + [target_mesh.reference_coordinates]
         # In the trans-mesh case we loop over the target mesh cells so we need
         # to compose a map that takes us from their cells to the source mesh
         # cells, and (where necessary) to the function space nodes on the
@@ -367,12 +382,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
 
 
 @singledispatch
-def rebuild(element, expr):
+def rebuild(element, expr, rt_var_name):
     raise NotImplementedError(f"Cross mesh interpolation not implemented for a {element} element.")
 
 
 @rebuild.register(finat.DiscontinuousLagrange)
-def rebuild_dg(element, expr):
+def rebuild_dg(element, expr, rt_var_name):
     # To tabulate on the given element (which is on a different mesh to the
     # expression) we must do so at runtime. We therefore create a quadrature
     # element with runtime points to evaluate for each point in the element's
@@ -396,7 +411,8 @@ def rebuild_dg(element, expr):
     num_points = 1
     weights = [1.]*num_points
     # gem.Variable name starting with rt_ forces TSFC runtime tabulation
-    runtime_points_expr = gem.Variable('rt_X', (num_points, expr_tdim))
+    assert rt_var_name.startswith("rt_")
+    runtime_points_expr = gem.Variable(rt_var_name, (num_points, expr_tdim))
     rule_pointset = finat.point_set.UnknownPointSet(runtime_points_expr)
     try:
         expr_fiat_cell = as_fiat_cell(expr.ufl_element().cell())
@@ -409,8 +425,9 @@ def rebuild_dg(element, expr):
 
 
 @rebuild.register(finat.TensorFiniteElement)
-def rebuild_te(element, expr):
-    return finat.TensorFiniteElement(rebuild(element.base_element. expr),
+def rebuild_te(element, expr, rt_var_name):
+    return finat.TensorFiniteElement(rebuild(element.base_element,
+                                             expr, rt_var_name),
                                      element.shape,
                                      transpose=element._transpose)
 
