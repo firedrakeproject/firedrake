@@ -23,6 +23,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
 
 import firedrake
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
@@ -239,6 +240,7 @@ class Assign(object):
         """Coefficients appearing in the rvalue."""
         return extract_coefficients(self.rvalue)
 
+    @PETSc.Log.EventDecorator()
     @cached_property
     def split(self):
         """A tuple of assignment expressions, separated by subspace for mixed spaces."""
@@ -312,6 +314,7 @@ class Assign(object):
         rvalue, = map_expr_dags(self.relabeller, [self.rvalue])
         return (type(self), hash(self.lvalue), hash(rvalue))
 
+    @PETSc.Log.EventDecorator()
     @cached_property
     def par_loop_args(self):
         """Arguments for a parallel loop to evaluate this expression.
@@ -350,6 +353,7 @@ class IDiv(AugmentedAssign):
     symbol = "/="
 
 
+@PETSc.Log.EventDecorator()
 def compile_to_gem(expr, translator):
     """Compile a single pointwise expression to GEM.
 
@@ -399,6 +403,7 @@ def compile_to_gem(expr, translator):
     return preprocess_gem([lvalue, rvalue])
 
 
+@PETSc.Log.EventDecorator()
 def pointwise_expression_kernel(exprs, scalar_type):
     """Compile a kernel for pointwise expressions.
 
@@ -452,6 +457,7 @@ class dereffed(object):
             a.data = weakref.ref(a.data)
 
 
+@PETSc.Log.EventDecorator()
 @known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluate a pointwise expression.
@@ -492,6 +498,7 @@ def evaluate_expression(expr, subset=None):
     return lvalue
 
 
+@PETSc.Log.EventDecorator()
 def assemble_expression(expr, subset=None):
     """Evaluate a UFL expression pointwise and assign it to a new
     :class:`~.Function`.
