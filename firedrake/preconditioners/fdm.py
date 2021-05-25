@@ -62,11 +62,8 @@ class FDMPC(PCBase):
         if len(self.bcs) > 0:
             self.bc_nodes = np.unique(np.concatenate([bcdofs(bc, ghost=False)
                                                       for bc in self.bcs]))
-            self.bc_ghost = np.unique(np.concatenate([bcdofs(bc, ghost=True)
-                                                      for bc in self.bcs]))
         else:
             self.bc_nodes = np.empty(0, dtype=PETSc.IntType)
-            self.bc_ghost = np.empty(0, dtype=PETSc.IntType)
 
         bcflags = self.get_bc_flags(V, self.mesh, self.bcs, solverctx._problem.J)
 
@@ -100,17 +97,20 @@ class FDMPC(PCBase):
             # so this should work as direct solver only on star patches
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             self.stencil = firedrake.Function(W)
-            Gq, Bq = self.assemble_coef(mu, helm, Nq)
+            Gq, Bq, _ = self.assemble_coef(mu, helm, Nq)
             Pmat = self.assemble_stencil(A, V, Gq, Bq, N, bcflags)
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
-            Gq, Bq = self.assemble_coef(mu, helm, 0, diagonal=True, piola=needs_hdiv)
-            Pmat = self.assemble_affine(A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            Gq, Bq, Jq = self.assemble_coef(mu, helm, 0, diagonal=True, piola=needs_hdiv)
+            Pmat = self.assemble_affine(A, V, Gq, Bq, Jq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
         else:
             raise ValueError("Unknown fdm_type")
 
-        Pmat.zeroRowsColumns(self.bc_ghost)
+        lgmap = V.dof_dset.lgmap
+        Pmat.setLGMap(lgmap, lgmap)
+        Pmat.zeroRowsColumnsLocal(self.bc_nodes)
+
         opc = pc
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -168,7 +168,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     def pull_facet(x, pshape, idir):
-        return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), 0, idir), x.shape)
+        return np.reshape(np.transpose(np.reshape(x.copy(), pshape), (idir+np.arange(len(pshape))) % len(pshape)), x.shape)
 
     @staticmethod
     def index_bcs(x, pshape, bc, val):
@@ -279,11 +279,11 @@ class FDMPC(PCBase):
         Pmat.assemble()
         return Pmat
 
-    def assemble_affine(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
+    def assemble_affine(self, A, V, Gq, Bq, Jq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
         from scipy.sparse import kron, csr_matrix
 
         imode = PETSc.InsertMode.ADD_VALUES
-        lgmap = V.local_to_global_map([])
+        lgmap = V.local_to_global_map(self.bcs)
 
         lexico_cell, nel = self.glonum_fun(V.cell_node_map())
         gid, _ = self.glonum_fun(Gq.cell_node_map())
@@ -297,7 +297,6 @@ class FDMPC(PCBase):
         ndof = bsize * V.dof_dset.set.size
 
         needs_hdiv = bsize != ncomp
-        strong = -1 if needs_interior_facet else 1
         if needs_hdiv:
             sdim = sdim // ncomp
 
@@ -310,8 +309,13 @@ class FDMPC(PCBase):
         cell_csr = []
         facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
-        pshape = [Ak[0][0].shape[0] for Ak in Afdm]
-        N = pshape[-1]
+        if needs_hdiv:
+            pshape = [[Afdm[(k+i) % ncomp][0][0].shape[0] for i in range(ndim)] for k in range(ncomp)]
+        else:
+            pshape = [Ak[0][0].shape[0] for Ak in Afdm]
+
+        for row in V.dof_dset.lgmap.indices:
+            prealloc.setValue(row, row, 0.0E0, imode)
 
         for e in range(nel):
             ie = lexico_cell(e)
@@ -344,10 +348,6 @@ class FDMPC(PCBase):
 
                 cell_csr.append(ae)
                 rows = lgmap.apply(ie[k] if needs_hdiv else k+bsize*ie)
-                for row in rows:
-                    prealloc.setValue(row, row, 1.0E0, imode)
-
-                self.index_bcs(rows, pshape, bcj == strong, -1)
                 cols = rows[ae.indices]
                 for i, row in enumerate(rows):
                     i0 = ae.indptr[i]
@@ -366,27 +366,35 @@ class FDMPC(PCBase):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
 
-                mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
+                mu0 = -np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
                 ie = lexico_facet(f)
                 if needs_hdiv:
+                    mu0 *= np.sign(np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0))
+                    mu1 *= np.sign(np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0))
+                    # Handle the choice of basis (-1, 0), (0, 1) for H(div)
+                    mu0[0] *= -1
+                    mu1[0] *= -1
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
 
-                for k in range(ncomp):
-                    k0 = k
-                    k1 = k
-                    facet_perm = (idir[0]+np.arange(ncomp)) % ncomp
+                istart = 1 if needs_hdiv else 0
+                for k in range(istart, ncomp):
                     if needs_hdiv:
-                        facet_perm = (k+facet_perm) % ncomp
-                        k1 = (k+idir[1]-idir[0]) % ncomp
+                        facet_perm = (k+np.arange(ncomp)) % ncomp
+                        k0 = (k+idir[0]) % ncomp
+                        k1 = (k+idir[1]) % ncomp
+                    else:
+                        facet_perm = (idir[0]+np.arange(ncomp)) % ncomp
+                        k0 = k
+                        k1 = k
 
                     mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                           mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
-                    penalty = eta * 0.5E0 * (mu[0] + mu[1])
 
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
+                    penalty = eta * 0.5E0 * (abs(mu[0]) + abs(mu[1]))
                     for j, jface in enumerate(facet_data[f]):
                         j0 = j * offset
                         j1 = j0 + offset
@@ -395,9 +403,9 @@ class FDMPC(PCBase):
                             i0 = i * offset
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
-                            sij = 1.0E0 if i == j else -1.0E0
-                            adense[i0:i1, jj] -= sij*(0.5E0*mu[i]) * Dfacet[:, iface % 2]
-                            adense[ii, j0:j1] -= sij*(0.5E0*mu[j]) * Dfacet[:, jface % 2]
+                            sij = np.sign(mu[i] * mu[j])
+                            adense[i0:i1, jj] -= sij*abs(0.5E0*mu[i]) * Dfacet[:, iface % 2]
+                            adense[ii, j0:j1] -= sij*abs(0.5E0*mu[j]) * Dfacet[:, jface % 2]
                             adense[ii, jj] += sij*penalty
 
                     ae = csr_matrix(adense)
@@ -409,10 +417,8 @@ class FDMPC(PCBase):
 
                     facet_csr.append(ae)
                     if needs_hdiv:
-                        qshape = [N]*ndim
-                        qshape[k] = -1
-                        rows[:sdim] = self.pull_facet(icell[0][k0], qshape, idir[0])
-                        rows[sdim:] = self.pull_facet(icell[1][k1], qshape, idir[1])
+                        rows[:sdim] = self.pull_facet(icell[0][k0], pshape[k0], idir[0])
+                        rows[sdim:] = self.pull_facet(icell[1][k1], pshape[k1], idir[1])
                     else:
                         icell = np.reshape(lgmap.apply(k+bsize*ie), (2, -1))
                         rows[:sdim] = self.pull_facet(icell[0], pshape, idir[0])
@@ -428,8 +434,10 @@ class FDMPC(PCBase):
         nnz = get_preallocation(prealloc, ndof)
         Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         Pmat.setBlockSize(bsize)
-        Pmat.setLGMap(lgmap, lgmap)
         Pmat.zeroEntries()
+
+        for row in V.dof_dset.lgmap.indices:
+            Pmat.setValue(row, row, 0.0E0, imode)
 
         # Assemble global matrix
         for field, ae in enumerate(cell_csr):
@@ -443,16 +451,6 @@ class FDMPC(PCBase):
 
             bcj = bce[k] if len(bce.shape) == 2 else bce
             rows = lgmap.apply(ie[k] if needs_hdiv else k+bsize*ie)
-            ibc = rows.copy()
-
-            self.index_bcs(rows, pshape, bcj == strong, -1)
-            adiag = ae.diagonal()
-            adiag = adiag[rows == -1]
-
-            ibc = ibc[rows == -1]
-            for row, val in zip(ibc, adiag):
-                Pmat.setValue(row, row, val, imode)
-
             cols = rows[ae.indices]
             for i, row in enumerate(rows):
                 i0 = ae.indptr[i]
@@ -461,22 +459,21 @@ class FDMPC(PCBase):
 
         if needs_interior_facet:
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
+            istart = 1 if needs_hdiv else 0
             for field, ae in enumerate(facet_csr):
-                f = field // ncomp
-                k = field % ncomp
-                if k == 0:
+                f = field // (ncomp-istart)
+                k = field % (ncomp-istart) + istart
+                if k == istart:
                     ie = lexico_facet(f)
                     if needs_hdiv:
                         icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
 
                 idir = facet_data[f] // 2
                 if needs_hdiv:
-                    k0 = k
-                    k1 = (k+idir[1]-idir[0]) % ncomp
-                    qshape = [N]*ndim
-                    qshape[k] = -1
-                    rows[:sdim] = self.pull_facet(icell[0][k0], qshape, idir[0])
-                    rows[sdim:] = self.pull_facet(icell[1][k1], qshape, idir[1])
+                    k0 = (k+idir[0]) % ncomp
+                    k1 = (k+idir[1]) % ncomp
+                    rows[:sdim] = self.pull_facet(icell[0][k0], pshape[k0], idir[0])
+                    rows[sdim:] = self.pull_facet(icell[1][k1], pshape[k1], idir[1])
                 else:
                     icell = np.reshape(lgmap.apply(k+bsize*ie), (2, -1))
                     rows[:sdim] = self.pull_facet(icell[0], pshape, idir[0])
@@ -508,7 +505,7 @@ class FDMPC(PCBase):
                 if piola:
                     PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * PF[i3, j3] * PF[i4, j4] * mu[j1, j3, j2, j4], (i1, i2, i3, i4))
+                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * PF[j3, i3] * PF[j4, i4] * mu[j1, j3, j2, j4], (i1, i2, i3, i4))
                 else:
                     i1, i2, i3, i4, j1, j2 = indices(6)
                     G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * mu[j1, i3, j2, i4], (i1, i2, i3, i4))
@@ -540,16 +537,18 @@ class FDMPC(PCBase):
         q = firedrake.TestFunction(Q)
         Gq = firedrake.assemble(inner(G, q)*dx(degree=Nq))
 
+        Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                           quad_scheme="default")
+        Q = firedrake.FunctionSpace(self.mesh, Qe)
+        q = firedrake.TestFunction(Q)
+        Jq = firedrake.assemble(inner(JacobianDeterminant(self.mesh), q)*dx(degree=Nq))
+
         if helm is None:
             Bq = None
         else:
-            Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
-                               quad_scheme="default")
-            Q = firedrake.FunctionSpace(self.mesh, Qe)
-            q = firedrake.TestFunction(Q)
             Bq = firedrake.assemble(inner(helm, q)*dx(degree=Nq))
 
-        return Gq, Bq
+        return Gq, Bq, Jq
 
     @staticmethod
     @lru_cache(maxsize=10)
