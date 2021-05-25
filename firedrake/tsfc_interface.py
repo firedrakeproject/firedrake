@@ -154,7 +154,7 @@ class TSFCKernel(Cached):
             function_numbers = tuple(function_number_map[c] for c in kernel.coefficient_numbers)
             subspace_numbers = tuple(subspace_number_map[c] for c in kernel.external_data_numbers)
             subspace_parts = kernel.external_data_parts
-            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
+            kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
                                                     requires_zeroed_output_arguments=True),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,

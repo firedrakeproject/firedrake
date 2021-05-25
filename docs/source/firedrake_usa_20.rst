@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Firedrake USA
 
 .. image:: images/rainier-vista.jpg
@@ -81,7 +83,7 @@ Organising Committee
 --------------------
 
 * `Daniel Shapero
-  <https://escience.washington.edu/people/daniel-shapero/>`_,
+  <https://escience.washington.edu/people/daniel-shapero/>`__,
   University of Washington.
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`_, Imperial
   College London.
@@ -94,4 +96,4 @@ Further details
 ---------------
 
 For any queries, please contact  `Daniel Shapero
-<mailto:shapero@uw.edu>`_.
+<mailto:shapero@uw.edu>`__.

@@ -234,43 +234,29 @@ def get_boundary_masks(mesh, key, finat_element):
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
     :arg finat_element: The FInAT element.
-    :returns: A dict mapping ``"topological"`` and ``"geometric"``
-        keys to boundary nodes or ``None``.  If not None, the entry in
-        the mask dict 3-tuple of a Section, an array of indices, and
+    :returns: ``None`` or a 3-tuple of a Section, an array of indices, and
         an array indicating which points in the Section correspond to
         the facets of the cell.  If section.getDof(p) is non-zero,
         then there are ndof basis functions topologically associated
-        with points in the closure of
-        point p (for "topological", ndof basis functions with non-zero
-        support on points in the closure of p for "geometric").  The
-        basis function indices are in the index array, starting at
-        section.getOffset(p).
+        with points in the closure of point p.  The basis function
+        indices are in the index array, starting at section.getOffset(p).
     """
     if not mesh.cell_set._extruded:
         return None
-    masks = {}
     _, kind = key
     assert kind in {"cell", "interior_facet"}
     dim = finat_element.cell.get_spatial_dimension()
     ecd = finat_element.entity_closure_dofs()
-    try:
-        esd = finat_element.entity_support_dofs()
-    except NotImplementedError:
-        # 4-D cells
-        esd = None
     # Number of entities on cell excepting the cell itself.
     chart = sum(map(len, ecd.values())) - 1
     closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    support_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
     # Double up for interior facets.
     if kind == "cell":
         ncell = 1
     else:
         ncell = 2
     closure_section.setChart(0, ncell*chart)
-    support_section.setChart(0, ncell*chart)
     closure_indices = []
-    support_indices = []
     facet_points = []
     p = 0
 
@@ -284,21 +270,13 @@ def get_boundary_masks(mesh, key, finat_element):
                 closure_section.setDof(p, len(ecd[ent][key]))
                 vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
                 closure_indices.extend(vals + cell*offset)
-                if esd is not None:
-                    support_section.setDof(p, ncell*len(esd[ent][key]))
-                    vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
-                    support_indices.extend(vals + cell*offset)
                 if sum(ent) == dim - 1:
                     facet_points.append(p)
                 p += 1
     closure_section.setUp()
-    support_section.setUp()
     closure_indices = numpy.asarray(closure_indices, dtype=IntType)
-    support_indices = numpy.asarray(support_indices, dtype=IntType)
     facet_points = numpy.asarray(facet_points, dtype=IntType)
-    masks["topological"] = (closure_section, closure_indices, facet_points)
-    masks["geometric"] = (support_section, support_indices, facet_points)
-    return masks
+    return (closure_section, closure_indices, facet_points)
 
 
 @cached
@@ -320,24 +298,23 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     """Get top or bottom boundary nodes of an extruded function space.
 
     :arg mesh: The mesh to cache on.
-    :arg key: The key a 3-tuple of ``(entity_dofs_key, sub_domain, method)``.
-        Where sub_domain indicates top or bottom and method is whether
-        we should identify dofs on facets topologically or geometrically.
+    :arg key: The key a 2-tuple of ``(entity_dofs_key, sub_domain)``.
+        Where sub_domain indicates top or bottom.
     :arg V: The FunctionSpace to select from.
     :arg entity_dofs: The flattened entity dofs.
     :returnsL: A numpy array of the (unique) boundary nodes.
     """
-    _, sub_domain, method = key
+    _, sub_domain = key
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
         return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
-                                                V.cell_boundary_masks[method],
+                                                V.cell_boundary_masks,
                                                 offset,
                                                 sub_domain)
     else:
         idx = {"bottom": -2, "top": -1}[sub_domain]
-        section, indices, facet_points = V.cell_boundary_masks[method]
+        section, indices, facet_points = V.cell_boundary_masks
         facet = facet_points[idx]
         dof = section.getDof(facet)
         off = section.getOffset(facet)
@@ -349,18 +326,23 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 
 
 @cached
-def get_boundary_nodes(mesh, key, V):
-    _, sub_domain, method = key
-    indices = dmcommon.boundary_nodes(V, sub_domain, method)
-    # We need a halo exchange to determine all bc nodes.
-    # Should be improved by doing this on the DM topology once.
-    d = op2.Dat(V.dof_dset.set, dtype=IntType)
-    d.data_with_halos[indices] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy where returns an int64
-    return indices.astype(IntType)
+def get_facet_closure_nodes(mesh, key, V):
+    """Function space nodes in the closure of facets with a given
+    marker.
+    :arg mesh: Mesh to cache on
+    :arg key: (edofs, sub_domain) tuple
+    :arg V: function space.
+    :returns: numpy array of unique nodes in the closure of facets
+       with provided markers (both interior and exterior)."""
+    _, sub_domain = key
+    if sub_domain not in {"on_boundary", "top", "bottom"}:
+        valid = set(mesh.interior_facets.unique_markers)
+        valid |= set(mesh.exterior_facets.unique_markers)
+        invalid = set(sub_domain) - valid
+        if invalid:
+            raise LookupError(f"BC construction got invalid markers {invalid}. "
+                              f"Valid markers are '{valid}'")
+    return dmcommon.facet_closure_nodes(V, sub_domain)
 
 
 def get_max_work_functions(V):
@@ -479,23 +461,21 @@ class FunctionSpaceData(object):
     def __str__(self):
         return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
 
-    def boundary_nodes(self, V, sub_domain, method):
-        if method not in {"topological", "geometric"}:
-            raise ValueError("Don't know how to extract nodes with method '%s'", method)
+    def boundary_nodes(self, V, sub_domain):
         if sub_domain in ["bottom", "top"]:
             if not V.extruded:
                 raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
                                  sub_domain)
             entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-            key = (entity_dofs_key(entity_dofs), sub_domain, method)
+            key = (entity_dofs_key(entity_dofs), sub_domain)
             return get_top_bottom_boundary_nodes(V.mesh(), key, V)
         else:
             if sub_domain == "on_boundary":
                 sdkey = sub_domain
             else:
                 sdkey = as_tuple(sub_domain)
-            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
-            return get_boundary_nodes(V.mesh(), key, V)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
+            return get_facet_closure_nodes(V.mesh(), key, V)
 
     def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to

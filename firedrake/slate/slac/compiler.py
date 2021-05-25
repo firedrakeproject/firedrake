@@ -36,7 +36,7 @@ from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
+from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -162,16 +162,13 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
 
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
-    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
-    loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
+    name = "slate_wrapper"
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
+    loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
+    loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    # WORKAROUND: Generate code directly from the loopy kernel here,
-    # then attach code as a c-string to the op2kernel
-    code = loopy.generate_code_v2(loopy_merged).device_code()
-    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
-    loopykernel = op2.Kernel(code,
-                             loopy_merged.name,
+    loopykernel = op2.Kernel(loopy_merged,
+                             name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
                              ldargs=BLASLAPACK_LIB.split())
 
@@ -634,7 +631,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)]
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type, is_output=True, is_input=True)]
             + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
                for var in var2terminal.keys()])
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]

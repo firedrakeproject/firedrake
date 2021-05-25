@@ -238,6 +238,19 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def boundary_nodes(self, sub_domain):
+        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        # Have to replicate the definition from FunctionSpace because
+        # we want to access the DM on the WithGeometry object.
+        return self._shared_data.boundary_nodes(self, sub_domain)
+
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
@@ -298,7 +311,9 @@ class FunctionSpace(object):
         if type(element) is ufl.TensorElement:
             # UFL enforces value_shape of the subelement to be empty
             # on a TensorElement.
-            self.shape = element.value_shape()
+            # The number of "free" dofs is given by reference_value_shape,
+            # not value_shape due to symmetry specifications
+            self.shape = element.reference_value_shape()
         elif type(element) is ufl.VectorElement:
             # First dimension of the value_shape is the VectorElement
             # shape.
@@ -552,27 +567,25 @@ class FunctionSpace(object):
         nodes = self.nodes(name=name, derivative_order=derivative_order)
         return op2.Subset(self.node_set, nodes)
 
-    def boundary_nodes(self, sub_domain, method):
+    def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-        :arg method: the method for determining boundary nodes.
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        return self._shared_data.boundary_nodes(self, sub_domain, method)
+        return self._shared_data.boundary_nodes(self, sub_domain)
 
-    def boundary_node_subset(self, sub_domain, method="topological"):
+    def boundary_node_subset(self, sub_domain):
         r"""Return the :class:`op2.Subset` for the boundary_nodes.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-        :arg method: the method for determining boundary nodes.
         :returns: A :class:`op2.Subset` associated with the boundary_nodes.
         """
         if isinstance(sub_domain, str):
-            nodes = self.boundary_nodes(sub_domain, method)
+            nodes = self.boundary_nodes(sub_domain)
         else:
             # Convert int to tuple
             sub_domain = as_tuple(sub_domain)
@@ -589,7 +602,7 @@ class FunctionSpace(object):
                 nodes1 = []
                 for ss in s:
                     # intersection of facets
-                    nodes1.append(self.boundary_nodes(ss, method))
+                    nodes1.append(self.boundary_nodes(ss))
                 nodes1 = functools.reduce(numpy.intersect1d, nodes1)
                 nodes.append(nodes1)
             nodes = numpy.concatenate(tuple(nodes))

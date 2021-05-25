@@ -62,7 +62,7 @@ scripts in your path.
 2. Create an issue on the Firedrake GitHub page asking that a Zenodo
    release be created. Attach the ``firedrake.json`` file to the
    issue. You can create the issue `here
-   <https://github.com/firedrakeproject/firedrake/issues/new>`_.
+   <https://github.com/firedrakeproject/firedrake/issues/new>`__.
 
 3. The Firedrake developers will generate a bespoke Firedrake release
    containing exactly the set of versions your JSON file specifies, as
@@ -71,7 +71,7 @@ scripts in your path.
    ``Firedrake_YYYYMMDD.N``.
 
    You can see an example such a collated record `here
-   <https://zenodo.org/record/1402622>`_.
+   <https://zenodo.org/record/1402622>`__.
 
 4. You can use this release tag to generate a BibTeX entry (including
    the DOI) for the collated "meta"-record, which in turn links to all

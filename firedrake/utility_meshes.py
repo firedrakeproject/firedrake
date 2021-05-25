@@ -410,7 +410,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-
+    plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
@@ -685,7 +685,7 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
         for face in boundary_faces:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-
+    plex.removeLabel("boundary_faces")
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -814,6 +814,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
+    plex.removeLabel("boundary_faces")
 
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
@@ -1557,6 +1558,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
             if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
                 # top of cylinder
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+    plex.removeLabel("boundary_faces")
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m

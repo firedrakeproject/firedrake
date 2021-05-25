@@ -1,14 +1,15 @@
-from functools import partial
+from functools import partial, lru_cache
 from itertools import chain
 import numpy as np
 
-from ufl import MixedElement, VectorElement, TensorElement, replace
+from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
+from ufl.classes import Expr
 
 from pyop2 import op2
 import loopy
 
 from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
@@ -17,17 +18,19 @@ from firedrake.utils import ScalarType_c, IntType_c
 import firedrake
 
 
-class PMGPC(PCBase):
+class PMGBase(PCSNESBase):
     """
-    A class for implementing p-multigrid.
-
+    A class for implementing p-multigrid
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
-    PETSc PC of type MG and with options prefix 'pmg_'. The
-    relaxation to apply on every p-level is described by 'pmg_mg_levels_',
-    and the coarse solve by 'pmg_mg_coarse_'. Geometric multigrid
+    PETSc PC of type MG and with options prefix ``pmg_``. The
+    relaxation to apply on every p-level is described by ``pmg_mg_levels_``,
+    and the coarse solve by ``pmg_mg_coarse_``. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
-    An example chaining p-MG, GMG and AMG is given in the tests.
+
+    Other PETSc options inspected by this class in particular are:
+    - 'pmg_mg_coarse_degree': to specify the degree of the coarse level
+    - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
     This takes in a :class:`ufl.FiniteElement` and either returns a
@@ -35,20 +38,21 @@ class PMGPC(PCBase):
     should be the coarsest one of the hierarchy).
 
     The default coarsen_element is to perform power-of-2 reduction
-    of the polynomial degree. For mixed systems a `NotImplementedError`
+    of the polynomial degree. For mixed systems a ``NotImplementedError``
     is raised, as I don't know how to make a sensible default for this.
     It is expected that many (most?) applications of this preconditioner
-    will subclass :class:`PMGPC` to override `coarsen_element`.
+    will subclass :class:`PMGBase` to override `coarsen_element`.
     """
-    @staticmethod
-    def coarsen_element(ele):
+    def coarsen_element(self, ele):
         """
         Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
         raise `ValueError`. Otherwise, return a new :class:`ufl.FiniteElement`.
 
-        By default, this does power-of-2 coarsening in polynomial degree.
+        By default, this does power-of-2 coarsening in polynomial degree until
+        we reach the coarse degree specified through PETSc options (1 by default).
+
         It raises a `NotImplementedError` for :class:`ufl.MixedElement`s, as
         I don't know if there's a sensible default strategy to implement here.
         It is intended that the user subclass `PMGPC` to override this method
@@ -59,15 +63,39 @@ class PMGPC(PCBase):
         if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
             raise NotImplementedError("Implement this method yourself")
 
-        degree = ele.degree()
-        family = ele.family()
+        N = ele.degree()
+        try:
+            N, = set(N)
+        except TypeError:
+            pass
+        except ValueError:
+            raise NotImplementedError("Different degrees on TensorProductElement")
 
-        if family == "Discontinuous Galerkin" and degree == 0:
-            raise ValueError
-        elif degree == 1:
+        if N <= self.coarse_degree:
             raise ValueError
 
-        return ele.reconstruct(degree=degree // 2)
+        return self.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
+
+    @staticmethod
+    def reconstruct_degree(ele, N):
+        """
+        Reconstruct a given element, modifying its polynomial degree.
+
+        Can only set a single degree along all axes of a TensorProductElement.
+
+        :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
+        :arg N: an integer degree.
+        """
+        if isinstance(ele, TensorElement):
+            sub = ele.sub_elements()
+            return TensorElement(PMGBase.reconstruct_degree(sub[0], N), shape=ele.value_shape(), symmetry=ele.symmetry())
+        elif isinstance(ele, VectorElement):
+            sub = ele.sub_elements()
+            return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
+        elif isinstance(ele, TensorProductElement):
+            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
+        else:
+            return ele.reconstruct(degree=N)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -82,6 +110,14 @@ class PMGPC(PCBase):
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
 
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + "pmg_"
+        pdm = PETSc.DMShell().create(comm=pc.comm)
+        pdm.setOptionsPrefix(options_prefix)
+
+        # Get the coarse degree from PETSc options
+        self.coarse_degree = PETSc.Options(options_prefix).getInt("mg_coarse_degree", default=1)
+
         # Construct a list with the elements we'll be using
         V = test.function_space()
         ele = V.ufl_element()
@@ -95,7 +131,6 @@ class PMGPC(PCBase):
                 break
             elements.append(ele)
 
-        pdm = PETSc.DMShell().create(comm=pc.comm)
         sf = odm.getPointSF()
         section = odm.getDefaultSection()
         attach_hooks(pdm, level=len(elements)-1, sf=sf, section=section)
@@ -103,16 +138,199 @@ class PMGPC(PCBase):
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
         pdm.setCreateInterpolation(self.create_interpolation)
-        pdm.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
+        # We need this for p-FAS
+        pdm.setCreateInjection(self.create_injection)
+        pdm.setSNESJacobian(_SNESContext.form_jacobian)
+        pdm.setSNESFunction(_SNESContext.form_function)
+        pdm.setKSPComputeOperators(_SNESContext.compute_operators)
+
         set_function_space(pdm, get_function_space(odm))
 
         parent = get_parent(odm)
         assert parent is not None
-        add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx),
-                 call_setup=True)
+        add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent), call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx), call_setup=True)
 
+        self.ppc = self.configure_pmg(pc, pdm)
+        self.ppc.setFromOptions()
+        self.ppc.setUp()
+
+    def update(self, pc):
+        pass
+
+    def coarsen(self, fdm, comm):
+        # Coarsen the _SNESContext of a DM fdm
+        # return the coarse DM cdm of the coarse _SNESContext
+        fctx = get_appctx(fdm)
+
+        # Have we already done this?
+        cctx = fctx._coarse
+        if cctx is not None:
+            return cctx.J.arguments()[0].function_space().dm
+
+        parent = get_parent(fdm)
+        assert parent is not None
+
+        test, trial = fctx.J.arguments()
+        fV = test.function_space()
+        cele = self.coarsen_element(fV.ufl_element())
+        cV = firedrake.FunctionSpace(fV.mesh(), cele)
+        cdm = cV.dm
+
+        def get_max_degree(ele):
+            if isinstance(ele, MixedElement):
+                return max(get_max_degree(sub) for sub in ele.sub_elements())
+            else:
+                N = ele.degree()
+                try:
+                    return max(N)
+                except TypeError:
+                    return N
+
+        def coarsen_quadrature(df, Nf, Nc):
+            # Coarsen the quadrature degree in a dictionary
+            # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
+            if isinstance(df, dict):
+                Nq = df.get("quadrature_degree", None)
+                if Nq is not None:
+                    dc = dict(df)
+                    dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+                    return dc
+            return df
+
+        def coarsen_form(form, Nf, Nc, replace_d):
+            # Coarsen a form, by replacing the solution, test and trial functions, and
+            # reconstructing each integral with a corsened quadrature degree.
+            # If form is not a Form, then return form.
+            return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
+                         for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
+
+        def coarsen_bcs(fbcs):
+            cbcs = []
+            for bc in fbcs:
+                cV_ = cV
+                for index in bc._indices:
+                    cV_ = cV_.sub(index)
+                cbc_value = self.coarsen_bc_value(bc, cV_)
+                if type(bc) == firedrake.DirichletBC:
+                    cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                                      bc.sub_domain))
+                else:
+                    raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
+            return cbcs
+
+        Nf = get_max_degree(fV.ufl_element())
+        Nc = get_max_degree(cV.ufl_element())
+
+        fproblem = fctx._problem
+        fu = fproblem.u
+        cu = firedrake.Function(cV)
+
+        # Replace dictionary with coarse state, test and trial functions
+        replace_d = {fu: cu,
+                     test: firedrake.TestFunction(cV),
+                     trial: firedrake.TrialFunction(cV)}
+
+        cF = coarsen_form(fctx.F, Nf, Nc, replace_d)
+        cJ = coarsen_form(fctx.J, Nf, Nc, replace_d)
+        cJp = coarsen_form(fctx.Jp, Nf, Nc, replace_d)
+        fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
+        cbcs = coarsen_bcs(fproblem.bcs)
+
+        # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
+        cappctx = dict(fctx.appctx)
+        for key in cappctx:
+            val = cappctx[key]
+            if isinstance(val, dict):
+                cappctx[key] = coarsen_quadrature(val, Nf, Nc)
+            elif isinstance(val, Expr):
+                cappctx[key] = replace(val, replace_d)
+            elif isinstance(val, Form):
+                cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
+
+        # Coarsen the problem and the _SNESContext
+        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
+                                                         form_compiler_parameters=fcp,
+                                                         is_linear=fproblem.is_linear)
+
+        cctx = type(fctx)(cproblem, fctx.mat_type, fctx.pmat_type,
+                          appctx=cappctx,
+                          pre_jacobian_callback=fctx._pre_jacobian_callback,
+                          pre_function_callback=fctx._pre_function_callback,
+                          post_jacobian_callback=fctx._post_jacobian_callback,
+                          post_function_callback=fctx._post_function_callback,
+                          options_prefix=fctx.options_prefix,
+                          transfer_manager=fctx.transfer_manager)
+
+        # FIXME setting up the _fine attribute triggers gmg injection.
+        # cctx._fine = fctx
+        fctx._coarse = cctx
+
+        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
+
+        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
+        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+        cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setCreateInjection(self.create_injection)
+
+        # If we're the coarsest grid of the p-hierarchy, don't
+        # overwrite the coarsen routine; this is so that you can
+        # use geometric multigrid for the p-coarse problem
+        try:
+            self.coarsen_element(cele)
+            cdm.setCoarsen(self.coarsen)
+        except ValueError:
+            pass
+
+        # Injection of the initial state
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        injection = self.create_injection(cdm, fdm)
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+
+        return cdm
+
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
+        cV = cctx.J.arguments()[0].function_space()
+        fV = fctx.J.arguments()[0].function_space()
+
+        cbcs = cctx._problem.bcs if cbcs else []
+        fbcs = fctx._problem.bcs if fbcs else []
+
+        if mat_type == "matfree":
+            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
+        elif mat_type == "aij":
+            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs))
+        else:
+            raise ValueError("Unknown matrix type")
+        return I
+
+    def create_interpolation(self, dmc, dmf):
+        prefix = dmc.getOptionsPrefix()
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
+        return I, None
+
+    def create_injection(self, dmc, dmf):
+        prefix = dmc.getOptionsPrefix()
+        mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
+
+    def view(self, pc, viewer=None):
+        if viewer is None:
+            viewer = PETSc.Viewer.STDOUT
+        viewer.printfASCII("p-multigrid PC\n")
+        self.ppc.view(viewer)
+
+
+class PMGPC(PCBase, PMGBase):
+    def configure_pmg(self, pc, pdm):
+        odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
         ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
         ppc.setType("mg")
@@ -132,9 +350,7 @@ class PMGPC(PCBase):
         if "mg_coarse_pc_mg_levels" not in opts:
             opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
 
-        ppc.setFromOptions()
-        ppc.setUp()
-        self.ppc = ppc
+        return ppc
 
     def apply(self, pc, x, y):
         return self.ppc.apply(x, y)
@@ -142,117 +358,60 @@ class PMGPC(PCBase):
     def applyTranspose(self, pc, x, y):
         return self.ppc.applyTranspose(x, y)
 
-    def update(self, pc):
-        pass
+    def coarsen_bc_value(self, bc, cV):
+        return firedrake.zero(cV.shape)
 
-    def coarsen(self, fdm, comm):
-        fctx = get_appctx(fdm)
-        test, trial = fctx.J.arguments()
-        fV = test.function_space()
-        fu = fctx._problem.u
 
-        cele = self.coarsen_element(fV.ufl_element())
-        cV = firedrake.FunctionSpace(fV.mesh(), cele)
-        cdm = cV.dm
+class PMGSNES(SNESBase, PMGBase):
+    def configure_pmg(self, snes, pdm):
+        odm = snes.getDM()
+        psnes = PETSc.SNES().create(comm=snes.comm)
+        psnes.setOptionsPrefix(snes.getOptionsPrefix() + "pfas_")
+        psnes.setType("fas")
+        psnes.setDM(pdm)
+        psnes.incrementTabLevel(1, parent=snes)
 
-        cu = firedrake.Function(cV)
-        interpolators = tuple(firedrake.Interpolator(fus, cus) for fus, cus in zip(fu.split(), cu.split()))
+        (f, residual) = snes.getFunction()
+        assert residual is not None
+        (fun, args, kargs) = residual
+        psnes.setFunction(fun, f.duplicate(), args=args, kargs=kargs)
 
-        def inject_state(interpolators):
-            for interpolator in interpolators:
-                interpolator.interpolate()
+        pdm.setGlobalVector(f.duplicate())
+        self.dummy = f.duplicate()
+        psnes.setSolution(f.duplicate())
 
-        parent = get_parent(fdm)
-        assert parent is not None
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
+        # PETSc unfortunately requires us to make an ugly hack.
+        # We would like to use GMG for the coarse solve, at least
+        # sometimes. But PETSc will use this p-DM's getRefineLevels()
+        # instead of the getRefineLevels() of the MeshHierarchy to
+        # decide how many levels it should use for PCMG applied to
+        # the p-MG's coarse problem. So we need to set an option
+        # for the user, if they haven't already; I don't know any
+        # other way to get PETSc to know this at the right time.
+        opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+        if "fas_coarse_pc_mg_levels" not in opts:
+            opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+        if "fas_coarse_snes_fas_levels" not in opts:
+            opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
 
-        replace_d = {fu: cu,
-                     test: firedrake.TestFunction(cV),
-                     trial: firedrake.TrialFunction(cV)}
-        cJ = replace(fctx.J, replace_d)
-        cF = replace(fctx.F, replace_d)
-        if fctx.Jp is not None:
-            cJp = replace(fctx.Jp, replace_d)
-        else:
-            cJp = None
+        return psnes
 
-        cbcs = []
-        for bc in fctx._problem.bcs:
-            # Don't actually need the value, since it's only used for
-            # killing parts of the matrix. This should be generalised
-            # for p-FAS, if anyone ever wants to do that
+    def step(self, snes, x, f, y):
+        ctx = get_appctx(snes.dm)
+        push_appctx(self.ppc.dm, ctx)
+        x.copy(y)
+        self.ppc.solve(snes.vec_rhs or self.dummy, y)
+        y.aypx(-1, x)
+        snes.setConvergedReason(self.ppc.getConvergedReason())
+        pop_appctx(self.ppc.dm)
 
-            cV_ = cV
-            for index in bc._indices:
-                cV_ = cV_.sub(index)
+    def coarsen_bc_value(self, bc, cV):
+        if not isinstance(bc._original_arg, firedrake.Function):
+            return bc._original_arg
 
-            cbcs.append(firedrake.DirichletBC(cV_, firedrake.zero(cV_.shape),
-                                              bc.sub_domain,
-                                              method=bc.method))
-
-        fcp = fctx._problem.form_compiler_parameters
-        cproblem = firedrake.NonlinearVariationalProblem(cF, cu, cbcs, cJ,
-                                                         Jp=cJp,
-                                                         form_compiler_parameters=fcp,
-                                                         is_linear=fctx._problem.is_linear)
-
-        cctx = _SNESContext(cproblem, fctx.mat_type, fctx.pmat_type,
-                            appctx=fctx.appctx,
-                            pre_jacobian_callback=fctx._pre_jacobian_callback,
-                            pre_function_callback=fctx._pre_function_callback,
-                            post_jacobian_callback=fctx._post_jacobian_callback,
-                            post_function_callback=fctx._post_function_callback,
-                            options_prefix=fctx.options_prefix,
-                            transfer_manager=fctx.transfer_manager)
-
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx),
-                 call_setup=True)
-        add_hook(parent, setup=partial(inject_state, interpolators), call_setup=True)
-
-        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
-        cdm.setCreateInterpolation(self.create_interpolation)
-        cdm.setOptionsPrefix(fdm.getOptionsPrefix())
-
-        # If we're the coarsest grid of the p-hierarchy, don't
-        # overwrite the coarsen routine; this is so that you can
-        # use geometric multigrid for the p-coarse problem
-        try:
-            self.coarsen_element(cele)
-            cdm.setCoarsen(self.coarsen)
-        except ValueError:
-            pass
-
-        return cdm
-
-    def create_interpolation(self, dmc, dmf):
-        cctx = get_appctx(dmc)
-        fctx = get_appctx(dmf)
-
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-
-        cbcs = cctx._problem.bcs
-        fbcs = fctx._problem.bcs
-
-        prefix = dmc.getOptionsPrefix()
-        mattype = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-
-        if mattype == "matfree":
-            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
-        elif mattype == "aij":
-            I = prolongation_matrix_aij(fV, cV, fbcs, cbcs)
-        else:
-            raise ValueError("Unknown matrix type")
-
-        R = PETSc.Mat().createTranspose(I)
-        return R, None
-
-    def view(self, pc, viewer=None):
-        if viewer is None:
-            viewer = PETSc.Viewer.STDOUT
-        viewer.printfASCII("p-multigrid PC\n")
-        self.ppc.view(viewer)
+        coarse = firedrake.Function(cV)
+        coarse.interpolate(bc._original_arg)
+        return coarse
 
 
 def prolongation_transfer_kernel_aij(Pk, P1):
@@ -266,8 +425,8 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     expr = TestFunction(P1)
     to_element = create_base_element(Pk.ufl_element())
 
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-    kernel = op2.Kernel(ast, ast.name)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
     return kernel
 
 
@@ -282,7 +441,7 @@ def tensor_product_space_query(V):
     """
     from FIAT import reference_element
     ndim = V.ufl_domain().topological_dimension()
-    iscube = ndim == 2 or ndim == 3 and reference_element.is_hypercube(V.finat_element.cell)
+    iscube = (ndim == 2 or ndim == 3) and reference_element.is_hypercube(V.finat_element.cell)
 
     ele = V.ufl_element()
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
@@ -303,10 +462,12 @@ def tensor_product_space_query(V):
     if isinstance(ele, firedrake.TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
+            # variant = None defaults to spectral
+            # We must allow tensor products between None and spectral
             variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
         except ValueError:
-            # Mixed variants
-            variant = "mixed"
+            # Multiple variants
+            variant = "unsupported"
             use_tensorproduct = False
     else:
         family = {ele.family()}
@@ -314,8 +475,52 @@ def tensor_product_space_query(V):
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    use_tensorproduct = use_tensorproduct and iscube and (isCG or isDG) and variant == "spectral"
+    isspectral = variant is None or variant == "spectral"
+    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG)
+
     return use_tensorproduct, N, family, variant
+
+
+def get_line_element(V):
+    # Return the corresponding Line element for CG / DG
+    from FIAT.reference_element import UFCInterval
+    from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+    assert use_tensorproduct
+    cell = UFCInterval()
+    if family <= {"Q", "Lagrange"}:
+        if variant == "equispaced":
+            element = lagrange.Lagrange(cell, N)
+        else:
+            element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
+    elif family <= {"DQ", "Discontinuous Lagrange"}:
+        if variant == "equispaced":
+            element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
+        else:
+            element = gauss_legendre.GaussLegendre(cell, N)
+    else:
+        raise ValueError("Don't know how to get line element for %r" % family)
+
+    return element
+
+
+def get_line_nodes(V):
+    # Return the corresponding nodes in the Line for CG / DG
+    from FIAT.reference_element import UFCInterval
+    from FIAT import quadrature
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
+    assert use_tensorproduct
+    cell = UFCInterval()
+    if variant == "equispaced":
+        return cell.make_points(1, 0, N+1)
+    elif family <= {"Q", "Lagrange"}:
+        rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
+        return rule.get_points()
+    elif family <= {"DQ", "Discontinuous Lagrange"}:
+        rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
+        return rule.get_points()
+    else:
+        raise ValueError("Don't know how to get line nodes for %r" % family)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -338,19 +543,20 @@ class StandaloneInterpolationMatrix(object):
 
         tf, _, _, _ = tensor_product_space_query(Vf)
         tc, _, _, _ = tensor_product_space_query(Vc)
+
         if tf and tc:
-            self.make_blas_kernels(Vf, Vc)
+            self.prolong_kernel, self.restrict_kernel = self.make_blas_kernels(Vf, Vc)
         else:
-            self.make_kernels(Vf, Vc)
+            self.prolong_kernel, self.restrict_kernel = self.make_kernels(Vf, Vc)
         return
 
     def make_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between arbitrary elements.
 
-        This is temporary while we wait for structure-preserving tfsc kernels.
+        This is temporary while we wait for dual evaluation in FInAT.
         """
-        self.prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
+        prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -370,40 +576,45 @@ class StandaloneInterpolationMatrix(object):
                    Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
         }}
         """
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
+        return prolong_kernel, restrict_kernel
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
         from tsfc import compile_expression_dual_evaluation
         from tsfc.finatinterface import create_base_element
         to_element = create_base_element(Vf.ufl_element())
-        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-        return op2.Kernel(ast, ast.name)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+        return op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
 
-    def make_blas_kernels(self, Vf, Vc):
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def make_blas_kernels(Vf, Vc):
         """
-        Interpolation and restriction kernels between CG/DG
+        Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
 
         Works by tabulating the coarse 1D Lagrange basis
-        functions in the (Nf+1)-by-(Nc+1) matrix Jhat,
-        and using the fact that the 2d/3d tabulation is the
+        functions as the (Nf+1)-by-(Nc+1) matrix Jhat,
+        and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
         ndim = Vf.ufl_domain().topological_dimension()
-        zf = self.get_nodes_1d(Vf)
-        zc = self.get_nodes_1d(Vc)
-        Jnp = self.barycentric(zc, zf)
-        # Declare array shapes to be used as literals inside the kernels, I follow to the m-by-n convention.
-        (mx, nx) = Jnp.shape
-        (my, ny) = (mx, nx) if ndim >= 2 else (1, 1)
-        (mz, nz) = (mx, nx) if ndim >= 3 else (1, 1)
+        celem = get_line_element(Vc)
+        nodes = get_line_nodes(Vf)
+        basis = celem.tabulate(0, nodes)
+        Jhat = basis[(0,)]
+
+        # Declare array shapes to be used as literals inside the kernels
+        # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
+        nx, mx = Jhat.shape
+        ny, my = (nx, mx) if ndim >= 2 else (1, 1)
+        nz, mz = (nx, mx) if ndim >= 3 else (1, 1)
         nscal = Vf.value_size  # number of components
         mxyz = mx*my*mz  # dim of Vf scalar element
         nxyz = nx*ny*nz  # dim of Vc scalar element
         lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
-        Jhat = np.ascontiguousarray(Jnp.T)  # BLAS uses FORTRAN ordering
         # Pass the 1D tabulation as hexadecimal string
         JX = ', '.join(map(float.hex, np.asarray(Jhat).flatten()))
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
@@ -480,7 +691,7 @@ class StandaloneInterpolationMatrix(object):
         }
         """
 
-        # UFL elements order the component DoFs related to the same node contiguously.
+        # FInAT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
@@ -529,51 +740,13 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-        self.prolong_kernel = op2.Kernel(prolong_code, "prolongation", ldargs=["-lpetsc"])
-        self.restrict_kernel = op2.Kernel(restrict_code, "restriction", ldargs=["-lpetsc"])
 
-    @staticmethod
-    def get_nodes_1d(V):
-        # Return GLL nodes if V==CG or GL nodes if V==DG
-        from FIAT import quadrature
-        from FIAT.reference_element import DefaultLine
-        use_tensorproduct, N, family, variant = tensor_product_space_query(V)
-        assert use_tensorproduct
-        if family <= {"Q", "Lagrange"}:
-            if variant == "equispaced":
-                nodes = np.linspace(-1.0E0, 1.0E0, N+1)
-            else:
-                rule = quadrature.GaussLobattoLegendreQuadratureLineRule(DefaultLine(), N+1)
-                nodes = np.asarray(rule.get_points()).flatten()
-        elif family <= {"DQ", "Discontinuous Lagrange"}:
-            if variant == "equispaced":
-                nodes = np.arange(1, N+2)*(2.0E0/(N+2))-1.0E0
-            else:
-                rule = quadrature.GaussLegendreQuadratureLineRule(DefaultLine(), N+1)
-                nodes = np.asarray(rule.get_points()).flatten()
-        else:
-            raise ValueError("Don't know how to get nodes for %r" % family)
-
-        return nodes
-
-    @staticmethod
-    def barycentric(xsrc, xdst):
-        # returns barycentric interpolation matrix from xsrc to xdst
-        # J[i,j] = phi_j(xdst[i]), where phi_j(xsrc[i]) = delta_{ij}
-        # and phi_j(x) are Lagrange polynomials defined on xsrc[j]
-        # use the second form of the barycentric interpolation formula
-        # see Trefethen ATAP eq. 5.11
-        temp = np.subtract.outer(xsrc, xsrc)
-        np.fill_diagonal(temp, 1.0E0)
-        lam = 1.0E0 / np.prod(temp, axis=1)  # barycentric weights
-        J = np.subtract.outer(xdst, xsrc)
-        idx = np.argwhere(np.isclose(J, 0.0E0, 1E-14))
-        J[idx[:, 0], idx[:, 1]] = 1.0E0
-        J = lam/J
-        J[idx[:, 0], :] = 0.0E0
-        J[idx[:, 0], idx[:, 1]] = 1.0E0
-        J *= (1/np.sum(J, axis=1))[:, None]
-        return J
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+        prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        return prolong_kernel, restrict_kernel
 
     @staticmethod
     def multiplicity(V):

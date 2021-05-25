@@ -820,12 +820,24 @@ class PatchBase(PCSNESBase):
         self.patch = patch
 
     def destroy(self, obj):
-        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
-        d = self.plex.getDict()
-        try:
-            del d["__firedrake_mesh__"]
-        except KeyError:
-            pass
+        # In this destructor we clean up the __firedrake_mesh__ we set
+        # on the plex and the context we set on the patch object.
+        # We have to check if these attributes are available because
+        # the destroy function will be called by petsc4py when
+        # PCPythonSetContext is called (which occurs before
+        # initialize).
+        if hasattr(self, "plex"):
+            d = self.plex.getDict()
+            try:
+                del d["__firedrake_mesh__"]
+            except KeyError:
+                pass
+        if hasattr(self, "patch"):
+            try:
+                del self.patch.getDict()["ctx"]
+            except KeyError:
+                pass
+            self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()

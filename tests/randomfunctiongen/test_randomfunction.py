@@ -2,25 +2,53 @@ from firedrake import *
 from firedrake import randomfunctiongen
 
 import pytest
-
-import inspect
 import numpy as np
 import numpy.random as randomgen
 
 
-brng_list = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass) if name not in ('BitGenerator', 'Generator', 'RandomState', 'SeedSequence')]
-meth_list = [name for name, _ in inspect.getmembers(randomgen.Generator) if not name.startswith('_') and name not in ('bit_generator', 'bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation')]
+@pytest.mark.parametrize("brng", ['MT19937', 'PCG64', 'Philox', 'SFC64'])
+@pytest.mark.parametrize("meth_args", [('beta', (0.3, 0.5)),
+                                       ('binomial', (7, 0.3)),
+                                       ('chisquare', (7,)),
+                                       ('choice', (1234 * 5678,)),
+                                       ('exponential', ()),
+                                       ('f', (7, 17)),
+                                       ('gamma', (3.14,)),
+                                       ('geometric', (0.5,)),
+                                       ('gumbel', ()),
+                                       ('hypergeometric', (17, 2 * 17, 3 * 17 - 1)),
+                                       ('laplace', ()),
+                                       ('logistic', ()),
+                                       ('lognormal', ()),
+                                       ('logseries', (0.3,)),
+                                       ('negative_binomial', (7, 0.3)),
+                                       ('noncentral_chisquare', (7, 3.14)),
+                                       ('noncentral_f', (7, 17, 3.14)),
+                                       ('normal', ()),
+                                       ('pareto', (3.14,)),
+                                       ('poisson', ()),
+                                       ('power', (3.14,)),
+                                       ('random', ()),
+                                       ('rayleigh', ()),
+                                       ('standard_cauchy', ()),
+                                       ('standard_exponential', ()),
+                                       ('standard_gamma', (3.14,)),
+                                       ('standard_normal', ()),
+                                       ('standard_t', (7,)),
+                                       ('triangular', (2.71, 3.14, 10.)),
+                                       ('uniform', ()),
+                                       ('vonmises', (2.71, 3.14)),
+                                       ('wald', (2.71, 3.14)),
+                                       ('weibull', (3.14,)),
+                                       ('zipf', (3.14,))])
+def test_randomfunc(brng, meth_args):
 
-
-@pytest.mark.parametrize("brng", brng_list)
-@pytest.mark.parametrize("meth", meth_list)
-def test_randomfunc(brng, meth):
+    meth, args = meth_args
 
     mesh = UnitSquareMesh(10, 10)
     V0 = VectorFunctionSpace(mesh, "CG", 1)
     V1 = FunctionSpace(mesh, "CG", 1)
     V = V0 * V1
-
     seed = 123456789
     # Original
     bgen = getattr(randomgen, brng)(seed=seed)
@@ -36,78 +64,6 @@ def test_randomfunc(brng, meth):
         state['state'] = {'state': seed, 'inc': V.comm.Get_rank()}
         fgen.state = state
     rg_wrap = randomfunctiongen.Generator(fgen)
-
-    if meth == 'beta':
-        args = (0.3, 0.5)
-    elif meth == 'binomial':
-        args = (7, 0.3)
-    elif meth == 'chisquare':
-        args = (7,)
-    elif meth == 'choice':
-        args = (1234 * 5678,)
-    elif meth == 'exponential':
-        args = ()
-    elif meth == 'f':
-        args = (7, 17)
-    elif meth == 'gamma':
-        args = (3.14,)
-    elif meth == 'geometric':
-        args = (0.5,)
-    elif meth == 'gumbel':
-        args = ()
-    elif meth == 'hypergeometric':
-        args = (17, 2 * 17, 3 * 17 - 1)
-    elif meth == 'laplace':
-        args = ()
-    elif meth == 'logistic':
-        args = ()
-    elif meth == 'lognormal':
-        args = ()
-    elif meth == 'logseries':
-        args = (0.3,)
-    elif meth == 'negative_binomial':
-        args = (7, 0.3)
-    elif meth == 'noncentral_chisquare':
-        args = (7, 3.14)
-    elif meth == 'noncentral_f':
-        args = (7, 17, 3.14)
-    elif meth == 'normal':
-        args = ()
-    elif meth == 'pareto':
-        args = (3.14,)
-    elif meth == 'poisson':
-        args = ()
-    elif meth == 'power':
-        args = (3.14,)
-    elif meth == 'random':
-        args = ()
-    elif meth == 'rayleigh':
-        args = ()
-    elif meth == 'standard_cauchy':
-        args = ()
-    elif meth == 'standard_exponential':
-        args = ()
-    elif meth == 'standard_gamma':
-        args = (3.14,)
-    elif meth == 'standard_normal':
-        args = ()
-    elif meth == 'standard_t':
-        args = (7,)
-    elif meth == 'triangular':
-        args = (2.71, 3.14, 10.)
-    elif meth == 'uniform':
-        args = ()
-    elif meth == 'vonmises':
-        args = (2.71, 3.14)
-    elif meth == 'wald':
-        args = (2.71, 3.14)
-    elif meth == 'weibull':
-        args = (3.14,)
-    elif meth == 'zipf':
-        args = (3.14,)
-    else:
-        raise RuntimeError("Unknown method: add test for %s." % meth)
-
     for i in range(1, 10):
         f = getattr(rg_wrap, meth)(V, *args)
         with f.dat.vec_ro as v:
