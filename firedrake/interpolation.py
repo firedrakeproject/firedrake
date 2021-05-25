@@ -374,11 +374,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             m_ = coefficient.cell_node_map()
             parloop_args.append(coefficient.dat(op2.READ, m_))
 
-    parloop = op2.ParLoop(*parloop_args).compute
+    parloop = op2.ParLoop(*parloop_args)
+    parloop_compute_callable = parloop.compute
     if isinstance(tensor, op2.Mat):
-        return parloop, tensor.assemble
+        return parloop_compute_callable, tensor.assemble
     else:
-        return copyin + (parloop, ) + copyout
+        return copyin + (parloop_compute_callable, ) + copyout
 
 
 @singledispatch
