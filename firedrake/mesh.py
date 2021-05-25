@@ -738,6 +738,7 @@ class MeshTopology(AbstractMeshTopology):
             del self._callback
             if self.comm.size > 1:
                 add_overlap()
+            dmcommon.complete_facet_labels(self.topology_dm)
 
             if reorder:
                 with timed_region("Mesh: reorder"):
@@ -830,7 +831,7 @@ class MeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
 
         dm = self.topology_dm
-        facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets").encode(),
+        facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets"),
                                                        self._facet_ordering)
         label = dmcommon.FACE_SETS_LABEL
         if dm.hasLabel(label):
@@ -1628,7 +1629,7 @@ def Mesh(meshfile, **kwargs):
                  the default choice), ``False`` (do not) ``True``
                  (do), or a 2-tuple that specifies a partitioning of
                  the cells (only really useful for debugging).
-             -``"partitioner_type"``: which may take ``"chaco"``,
+             - ``"partitioner_type"``: which may take ``"chaco"``,
                  ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
              - ``"overlap_type"``: a 2-tuple indicating how to grow
                  the mesh overlap.  The first entry should be a

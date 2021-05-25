@@ -56,7 +56,7 @@ Jupyter notebooks
 
 In addition to the documented tutorials, we also have some `Jupyter
 notebooks <https://jupyter.org/>`__ that are a more interactive way of
-getting to know Firedrake.  They are described in more detail :doc:`on
+getting to know Firedrake. They are described in more detail :doc:`on
 their own page <notebooks>`.
 
 Youtube Channel
@@ -118,3 +118,4 @@ element systems.
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
    Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>
    Linear mixed fluid-structure interaction system.<demos/linear_fluid_structure_interaction.py>
+   Mass lumping for a high order spectral wave equation.<demos/higher_order_mass_lumping.py>

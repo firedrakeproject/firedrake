@@ -41,6 +41,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
     int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
+    int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel

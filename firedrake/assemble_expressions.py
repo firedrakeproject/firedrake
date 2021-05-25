@@ -295,7 +295,7 @@ class Assign(object):
     def args(self):
         """Tuple of par_loop arguments for the expression."""
         args = []
-        if self.lvalue in self.rcoefficients:
+        if isinstance(self, AugmentedAssign) or self.lvalue in self.rcoefficients:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
         else:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
@@ -434,11 +434,14 @@ def pointwise_expression_kernel(exprs, scalar_type):
             except KeyError:
                 continue
             plargs.append(arg)
-            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype))
+            is_input = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.READ, op2.RW]
+            is_output = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.RW, op2.WRITE]
+            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype, is_input=is_input, is_output=is_output))
     assert len(coefficients) == 0
-    knl = generate(impero_c, args, scalar_type, kernel_name="expression_kernel",
+    name = "expression_kernel"
+    knl = generate(impero_c, args, scalar_type, kernel_name=name,
                    return_increments=False)
-    return firedrake.op2.Kernel(knl, knl.name), plargs
+    return firedrake.op2.Kernel(knl, name), plargs
 
 
 class dereffed(object):

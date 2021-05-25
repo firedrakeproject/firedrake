@@ -19,13 +19,13 @@ __all__ = ("interpolate", "Interpolator")
 
 def interpolate(expr, V, subset=None, access=op2.WRITE):
     """Interpolate an expression onto a new function in V.
+
     :arg expr: an :class:`.Expression`.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
-
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
@@ -46,12 +46,14 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
        If you find interpolating the same expression again and again
        (for example in a time loop) you may find you get better
        performance by using an :class:`Interpolator` instead.
+
     """
     return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
 
 class Interpolator(object):
     """A reusable interpolation object.
+
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
@@ -59,6 +61,7 @@ class Interpolator(object):
         interpolation over.
     :kwarg freeze_expr: Set to True to prevent the expression being
         re-evaluated on each call.
+
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
 
@@ -67,6 +70,7 @@ class Interpolator(object):
        The :class:`Interpolator` holds a reference to the provided
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
+
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
         try:
@@ -82,12 +86,13 @@ class Interpolator(object):
     @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
+
         :arg function: If the expression being interpolated contains an
-           :class:`ufl.Argument`, then the :class:`.Function` value to
-           interpolate.
+            :class:`ufl.Argument`, then the :class:`.Function` value to
+            interpolate.
         :kwarg output: Optional. A :class:`.Function` to contain the output.
         :kwarg transpose: Set to true to apply the transpose (adjoint) of the
-           interpolation operator.
+              interpolation operator.
         :returns: The resulting interpolated :class:`.Function`.
         """
         if transpose and not self.nargs:
@@ -231,11 +236,17 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if not isinstance(expr, firedrake.Expression):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
-        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element,
-                                                                                                                       domain=V.mesh(),
-                                                                                                                       parameters=parameters,
-                                                                                                                       coffee=False)
-        kernel = op2.Kernel(ast, ast.name, requires_zeroed_output_arguments=True)
+        kernel = compile_expression_dual_evaluation(expr, to_element,
+                                                    domain=V.mesh(),
+                                                    parameters=parameters,
+                                                    coffee=False)
+        ast = kernel.ast
+        oriented = kernel.oriented
+        needs_cell_sizes = kernel.needs_cell_sizes
+        coefficients = kernel.coefficients
+        first_coeff_fake_coords = kernel.first_coefficient_fake_coords
+        name = kernel.name
+        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
     elif hasattr(expr, "eval"):
         to_pts = []
         for dual in to_element.fiat_equivalent.dual_basis():

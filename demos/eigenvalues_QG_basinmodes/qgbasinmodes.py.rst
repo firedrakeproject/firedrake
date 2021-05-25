@@ -250,3 +250,4 @@ This demo can be found as a Python script in `qgbasinmodes.py <qgbasinmodes.py>`
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
    :keyprefix: QGeval-
+   :labelprefix: QGeval-

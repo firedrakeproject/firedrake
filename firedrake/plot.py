@@ -72,7 +72,10 @@ def _get_collection_types(gdim, tdim):
 
 
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
-    r"""Plot a mesh with a different color for each boundary segment
+    r"""Plot a mesh colouring marked facet segments
+
+    Typically boundary segments will be marked and coloured, but
+    interior facets that are marked will also be coloured.
 
     The interior and boundary keyword arguments can be any keyword argument for
     :class:`LineCollection <matplotlib.collections.LinecCollection>` and
@@ -121,18 +124,28 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         axes.add_collection(interior_collection)
         result.append(interior_collection)
 
+    def facet_data(typ):
+        if typ == "interior":
+            facets = mesh.interior_facets
+            node_map = coordinates.interior_facet_node_map()
+            node_map = node_map.values[:, :node_map.arity//2]
+            local_facet_ids = facets.local_facet_dat.data_ro[:, :1].reshape(-1)
+        elif typ == "exterior":
+            facets = mesh.exterior_facets
+            local_facet_ids = facets.local_facet_dat.data_ro
+            node_map = coordinates.exterior_facet_node_map().values
+        else:
+            raise ValueError("Unhandled facet type")
+        mask = np.zeros(node_map.shape, dtype=bool)
+        for facet_index, local_facet_index in enumerate(local_facet_ids):
+            mask[facet_index, topology[tdim - 1][local_facet_index]] = True
+        faces = node_map[mask].reshape(-1, tdim)
+        return facets, faces
+
     # Add colored lines/polygons for the boundary facets
-    facets = mesh.exterior_facets
-    local_facet_ids = facets.local_facet_dat.data_ro
-    exterior_facet_node_map = coordinates.exterior_facet_node_map().values
     topology = coordinates.function_space().finat_element.cell.get_topology()
 
-    mask = np.zeros(exterior_facet_node_map.shape, dtype=bool)
-    for facet_index, local_facet_index in enumerate(local_facet_ids):
-        mask[facet_index, topology[tdim - 1][local_facet_index]] = True
-    faces = exterior_facet_node_map[mask].reshape(-1, tdim)
-
-    markers = facets.unique_markers
+    markers = mesh.exterior_facets.unique_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
@@ -147,9 +160,13 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
-        face_indices = facets.subset(int(marker)).indices
-        marker_faces = faces[face_indices, :]
-        vertices = coords[marker_faces]
+        vertices = []
+        for typ in ["interior", "exterior"]:
+            facets, faces = facet_data(typ)
+            face_indices = facets.subset(int(marker)).indices
+            marker_faces = faces[face_indices, :]
+            vertices.append(coords[marker_faces])
+        vertices = np.concatenate(vertices)
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
         marker_collection = BoundaryCollection(vertices, **_boundary_kw)
         axes.add_collection(marker_collection)
