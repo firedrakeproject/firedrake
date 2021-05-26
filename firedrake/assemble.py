@@ -442,11 +442,16 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     # worry about hashing the arguments.
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
-    parloops = cached_parloops if cached_init_args == parloop_init_args else None
+    cached_extop_loops = expr._cache.get("extop_loops", None)
+    extop_loops, parloops = (cached_extop_loops, cached_parloops) if cached_init_args == parloop_init_args else (None, None)
 
     if not parloops:
-        parloops = _make_parloops(*parloop_init_args)
+        extop_loops, parloops = _make_parloops(*parloop_init_args)
         expr._cache["parloops"] = (parloop_init_args, parloops)
+        expr._cache["extop_loops"] = extop_loops
+
+    for evaluate in extop_loops:
+        evaluate()
 
     for parloop in parloops:
         parloop.compute()
@@ -694,6 +699,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
+    extop_loops = []
     if hasattr(expr, 'external_operators'):
         external_operators = list(expr.external_operators())
         new_coefficients = list(e.get_coefficient() for e in external_operators)
@@ -719,7 +725,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
         coefficients += tuple(e for e in new_coefficients if e not in coefficients)
         # If there are any PointwiseOperators, evaluate them now.
         for e in external_operators:
-            yield e.evaluate
+            extop_loops.append(e.evaluate)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -834,4 +840,4 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
             parloops.append(op2.ParLoop(*args, **kwargs))
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
-    return tuple(parloops)
+    return tuple(extop_loops), tuple(parloops)
