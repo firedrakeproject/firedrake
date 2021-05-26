@@ -5,6 +5,7 @@ import ufl
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+from types import SimpleNamespace
 
 
 class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
@@ -192,17 +193,17 @@ class AssembledMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
-        # sets self._a, self._bcs, and self._mat_type
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
 
         self.petscmat = petscmat
+  
+        self.M = SimpleNamespace(handle = self.mat())
 
-        # self.M = { "handle": self.petscmat}
-
-    # def. 
+    def mat(self):
+        return self.petscmat
 
     def __add__(self, other):
         if isinstance(other, AssembledMatrix):

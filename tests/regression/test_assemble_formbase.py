@@ -98,7 +98,9 @@ def test_assemble_adjoint(M):
     assembledM = assemble(M)
     res2 = assemble(ufl.adjoint(assembledM))
     assert isinstance(res, ufl.Matrix)
-    assert np.allclose(res.petscmat[:,:], res2.petscmat[:,:], rtol=1e-14)
+    assert res.M.handle == res.petscmat
+    print(res2.M)
+    assert np.allclose(res.M.handle[:,:], res2.M.handle[:,:], rtol=1e-14)
 
 def test_assemble_action(M, f):
     res = assemble(action(M, f))
@@ -112,6 +114,22 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+
+def test_assemble_action_matrix(M, f):
+    # TODO this is currently mathematically wrong
+    res = assemble(ufl.Action(M, adjoint(M)))
+    assembledM = assemble(M)
+    assembledAdjoint = assemble(adjoint(M))
+    res2 = assemble(action(assembledM, adjoint(M)))
+    assert isinstance(res2, Matrix)
+    assert isinstance(res, Matrix) 
+    # assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
+    assert np.allclose(res.M.handle[:,:], res2.M.handle[:,:], rtol=1e-14)
+    # for f in res2.split():
+    #     if f.function_space().rank == 2:
+    #         assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+    #     else:
+    #         assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
 def test_vector_formsum(a):

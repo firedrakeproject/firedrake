@@ -179,15 +179,10 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         mat = args[0] 
         res = PETSc.Mat().create()
         petsc_mat = mat.M.handle
-        # print(petsc_mat.hermitian)
-        # print(petsc_mat.isHermitian())
-        # print(petsc_mat.getHermitian())
-        print(dir(petsc_mat))
-        # PETSc.Mat().hermitian(petsc_mat,res)
-        # this should be hermitian
+        # TODO Add Hermitian Transpose to petsc4py and replace transpose
         petsc_mat.transpose()
         (row, col) = mat.arguments()
-        return matrix.AssembledMatrix(mat.a.arguments(), bcs, petsc_mat,
+        return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
                                      appctx=appctx,
                                      options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
@@ -206,6 +201,15 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                 with res.dat.vec as res_vec:
                     petsc_mat.mult(v_vec, res_vec)
             return firedrake.Cofunction(row.function_space(), val = res.dat)
+        elif isinstance(rhs, matrix.MatrixBase):
+            petsc_mat = lhs.M.handle
+            (row, col) = lhs.arguments()
+            res = PETSc.Mat().create()
+            # TODO Figure out what goes here
+            res = petsc_mat.matMult(rhs.M.handle)
+            return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                                     appctx=appctx,
+                                     options_prefix=options_prefix)
         else:
             raise TypeError("Incompatible RHS for Action")
     elif isinstance(expr, ufl.FormSum):
@@ -214,7 +218,7 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         if len(args) == 0:
             raise TypeError("Empty FormSum")
         if all([isinstance(op, firedrake.Cofunction) for op in args]):
-            # check all are in same function space?
+            # TODO check all are in same function space
             res = sum([w*op.dat for (op,w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
@@ -231,7 +235,6 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
                                      appctx=appctx,
                                      options_prefix=options_prefix)
-           
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
