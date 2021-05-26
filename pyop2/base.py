@@ -2016,6 +2016,7 @@ class MixedDat(Dat):
                 return "Dat"
             else:
                 raise DataSetTypeError("Huh?!")
+        DataCarrier.__init__(self)
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(_make_object(what(d), d) for d in mdset_or_dats)
         else:

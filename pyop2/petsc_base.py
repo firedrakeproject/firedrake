@@ -503,6 +503,7 @@ class MatBlock(base.Mat):
     :arg j: The block column.
     """
     def __init__(self, parent, i, j):
+        base.DataCarrier.__init__(self)
         self._parent = parent
         self._i = i
         self._j = j
