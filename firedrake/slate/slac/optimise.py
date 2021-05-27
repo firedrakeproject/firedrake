@@ -113,6 +113,7 @@ def _drop_double_transpose(expr, self):
 @_drop_double_transpose.register(Tensor)
 @_drop_double_transpose.register(AssembledVector)
 @_drop_double_transpose.register(TensorShell)
+@_drop_double_transpose.register(Block)
 def _drop_double_transpose_terminals(expr, self):
     return expr
 
