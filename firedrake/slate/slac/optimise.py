@@ -130,7 +130,6 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Negative)
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
-@_drop_double_transpose.register(Block)
 def _drop_double_transpose_distributive(expr, self):
     return type(expr)(*map(self, expr.children))
 
