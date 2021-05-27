@@ -383,7 +383,12 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
 
         # Register kernels
-        loop = itertools.chain([k.items() for k in tsfc_kernels], [{slate_loopy.name:slate_loopy_prg}.items()])
+        loop = []
+        for k in tsfc_kernels:
+            if k: 
+                loop += [k.items()]
+        loop += [{slate_loopy.name:slate_loopy_prg}.items()]
+
         for l in loop:
             (name, knl), = tuple(l)
             if knl:
