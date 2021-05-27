@@ -6,7 +6,7 @@ from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
+from ufl import as_tensor, diag_vector, dot, dx, grad, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
@@ -35,11 +35,15 @@ class FDMPC(PCBase):
         V = get_function_space(dm)
 
         ele = V.ufl_element()
+        if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
+            subel = ele.sub_elements()
+            ele = subel[0]
         if isinstance(ele, firedrake.TensorProductElement):
             family = set(e.family() for e in ele.sub_elements())
         else:
             family = {ele.family()}
-        needs_interior_facet = not family <= {"Q", "Lagrange"}
+
+        needs_interior_facet = not (family <= {"Q", "Lagrange"})
 
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
@@ -102,7 +106,7 @@ class FDMPC(PCBase):
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
-            Gq, Bq, Jq = self.assemble_coef(mu, helm, 0, diagonal=True, piola=needs_hdiv)
+            Gq, Bq, Jq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
             Pmat = self.assemble_affine(A, V, Gq, Bq, Jq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
         else:
             raise ValueError("Unknown fdm_type")
@@ -361,40 +365,47 @@ class FDMPC(PCBase):
             facet_cells = self.mesh.interior_facets.facet_cell_map.values
             facet_data = self.mesh.interior_facets.local_facet_dat.data
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
-
+            
+            jac0 = 1.0E0
+            jac1 = 1.0E0
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
-
+                
                 mu0 = -np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
                 ie = lexico_facet(f)
                 if needs_hdiv:
-                    mu0 *= np.sign(np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0))
-                    mu1 *= np.sign(np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0))
-                    # Handle the choice of basis (-1, 0), (0, 1) for H(div)
-                    mu0[0] *= -1
-                    mu1[0] *= -1
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
+                    jac0 = np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0)
+                    jac1 = np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0)
+                    mu0 *= np.sign(jac0)
+                    mu1 *= np.sign(jac1)
+                    # Handle the choice of basis (-1, 0), (0, 1) for H(div)
+                    if len(mu0.shape) > 1:
+                        mu0[0] *= -1
+                        mu1[0] *= -1
 
+                jac = [jac0, jac1]
                 istart = 1 if needs_hdiv else 0
                 for k in range(istart, ncomp):
                     if needs_hdiv:
-                        facet_perm = (k+np.arange(ncomp)) % ncomp
+                        facet_perm = (k+np.arange(ndim)) % ndim
                         k0 = (k+idir[0]) % ncomp
                         k1 = (k+idir[1]) % ncomp
                     else:
-                        facet_perm = (idir[0]+np.arange(ncomp)) % ncomp
+                        facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         k0 = k
                         k1 = k
-
+                    
                     mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                           mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
-
+                    
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
-                    penalty = eta * 0.5E0 * (abs(mu[0]) + abs(mu[1]))
+                    
+                    penalty = eta * (abs(mu[0]) + abs(mu[1]))
                     for j, jface in enumerate(facet_data[f]):
                         j0 = j * offset
                         j1 = j0 + offset
@@ -403,10 +414,17 @@ class FDMPC(PCBase):
                             i0 = i * offset
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
-                            sij = np.sign(mu[i] * mu[j])
-                            adense[i0:i1, jj] -= sij*abs(0.5E0*mu[i]) * Dfacet[:, iface % 2]
-                            adense[ii, j0:j1] -= sij*abs(0.5E0*mu[j]) * Dfacet[:, jface % 2]
-                            adense[ii, jj] += sij*penalty
+                            alpha = np.sqrt( abs((jac[0] * jac[1]) / (jac[i] * jac[j])) )
+                            
+                            t = np.sqrt(abs(jac[0]*jac[1]))
+                            ti = np.sqrt(abs(t/jac[i]))
+                            tj = np.sqrt(abs(t/jac[j]))
+                            
+                            sij = 0.5E0 * np.sign(mu[i] * mu[j])
+                            adense[i0:i1, jj] -= sij * tj * abs(mu[i]) * Dfacet[:, iface % 2]
+                            adense[ii, j0:j1] -= sij * ti * abs(mu[j]) * Dfacet[:, jface % 2]
+                            adense[ii, jj] += sij * ti*tj* penalty
+
 
                     ae = csr_matrix(adense)
                     if ndim > 1:
@@ -417,6 +435,7 @@ class FDMPC(PCBase):
 
                     facet_csr.append(ae)
                     if needs_hdiv:
+                        assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
                         rows[:sdim] = self.pull_facet(icell[0][k0], pshape[k0], idir[0])
                         rows[sdim:] = self.pull_facet(icell[1][k1], pshape[k1], idir[1])
                     else:
@@ -505,10 +524,10 @@ class FDMPC(PCBase):
                 if piola:
                     PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * PF[j3, i3] * PF[j4, i4] * mu[j1, j3, j2, j4], (i1, i2, i3, i4))
+                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j3, i3] * Finv[i4, j4] * mu[j1, j2, j3, j4], (i1, i2, i3, i4))
                 else:
-                    i1, i2, i3, i4, j1, j2 = indices(6)
-                    G = as_tensor(Finv[i1, j1] * Finv[i2, j2] * mu[j1, i3, j2, i4], (i1, i2, i3, i4))
+                    i1, i2, i3, i4, j2, j4 = indices(6)
+                    G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
@@ -524,7 +543,7 @@ class FDMPC(PCBase):
                 Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", dim=np.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
-                G = as_tensor([[G[i, i, j, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])])
+                G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
                 Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
@@ -714,7 +733,7 @@ class FDMPC(PCBase):
         Vhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in Vfdm])))
         VX = "V"
         VY = f"V+{nx*nx}" if ndim > 1 else "&one"
-        VZ = f"V+{nx+nx+ny*ny}" if ndim > 2 else "&one"
+        VZ = f"V+{nx*nx+ny*ny}" if ndim > 2 else "&one"
 
         kronmxv_code = """
         #include <petscsys.h>

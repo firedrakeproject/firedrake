@@ -475,7 +475,7 @@ def tensor_product_space_query(V):
             # Multiple variants
             variant = "unsupported"
             use_tensorproduct = False
-    if isinstance(ele, firedrake.EnrichedElement):
+    elif isinstance(ele, firedrake.EnrichedElement):
         family = {"NCF"}  # FIXME
         variant = None
     else:
