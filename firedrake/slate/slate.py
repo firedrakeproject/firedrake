@@ -1268,9 +1268,9 @@ class Solve(BinaryOp):
         else:
             A_factored = A
 
-            super(Solve, self).__init__(A_factored, B)
+        super(Solve, self).__init__(A_factored, B)
 
-            self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
         self._matfree = matfree
 
