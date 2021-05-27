@@ -260,6 +260,23 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # Enough tests - don't both using it again for a different Function in V
 
 
+# "Source function space must advertise a cell node map to interpolate cross-mesh"
+@pytest.mark.xfail(raises=NotImplementedError)
+def test_scalar_real_interpolation(parentmesh, vertexcoords):
+    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vertexcoords = vm.coordinates.dat.data_ro
+    W = FunctionSpace(vm, "DG", 0)
+    V = FunctionSpace(parentmesh, "Real", 0)
+    v = interpolate(Constant(1.0), V)
+    w_v = interpolate(v, W)
+    assert np.allclose(w_v.dat.data_ro, 1.)
+    # try and make reusable Interpolator from V to W
+    A_w = Interpolator(TestFunction(V), W)
+    w_v = Function(W)
+    A_w.interpolate(v, output=w_v)
+    assert np.allclose(w_v.dat.data_ro, 1.)
+
+
 @pytest.mark.parallel
 def test_scalar_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
     test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords)

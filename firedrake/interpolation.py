@@ -180,6 +180,8 @@ def make_interpolator(expr, V, subset, access):
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+            if not argfs_map:
+                raise NotImplementedError("Source function space must advertise a cell node map to interpolate cross-mesh")
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
             # function space nodes on the source mesh.
@@ -368,6 +370,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             # a Real space
             m_ = coefficient.cell_node_map()
         elif coeff_mesh is source_mesh:
+            if not coefficient.cell_node_map():
+                raise NotImplementedError("Source function space must advertise a cell node map to interpolate cross-mesh")
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
             # function space nodes on the source mesh.
