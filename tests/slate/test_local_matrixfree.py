@@ -112,7 +112,8 @@ def f2(dg, mymesh):
                         "A.inv*A2",
                         "A2*A.inv*A",
                         "A+A-A2*A.inv*A",
-                        "advection"])
+                        "advection",
+                        "advectionT"])
 def expr(request, A, A2, A3, f, f2):
     if request.param == "A+A":
         return (A+A)*f
@@ -144,6 +145,8 @@ def expr(request, A, A2, A3, f, f2):
         return (A+A-A2*A.inv*A)*f
     elif request.param == "advection":
         return A3*f2
+    elif request.param == "advectionT":
+        return Transpose(A3)*f2
     # TODO Add test for a partially optimised expression
 
 
