@@ -95,9 +95,8 @@ def _action_solve(expr, self, state):
             expr1, expr2 = expr.children
             assert expr2.rank == 1
             coeff = self(expr2, state)
-            from ufl import Coefficient
-            arbitrary_coeff_x = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
-            arbitrary_coeff_p = AssembledVector(Coefficient(expr1.arg_function_spaces[state.pick_op]))
+            arbitrary_coeff_x = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
+            arbitrary_coeff_p = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
             Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
             Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
             if not isinstance(expr1, Tensor): # non terminal node 
