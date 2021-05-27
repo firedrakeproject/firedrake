@@ -170,19 +170,20 @@ def make_interpolator(expr, V, subset, access):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
+        target_mesh = V.ufl_domain()
+        source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
-        trans_mesh = (
-            argfs_map is not None
-            and argfs_map.iterset != V.cell_node_map().iterset
-        )
-        if trans_mesh:
-            if V.ufl_domain().geometric_dimension() != argfs.mesh().geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if isinstance(V.ufl_domain().topology, firedrake.mesh.VertexOnlyMeshTopology):
-                # Compose a vertex-cell to parent-cell-function-space-node map
-                argfs_map = compose_map_and_cache(V.ufl_domain().cell_parent_cell_map, argfs_map)
-            else:
+        if target_mesh is not source_mesh:
+            if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+            # Since the par_loop is over the target mesh cells we need to
+            # compose a map that takes us from target mesh cells to the
+            # function space nodes on the source mesh.
+            argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -242,27 +243,20 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
                            % (expr.ufl_shape, V.ufl_element().value_shape()))
 
+    # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.ufl_domain()
-    try:
-        trans_mesh = (
-            expr.ufl_domain() is not None  # Constant expr
-            and expr.ufl_domain() != V.mesh()  # Coming from a different domain
-        )
-    except AttributeError:
-        # Have python Expression
-        trans_mesh = False
+    if isinstance(expr, firedrake.Expression):
+        source_mesh = target_mesh
+    else:
+        source_mesh = expr.ufl_domain() or target_mesh
 
-    if trans_mesh:
-        if target_mesh.geometric_dimension() != expr.ufl_domain().geometric_dimension():
-            raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-        # In the trans-mesh case we loop over the target mesh cells so we need
-        # to compose a map that takes us from their cells to the source mesh
-        # cells, and (where necessary) to the function space nodes on the
-        # source mesh.
-        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-            target_mesh_source_mesh_map = target_mesh.cell_parent_cell_map
-        else:
+    if target_mesh is not source_mesh:
+        if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
             raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+        if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+        if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+            raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
         # For trans-mesh interpolation we use a FInAT QuadratureElement as the
         # (base) target element with runtime point set expressions as their
         # quadrature rule point set and weights from their dual basis.
@@ -277,13 +271,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
-        # The source mesh is on the expression not the FunctionSpace/Function
-        # we are interpolating into/onto
-        source_mesh = expr.ufl_domain()
-    else:
-        # The source mesh is that of the FunctionSpace/Function we are
-        # interpolating into/onto
-        source_mesh = target_mesh
 
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
@@ -322,7 +309,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # Replace with real source mesh coordinates
         coefficients[0] = source_mesh.coordinates
 
-    if trans_mesh:
+    if target_mesh is not source_mesh:
         # NOTE: TSFC will sometimes drop run-time arguments in generated
         # kernels if they are deemed not-necessary.
         # FIXME: Checking for argument name in the inner kernel to decide
@@ -340,7 +327,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             # source mesh's reference cell as an extra argument for the inner
             # loop. (With a vertex only mesh this is a single point for each
             # vertex cell.)
-            coefficients = coefficients + [target_mesh.reference_coordinates]
+            coefficients.append(target_mesh.reference_coordinates)
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -361,9 +348,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_node_map()
         columns_map = arguments[0].function_space().cell_node_map()
-        if trans_mesh:
-            # We have to map to the source mesh cells before mapping to nodes
-            columns_map = compose_map_and_cache(target_mesh_source_mesh_map,
+        if target_mesh is not source_mesh:
+            # Since the par_loop is over the target mesh cells we need to
+            # compose a map that takes us from target mesh cells to the
+            # function space nodes on the source mesh.
+            columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
                                                 columns_map)
         parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map)))
     if oriented:
@@ -373,12 +362,19 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         cs = target_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        if coefficient.ufl_domain() == source_mesh and trans_mesh:
-            m_ = compose_map_and_cache(target_mesh_source_mesh_map, coefficient.cell_node_map())
-            parloop_args.append(coefficient.dat(op2.READ, m_))
-        else:
+        coeff_mesh = coefficient.ufl_domain()
+        if coeff_mesh is target_mesh or not coeff_mesh:
+            # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
+            # a Real space
             m_ = coefficient.cell_node_map()
-            parloop_args.append(coefficient.dat(op2.READ, m_))
+        elif coeff_mesh is source_mesh:
+            # Since the par_loop is over the target mesh cells we need to
+            # compose a map that takes us from target mesh cells to the
+            # function space nodes on the source mesh.
+            m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+        else:
+            raise ValueError("Have coefficient with unexpected mesh")
+        parloop_args.append(coefficient.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
     parloop_compute_callable = parloop.compute
