@@ -263,6 +263,8 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
 # "Source function space must advertise a cell node map to interpolate cross-mesh"
 @pytest.mark.xfail(raises=NotImplementedError)
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
+    if parentmesh.ufl_cell().cellname() == "quadrilateral":
+        pytest.skip("Interpolation onto real spaces on quadrilaterals is broken")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     W = FunctionSpace(vm, "DG", 0)
