@@ -1,5 +1,7 @@
 import firedrake_configuration
 import os
+
+# Check that --honour-petsc-dir and PETSC_DIR/PETSC_ARCH make sense together
 import sys
 config = firedrake_configuration.get_config()
 # This check is only valid for the default install method, not when using Spack
@@ -15,7 +17,7 @@ if config["options"].get("install_mode", "default") == "default":
     elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
         os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
         os.environ["PETSC_ARCH"] = "default"
-del os, sys, config
+del sys, config
 
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
