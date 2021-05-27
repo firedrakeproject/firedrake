@@ -947,9 +947,7 @@ class BinaryOp(TensorOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Mul: '*',
-               Solve: '\\',
-               Action: '*!'}
+               Mul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -1098,6 +1096,10 @@ class Action(BinaryOp):
             return A.arg_function_spaces[:-1] + B.arg_function_spaces[1:]
         else:
             return A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
+
+    def _output_string(self, prec):
+        """Returns a string representation."""
+        return "(%s * (%s))" % self.operands
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
@@ -1310,6 +1312,10 @@ class Solve(BinaryOp):
             return (type(self), op1, op2, self._matfree, self._Aonx, self._Aonp)
         else:
             return (type(self), op1, op2, self._matfree)
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the inverse of a tensor."""
+        return "(%s).solve(%s)" % self.operands
 
 
 class Diagonal(UnaryOp):
