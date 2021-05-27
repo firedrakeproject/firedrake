@@ -260,8 +260,6 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # Enough tests - don't both using it again for a different Function in V
 
 
-# "Source function space must advertise a cell node map to interpolate cross-mesh"
-@pytest.mark.xfail(raises=NotImplementedError)
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
     if parentmesh.ufl_cell().cellname() == "quadrilateral":
         pytest.skip("Interpolation onto real spaces on quadrilaterals is broken")
@@ -272,7 +270,19 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     v = interpolate(Constant(1.0), V)
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, 1.)
+
+
+# TODO: Remove this skip when fixed
+@pytest.mark.skip("Some complex merge related problem, get this from loopy: TypeError: unsupported type for persistent hash keying: <class 'complex'>")
+def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # try and make reusable Interpolator from V to W
+    if parentmesh.ufl_cell().cellname() == "quadrilateral":
+        pytest.skip("Interpolation onto real spaces on quadrilaterals is broken")
+    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vertexcoords = vm.coordinates.dat.data_ro
+    W = FunctionSpace(vm, "DG", 0)
+    V = FunctionSpace(parentmesh, "Real", 0)
+    v = interpolate(Constant(1.0), V)
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)

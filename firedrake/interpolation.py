@@ -180,12 +180,13 @@ def make_interpolator(expr, V, subset, access):
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            if not argfs_map:
-                raise NotImplementedError("Source function space must advertise a cell node map to interpolate cross-mesh")
-            # Since the par_loop is over the target mesh cells we need to
-            # compose a map that takes us from target mesh cells to the
-            # function space nodes on the source mesh.
-            argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+            if argfs_map:
+                # Since the par_loop is over the target mesh cells we need to
+                # compose a map that takes us from target mesh cells to the
+                # function space nodes on the source mesh. NOTE: argfs_map is
+                # allowed to be None when interpolating from a Real space, even
+                # in the trans-mesh case.
+                argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -370,12 +371,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             # a Real space
             m_ = coefficient.cell_node_map()
         elif coeff_mesh is source_mesh:
-            if not coefficient.cell_node_map():
-                raise NotImplementedError("Source function space must advertise a cell node map to interpolate cross-mesh")
-            # Since the par_loop is over the target mesh cells we need to
-            # compose a map that takes us from target mesh cells to the
-            # function space nodes on the source mesh.
-            m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+            if coefficient.cell_node_map():
+                # Since the par_loop is over the target mesh cells we need to
+                # compose a map that takes us from target mesh cells to the
+                # function space nodes on the source mesh.
+                m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+            else:
+                # m_ is allowed to be None when interpolating from a Real space,
+                # even in the trans-mesh case.
+                m_ = coefficient.cell_node_map()
         else:
             raise ValueError("Have coefficient with unexpected mesh")
         parloop_args.append(coefficient.dat(op2.READ, m_))
