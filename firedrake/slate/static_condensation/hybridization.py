@@ -341,7 +341,7 @@ class HybridizationPC(SCBase):
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU",
-                            matfree=True)
+                            matfree=local_matfree)
         self._elim_unknown = create_assembly_callable(sigma_rec,
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.ctx.fc_params)
