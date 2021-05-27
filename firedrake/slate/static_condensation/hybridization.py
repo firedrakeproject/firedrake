@@ -410,7 +410,7 @@ class HybridizationPC(SCBase):
                 else:
                     acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
-                    self.trace_ksp.solve(b, x_trace) # FIXME currently fails here because loopy out of bounds
+                    self.trace_ksp.solve(b, x_trace)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
