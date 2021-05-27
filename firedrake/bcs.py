@@ -320,7 +320,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
             return self
         return type(self)(V, g, sub_domain)
 
-    @PETSc.Log.EventDecorator()
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
