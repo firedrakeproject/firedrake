@@ -905,9 +905,9 @@ class LocalLoopyKernelBuilder(object):
         reads1, reads2 = insn.expression.parameters
         
         # Generate kernel args
-        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=True, is_input=True,
+        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
                                target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
-        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=True, is_input=True,
+        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
                                target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
                                      target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
