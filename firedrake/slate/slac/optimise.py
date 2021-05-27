@@ -3,6 +3,7 @@ from functools import singledispatch
 from contextlib import contextmanager
 from collections import namedtuple
 from firedrake.slate.slate import *
+from firedrake import Function
 
 
 def drop_double_transpose(expr):
