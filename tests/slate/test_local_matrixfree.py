@@ -229,3 +229,57 @@ def test_temporary_test_for_reallifeschur():
         # compare local to non-local action of schur complement on a function
     for a,b in zip(A.dat.data, B.dat.data):
         assert np.allclose(a,b)
+
+def test_hybridisation_bitbybit():
+    mesh = UnitSquareMesh(6, 6)
+    dimension = 1
+    U = FunctionSpace(mesh, "DRT", dimension+1)  
+    V = FunctionSpace(mesh, "DG", dimension)  
+    T = FunctionSpace(mesh, "DGT",dimension)
+    W = U * V * T
+
+    u, p, l = TrialFunctions(W)
+    w, phi, gamma = TestFunctions(W)
+    n = FacetNormal(mesh)
+
+    eq1 = ((dot(w,u)-p*div(w))*dx
+            + l*jump(w,n=n)*dS)
+    eq2 = (phi*div(u)+phi*p)*dx
+    eq3 = gamma*jump(u,n=n)*dS
+    a = eq1-eq2-eq3
+    L = phi*dx
+
+    _A = Tensor(a)
+    A = _A.blocks
+    S = A[2,2] + A[2,:2] * A[:2,:2].solve(A[:2,2])
+
+    _F = Tensor(L)
+    F = _F.blocks
+    E = F[2] - A[2, :2] * A[:2, :2].solve(F[:2])
+
+    # schur
+    coeff = Function(T)
+    coeff.assign(Constant(2))
+    C = AssembledVector(coeff)
+    matfree_schur = assemble(S*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+    schur = assemble(S*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
+
+    # reconstruction u
+    coeff = Function(U)
+    coeff.assign(Constant(V))
+    C = AssembledVector(coeff)
+    Sd = A[1,1]-A[1,0]*A[0,0].inv*A[0,1]
+    matfree_u = assemble(Sd*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+    u = assemble(Sd*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    assert np.allclose(u.dat.data, matfree_u.dat.data, atol=0.000001)
+
+    #recontruction sigma
+    coeff = Function(U)
+    coeff.assign(Constant(2))
+    C = AssembledVector(coeff)
+    Sl = A[1,2]-A[1,0]*A[0,0].inv*A[0,2]
+    matfree_sigma = assemble(Sl*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+    sigma = assemble(Sl*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    assert np.allclose(matfree_sigma.dat.data, sigma.dat.data, atol=0.000001)
+                
