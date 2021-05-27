@@ -789,27 +789,35 @@ class LocalLoopyKernelBuilder(object):
         name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
         stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 0.000000001)
         shape = expr.shape
+        corner_case = self.generate_code_for_converged_pre_iteration()
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
-                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17]: 
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
                     and 0<=i_5<n and 0<=i_6<=3*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
                     and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
-                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n}""" ,
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n}""" ,
                 ["""
                     x[i_0] = {b}[i_0] {{id=x0}} 
                     {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
-                    p[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
+                    <> sum_r = 0.  {{dep=residual0, id=sumr0}}
+                    sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
+                    <> converged = sum_r < 0.000000000000001{{dep=sumr, id=converged}}
+                    p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
                     <> rk_norm = 0 {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
                     for i_6
                         {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0 {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> alpha = rk_norm / p_on_Ap {{dep=ponAp, id=alpha}}
+                        <> projector_is_zero = p_on_Ap < 0.000000000000001 {{id=zeroproj, dep=ponAp}}
+                    """.format(**str2name),
+                        corner_case,
+                        """
+                        <> alpha = rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
                         x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
                         r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
                         <> rkp1_norm = 0 {{dep=rk, id=rkp1_norm0}}
@@ -845,6 +853,17 @@ class LocalLoopyKernelBuilder(object):
         
         self.matfree_solve_knls.append(knl)
         return call, (name, knl), output_arg, ctx
+
+    def generate_code_for_converged_pre_iteration(self):
+        import pyop2
+        if pyop2.configuration["simd_width"]:
+            assert "not vectorised yet"
+        # note that depends_on and id need to match the instructions in the kernel,
+        # which uses the stop criterion
+        return loopy.CInstruction("",
+                            "if (projector_is_zero|| isnan(p_on_Ap)) break;",
+                            depends_on="zeroproj",
+                            id="cornercase")
 
     def generate_code_for_stop_criterion(self, var_name, stop_value):
         """ This method is workaround need since Loo.py does not support while loops yet.
