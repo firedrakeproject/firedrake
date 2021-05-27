@@ -64,6 +64,7 @@ def _action_action(expr, self, state):
     return expr
 
 @_action.register(Tensor)
+@_action.register(Block)
 def _action_tensor(expr, self, state):
     if not self.action:
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
@@ -144,7 +145,6 @@ def _action_transpose(expr, self, state):
 
 @_action.register(Negative)
 @_action.register(Add)
-@_action.register(Block)
 def _action_distributive(expr, self, state):
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
 
