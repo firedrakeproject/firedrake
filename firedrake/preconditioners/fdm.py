@@ -6,7 +6,7 @@ from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
+from ufl import as_tensor, conditional, diag_vector, dot, dx, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
@@ -379,8 +379,8 @@ class FDMPC(PCBase):
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     jac0 = np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0)
                     jac1 = np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0)
-                    mu0 *= jac0
-                    mu1 *= jac1
+                    mu0 *= jac0 * abs(jac0)
+                    mu1 *= jac1 * abs(jac1)
                     # Handle the choice of basis (-1, 0), (0, 1) for H(div)
                     if len(mu0.shape) > 1:
                         mu0[0] *= -1
@@ -415,7 +415,7 @@ class FDMPC(PCBase):
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
 
-                            sij = 0.5E0 * np.sign(mu[i] * mu[j]) / np.sqrt(abs(jac[i] * jac[j]))
+                            sij = 0.5E0 * np.sign(mu[i] * mu[j]) / abs(jac[i] * jac[j])
                             adense[i0:i1, jj] -= sij * abs(mu[i]) * Dfacet[:, iface % 2]
                             adense[ii, j0:j1] -= sij * abs(mu[j]) * Dfacet[:, jface % 2]
                             adense[ii, jj] += sij * penalty
@@ -554,7 +554,9 @@ class FDMPC(PCBase):
                            quad_scheme="default")
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
-        Jq = firedrake.assemble(inner(JacobianDeterminant(self.mesh), q)*dx(degree=Nq))
+        
+        signJ = conditional(JacobianDeterminant(self.mesh) < 0, -1, 1)
+        Jq = firedrake.assemble(inner(signJ, q)*dx(degree=Nq))
 
         if helm is None:
             Bq = None
