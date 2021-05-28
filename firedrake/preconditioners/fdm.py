@@ -6,7 +6,7 @@ from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl import as_tensor, diag_vector, dot, dx, grad, indices, inner, inv
+from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
@@ -365,13 +365,13 @@ class FDMPC(PCBase):
             facet_cells = self.mesh.interior_facets.facet_cell_map.values
             facet_data = self.mesh.interior_facets.local_facet_dat.data
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
-            
+
             jac0 = 1.0E0
             jac1 = 1.0E0
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
-                
+
                 mu0 = -np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
                 ie = lexico_facet(f)
@@ -379,8 +379,8 @@ class FDMPC(PCBase):
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     jac0 = np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0)
                     jac1 = np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0)
-                    mu0 *= np.sign(jac0)
-                    mu1 *= np.sign(jac1)
+                    mu0 *= jac0
+                    mu1 *= jac1
                     # Handle the choice of basis (-1, 0), (0, 1) for H(div)
                     if len(mu0.shape) > 1:
                         mu0[0] *= -1
@@ -397,14 +397,14 @@ class FDMPC(PCBase):
                         facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         k0 = k
                         k1 = k
-                    
+
                     mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                           mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
-                    
+
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
-                    
+
                     penalty = eta * (abs(mu[0]) + abs(mu[1]))
                     for j, jface in enumerate(facet_data[f]):
                         j0 = j * offset
@@ -414,17 +414,11 @@ class FDMPC(PCBase):
                             i0 = i * offset
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
-                            alpha = np.sqrt( abs((jac[0] * jac[1]) / (jac[i] * jac[j])) )
-                            
-                            t = np.sqrt(abs(jac[0]*jac[1]))
-                            ti = np.sqrt(abs(t/jac[i]))
-                            tj = np.sqrt(abs(t/jac[j]))
-                            
-                            sij = 0.5E0 * np.sign(mu[i] * mu[j])
-                            adense[i0:i1, jj] -= sij * tj * abs(mu[i]) * Dfacet[:, iface % 2]
-                            adense[ii, j0:j1] -= sij * ti * abs(mu[j]) * Dfacet[:, jface % 2]
-                            adense[ii, jj] += sij * ti*tj* penalty
 
+                            sij = 0.5E0 * np.sign(mu[i] * mu[j]) / np.sqrt(abs(jac[i] * jac[j]))
+                            adense[i0:i1, jj] -= sij * abs(mu[i]) * Dfacet[:, iface % 2]
+                            adense[ii, j0:j1] -= sij * abs(mu[j]) * Dfacet[:, jface % 2]
+                            adense[ii, jj] += sij * penalty
 
                     ae = csr_matrix(adense)
                     if ndim > 1:
