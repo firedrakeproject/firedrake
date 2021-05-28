@@ -6,7 +6,7 @@ from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl import as_tensor, conditional, diag_vector, dot, dx, indices, inner, inv
+from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
@@ -101,13 +101,13 @@ class FDMPC(PCBase):
             # so this should work as direct solver only on star patches
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             self.stencil = firedrake.Function(W)
-            Gq, Bq, _ = self.assemble_coef(mu, helm, Nq)
+            Gq, Bq = self.assemble_coef(mu, helm, Nq)
             Pmat = self.assemble_stencil(A, V, Gq, Bq, N, bcflags)
         elif fdm_type == "affine":
             # Compute low-order PDE coefficients, such that the FDM
             # sparsifies the assembled matrix
-            Gq, Bq, Jq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
-            Pmat = self.assemble_affine(A, V, Gq, Bq, Jq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
+            Pmat = self.assemble_affine(A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -283,7 +283,7 @@ class FDMPC(PCBase):
         Pmat.assemble()
         return Pmat
 
-    def assemble_affine(self, A, V, Gq, Bq, Jq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
+    def assemble_affine(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
         from scipy.sparse import kron, csr_matrix
 
         imode = PETSc.InsertMode.ADD_VALUES
@@ -366,8 +366,16 @@ class FDMPC(PCBase):
             facet_data = self.mesh.interior_facets.local_facet_dat.data
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
 
-            jac0 = 1.0E0
-            jac1 = 1.0E0
+            DGT = firedrake.FunctionSpace(self.mesh, "DGT", 0)
+            test = firedrake.TestFunction(DGT)
+            area = firedrake.FacetArea(self.mesh)
+            Jdet = firedrake.JacobianDeterminant(self.mesh)
+            extruded = self.mesh.cell_set._extruded
+            dFacet = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
+            rho = firedrake.assemble((((Jdet('+')/Jdet('-'))*test('-')) / area)*dFacet)
+            jid, _ = self.glonum_fun(DGT.interior_facet_node_map())
+
+            rat = 1.0E0
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
@@ -377,16 +385,16 @@ class FDMPC(PCBase):
                 ie = lexico_facet(f)
                 if needs_hdiv:
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
-                    jac0 = np.sum(Jq.dat.data_ro_with_halos[gid(e0)], axis=0)
-                    jac1 = np.sum(Jq.dat.data_ro_with_halos[gid(e1)], axis=0)
-                    mu0 *= jac0 * abs(jac0)
-                    mu1 *= jac1 * abs(jac1)
+                    fid = np.reshape(jid(f), (2, -1))
+                    rat = rho.dat.data_ro[fid[0][facet_data[f, 0]]]
                     # Handle the choice of basis (-1, 0), (0, 1) for H(div)
                     if len(mu0.shape) > 1:
                         mu0[0] *= -1
                         mu1[0] *= -1
 
-                jac = [jac0, jac1]
+                rat0 = [[1.0, rat], [rat, rat**2]]
+                rat1 = [[1.0/rat**2, 1.0/rat], [1.0/rat, 1.0]]
+
                 istart = 1 if needs_hdiv else 0
                 for k in range(istart, ncomp):
                     if needs_hdiv:
@@ -405,7 +413,6 @@ class FDMPC(PCBase):
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
 
-                    penalty = eta * (abs(mu[0]) + abs(mu[1]))
                     for j, jface in enumerate(facet_data[f]):
                         j0 = j * offset
                         j1 = j0 + offset
@@ -415,10 +422,12 @@ class FDMPC(PCBase):
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
 
-                            sij = 0.5E0 * np.sign(mu[i] * mu[j]) / abs(jac[i] * jac[j])
-                            adense[i0:i1, jj] -= sij * abs(mu[i]) * Dfacet[:, iface % 2]
-                            adense[ii, j0:j1] -= sij * abs(mu[j]) * Dfacet[:, jface % 2]
-                            adense[ii, jj] += sij * penalty
+                            sij = 0.5E0 * np.sign(mu[i] * mu[j])
+                            beta = [(sij*rat0[j][i])*abs(mu[0]), (sij*rat1[j][i])*abs(mu[1])]
+                            adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
+
+                            adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
+                            adense[ii, jj] += eta * sum(beta)
 
                     ae = csr_matrix(adense)
                     if ndim > 1:
@@ -550,20 +559,16 @@ class FDMPC(PCBase):
         q = firedrake.TestFunction(Q)
         Gq = firedrake.assemble(inner(G, q)*dx(degree=Nq))
 
-        Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
-                           quad_scheme="default")
-        Q = firedrake.FunctionSpace(self.mesh, Qe)
-        q = firedrake.TestFunction(Q)
-        
-        signJ = conditional(JacobianDeterminant(self.mesh) < 0, -1, 1)
-        Jq = firedrake.assemble(inner(signJ, q)*dx(degree=Nq))
-
         if helm is None:
             Bq = None
         else:
+            Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                               quad_scheme="default")
+            Q = firedrake.FunctionSpace(self.mesh, Qe)
+            q = firedrake.TestFunction(Q)
             Bq = firedrake.assemble(inner(helm, q)*dx(degree=Nq))
 
-        return Gq, Bq, Jq
+        return Gq, Bq
 
     @staticmethod
     @lru_cache(maxsize=10)
