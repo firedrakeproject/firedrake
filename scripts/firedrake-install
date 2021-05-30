@@ -15,6 +15,7 @@ import shlex
 from glob import iglob
 from itertools import chain
 import re
+import importlib
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -34,6 +35,8 @@ firedrake_apps = {
                 "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
     "irksome": ("""Implicit Runge-Kutta methods. https://github.com/firedrakeproject/Irksome/""",
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
+    "femlium": ("""Interactive visualization of finite element simulations on geographic maps with folium. https://femlium.github.io/""",
+                "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
 }
 
 
@@ -555,6 +558,9 @@ petsc_options = {"--with-fortran-bindings=0",
                  # For superlu_dist amongst others.
                  "--with-cxx-dialect=C++11"}
 
+if osname == "Darwin":
+    petsc_options.add("--with-x=0")
+
 if not options["minimal_petsc"]:
     petsc_options.add("--with-zlib")
     # File formats
@@ -604,6 +610,7 @@ else:
 if options.get("with_blas") == "download":
     # Download openblas if the user specifies.
     petsc_options.add("--download-openblas")
+    petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
     if osname == "Darwin":
         petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
 elif options.get("with_blas") is not None:
@@ -1514,6 +1521,17 @@ with open(config_location, "w") as f:
     f.write(json_output)
 log.info("Configuration saved to " + config_location)
 
+
+def is_installed(name):
+    # Return if package `name` is installed.
+    try:
+        importlib.import_module(name)
+    except ModuleNotFoundError:
+        return False
+    else:
+        return True
+
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1551,7 +1569,7 @@ if mode == "install":
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
-    packages = clone_dependencies("PyOP2") + packages
+    packages = clone_dependencies("PyOP2") + ["petsc4py"] + packages
     packages += ["firedrake"]
 
     for p in options["packages"]:
@@ -1633,20 +1651,25 @@ else:
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
-    packages = list(deps.keys())
+    packages = ["petsc4py"] + list(deps.keys())
     packages += ["firedrake"]
 
     # update packages.
     if not args.honour_petsc_dir:
-        petsc_changed = git_update("petsc", deps["petsc"])
+        update_petsc = git_update("petsc", deps["petsc"])
     else:
-        petsc_changed = False
+        update_petsc = False
     if os.path.exists(os.path.join(firedrake_env, "src/petsc4py")):
         clean("petsc4py/")
         shutil.move("petsc4py", "petsc4py_old")
-        petsc4py_changed = True
+        update_petsc4py = True
     else:
-        petsc4py_changed = False
+        # Even if petsc has been installed, petsc4py might not, in
+        # which case we need to make sure that we install it.
+        # This situation occurs, e.g., when `firedrake-install`
+        # fails somewhere after successfully installing petsc,
+        # and the user continues installation with `firedrake-update`.
+        update_petsc4py = not is_installed("petsc4py")
     if os.path.exists(os.path.join(firedrake_env, "src/slepc4py")):
         clean("slepc4py")
         shutil.move("slepc4py", "slepc4py_old")
@@ -1662,7 +1685,7 @@ else:
             pip_uninstall("petsc4py")
 
     # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
-    petsc_changed = pip_uninstall("petsc") or petsc_changed
+    update_petsc = pip_uninstall("petsc") or update_petsc
 
     for p in packages:
         try:
@@ -1677,7 +1700,7 @@ else:
     with pipargs("--no-deps"):
         with environment(**compiler_env):
             # Only rebuild petsc if it has changed.
-            if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
+            if not args.honour_petsc_dir and (args.rebuild or update_petsc):
                 clean("petsc/")
                 install("petsc/")
         if not args.honour_petsc_dir:
@@ -1699,7 +1722,7 @@ else:
         pip_requirements(p, compiler_env)
 
     with pipargs("--no-deps"):
-        if args.rebuild or petsc_changed or petsc4py_changed:
+        if args.rebuild or update_petsc or update_petsc4py:
             # If not honour_petsc_dir, we have a version of petsc that contains
             # petsc4py in its source tree (old petsc must have been updated
             # in the above).

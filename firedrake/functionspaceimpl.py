@@ -235,6 +235,19 @@ class WithGeometryBase(object):
         current = super(type(self), self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def boundary_nodes(self, sub_domain):
+        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        # Have to replicate the definition from FunctionSpace because
+        # we want to access the DM on the WithGeometry object.
+        return self._shared_data.boundary_nodes(self, sub_domain)
+
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
@@ -527,17 +540,16 @@ class FunctionSpace(object):
                              "exterior_facet_node",
                              self.offset)
 
-    def boundary_nodes(self, sub_domain, method):
+    def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-        :arg method: the method for determining boundary nodes.
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        return self._shared_data.boundary_nodes(self, sub_domain, method)
+        return self._shared_data.boundary_nodes(self, sub_domain)
 
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.

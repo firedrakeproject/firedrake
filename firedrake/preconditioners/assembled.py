@@ -1,4 +1,5 @@
 import abc
+import functools
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
@@ -20,7 +21,7 @@ class AssembledPC(PCBase):
     _prefix = "assembled_"
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
+        from firedrake.assemble import allocate_matrix, assemble
         _, P = pc.getOperators()
 
         if pc.getType() != "python":
@@ -55,10 +56,13 @@ class AssembledPC(PCBase):
                                  form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = create_assembly_callable(a, tensor=self.P,
-                                                    bcs=bcs,
-                                                    form_compiler_parameters=fcp,
-                                                    mat_type=mat_type)
+        self._assemble_P = functools.partial(assemble,
+                                             a,
+                                             tensor=self.P,
+                                             bcs=bcs,
+                                             form_compiler_parameters=fcp,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
         self._assemble_P()
 
         # Transfer nullspace over

@@ -14,8 +14,7 @@ from gem.node import pre_traversal as traverse_dags
 from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
-from loopy.program import make_program
-from loopy.transform.callable import register_callable_kernel
+from loopy.transform.callable import merge
 import itertools
 
 
@@ -282,7 +281,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
@@ -307,12 +306,24 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
     domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
-                                     seq_dependencies=True, target=lp.CTarget())
+    slate_wrapper = lp.make_function(domains, insns, args, name=name,
+                                     seq_dependencies=True, target=lp.CTarget(),
+                                     lang_version=(2018, 2))
 
     # Generate program from kernel, so that one can register kernels
-    prg = make_program(slate_wrapper)
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+    from loopy.kernel.function_interface import CallableKernel
+
     for tsfc_loopy in tsfc_kernels:
-        prg = register_callable_kernel(prg, tsfc_loopy)
-    prg = register_callable_kernel(prg, slate_loopy)
-    return prg
+        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
+        names = tsfc_loopy.callables_table
+        for name in names:
+            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+    slate_wrapper = merge([slate_wrapper, slate_loopy])
+    names = slate_loopy.callables_table
+    for name in names:
+        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+
+    return slate_wrapper

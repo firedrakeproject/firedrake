@@ -1,5 +1,6 @@
-import firedrake.dmhooks as dmhooks
+import functools
 
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -28,8 +29,8 @@ class SCPC(SCBase):
         variables are recovered via back-substitution.
         """
 
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+        from firedrake import assemble
+        from firedrake.assemble import allocate_matrix
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
@@ -87,10 +88,11 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = create_assembly_callable(
-            r_expr,
-            tensor=self.condensed_rhs,
-            form_compiler_parameters=self.cxt.fc_params)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                r_expr,
+                                                tensor=self.condensed_rhs,
+                                                form_compiler_parameters=self.cxt.fc_params,
+                                                assembly_type="residual")
 
         # Allocate and set the condensed operator
         self.S = allocate_matrix(S_expr,
@@ -100,12 +102,13 @@ class SCPC(SCBase):
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
 
-        self._assemble_S = create_assembly_callable(
-            S_expr,
-            tensor=self.S,
-            bcs=bcs,
-            form_compiler_parameters=self.cxt.fc_params,
-            mat_type=mat_type)
+        self._assemble_S = functools.partial(assemble,
+                                             S_expr,
+                                             tensor=self.S,
+                                             bcs=bcs,
+                                             form_compiler_parameters=self.cxt.fc_params,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
 
         self._assemble_S()
         Smat = self.S.petscmat
@@ -129,12 +132,13 @@ class SCPC(SCBase):
                                         options_prefix=prefix,
                                         appctx=self.get_appctx(pc))
 
-            self._assemble_S_pc = create_assembly_callable(
-                S_pc_expr,
-                tensor=self.S_pc,
-                bcs=bcs,
-                form_compiler_parameters=self.cxt.fc_params,
-                mat_type=mat_type)
+            self._assemble_S_pc = functools.partial(assemble,
+                                                    S_pc_expr,
+                                                    tensor=self.S_pc,
+                                                    bcs=bcs,
+                                                    form_compiler_parameters=self.cxt.fc_params,
+                                                    mat_type=mat_type,
+                                                    assembly_type="residual")
 
             self._assemble_S_pc()
             Smat_pc = self.S_pc.petscmat
@@ -207,9 +211,8 @@ class SCPC(SCBase):
         :arg elim_fields: An iterable of eliminated field indices
                           to recover.
         """
-
+        from firedrake import assemble
         from firedrake.slate.static_condensation.la_utils import backward_solve
-        from firedrake.assemble import create_assembly_callable
 
         fields = x.split()
         systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
@@ -220,10 +223,11 @@ class SCPC(SCBase):
             be = local_system.rhs
             i, = local_system.field_idx
             local_solve = Ae.solve(be, decomposition="PartialPivLU")
-            solve_call = create_assembly_callable(
-                local_solve,
-                tensor=fields[i],
-                form_compiler_parameters=self.cxt.fc_params)
+            solve_call = functools.partial(assemble,
+                                           local_solve,
+                                           tensor=fields[i],
+                                           form_compiler_parameters=self.cxt.fc_params,
+                                           assembly_type="residual")
             local_solvers.append(solve_call)
 
         return local_solvers
