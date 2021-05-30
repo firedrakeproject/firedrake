@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
-from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock
+from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, PointwiseOperatorBlock
 import ufl
 
 
@@ -34,7 +34,6 @@ def annotate_solve(solve):
     def wrapper(*args, **kwargs):
 
         annotate = annotate_tape(kwargs)
-
         if annotate:
             tape = get_working_tape()
             solve_block_type = SolveVarFormBlock
@@ -44,7 +43,6 @@ def annotate_solve(solve):
             sb_kwargs = solve_block_type.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
             block = solve_block_type(*args, **sb_kwargs)
-            tape.add_block(block)
 
         with stop_annotating():
             output = solve(*args, **kwargs)
@@ -55,6 +53,18 @@ def annotate_solve(solve):
             else:
                 block_variable = args[1].function.create_block_variable()
             block.add_output(block_variable)
+
+            if isinstance(args[0], ufl.equation.Equation):
+                extops_form = args[0].lhs.external_operators()
+                extops_coeff_form = [e.get_coefficient() for e in extops_form]
+                dict_extops = dict(zip(extops_coeff_form, extops_form))
+                for coeff in args[0].lhs.coefficients():
+                    if coeff in extops_coeff_form:
+                        block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **sb_kwargs)
+                        tape.add_block(block_extops)
+                        block_extops.add_output(coeff.block_variable)
+
+            tape.add_block(block)
 
         return output
 

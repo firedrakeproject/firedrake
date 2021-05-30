@@ -558,11 +558,16 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     # worry about hashing the arguments.
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
-    parloops = cached_parloops if cached_init_args == parloop_init_args else None
+    cached_extop_loops = expr._cache.get("extop_loops", None)
+    extop_loops, parloops = (cached_extop_loops, cached_parloops) if cached_init_args == parloop_init_args else (None, None)
 
     if not parloops:
-        parloops = _make_parloops(*parloop_init_args)
+        extop_loops, parloops = _make_parloops(*parloop_init_args)
         expr._cache["parloops"] = (parloop_init_args, parloops)
+        expr._cache["extop_loops"] = extop_loops
+
+    for evaluate in extop_loops:
+        evaluate()
 
     for parloop in parloops:
         parloop.compute()
@@ -810,6 +815,34 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
+    extop_loops = []
+    if hasattr(expr, 'external_operators'):
+        external_operators = list(expr.external_operators())
+        new_coefficients = list(e.get_coefficient() for e in external_operators)
+        for ki in kernels:
+            if hasattr(ki.kinfo, 'external_operators'):
+                for k, v in ki.kinfo.external_operators.items():
+                    c = expr.external_operators()[k]
+                    d = external_operators[k]
+                    # Check if we need to reconstruct new ExtOps
+                    if d.derivatives == c._extop_master.derivatives:
+                        # ExternalOperators can generate other Extops (e.g when differentiating)
+                        # The kernel contains information about which Extop has been created during form compiling,
+                        # we still need to construct this dependency when needed, i.e. when the form is already
+                        # compiled and therefore the differentiation bit of the code is not hit.
+                        deriv_ind = tuple(v.keys())
+                        expr_args = expr.arguments()
+                        args_list = tuple(tuple((expr_args[position], is_adj) for position, is_adj in args) for args in v.values())
+                        d.add_dependencies(deriv_ind, args_list)
+                        reconstruct_extops = [e for k, e in d._extop_master.coefficient_dict.items() if k in v and e not in external_operators]
+                        external_operators.extend(reconstruct_extops)
+                        new_coefficients.extend([e.get_coefficient() for e in reconstruct_extops])
+
+        coefficients += tuple(e for e in new_coefficients if e not in coefficients)
+        # If there are any PointwiseOperators, evaluate them now.
+        for e in external_operators:
+            extop_loops.append(e.evaluate)
+
     # These will be used to correctly interpret the "otherwise"
     # subdomain
     all_integer_subdomain_ids = defaultdict(list)
@@ -923,4 +956,4 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
             parloops.append(op2.ParLoop(*args, **kwargs))
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
-    return tuple(parloops)
+    return tuple(extop_loops), tuple(parloops)

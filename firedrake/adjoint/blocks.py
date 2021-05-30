@@ -1,11 +1,14 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+from pyadjoint.tape import no_annotations
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
 
 import firedrake
 import firedrake.utils as utils
+
+import ufl
 
 
 class Backend:
@@ -277,6 +280,117 @@ class MeshOutputBlock(Block):
         mesh = vector.function_space().mesh()
         mesh.coordinates.assign(vector, annotate=False)
         return mesh._ad_create_checkpoint()
+
+
+class PointwiseOperatorBlock(Block, Backend):
+    def __init__(self, point_op, *args, **kwargs):
+        super(PointwiseOperatorBlock, self).__init__()
+        self.point_op = point_op
+        for c in self.point_op.ufl_operands:
+            coeff_c = ufl.algorithms.extract_coefficients(c)
+            for ci in coeff_c:
+                self.add_dependency(ci, no_duplicates=True)
+        self.add_dependency(self.point_op, no_duplicates=True)
+
+    @no_annotations
+    def evaluate_adj(self, markings=False):
+        """Computes the adjoint action and stores the result in the `adj_value` attribute of the dependencies.
+
+        This method will by default call the `evaluate_adj_component` method for each dependency.
+
+        Args:
+            markings (bool): If True, then each block_variable will have set `marked_in_path` attribute indicating
+                whether their adjoint components are relevant for computing the final target adjoint values.
+                Default is False.
+
+        """
+        # If the ExternalOperator isn't a neural net we can go with the normal procedure
+        if not isinstance(self.point_op, self.backend.PointnetOperator):
+            return Block.evaluate_adj(self, markings=markings)
+
+        outputs = self.get_outputs()
+        adj_inputs = []
+        has_input = False
+        for output in outputs:
+            adj_inputs.append(output.adj_value)
+            if output.adj_value is not None:
+                has_input = True
+
+        if not has_input:
+            return
+
+        # Dependency structure for an external operator N(op1, ..., opk)is a follows: (op1, ..., op, N)
+        deps = self.get_dependencies()
+        inputs = [bv.saved_output for bv in deps]
+        relevant_dependencies = [(i, bv) for i, bv in enumerate(deps) if bv.marked_in_path or not markings]
+
+        # If the ExternalOperator is a neural network dependencies are: (inputs, model_parameters, N)
+        relevant_model_dependencies = [(i, bv) for i, bv in relevant_dependencies
+                                       if bv.output in self.point_op.operator_params()]
+        relevant_dependencies = list(set(relevant_dependencies) - set(relevant_model_dependencies))
+
+        if len(relevant_dependencies) <= 0:
+            return
+
+        prepared = self.prepare_evaluate_adj(inputs, adj_inputs, relevant_dependencies)
+
+        # -- Evaluate adjoint component for the inputs --
+
+        for idx, dep in relevant_dependencies:
+            adj_output = self.evaluate_adj_component(inputs,
+                                                     adj_inputs,
+                                                     dep,
+                                                     idx,
+                                                     prepared)
+            if adj_output is not None:
+                dep.add_adj_output(adj_output)
+
+        if len(relevant_model_dependencies) <= 0:
+            return
+
+        # -- Evaluate adjoint for the model parameters --
+
+        N = prepared
+        # Register the parameters we are backpropagating for
+        params_idx, params_rep = zip(*tuple((i-len(self.point_op.operator_inputs()), bv.saved_output)
+                                            for i, bv in relevant_model_dependencies))
+        # Register parameter version
+        N._params_version['version'] = sum(w.dat.dat_version for w in params_rep)
+
+        adj_outputs = N.evaluate_backprop(adj_inputs[0], params_idx, params_rep)
+        for dep, adj_output in zip(relevant_model_dependencies, adj_outputs):
+            if adj_output is not None:
+                dep[1].add_adj_output(adj_output)
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        return ufl.replace(self.point_op, self._replace_map())
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, N=None):
+        if self.point_op.get_coefficient() == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            return None
+
+        q_rep = block_variable.saved_output
+        i_ops = list(i for i, e in enumerate(N.ufl_operands) if e == q_rep)[0]
+        dNdm_adj = N.evaluate_adj_component_control(adj_inputs[0], i_ops)
+        return dNdm_adj
+
+    def _replace_map(self):
+        coeffs_point_op = self.point_op.ufl_operands + (self.point_op.coefficient,)
+        replace_coeffs = {}
+        for block_variable in self.get_dependencies():
+            coeff = block_variable.output
+            if coeff in coeffs_point_op:
+                replace_coeffs[coeff] = block_variable.saved_output
+        return replace_coeffs
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return ufl.replace(self.point_op, self._replace_map())
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        p = prepared
+        q = type(p).copy(p)
+        return q.evaluate()
 
 
 class InterpolateBlock(Block, Backend):

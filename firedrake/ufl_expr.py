@@ -139,7 +139,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """
     # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    uc, = (u,) if u_is_x else extract_coefficients(u)
+    uc, = (u,) if u_is_x or isinstance(u, firedrake.AbstractExternalOperator) else extract_coefficients(u)
     if not u_is_x and len(uc.split()) > 1 and set(extract_coefficients(form)) & set(uc.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
@@ -170,7 +170,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         if coefficient_derivatives is not None:
             cds.update(coefficient_derivatives)
         coefficient_derivatives = cds
-    elif isinstance(uc, firedrake.Function):
+    elif isinstance(uc, (firedrake.Function, firedrake.AbstractExternalOperator)):
         V = uc.function_space()
         du = argument(V)
     elif isinstance(uc, firedrake.Constant):

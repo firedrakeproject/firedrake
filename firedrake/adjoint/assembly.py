@@ -2,7 +2,7 @@ import numbers
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
-from firedrake.adjoint.blocks import AssembleBlock
+from firedrake.adjoint.blocks import AssembleBlock, PointwiseOperatorBlock
 
 
 def annotate_assemble(assemble):
@@ -24,10 +24,22 @@ def annotate_assemble(assemble):
 
             if not isinstance(output, float):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
-            output = create_overloaded_object(output)
-            block = AssembleBlock(form)
 
             tape = get_working_tape()
+
+            extops_form = form.external_operators()
+            for coeff in form.coefficients():
+                extops_coeff_form = [e.get_coefficient() for e in extops_form]
+                dict_extops = dict(zip(extops_coeff_form, extops_form))
+                if coeff in extops_coeff_form:
+                    block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **kwargs)
+                    tape.add_block(block_extops)
+
+                    block_variable = coeff.block_variable
+                    block_extops.add_output(block_variable)
+
+            output = create_overloaded_object(output)
+            block = AssembleBlock(form)
             tape.add_block(block)
 
             block.add_output(output.block_variable)

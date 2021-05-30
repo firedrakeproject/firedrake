@@ -24,6 +24,7 @@ class ConstantMixin(OverloadedType):
                                     _ad_outputs=kwargs.pop("_ad_outputs", None),
                                     annotate=kwargs.pop("annotate", True), **kwargs)
             init(self, *args, **kwargs)
+            self._is_control = None
         return wrapper
 
     @staticmethod

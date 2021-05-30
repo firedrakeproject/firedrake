@@ -27,7 +27,13 @@ from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
 def extract_coefficients(expr):
-    return tuple(e for e in ufl_traversal(expr) if isinstance(e, ufl.Coefficient))
+    res = ()
+    for e in ufl_traversal(expr):
+        if isinstance(e, ufl.Coefficient):
+            res += (e,)
+        elif isinstance(e, ufl.ExternalOperator):
+            res += (e.coefficient,)
+    return res
 
 
 class Translator(MultiFunction, ufl2gem.Mixin):
@@ -102,6 +108,9 @@ class Translator(MultiFunction, ufl2gem.Mixin):
             return gem.Indexed(var, (0, ))
         else:
             return var
+
+    def external_operator(self, o):
+        return self.coefficient(o.coefficient)
 
 
 class IndexRelabeller(MultiFunction):

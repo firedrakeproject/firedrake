@@ -42,7 +42,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --package-branch ufl dualspace --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch ufl external-operator_dualspace --package-branch tsfc pointwise-operators --package-branch PyOP2 DataCarrier-object-versionning --package-branch pyadjoint pointwise-adjoint-operator || (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
