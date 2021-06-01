@@ -6,7 +6,7 @@ import sys
 from functools import reduce
 from itertools import chain
 
-from numpy import asarray, allclose
+from numpy import asarray, allclose, isnan
 
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -22,8 +22,9 @@ import FIAT
 from FIAT.reference_element import TensorProductCell
 from FIAT.functional import PointEvaluation
 
-from finat.point_set import PointSet
+from finat.point_set import PointSet, UnknownPointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature, QuadratureRule
+from finat.quadrature_element import QuadratureElement
 
 from tsfc import fem, ufl_utils
 from tsfc.finatinterface import as_fiat_cell
@@ -203,8 +204,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
         expressions = fem.compile_ufl(integrand,
-                                      interior_facet=interior_facet,
-                                      **config)
+                                      fem.PointSetContext(**config),
+                                      interior_facet=interior_facet)
         reps = mode.Integrals(expressions, quadrature_multiindex,
                               argument_multiindices, params)
         for var, rep in zip(return_variables, reps):
@@ -286,7 +287,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Just convert FInAT element to FIAT for now.
     # Dual evaluation in FInAT will bring a thorough revision.
-    to_element = to_element.fiat_equivalent
+    finat_to_element = to_element
+    to_element = finat_to_element.fiat_equivalent
 
     if any(len(dual.deriv_dict) != 0 for dual in to_element.dual_basis()):
         raise NotImplementedError("Can only interpolate onto dual basis functionals without derivative evaluation, sorry!")
@@ -357,30 +359,58 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
 
+    # A FInAT QuadratureElement with a runtime tabulated UnknownPointSet
+    # point set is the target element on the reference cell for dual evaluation
+    # where the points are specified at runtime. This special casing will not
+    # be necessary when FInAT dual evaluation is done - the dual evaluation
+    # method of every FInAT element will create the necessary gem code.
+    from finat.tensorfiniteelement import TensorFiniteElement
+    runtime_quadrature_rule = (
+        isinstance(finat_to_element, QuadratureElement) or
+        (
+            isinstance(finat_to_element, TensorFiniteElement) and
+            isinstance(finat_to_element.base_element, QuadratureElement)
+        ) and
+        isinstance(finat_to_element._rule.point_set, UnknownPointSet)
+    )
+
     if all(isinstance(dual, PointEvaluation) for dual in to_element.dual_basis()):
         # This is an optimisation for point-evaluation nodes which
         # should go away once FInAT offers the interface properly
-        qpoints = []
-        # Everything is just a point evaluation.
-        for dual in to_element.dual_basis():
-            ptdict = dual.get_point_dict()
-            qpoint, = ptdict.keys()
-            (qweight, component), = ptdict[qpoint]
-            assert allclose(qweight, 1.0)
-            assert component == ()
-            qpoints.append(qpoint)
-        point_set = PointSet(qpoints)
         config = kernel_cfg.copy()
-        config.update(point_set=point_set)
+        if runtime_quadrature_rule:
+            # Until FInAT dual evaluation is done, FIAT
+            # QuadratureElements with UnknownPointSet point sets
+            # advertise NaNs as their points for each node in the dual
+            # basis. This has to be manually replaced with the real
+            # UnknownPointSet point set used to create the
+            # QuadratureElement rule.
+            point_set = finat_to_element._rule.point_set
+            config.update(point_indices=point_set.indices, point_expr=point_set.expression)
+            context = fem.GemPointContext(**config)
+        else:
+            qpoints = []
+            # Everything is just a point evaluation.
+            for dual in to_element.dual_basis():
+                ptdict = dual.get_point_dict()
+                qpoint, = ptdict.keys()
+                (qweight, component), = ptdict[qpoint]
+                assert allclose(qweight, 1.0)
+                assert component == ()
+                qpoints.append(qpoint)
+            point_set = PointSet(qpoints)
+            config.update(point_set=point_set)
 
-        # Allow interpolation onto QuadratureElements to refer to the quadrature
-        # rule they represent
-        if isinstance(to_element, FIAT.QuadratureElement):
-            assert allclose(asarray(qpoints), asarray(to_element._points))
-            quad_rule = QuadratureRule(point_set, to_element._weights)
-            config["quadrature_rule"] = quad_rule
+            # Allow interpolation onto QuadratureElements to refer to the quadrature
+            # rule they represent
+            if isinstance(to_element, FIAT.QuadratureElement):
+                assert allclose(asarray(qpoints), asarray(to_element._points))
+                quad_rule = QuadratureRule(point_set, to_element._weights)
+                config["quadrature_rule"] = quad_rule
 
-        expr, = fem.compile_ufl(expression, **config, point_sum=False)
+            context = fem.PointSetContext(**config)
+
+        expr, = fem.compile_ufl(expression, context, point_sum=False)
         # In some cases point_set.indices may be dropped from expr, but nothing
         # new should now appear
         assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
@@ -398,10 +428,23 @@ def compile_expression_dual_evaluation(expression, to_element, *,
             try:
                 expr, point_set = expr_cache[pts]
             except KeyError:
-                point_set = PointSet(pts)
                 config = kernel_cfg.copy()
-                config.update(point_set=point_set)
-                expr, = fem.compile_ufl(expression, **config, point_sum=False)
+                if runtime_quadrature_rule:
+                    # Until FInAT dual evaluation is done, FIAT
+                    # QuadratureElements with UnknownPointSet point sets
+                    # advertise NaNs as their points for each node in the dual
+                    # basis. This has to be manually replaced with the real
+                    # UnknownPointSet point set used to create the
+                    # QuadratureElement rule.
+                    assert isnan(pts).all()
+                    point_set = finat_to_element._rule.point_set
+                    config.update(point_indices=point_set.indices, point_expr=point_set.expression)
+                    context = fem.GemPointContext(**config)
+                else:
+                    point_set = PointSet(pts)
+                    config.update(point_set=point_set)
+                    context = fem.PointSetContext(**config)
+                expr, = fem.compile_ufl(expression, context, point_sum=False)
                 # In some cases point_set.indices may be dropped from expr, but
                 # nothing new should now appear
                 assert set(expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
