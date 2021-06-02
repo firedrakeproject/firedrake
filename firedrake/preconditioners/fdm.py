@@ -296,6 +296,7 @@ class FDMPC(PCBase):
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
         if needs_hdiv:
             Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(mu)
+            jid, _ = self.glonum_fun(Gfacet0.interior_facet_node_map())
 
         lexico_cell, nel = self.glonum_fun(V.cell_node_map())
         gid, _ = self.glonum_fun(Gq.cell_node_map())
@@ -363,16 +364,6 @@ class FDMPC(PCBase):
             facet_data = self.mesh.interior_facets.local_facet_dat.data
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
 
-            DGT = firedrake.FunctionSpace(self.mesh, "DGT", 0)
-            test = firedrake.TestFunction(DGT)
-            area = firedrake.FacetArea(self.mesh)
-            Jdet = firedrake.JacobianDeterminant(self.mesh)
-            extruded = self.mesh.cell_set._extruded
-            dFacet = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
-            rho = firedrake.assemble((((Jdet('+')/Jdet('-'))*test('-')) / area)*dFacet)
-            jid, _ = self.glonum_fun(rho.interior_facet_node_map())
-
-            rat = 1.0E0
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
@@ -383,26 +374,21 @@ class FDMPC(PCBase):
                     icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     fid = np.reshape(jid(f), (2, -1))
                     fdof = fid[0][facet_data[f, 0]]
-                    rat = rho.dat.data_ro[fdof]
-
-                rat0 = [[1.0, rat], [rat, rat**2]]
-                rat1 = [[1.0/rat**2, 1.0/rat], [1.0/rat, 1.0]]
 
                 istart = 1 if needs_hdiv else 0
                 for k in range(istart, ncomp):
                     if needs_hdiv:
-                        facet_perm = (k+np.arange(ndim)) % ndim
                         k0 = (k+idir[0]) % ncomp
                         k1 = (k+idir[1]) % ncomp
-                        Gfacet = [Gfacet0.dat.data_ro[fdof], Gfacet1.dat.data_ro[fdof]]
+                        facet_perm = (k+np.arange(ndim)) % ndim
+                        mu = [Gfacet0.dat.data_ro[fdof], Gfacet1.dat.data_ro[fdof]]
                         Piola = [Piola0.dat.data_ro[fdof][k0], Piola1.dat.data_ro[fdof][k1]]
                     else:
-                        facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         k0 = k
                         k1 = k
-
-                    mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
-                          mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
+                        facet_perm = (idir[0]+np.arange(ndim)) % ndim
+                        mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
+                              mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
 
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
@@ -418,12 +404,8 @@ class FDMPC(PCBase):
 
                             sij = 0.5E0 if (i == j) or (bool(k0) != bool(k1)) else -0.5E0
                             if needs_hdiv:
-                                beta = [sij*rat0[j][i]*mu[0], sij*rat1[j][i]*mu[1]]
-                                # print(beta)
-
-                                beta = [sij*np.dot(np.dot(Gfacet[0], Piola[i]), Piola[j]),
-                                        sij*np.dot(np.dot(Gfacet[1], Piola[i]), Piola[j])]
-                                # print(beta)
+                                beta = [sij*np.dot(np.dot(mu[0], Piola[i]), Piola[j]),
+                                        sij*np.dot(np.dot(mu[1], Piola[i]), Piola[j])]
                             else:
                                 beta = [sij*mu[0], sij*mu[1]]
 
