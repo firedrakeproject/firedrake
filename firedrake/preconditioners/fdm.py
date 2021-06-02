@@ -85,7 +85,7 @@ class FDMPC(PCBase):
 
         eta = float(eta)
 
-        self.restrict_kernel, self.prolong_kernel, self.stencil_kernel, Afdm, Dfdm = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag)
+        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag)
 
         self.stencil = None
         if fdm_type == "stencil":
@@ -187,6 +187,17 @@ class FDMPC(PCBase):
                 x[:, :, -1, ...] = val
         x.shape = xshape
         return
+
+    def assemble_diagonal(self, Gq, Bq, diag):
+        if Bq is not None:
+            op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
+                         diag.dat(op2.INC, diag.cell_node_map()),
+                         Gq.dat(op2.READ, Gq.cell_node_map()),
+                         Bq.dat(op2.READ, Bq.cell_node_map()))
+        else:
+            op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
+                         diag.dat(op2.INC, diag.cell_node_map()),
+                         Gq.dat(op2.READ, Gq.cell_node_map()))
 
     def assemble_stencil(self, A, V, Gq, Bq, N, bcflags):
         assert V.value_size == 1
@@ -492,6 +503,18 @@ class FDMPC(PCBase):
                     Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
         Pmat.assemble()
+        if False:
+            lgmap = V.dof_dset.lgmap
+            Pmat.setLGMap(lgmap, lgmap)
+            Pmat.zeroRowsColumnsLocal(self.bc_nodes)
+            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=False, piola=needs_hdiv)
+            self.assemble_diagonal(Gq, Bq, self.uf)
+            diag = Pmat.getDiagonal()
+            with self.uf.dat.vec as true_diag:
+                diag.pointwiseDivide(true_diag, diag)
+            diag.sqrtabs()
+            Pmat.diagonalScale(L=diag, R=diag)
+
         return Pmat
 
     def assemble_coef(self, mu, helm, Nq=0, diagonal=False, piola=False):
@@ -564,7 +587,7 @@ class FDMPC(PCBase):
 
         n = FacetNormal(self.mesh)
         area = firedrake.FacetArea(self.mesh)
-        vol = firedrake.CellVolume(self.mesh)
+        vol = abs(JacobianDeterminant(self.mesh))
         hinv = area / vol
         hn = hinv * n
         i1, i2, i3, i4, j2, j4 = indices(6)
@@ -888,7 +911,8 @@ class FDMPC(PCBase):
                 return;
             }}
 
-            void get_band(PetscBLASInt dom1, PetscBLASInt dom2, PetscBLASInt dom3,
+            void get_band(PetscBLASInt nstencil,
+                          PetscBLASInt dom1, PetscBLASInt dom2, PetscBLASInt dom3,
                           PetscScalar *JX, PetscScalar *DX,
                           PetscScalar *JY, PetscScalar *DY,
                           PetscScalar *JZ, PetscScalar *DZ,
@@ -902,7 +926,7 @@ class FDMPC(PCBase):
                 PetscScalar t0[{nquad}], t1[{nquad}], t2[{sdim}] = {{0.0E0}};
                 PetscScalar scal;
                 {IntType_c} k, ix, iy, iz;
-                {IntType_c} ndiag = {sdim}, nquad = {nquad}, nstencil = {2*ndim+1}, inc = 1;
+                {IntType_c} ndiag = {sdim}, nquad = {nquad}, inc = 1;
 
                 get_basis(dom1, JX, DX, BX);
                 get_basis(dom2, JY, DY, BY);
@@ -928,7 +952,22 @@ class FDMPC(PCBase):
                         BLASaxpy_(&ndiag, &scal, t1, &inc, t2, &inc);
                     }}
 
-                BLAScopy_(&ndiag, t2, &inc, band, &nstencil);
+                scal = 1.0E0;
+                BLASaxpy_(&ndiag, &scal, t2, &inc, band, &nstencil);
+                return;
+            }}
+
+            void diagonal({cargs}){{
+                PetscScalar J[{nb}] = {{ {Jhex} }};
+                PetscScalar D[{nb}] = {{ {Dhex} }};
+                PetscScalar tcoef[{nquad * nsym}];
+                PetscScalar one = 1.0E0;
+
+                for({IntType_c} j=0; j<{nquad}; j++)
+                    for({IntType_c} i=0; i<{nsym}; i++)
+                        tcoef[j + {nquad}*i] = gcoef[i + {nsym}*j];
+
+                get_band(1, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
                 return;
             }}
 
@@ -938,25 +977,27 @@ class FDMPC(PCBase):
                 PetscScalar tcoef[{nquad * nsym}];
                 PetscScalar one = 1.0E0;
                 {IntType_c} i1, i2, i3;
+                PetscBLASInt nstencil = {2*ndim+1};
 
                 for({IntType_c} j=0; j<{nquad}; j++)
                     for({IntType_c} i=0; i<{nsym}; i++)
                         tcoef[j + {nquad}*i] = gcoef[i + {nsym}*j];
 
-                get_band(0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
+                get_band(nstencil, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
 
                 for({IntType_c} j=0; j<{2*ndim}; j++){{
                     i1 = (j/2 == {ndim-1}) * (1 + (j%2));
                     i2 = (j/2 == {ndim-2}) * (1 + (j%2));
                     i3 = (j/2 == {ndim-3}) * (1 + (j%2));
-                    get_band(i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
+                    get_band(nstencil, i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
                 }}
                 return;
             }}
             """
 
+            diagonal_kernel = op2.Kernel(stencil_code, "diagonal", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
             stencil_kernel = op2.Kernel(stencil_code, "stencil", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        return restrict_kernel, prolong_kernel, stencil_kernel, Afdm, Dfdm
+        return Afdm, Dfdm, restrict_kernel, prolong_kernel, diagonal_kernel, stencil_kernel
 
     @staticmethod
     def multiplicity(V):
