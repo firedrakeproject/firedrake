@@ -13,7 +13,7 @@ class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this
 
-    :arg a: the bilinear form this :class:`MatrixBase` represents 
+    :arg a: the bilinear form this :class:`MatrixBase` represents
             or a tuple of the arguments it represents
 
     :arg bcs: an iterable of boundary conditions to apply to this
@@ -171,6 +171,7 @@ class ImplicitMatrix(MatrixBase):
         # updated if necessary.
         self.petscmat.assemble()
 
+
 class AssembledMatrix(MatrixBase):
     """A representation of an matrix without knowing the underlying form.
      This class wraps the relevant information for Python PETSc matrix.
@@ -181,7 +182,7 @@ class AssembledMatrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
-    :arg petscmat: the already constructed petsc matrix this object represents. 
+    :arg petscmat: the already constructed petsc matrix this object represents.
 
 
     .. note::
@@ -194,13 +195,10 @@ class AssembledMatrix(MatrixBase):
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
-        options_prefix = kwargs.pop("options_prefix")
-        appctx = kwargs.get("appctx", {})
-
         self.petscmat = petscmat
-  
-        # this provides the ability to call self.M.handle without creating another class
-        self.M = SimpleNamespace(handle = self.mat())
+
+        # this allows call to self.M.handle without a new class
+        self.M = SimpleNamespace(handle=self.mat())
 
     def mat(self):
         return self.petscmat
@@ -209,5 +207,5 @@ class AssembledMatrix(MatrixBase):
         if isinstance(other, AssembledMatrix):
             return self.petscmat + other.petscmat
         else:
-            raise TypeError("Unable to add %s to AssembledMatrix" % (type(other)))
-
+            raise TypeError("Unable to add %s to AssembledMatrix"
+                            % (type(other)))

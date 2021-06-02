@@ -123,18 +123,19 @@ def assemble(expr, tensor=None, bcs=None, *,
     """
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
-                             form_compiler_parameters,
-                             mat_type, sub_mat_type,
-                             appctx, options_prefix)
+                                  form_compiler_parameters,
+                                  mat_type, sub_mat_type,
+                                  appctx, options_prefix)
     elif isinstance(expr, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
 
+
 def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
-                  form_compiler_parameters,
-                  mat_type, sub_mat_type,
-                  appctx, options_prefix):
+                       form_compiler_parameters,
+                       mat_type, sub_mat_type,
+                       appctx, options_prefix):
     stack = [expr]
     visited = {}
     while stack:
@@ -144,16 +145,19 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
         for arg in operands:
             if arg not in visited:
                 unvisted_children.append(arg)
-        
+
         if unvisted_children:
             stack.append(e)
             stack.extend(unvisted_children)
         else:
-            visited[e] = base_form_visitor(e, tensor, bcs, diagonal, assembly_type,
-                form_compiler_parameters,
-                mat_type, sub_mat_type,
-                appctx, options_prefix, *(visited[arg] for arg in operands))
+            visited[e] = base_form_visitor(e, tensor, bcs, diagonal,
+                                           assembly_type,
+                                           form_compiler_parameters,
+                                           mat_type, sub_mat_type,
+                                           appctx, options_prefix,
+                                           *(visited[arg] for arg in operands))
     return visited[expr]
+
 
 def base_form_operands(expr):
     if isinstance(expr, ufl.form.FormSum):
@@ -164,31 +168,32 @@ def base_form_operands(expr):
         return [expr.left(), expr.right()]
     return []
 
+
 def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
-                  form_compiler_parameters,
-                  mat_type, sub_mat_type,
-                  appctx, options_prefix, *args):
+                      form_compiler_parameters,
+                      mat_type, sub_mat_type,
+                      appctx, options_prefix, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
-                            form_compiler_parameters,
-                            mat_type, sub_mat_type,
-                            appctx, options_prefix)
+                             form_compiler_parameters,
+                             mat_type, sub_mat_type,
+                             appctx, options_prefix)
     elif isinstance(expr, ufl.Adjoint):
-        if (len(args) != 1): 
+        if (len(args) != 1):
             raise TypeError("Not enough operands for Adjoint")
-        mat = args[0] 
+        mat = args[0]
         res = PETSc.Mat().create()
         petsc_mat = mat.M.handle
         # TODO Add Hermitian Transpose to petsc4py and replace transpose
         petsc_mat.transpose()
         (row, col) = mat.arguments()
         return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix)
+                                      appctx=appctx,
+                                      options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
-        if (len(args) != 2): 
+        if (len(args) != 2):
             raise TypeError("Not enough operands for Action")
-        lhs = args[0] 
+        lhs = args[0]
         if not isinstance(lhs, matrix.MatrixBase):
             raise TypeError("Incompatible LHS for Action")
         rhs = args[1]
@@ -196,11 +201,11 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             petsc_mat = lhs.M.handle
             (row, col) = lhs.arguments()
             res = _make_vector(col)
-            
+
             with rhs.dat.vec_ro as v_vec:
                 with res.dat.vec as res_vec:
                     petsc_mat.mult(v_vec, res_vec)
-            return firedrake.Cofunction(row.function_space(), val = res.dat)
+            return firedrake.Cofunction(row.function_space(), val=res.dat)
         elif isinstance(rhs, matrix.MatrixBase):
             petsc_mat = lhs.M.handle
             (row, col) = lhs.arguments()
@@ -208,8 +213,8 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             # TODO Figure out what goes here
             res = petsc_mat.matMult(rhs.M.handle)
             return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix)
+                                          appctx=appctx,
+                                          options_prefix=options_prefix)
         else:
             raise TypeError("Incompatible RHS for Action")
     elif isinstance(expr, ufl.FormSum):
@@ -219,12 +224,12 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             raise TypeError("Empty FormSum")
         if all([isinstance(op, firedrake.Cofunction) for op in args]):
             # TODO check all are in same function space
-            res = sum([w*op.dat for (op,w) in zip(args, expr.weights())])
+            res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
             res = PETSc.Mat().create()
             set = False
-            for (op,w) in zip(args, expr.weights()):
+            for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.M.handle
                 petsc_mat.scale(w)
                 if set:
@@ -233,11 +238,11 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                     res = petsc_mat
                     set = True
             return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix)
+                                          appctx=appctx,
+                                          options_prefix=options_prefix)
         else:
             raise TypeError("Mismatching FormSum shapes")
-    elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
+    elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
     elif isinstance(expr, ufl.Coefficient):
         return expr

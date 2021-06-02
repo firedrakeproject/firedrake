@@ -1,17 +1,9 @@
-import numpy as np
-import sys
 import ufl
-import ctypes
-from collections import OrderedDict
-from ctypes import POINTER, c_int, c_double, c_void_p
-
 from pyop2 import op2
-
-from firedrake.utils import ScalarType, IntType, as_ctypes
-from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
     import cachetools
@@ -19,8 +11,9 @@ except ImportError:
     warning("cachetools not available, expression assembly will be slowed down")
     cachetools = None
 
+
 class Cofunction(ufl.Cofunction, FunctionMixin):
-    r"""A :class:`Cofunction` represents a function on a dual space. 
+    r"""A :class:`Cofunction` represents a function on a dual space.
     Like Functions, cofunctions are
     represented as sums of basis functions:
 
@@ -30,7 +23,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     The :class:`Function` class provides storage for the coefficients
     :math:`f_i` and associates them with a :class:`.FunctionSpace` object
-    which provides the basis functions :math:`\\phi_i(x)`. 
+    which provides the basis functions :math:`\\phi_i(x)`.
 
     Note that the coefficients are always scalars: if the
     :class:`Function` is vector-valued then this is specified in
@@ -38,9 +31,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     """
 
     def __new__(cls, *args, **kwargs):
-        new_args = [args[i].dual() if i == 0  else args[i] for i in range(len(args))]
+        new_args = [args[i].dual()
+                    if i == 0 else args[i] for i in range(len(args))]
         return ufl.Cofunction.__new__(cls, *new_args, **kwargs)
-        
 
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
@@ -56,11 +49,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
         """
-        # assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
-        #                                    functionspaceimpl.MixedFunctionSpace)), \
-        #     "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Cofunction.__init__(self, function_space._ufl_function_space.dual())
+        ufl.Cofunction.__init__(self,
+                                function_space._ufl_function_space.dual())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -76,7 +67,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-        
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
@@ -94,12 +84,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                           val=val, name=self.name(),
                           dtype=self.dat.dtype)
 
-
     @utils.cached_property
     def _split(self):
         return (type(self)(self.function_space(), self.dat),)
-        # return tuple(type(self)(V, val)
-                    #  for (V, val) in zip(self.function_space(), self.topological.split()))
 
     @FunctionMixin._ad_annotate_split
     def split(self):
@@ -123,13 +110,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
+        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace`
+        this returns a proxy object indexing the ith component of the space,
+        suitable for use in boundary condition application."""
         if len(self.function_space()) == 1:
             return self._components[i]
         return self._split[i]
-
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -138,7 +124,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self._function_space
 
     def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
+        r"""Return a :class:`.Vector` wrapping the data in this
+        :class:`Function`"""
         return vector.Vector(self)
 
     def ufl_id(self):

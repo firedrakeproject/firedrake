@@ -238,13 +238,15 @@ class WithGeometryBase(object):
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
+
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
     def __init__(self, function_space, mesh):
         super(WithGeometry, self).__init__(function_space, mesh)
-    
+
     def dual(self):
         return FiredrakeDualSpace(self.topological, self.mesh())
+
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 

@@ -134,9 +134,10 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     else:
         return new
 
+
 @timed_function("CreateSpace")
 def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
-                  vdegree=None):
+              vdegree=None):
     """Create a :class:`.FunctionSpace`.
 
     :arg mesh: The mesh to determine the cell from.
