@@ -172,9 +172,8 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.assemble()
 
 class AssembledMatrix(MatrixBase):
-    """A representation of the action of bilinear form operating
-    without explicitly assembling the associated matrix.  This class
-    wraps the relevant information for Python PETSc matrix.
+    """A representation of an matrix without knowing the underlying form.
+     This class wraps the relevant information for Python PETSc matrix.
 
     :arg a: A tuple of the arguments the matrix represents
 
@@ -200,6 +199,7 @@ class AssembledMatrix(MatrixBase):
 
         self.petscmat = petscmat
   
+        # this provides the ability to call self.M.handle without creating another class
         self.M = SimpleNamespace(handle = self.mat())
 
     def mat(self):

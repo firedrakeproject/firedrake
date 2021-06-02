@@ -168,7 +168,7 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                   form_compiler_parameters,
                   mat_type, sub_mat_type,
                   appctx, options_prefix, *args):
-    if isinstance(expr, ufl.form.Form):
+    if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                             form_compiler_parameters,
                             mat_type, sub_mat_type,
@@ -238,10 +238,8 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
-        print("Other")
         return expr
     elif isinstance(expr, ufl.Coefficient):
-        print("Coefficient")
         return expr
     else:
         print(type(expr))
