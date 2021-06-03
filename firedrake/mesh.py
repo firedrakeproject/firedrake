@@ -1222,25 +1222,19 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell = ufl.Cell("vertex")
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
+        # Mark OP2 entities and derive the resulting Swarm numbering
+        with PETSc.Log.Event("Mesh: numbering"):
+            dmcommon.mark_entity_classes(self.topology_dm)
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
-            # Mark OP2 entities and derive the resulting Swarm numbering
-            with PETSc.Log.Event("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self.topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            # Derive a cell numbering from the Swarm numbering
+            entity_dofs = np.zeros(tdim+1, dtype=IntType)
+            entity_dofs[-1] = 1
 
-                # Derive a cell numbering from the Swarm numbering
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-
-        self._callback = callback
+            self._cell_numbering = self.create_section(entity_dofs)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self.create_section(entity_dofs)
 
     @property
     def comm(self):
@@ -1320,6 +1314,23 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
+
+    @property
+    def cell_parent_cell_list(self):
+        """Return a list of parent mesh cells numbers in vertex only
+        mesh cell order.
+        """
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        self.topology_dm.restoreField("parentcellnum")
+        return cell_parent_cell_list
+
+    @property
+    def cell_parent_cell_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh cells.
+        """
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_cell_list, "cell_parent_cell")
 
 
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
@@ -1491,27 +1502,54 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None):
-        """Locate cell containg given point.
+        """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell.
-        :returns: cell number (int), or None (if the point is not in the domain)
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: cell number (int), or None (if the point is not
+            in the domain)
         """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[0]
 
+    def locate_reference_coordinate(self, x, tolerance=None):
+        """Get reference coordinates of a given point in its cell. Which
+        cell the point is in can be queried with the locate_cell method.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: reference coordinates within cell (numpy array) or
+            None (if the point is not in the domain)
+        """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[1]
+
+    def locate_cell_and_reference_coordinate(self, x, tolerance=None):
+        """Locate cell containing a given point and the reference
+        coordinates of the point within the cell.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: tuple either (cell number, reference coordinates)
+            (int, numpy array), or (None, None) (point is not in the domain)
+        """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-
         x = np.asarray(x, dtype=utils.ScalarType)
         if not np.allclose(x.imag, 0):
             raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
-
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
+        X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
-            return None
+            return (None, None)
         else:
-            return cell
+            return cell, X
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -1525,10 +1563,14 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x)
+    int locator(struct Function *f, double *x, double *X)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        for(int i=0; i<%(geometric_dimension)d; i++) {
+            X[i] = reference_coords.X[i];
+        }
+        return cell;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -1541,6 +1583,7 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double)]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
@@ -1954,9 +1997,9 @@ def VertexOnlyMesh(mesh, vertexcoords):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
 
-    dmcommon.label_pic_parent_cell_nums(swarm, mesh)
+    dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
@@ -1985,6 +2028,10 @@ def VertexOnlyMesh(mesh, vertexcoords):
                                                   name="Coordinates")
 
     vmesh.__init__(coordinates)
+
+    # Save vertex reference coordinate (within reference cell) in function
+    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
+    vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
 
     return vmesh
 
