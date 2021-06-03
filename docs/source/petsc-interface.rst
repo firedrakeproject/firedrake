@@ -127,7 +127,7 @@ newly defined class to compute the matrix action:
 
    # Set up B
    # B is the same size as A
-   B.setSizes(*A.getSizes())
+   B.setSizes(A.getSizes())
 
    B.setType(B.Type.PYTHON)
    B.setPythonContext(Bctx)
