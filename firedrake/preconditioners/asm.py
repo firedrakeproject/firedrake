@@ -37,14 +37,18 @@ class ASMPatchPC(PCBase):
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
 
-        # Obtain patches from user defined funtion
-        ises = self.get_patches(V)
+
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
         asmpc.incrementTabLevel(1, parent=pc)
         asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
+
+        self.asmpc = asmpc
+
+        # Obtain patches from user defined funtion
+        ises = self.get_patches(V)
 
         backend = PETSc.Options().getString(self.prefix + "backend",
                                             default="petscasm").lower()
@@ -83,7 +87,8 @@ class ASMPatchPC(PCBase):
             raise ValueError(f"Unknown backend type f{backend}")
 
         asmpc.setFromOptions()
-        self.asmpc = asmpc
+
+
 
     @abc.abstractmethod
     def get_patches(self, V):
@@ -223,6 +228,7 @@ class ASMVankaPC(ASMPatchPC):
             iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
             ises.append(iset)
 
+
         return ises
 
 
@@ -260,29 +266,122 @@ class ASMLinesmoothPC(ASMPatchPC):
         for (i, W) in enumerate(V):
             V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
 
+        # opts = PETSc.Options(self.asmpc.getOptionsPrefix())
+        opts = PETSc.Options().getString(self.prefix + "star", "0, 1")
+        depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=0)
+
         # Build index sets for the patches
         ises = []
         for codim in codim_list:
-            for p in range(*dm.getHeightStratum(codim)):
+            print("the codimension is " + str(codim))
+            (start, end) = dm.getHeightStratum(codim)
+            (start, end) = dm.getDepthStratum(depth)
+            print("The Height stratum is: (" + str(start) + ", " + str(end) + ")")
+            print("The Depth stratum is: (" + str(start) + " ," + str(end) + ")")
+            for p in range(start, end):
+                print("p = " + str(p))
                 # Only want to build patches over owned faces
                 if dm.getLabelValue("pyop2_ghost", p) != -1:
                     continue
-                Q, _ = dm.getTransitiveClosure(p, useCone=False)
+                if opts == '1':
+                    Q, _ = dm.getTransitiveClosure(p, useCone=False)
+                    print("     star in opts")
+                else:
+                    Q = [p]
+                    print("     star not in opts")
                 # Get DoF indices for patch
                 indices = []
                 for (i, W) in enumerate(V):
+                    print("     space number " + str(i))
                     section = W.dm.getDefaultSection()
-                    for q in Q.tolist():
+                    for q in Q:
+                        print("         q = " + str(q))
                         dof = section.getDof(q)
                         if dof <= 0:
+                            print("         dof <=0")
                             continue
                         off = section.getOffset(q)
+                        print ("            offset = " + str(off))
                         # Local indices within W
                         W_indices = numpy.arange(off * W.value_size, W.value_size * (off + dof), dtype='int32')
                         indices.extend(V_local_ises_indices[i][W_indices])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
+
+
         return ises
 
+
+
+class ASMLinesmoothPC_Star(ASMPatchPC):
+    '''Linesmoother PC for extruded meshes implemented as an
+    :class:`ASMPatchPC`.
+
+    ASMLinesmoothPC is an additive Schwarz preconditioner where each
+    patch consists of all dofs associated with a vertical column (and
+    hence extruded meshes are necessary). Three types of columns are
+    possible: columns of horizontal faces (each column built over a
+    face of the base mesh), columns of vertical faces (each column
+    built over an edge of the base mesh), and columns of vertical
+    edges (each column built over a vertex of the base mesh).
+
+    To select the column type or types for the patches, use
+    'pc_linesmooth_codims' to set integers giving the codimension of
+    the base mesh entities for the columns. For example,
+    'pc_linesmooth_codims 0,1' creates patches for each cell and each
+    facet of the base mesh.
+    '''
+
+    _prefix = "pc_linesmooth_"
+
+
+
+
+    def get_patches(self, V):
+        mesh = V._mesh
+        assert mesh.cell_set._extruded
+        dm = mesh.topology_dm
+        section = V.dm.getDefaultSection()
+        # Obtain the codimensions to loop over from options, if present
+        codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
+        codim_list = [int(ii) for ii in codim_list.split(",")]
+
+        #opts = PETSc.Options(self.asmpc.getOptionsPrefix())
+        opts = PETSc.Options().getString(self.prefix + "star", "0, 1")
+        (start, end) = dm.getHeightStratum(codim)
+
+        # Build index sets for the patches
+        ises = []
+        for codim in codim_list:
+            print("codim = ")
+            print(codim)
+            for p in range(start, end):
+                # Only want to build patches over owned faces
+                if dm.getLabelValue("pyop2_ghost", p) != -1:
+                    continue
+
+                if opts == '1':
+                    Q, _ = dm.getTransitiveClosure(p, useCone=False)
+                    print("star in opts")
+                else:
+                    Q = [p]
+                    print("star not in opts")
+
+                # Get DoF indices for patch
+                indices = []
+                for q in Q:
+
+                    print("q = ")
+                    print(q)
+                    dof = section.getDof(q)
+                    if dof <= 0:
+                        continue
+                    off = section.getOffset(q)
+                    # Local indices within W
+
+                    indices = numpy.arange(off * V.value_size, V.value_size * (off + dof), dtype='int32')
+                    iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                    ises.append(iset)
+        return ises
 
 
