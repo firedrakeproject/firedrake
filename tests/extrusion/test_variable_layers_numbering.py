@@ -370,8 +370,8 @@ def test_numbering_quad():
     assert numpy.equal(V.cell_node_map().values,
                        [[0, 1, 3, 4, 9, 10, 6, 7],
                         [9, 10, 6, 7, 15, 16, 12, 13],
-                        [3, 4, 6, 7, 17, 18, 19, 20],
-                        [6, 7, 12, 13, 19, 20, 22, 23]]).all()
+                        [3, 4, 17, 18, 6, 7, 19, 20],
+                        [6, 7, 19, 20, 12, 13, 22, 23]]).all()
 
     assert numpy.equal(DirichletBC(V, 0, "bottom").nodes,
                        [0, 3, 6, 9, 12, 15, 17, 19, 22]).all()
