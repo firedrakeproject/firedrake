@@ -726,33 +726,30 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
 
 
 def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_wrapper_knl, action_wrapper_knl_name, builder):
-    # Generate args and reads # FIXME reuse the new kernel builder function to generate the args
-    args = []
-    reads = []
-    _, reads2 = insn.expression.parameters  # loopy
-    def make_reads(child2, name):
-        var_reads = pym.Variable(name)
-        child_reads = Variable(name, child2.shape)
-        idx_reads = builder.bag.index_creator(child2.shape)
-        return child_reads, SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+    knl = action_wrapper_knl[action_wrapper_knl_name]
 
-    child_coords, reads_coords = make_reads(gem_action_node, "coords")
-    child_out, reads_out = make_reads(action_output_arg, insn.assignee_name)
-    child_coeff, reads_coeff = make_reads(gem_action_node, action_wrapper_knl[action_wrapper_knl_name].args[-1].name)
-    reads = [reads_out, reads_coords, reads_coeff]
-    children = [child_out, child_coords, child_coeff]
-    output = [True, False, False]
-    if builder.bag.needs_cell_facets:
-        child_facets, reads_facets = make_reads(child_coeff, builder.cell_facets_arg)
-        reads = [reads_out, reads_coords, reads_facets, reads_coeff]
-        children = [child_out, child_coords, child_facets, child_coeff]
-        output += [False]
+    # Generate args for the kernel and reads for the call instruction
+    def make_reads(arg, name):
+        var_reads = pym.Variable(name)
+        idx_reads = builder.bag.index_creator(arg.shape)
+        return SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+
+    # Generate reads form kernel args
+    reads = []
+    output = [True]
+    for i, a in enumerate(knl.args):
+        read = make_reads(a, a.name)
+        reads += [read]
+        if not i == 0:
+            output += [False]
     
-    for (output,(child, var_reads)) in zip(output, zip(children, reads)):
-        # args to kernel
+
+    # Generate new args with dim tags and so forth set
+    args = []
+    for (output,(arg, var_reads)) in zip(output, zip(knl.args, reads)):
         args.append(lp.GlobalArg(var_reads.subscript.aggregate.name, 
-                                dtype = builder.tsfc_parameters["scalar_type"],
-                                shape=child.shape,
+                                dtype=builder.tsfc_parameters["scalar_type"],
+                                shape=arg.shape,
                                 target=lp.CTarget(),
                                 dim_tags=None, strides=lp.auto, order="C",
                                 is_output=output, is_input=True))
