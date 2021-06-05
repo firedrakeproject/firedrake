@@ -64,12 +64,22 @@ def _action_action(expr, self, state):
     return expr
 
 @_action.register(Tensor)
-@_action.register(Block)
 def _action_tensor(expr, self, state):
     if not self.action:
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
         return Action(expr, state.coeff, state.pick_op)
+
+
+@_action.register(Block)
+def _action_tensor(expr, self, state):
+    if not self.action:
+        return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
+    else:
+        tensor, = expr.children
+        coeff = state.coeff
+        self.block_indices = expr._indices
+        return Action(tensor, coeff, state.pick_op)
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):
@@ -239,7 +249,10 @@ def push_mul(tensor, coeff, options):
     mapper = MemoizerArg(_action)
     mapper.swapc = SwapController()
     mapper.action = options["replace_mul_with_action"]
+    mapper.block_indices = ()
     a = mapper(tensor, ActionBag(coeff, None, 1))
+    if mapper.block_indices:
+        a = Block(a, (mapper.block_indices[0],))
     return a
 
 """ ActionBag class
