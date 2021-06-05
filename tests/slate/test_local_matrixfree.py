@@ -86,6 +86,42 @@ def A3(mymesh, Mixed, Velo, Pres, dg):
 
 
 @pytest.fixture
+def W4(mymesh):
+    degree = 1
+    U = FunctionSpace(mymesh, "DRT", degree)
+    V = FunctionSpace(mymesh, "DG", degree - 1)
+    T = FunctionSpace(mymesh, "DGT", degree - 1)
+    return U * V * T, U, V, T
+
+
+@pytest.fixture
+def A4(W4, mymesh):
+    mesh = mymesh
+    n = FacetNormal(mesh)
+    W = W4[0]
+
+    sigma, u, lambdar = TrialFunctions(W)
+    tau, v, gammar = TestFunctions(W)
+
+    f = Function(W4[2])
+    x = SpatialCoordinate(mesh)
+    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
+
+    a = (inner(sigma, tau)*dx - inner(u, div(tau))*dx
+            + inner(div(sigma), v)*dx
+            + inner(lambdar('+'), jump(tau, n=n))*dS
+            # Multiply transmission equation by -1 to ensure
+            # SCPC produces the SPD operator after statically
+            # condensing
+            - inner(jump(sigma, n=n), gammar('+'))*dS)
+    L = inner(f, v)*dx
+
+    _A = Tensor(a)
+    A = _A.blocks
+    return A
+
+
+@pytest.fixture
 def f(V, mymesh):
     f = Function(V)
     x, y= SpatialCoordinate(mymesh)
@@ -98,6 +134,12 @@ def f2(dg, mymesh):
     x, y = SpatialCoordinate(mymesh)
     T = Function(dg).interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
     return AssembledVector(T)
+
+
+@pytest.fixture
+def f4(W4, mymesh):
+    f = Function(W4[3]).assign(Constant(0.2))
+    return AssembledVector(f)
 
 
 @pytest.fixture(params=["A+A",
@@ -154,6 +196,30 @@ def test_new_slateoptpass(expr):
     print("Test is running for expresion " + str(expr))
     tmp = assemble(expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
     tmp_opt = assemble(expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
+
+
+@pytest.fixture(params=["A[0, 0] * A[0, 2]",
+                        "A[0, 2] + A[0, 0] * A[0, 2]",
+                        "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]",
+                        "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)",
+                        "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)"
+                        ])
+def block_expr(request, A4, f4):
+    if request.param == "A[0, 0] * A[0, 2]":
+        return (A4[0, 0] * A4[0, 2])*f4
+    if request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
+        return (A4[0, 2] + A4[0, 0] * A4[0, 2])*f4
+    if request.param == "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]":
+        return (A4[0, 2] + A4[0, 0] * A4[0, 2] * A4[2, 2])*f4
+    elif request.param == "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
+        return (A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
+    elif request.param == "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
+        return (A4[1, 2] - A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
+
+def test_blocks(block_expr):
+    tmp = assemble(block_expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    tmp_opt = assemble(block_expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
     assert np.allclose(tmp.dat.data, tmp_opt.dat.data, atol=0.0001)
 
 
