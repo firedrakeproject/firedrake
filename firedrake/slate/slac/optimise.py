@@ -130,6 +130,10 @@ def _action_solve(expr, self, state):
         else:
             rhs = expr.children[state.pick_op]
             mat = expr.children[state.pick_op^1]
+            if isinstance(mat, Factorization):
+                mat, = mat.children
+            if isinstance(mat, Block):
+                mat, = mat.children
             # always push into the right hand side of the solve
             return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
 
