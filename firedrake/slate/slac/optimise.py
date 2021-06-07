@@ -77,7 +77,12 @@ def _action_tensor(expr, self, state):
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
         tensor, = expr.children
-        coeff = state.coeff
+        # For Blocks the coefficient has to be pulled inside the expression
+        # which has to go along with a change of shape of the coefficient
+        # so a new coefficient needs to be generated on the non-indexed FS
+        # For Solve nodes e.g. we don't have a corresponding coefficient attached,
+        # so we need to generate one here
+        coeff = AssembledVector(Function(tensor.arg_function_spaces[state.pick_op]))
         self.block_indices = expr._indices
         return Action(tensor, coeff, state.pick_op)
 
