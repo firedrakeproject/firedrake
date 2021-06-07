@@ -1062,15 +1062,12 @@ class Action(BinaryOp):
 
     def __init__(self, A, b, pick_op):
         """Constructor for the Mul class."""
-        if A.shape[pick_op] != b.shape[0] or not hasattr(b, "_function"):
-            # For Blocks the coefficient has to be pulled inside the expression
-            # which has to go along with a change of shape of the coefficient
-            # so a new coefficient needs to be generated on the non-indexed FS
+        if not hasattr(b, "_function"):
+            # FIXME should this be handled by the optimiser?
             # For Solve nodes e.g. we don't have a corresponding coefficient attached,
             # so we need to generate one here
+            self.ufl_coefficient = AssembledVector(Function(tensor.arg_function_spaces[pick_op]))
             fs = A.arg_function_spaces[pick_op]
-            # save the newly generated coefficient in separate variable
-            self.ufl_coefficient = Function(fs)
             b = AssembledVector(self.ufl_coefficient)
         else:
             self.ufl_coefficient = b._function
