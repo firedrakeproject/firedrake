@@ -1062,12 +1062,18 @@ class Action(BinaryOp):
 
     def __init__(self, A, b, pick_op):
         """Constructor for the Mul class."""
-        if A.shape[pick_op] != b.shape[0]:
+        if A.shape[pick_op] != b.shape[0] or not hasattr(b, "_function"):
+            # For Blocks the coefficient has to be pulled inside the expression
+            # which has to go along with a change of shape of the coefficient
+            # so a new coefficient needs to be generated on the non-indexed FS
+            # For Solve nodes e.g. we don't have a corresponding coefficient attached,
+            # so we need to generate one here
             fs = A.arg_function_spaces[pick_op]
-            self.split_b = b
-            b = AssembledVector(Function(fs))
+            # save the newly generated coefficient in separate variable
+            self.ufl_coefficient = Function(fs)
+            b = AssembledVector(self.ufl_coefficient)
         else:
-            self.split_b = b
+            self.ufl_coefficient = self.coeff._function
 
         fsA = A.arg_function_spaces[-pick_op]
         fsB = b.arg_function_spaces[0]
@@ -1116,45 +1122,12 @@ class Action(BinaryOp):
             self.tensor, = self.tensor.children
         import ufl.algorithms as ufl_alg
 
-        # Pick first or last argument (will be replaced)
-        if hasattr(self.coeff, "_function") and self.coeff.shape[0] == self.tensor.shape[1]:
-            arguments = self.tensor.arguments()
-            u = arguments[self.pick_op]
-            coeff = self.coeff._function
-            self.ufl_coefficient = coeff
-            form = self.tensor.form
-            ret = Tensor(ufl_alg.replace(form, {u: coeff}))
-            return ret
-        # elif self.coeff.shape[0] != self.tensor.shape[1]:
-        #     u = self.tensor.children[0].arguments()
-        #     if hasattr(self.coeff, "_function"):
-        #         self.ufl_coefficient = self.coeff._function
-        #     else:
-        #         cfs, = self.coeff.arguments()
-        #         coeff = Function(cfs._function_space)
-        #         self.ufl_coefficient = coeff
-        #     form = self.tensor.children[0].form
-        #     replaced = Tensor(ufl_alg.replace(form, {u[self.pick_op]: self.non_split_ufl_coefficient}))
-        #     return replaced
-        else:
-            arguments = self.tensor.arguments()
-            u = arguments[self.pick_op]
-            cfs, = self.coeff.arguments()
-            coeff = Function(cfs.ufl_function_space())
-            self.ufl_coefficient = coeff
-            form = self.tensor.form
-            return Tensor(ufl_alg.replace(form, {u: coeff}))
-
-    def update_action(self):
-        import ufl.algorithms as ufl_alg
-
-        # Pick first or last argument (will be replaced)
+        # Pick first or last argument to be replaced
         arguments = self.tensor.arguments()
         u = arguments[self.pick_op]
-        cfs, = self.coeff.arguments()
-        coeff = Function(cfs.ufl_function_space())
-        self.ufl_coefficient = coeff
-        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
+
+        # Replace the argument with a coefficient
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: self.ufl_coefficient}))
 
     @cached_property
     def _key(self):
