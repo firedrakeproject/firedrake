@@ -1073,7 +1073,7 @@ class Action(BinaryOp):
             self.ufl_coefficient = Function(fs)
             b = AssembledVector(self.ufl_coefficient)
         else:
-            self.ufl_coefficient = self.coeff._function
+            self.ufl_coefficient = b._function
 
         fsA = A.arg_function_spaces[-pick_op]
         fsB = b.arg_function_spaces[0]
@@ -1094,7 +1094,6 @@ class Action(BinaryOp):
         self.pick_op = pick_op
         self.tensor = A
         self.coeff = b
-        self.ufl_coefficient = None
 
     @cached_property
     def arg_function_spaces(self):
