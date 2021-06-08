@@ -1,10 +1,13 @@
 from firedrake import *
 import pytest
 import numpy as np
+import scipy
 
 
-convergence_orders = lambda x: np.log2(np.array(x)[:-1] / np.array(x)[1:])
-
+#convergence_orders = lambda x: np.log2(np.array(x)[:-1] / np.array(x)[1:])
+# take the log of 1/the below
+relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
+convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
 
 @pytest.fixture(scope='module', params=["conforming", "nonconforming"])
 def stress_element(request):
@@ -55,6 +58,7 @@ def test_aw(stress_element):
     l2_u = []
     l2_sigma = []
     l2_div_sigma = []
+    mass_cond = []
 
     element = MixedElement([stress_element, VectorElement("DG", mesh.ufl_cell(), 1)])
     for msh in mh[1:]:
@@ -109,6 +113,22 @@ def test_aw(stress_element):
         l2_sigma.append(error_sigma)
         l2_div_sigma.append(error_div_sigma)
 
+        Sig = FunctionSpace(msh, stress_element)
+        sigh = Function(Sig)
+        tau = TestFunction(Sig)
+        mass = inner(sigh, tau)*dx
+        a = derivative(mass, sigh)
+        B = assemble(a, mat_type="aij").M.handle
+        nrow = B.getSize()[0]
+        ai, aj, av = B.getValuesCSR()
+        Asp = scipy.sparse.csr_matrix((av, aj, ai))
+        nnz = Asp.nnz
+        nrows = Asp.shape[0]
+        kappa = np.linalg.cond(Asp.todense())
+        mass_cond.append(kappa)
+
+    assert max(relative_magnitudes(mass_cond)) < 1.5
+
     if stress_element.family().startswith("Conforming"):
         assert min(convergence_orders(l2_u)) > 1.9
         assert min(convergence_orders(l2_sigma)) > 2.9
@@ -119,3 +139,6 @@ def test_aw(stress_element):
         assert min(convergence_orders(l2_div_sigma)) > 1.9
     else:
         raise ValueError("Don't know what the convergence should be")
+
+#test_aw(FiniteElement("AWc", triangle, 3))
+#test_aw(FiniteElement("AWnc", triangle, 2))
