@@ -1,15 +1,16 @@
 import numpy as np
 
-from firedrake.assemble import _vector_arg
+from firedrake.assemble import assemble, _vector_arg
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.logging import warning
 from firedrake.petsc import get_petsc_variables
 from firedrake.randomfunctiongen import PCG64, RandomGenerator
+from firedrake.solving import solve
+from firedrake.tsfc_interface import compile_form
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.utility_meshes import *
-from firedrake.tsfc_interface import compile_form
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
 from loopy import generate_code_v2
@@ -68,7 +69,8 @@ def WhiteNoise(V, rng=None):
                                   "static void " + mass_ker.kinfo.kernel.name)
 
     # Add custom code for doing "Cholesky" decomp and applying to broken vector
-    blocksize = mass_ker.kinfo.kernel.code.args[0].shape[0]
+    name = mass_ker.kinfo.kernel.name
+    blocksize = mass_ker.kinfo.kernel.code[name].args[0].shape[0]
 
     cholesky_code = f"""
 extern void dpotrf_(char *UPLO,
@@ -105,7 +107,8 @@ void apply_cholesky(double *__restrict__ z,
     char trans[1];
     int32_t stride = 1;
     //double one = 1.0;
-    double scale = 1.0/volume[0];
+    double scale = 1.0;//volume[0];
+    //printf("%g\\n", scale);
     double zero = 0.0;
 
     {mass_ker.kinfo.kernel.name}(H, coords);
@@ -371,7 +374,7 @@ utility meshes.
         sigma_hat2 *= self.lambd**(-self.dim)
         # The factor of 0.5 doesn't appear in the paper, but numerical
         # experiments show sample variance is out by a factor 2
-        self.eta = 0.5*self.sigma/np.sqrt(sigma_hat2)
+        self.eta = self.sigma/np.sqrt(sigma_hat2)
 
         # Setup RNG if provided
         self.rng = rng
@@ -381,7 +384,8 @@ utility meshes.
         v = TestFunction(self.V)
         self.wnoise = Function(self.V)
         a = (inner(u, v) + Constant(1/(self.kappa**2))*inner(grad(u), grad(v)))*dx
-        l = Constant(self.eta)*inner(self.wnoise, v)*dx
+        self.A = assemble(a)
+        # ~ b = assemble(self.eta*self.wnoise*dx)
 
         # Solve problem once
         self.u_h = Function(self.V)
@@ -389,11 +393,11 @@ utility meshes.
             self.solver_param = {'ksp_type': 'cg', 'pc_type': 'gamg'}
         else:
             self.solver_param = solver_parameters
-        base_problem = LinearVariationalProblem(a, l, self.u_h)
-        self.base_solver = LinearVariationalSolver(
-            base_problem,
-            solver_parameters=self.solver_param
-        )
+        # ~ base_problem = LinearVariationalProblem(a, l, self.u_h)
+        # ~ self.base_solver = LinearVariationalSolver(
+            # ~ base_problem,
+            # ~ solver_parameters=self.solver_param
+        # ~ )
 
         # For smoother solutions we must iterate this solve
         if self.k > 1:
@@ -435,9 +439,11 @@ utility meshes.
 
         # Generate a new white noise sample
         self.wnoise.assign(WhiteNoise(self.V, rng))
+        b = assemble(self.eta*self.wnoise)
 
         # Solve
-        self.base_solver.solve()
+        solve(self.A, self.u_h, b, solver_parameters=self.solver_param)
+        # ~ self.base_solver.solve()
 
         # Iterate solve until required smoothness achieved
         if self.k > 1:
