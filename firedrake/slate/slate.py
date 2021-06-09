@@ -1131,8 +1131,15 @@ class Action(BinaryOp):
         op1, op2 = self.operands
         return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
     
-    # def coefficients(self):
-    #     return (self.ufl_coefficient, )
+    def coefficients(self):
+        # We need to return the split coefficient, i.e. the one we act originally on
+        # so that the right values are passed in from PyOP2 later
+        # the newly generated coeffcients (saved in ufl_coefficient) are only for internal use
+        # and are not coefficients of the original expression
+        if hasattr(self.split_b, "_function"):
+            return (self.split_b._function, )
+        else:
+            return self.split_b.coefficients()
 
 
 class TensorShell(TensorBase):
