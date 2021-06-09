@@ -693,7 +693,7 @@ class LocalLoopyKernelBuilder(object):
                         coeff_dict[c] = (name, self.extent(c))
         return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2tensor, coefficients):
+    def initialise_terminals(self, var2tensor, coefficients, pos=None):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
@@ -726,6 +726,8 @@ class LocalLoopyKernelBuilder(object):
                 offset = 0
                 ismixed = (type(f.ufl_element()) == MixedElement)
                 names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
+                while len(names)<len(slate_tensor.shapes[0]):
+                    names += [None]
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
@@ -733,12 +735,17 @@ class LocalLoopyKernelBuilder(object):
                     inames = {var.name for var in indices}
                     offset_index = (pym.Sum((offset, indices[0])),)
                     name = names[i] if ismixed else names
-                    var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
-                    c = pym.Subscript(pym.Variable(name), indices)
-                    inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
-                                                  within_inames=frozenset(inames),
-                                                  within_inames_is_final=True))
-                    offset += shp
+                    subst = not pos == i if pos else False
+                    if name: 
+                        var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
+                        if not subst:
+                            c = pym.Subscript(pym.Variable(name), indices)
+                        else:
+                            c = 0.0
+                        inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
+                                                    within_inames=frozenset(inames),
+                                                    within_inames_is_final=True))
+                        offset += shp
 
         return inits, tensor2temp
 

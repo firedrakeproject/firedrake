@@ -668,11 +668,21 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
     # links to the same coefficient as the rhs of this node and init it             
     init_coeffs,_ = builder.collect_coefficients()
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
-                                for (cv,ct) in init_coeffs.items()
+                                for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
-                                and t._function==cv}
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
-    tensor2temps.update(tensor2temp)
+                                and t._function == cv}
+    
+    # FIXME we need to find the position of the part of the assembled vector that
+    # gets initialised with the coefficient (the others should be zero). This is important
+    # for Blocks
+    pos = (pos for (v,t) in var2terminal.items()
+                    for pos, (cv,ct) in enumerate(init_coeffs.items())
+                    if isinstance(t, sl.AssembledVector)
+                    and t._function == cv)
+    pos = 1 if len(list(init_coeffs.values())[0])>2 else None  # THIS IS NOT CORRECT
+
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs, zero, pos)   
+    tensor2temps.update(tensor2temp)        
 
     # Get all coeffs into the wrapper kernel
     # so that we can generate the right wrapper kernel args of it
