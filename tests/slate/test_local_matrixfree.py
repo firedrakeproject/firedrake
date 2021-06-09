@@ -207,8 +207,8 @@ def test_new_slateoptpass(expr):
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]",
-                        "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)",
-                        "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)"
+                        "A[1, 0] * A[0, 0].solve(A[0, 2])",
+                        "u_reconstruction_like"
                         ])
 def block_expr(request, A4, f4):
     if request.param == "A[0, 0] * A[0, 2]":
@@ -219,10 +219,10 @@ def block_expr(request, A4, f4):
         return (A4[0, 1] + A4[0, 0] * A4[0, 1])*f5
     if request.param == "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]":
         return (A4[0, 2] + A4[0, 0] * A4[0, 2] * A4[2, 2])*f4
-    elif request.param == "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
-        return (A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
-    elif request.param == "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
-        return (A4[1, 2] - A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
+    elif request.param == "A[1, 0] * A[0, 0].solve(A[0, 2])":
+        return (A4[1, 0] * A4[0, 0].solve(A4[0, 2]))*f4
+    elif request.param == "u_reconstruction_like":
+        return (A4[1, 2] - A4[1, 0] * A4[0, 0].solve(A4[0, 2]))*f4
 
 def test_blocks(block_expr):
     tmp = assemble(block_expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
