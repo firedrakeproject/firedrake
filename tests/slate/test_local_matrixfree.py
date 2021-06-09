@@ -206,11 +206,12 @@ def test_new_slateoptpass(expr):
 
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2]",
+                        "A[0, 1] + A[0, 0] * A[0, 1]",
                         "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]",
                         "A[1, 0] * A[0, 0].solve(A[0, 2])",
                         "u_reconstruction_like"
                         ])
-def block_expr(request, A4, f4):
+def block_expr(request, A4, f4, f5):
     if request.param == "A[0, 0] * A[0, 2]":
         return (A4[0, 0] * A4[0, 2])*f4
     if request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
