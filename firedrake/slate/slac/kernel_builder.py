@@ -947,15 +947,31 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=self.tsfc_parameters["scalar_type"],
                                         is_input=True, is_output=False))
 
-        for coeff in self.bag.coefficients.values():
-            if isinstance(coeff, OrderedDict):
+        action_names = []
+        for coeff in self.bag.action_coefficients.values():
+            if isinstance(coeff, OrderedDict) or isinstance(coeff, dict):
                 for (name, extent) in coeff.values():
-                    arg = loopy.GlobalArg(name, shape=extent,
-                                          dtype=self.tsfc_parameters["scalar_type"],
-                                          target=loopy.CTarget(),
-                                          is_input=True, is_output=False,
-                                          dim_tags=None, strides=loopy.auto, order="C")
-                    if arg not in args:
+                    action_names.append(name)
+            else:
+                (name, extent) = coeff
+                action_names.append(name)
+        
+        if len(self.bag.coefficients.items())>0:
+            pyop2_coeffs = [ct for c in self.expression.coefficients()
+                                for cv,ct in self.bag.coefficients.items()
+                                if c == cv]
+        else:
+            pyop2_coeffs = self.bag.coefficients.values()
+
+        for coeff in pyop2_coeffs:
+            if isinstance(coeff, OrderedDict) or isinstance(coeff, dict):
+                for pos, (name, extent) in enumerate(coeff.values()):
+                    if (name not in [arg.name for arg in args] and name not in action_names) and pos == 2:
+                        arg = loopy.GlobalArg(name, shape=extent,
+                                            dtype=self.tsfc_parameters["scalar_type"],
+                                            target=loopy.CTarget(),
+                                            is_input=True, is_output=False,
+                                            dim_tags=None, strides=loopy.auto, order="C")
                         args.append(arg)
             else:
                 (name, extent) = coeff
