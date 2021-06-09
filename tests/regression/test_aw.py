@@ -127,7 +127,8 @@ def test_aw(stress_element):
         kappa = np.linalg.cond(Asp.todense())
         mass_cond.append(kappa)
 
-    assert max(relative_magnitudes(mass_cond)) < 1.5
+    print(relative_magnitudes(mass_cond))
+    assert max(relative_magnitudes(mass_cond)) < 1.1
 
     if stress_element.family().startswith("Conforming"):
         assert min(convergence_orders(l2_u)) > 1.9
@@ -140,5 +141,5 @@ def test_aw(stress_element):
     else:
         raise ValueError("Don't know what the convergence should be")
 
-#test_aw(FiniteElement("AWc", triangle, 3))
-#test_aw(FiniteElement("AWnc", triangle, 2))
+test_aw(FiniteElement("AWc", triangle, 3))
+test_aw(FiniteElement("AWnc", triangle, 2))
