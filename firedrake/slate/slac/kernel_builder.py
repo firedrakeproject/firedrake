@@ -513,7 +513,7 @@ class LocalLoopyKernelBuilder(object):
                 else:
                     for c_, info in cinfo.items():
                         if info[0] not in added_coefficients:
-                            kernel_data.extend([((c, c_), info[0])])
+                            kernel_data.extend([((c, c_), info)])
                             added_coefficients.append(info)
         return kernel_data
 
@@ -861,7 +861,7 @@ class LocalLoopyKernelBuilder(object):
         # note that depends_on and id need to match the instructions in the kernel,
         # which uses the stop criterion
         return loopy.CInstruction("",
-                            "if (projector_is_zero|| isnan(p_on_Ap)) break;",
+                            "if (projector_is_zero || isnan(p_on_Ap)) break;",
                             depends_on="zeroproj",
                             id="cornercase")
 
@@ -891,7 +891,7 @@ class LocalLoopyKernelBuilder(object):
             for i in range(int(pyop2.configuration["simd_width"])-1):
                 variable += "&& " + variable_name + "["+str(i+1)+"]" + condition
         else:
-            variable = var_name + condition
+            variable = "fabs("+ var_name+")" + condition + "|| fabs(rk_norm)<0.0000001 "
         # note that depends_on and id need to match the instructions in the kernel,
         # which uses the stop criterion
         return loopy.CInstruction("",
@@ -959,9 +959,9 @@ class LocalLoopyKernelBuilder(object):
                 arg = loopy.GlobalArg(name, shape=extent,
                                       dtype=self.tsfc_parameters["scalar_type"],
                                       target=loopy.CTarget(),
-                                      is_input=True, is_output=True,
+                                      is_input=True, is_output=False,
                                       dim_tags=None, strides=loopy.auto, order="C")
-                if arg not in args:
+                if arg.name not in [arg.name for arg in args]:
                     args.append(arg)
 
         for append in append_args:
