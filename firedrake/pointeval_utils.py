@@ -15,8 +15,10 @@ from tsfc.coffee import generate as generate_coffee
 from tsfc.parameters import default_parameters
 
 from firedrake import utils
+from firedrake.petsc import PETSc
 
 
+@PETSc.Log.EventDecorator()
 def compile_element(expression, coordinates, parameters=None):
     """Generates C code for point evaluations.
 
