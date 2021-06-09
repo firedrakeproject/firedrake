@@ -1115,7 +1115,7 @@ class Action(BinaryOp):
 
     def action(self):
         if isinstance(self.tensor, Factorization):
-            self.tensor, = self.tensor.children
+            assert "Factorisations should have been dropped by the Optimiser at this stage."
         import ufl.algorithms as ufl_alg
 
         # Pick first or last argument to be replaced
