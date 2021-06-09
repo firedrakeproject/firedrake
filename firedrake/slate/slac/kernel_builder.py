@@ -1052,7 +1052,6 @@ class LocalLoopyKernelBuilder(object):
                                              predicates=predicates, id=key)
 
                 code = kinfo.kernel.code
-                code = match_kernel_argnames(insn, code)
                 yield insn, {kinfo.kernel.name: code}
 
         if not cxt_kernels:
@@ -1064,31 +1063,6 @@ class LocalLoopyKernelBuilder(object):
         bag.coefficients = coeffs
         bag.action_coefficients = new_coeffs
         return bag
-
-
-def match_kernel_argnames(insn, code):
-    # FIXME we should do this before generating the knl
-    knl_name, = code.callables_table
-    knl = code.callables_table[knl_name].subkernel
-    last_arg = None
-    for c, arg in enumerate(insn.expression.parameters):
-        if not isinstance(arg, pym.Variable):
-            name_call = arg.subscript.aggregate.name
-            name_code = knl.args[c].name
-            if last_arg:
-                if name_call == last_arg_name:
-                    # In this case we are dealing with coefficients coming from a mixed background.
-                    # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
-                    # but we pass them as one temporary which contains them both, so we need to adjust the shape
-                    wrongly_shaped_arg = knl.arg_dict[name_code].copy(name=name_call)
-                    wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
-                    del knl.arg_dict[name_code]
-                    knl.arg_dict[name_call] = wrongly_shaped_arg
-                    last_arg = knl.arg_dict[name_call]
-            else:
-                last_arg = knl.arg_dict[name_code]
-            last_arg_name = name_call
-    return code
 
 
 class SlateWrapperBag(object):

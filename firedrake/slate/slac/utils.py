@@ -398,7 +398,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
 
     elif strategy == "when_needed":
         tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr,
-                                                    ctx_g2l, tsfc_parameters, True, {}, output_arg)
+                                                    ctx_g2l, tsfc_parameters, True, {}, output_arg, False)
         return slate_loopy
 
 
@@ -423,7 +423,7 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, init_temporaries=True, tensor2temp={}, output_arg=None):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
     insns = []
     tensor2temps = tensor2temp
     knl_list = {}
@@ -463,8 +463,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-            _, coeff_node = slate_node.children
-            if (isinstance(slate_node, sl.Action)):
+            tensor_shell_node, coeff_node = slate_node.children
+            if isinstance(slate_node, sl.Action) and not matshell:
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
                     # split coefficients into a set of original coefficients (old_coeffs)
                     # and coefficients coming from the result of an action (new_coeffs)
@@ -486,7 +486,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         for slate_node, coeff_name in zip(slate_nodes, coeff_names):
                             terminal = slate_node.action()
                             coeff = slate_node.ufl_coefficient
-                            names = {coeff._ufl_function_space:coeff_name}
+                            names = {coeff._ufl_function_space:(coeff_name, coeff.ufl_shape)}
                             yield terminal, coeff, names
 
                 terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
@@ -596,7 +596,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     tsfc_parameters,
                                                                     init_temporaries=False,
                                                                     tensor2temp=action_tensor2temp,
-                                                                    output_arg=action_output_arg)
+                                                                    output_arg=action_output_arg,
+                                                                    matshell=isinstance(tensor_shell_node, sl.TensorShell))
 
                 ctx_g2l.kernel_name = slate_loopy_name
                 # FIXME use a copy function
