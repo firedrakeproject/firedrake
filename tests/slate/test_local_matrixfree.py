@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.slate.static_condensation.hybridization import CheckSchurComplement
-
+PETSc.Sys.popErrorHandler()
 
 @pytest.fixture
 def mymesh():
