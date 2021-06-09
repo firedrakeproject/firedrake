@@ -794,26 +794,28 @@ class LocalLoopyKernelBuilder(object):
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
-                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,iiii_3, j_0]: 
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
-                    and 0<=i_5<n and 0<=i_6<=3*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_5<n and 0<=i_6<=2*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
                     and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
-                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n}""" ,
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=ii_3<n
+                    and 0<=iii_3<n and 0<=j_0<n}""" ,
                 ["""
                     x[i_0] = {b}[i_0] {{id=x0}} 
-                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
+                    {A_on_x}[ii_3] = 0. {{dep=x0, id=Aonx0}}
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=Aonx0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
-                    <> converged = sum_r < 0.000000000000001{{dep=sumr, id=converged}}
-                    p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
-                    <> rk_norm = 0 {{dep=projector0, id=rk_norm0}}
+                    p[i_4] = -r[i_4] {{dep=sumr, id=projector0}}
+                    <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
+                    {A_on_p}[iii_3] = 0. {{dep=rk_norm1, id=Aonp00}}
                     for i_6
-                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=Aonp00, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0 {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> projector_is_zero = p_on_Ap < 0.000000000000001 {{id=zeroproj, dep=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 0.000000000000001 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
