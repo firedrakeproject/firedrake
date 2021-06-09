@@ -141,6 +141,11 @@ def f4(W4, mymesh):
     f = Function(W4[3]).assign(Constant(0.2))
     return AssembledVector(f)
 
+@pytest.fixture
+def f5(W4, mymesh):
+    f = Function(W4[2]).assign(Constant(0.2))
+    return AssembledVector(f)
+
 
 @pytest.fixture(params=["A+A",
                         "A-A",
@@ -210,6 +215,8 @@ def block_expr(request, A4, f4):
         return (A4[0, 0] * A4[0, 2])*f4
     if request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
         return (A4[0, 2] + A4[0, 0] * A4[0, 2])*f4
+    if request.param == "A[0, 1] + A[0, 0] * A[0, 1]":
+        return (A4[0, 1] + A4[0, 0] * A4[0, 1])*f5
     if request.param == "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]":
         return (A4[0, 2] + A4[0, 0] * A4[0, 2] * A4[2, 2])*f4
     elif request.param == "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
