@@ -1076,14 +1076,18 @@ def match_kernel_argnames(insn, code):
             name_call = arg.subscript.aggregate.name
             name_code = knl.args[c].name
             if last_arg:
-                if name_call == last_arg.name:
+                if name_call == last_arg_name:
                     # In this case we are dealing with coefficients coming from a mixed background.
                     # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
                     # but we pass them as one temporary which contains them both, so we need to adjust the shape
-                    wrongly_shaped_arg = knl.arg_dict[name_call].copy()
+                    wrongly_shaped_arg = knl.arg_dict[name_code].copy(name=name_call)
                     wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
+                    del knl.arg_dict[name_code]
                     knl.arg_dict[name_call] = wrongly_shaped_arg
-            last_arg = knl.arg_dict[name_code]
+                    last_arg = knl.arg_dict[name_call]
+            else:
+                last_arg = knl.arg_dict[name_code]
+            last_arg_name = name_call
     return code
 
 
