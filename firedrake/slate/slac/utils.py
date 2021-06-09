@@ -44,13 +44,12 @@ def visualise(dag, how = None):
     code = str(dag)
     # plot expr
     if how == "tree":
-        g = tsensor.astviz(code)
-        g.view()
+        g = tsensor.astviz(code, show_sub=False)
     else:
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(1,1)
-        tsensor.pyviz(code, ax=ax)
-        plt.show()
+        g = tsensor.pyviz(code, ax=ax)
+    return g
 
 
 class RemoveRestrictions(MultiFunction):
