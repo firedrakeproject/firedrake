@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from collections import namedtuple
 from firedrake.slate.slate import *
 from firedrake import Function
+from gem.node import pre_traversal as traverse_dags
 
 
 def drop_double_transpose(expr):
@@ -76,15 +77,9 @@ def _action_tensor(expr, self, state):
     if not self.action:
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
-        tensor, = expr.children
-        # For Blocks the coefficient has to be pulled inside the expression
-        # which has to go along with a change of shape of the coefficient
-        # so a new coefficient needs to be generated on the non-indexed FS
-        # For Solve nodes e.g. we don't have a corresponding coefficient attached,
-        # so we need to generate one here
-        coeff = AssembledVector(Function(tensor.arg_function_spaces[state.pick_op]))
+        tensor, = expr.children  # drop the block node
         self.block_indices = expr._indices
-        return Action(tensor, coeff, state.pick_op)
+        return Action(tensor, state.coeff, state.pick_op)
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):
@@ -114,8 +109,8 @@ def _action_solve(expr, self, state):
             coeff = self(expr2, state)
             arbitrary_coeff_x = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
             arbitrary_coeff_p = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
-            Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
-            Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
+            Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op, state.block_indices))
+            Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op, state.block_indices))
             if not isinstance(expr1, Tensor): # non terminal node 
                 mat = TensorShell(expr1)
             else:
@@ -130,7 +125,7 @@ def _action_solve(expr, self, state):
             # FIXME
             assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
                                                                 the rhs in a  Solve is a result of a Solve"
-            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)),
+            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1, state.block_indices)),
                                     matfree=expr.is_matfree)
         else:
             rhs = expr.children[state.pick_op]
@@ -157,7 +152,9 @@ def _action_transpose(expr, self, state):
         :returns: an action of this node on the coefficient.
     """
     if expr.rank == 2:
-        return self(Transpose(self(*expr.children, ActionBag(state.coeff, state.swap_op, state.pick_op^1))),  ActionBag(state.coeff, state.swap_op, state.pick_op))
+        return self(Transpose(self(*expr.children,
+                                    ActionBag(state.coeff, state.swap_op, state.pick_op^1, state.block_indices))),
+                                    ActionBag(state.coeff, state.swap_op, state.pick_op, state.block_indices))
     else:
         return expr
 
@@ -223,10 +220,16 @@ def _action_mul(expr, self, state):
                 with self.swapc.swap_ops_bag(state, Transpose(pushed_prio_child)) as new_state:
                     swapped_op, pushed_other_child = self(other_child, new_state)
                 coeff = pushed_other_child
-                return self(Transpose(self(swapped_op, ActionBag(coeff, state.swap_op, state.pick_op^1))), ActionBag(coeff, state.swap_op, state.pick_op))
+                return self(Transpose(self(swapped_op,
+                                           ActionBag(coeff, state.swap_op, state.pick_op^1, state.block_indices))),
+                                           ActionBag(coeff, state.swap_op, state.pick_op, state.block_indices))
             else:
                 coeff = pushed_prio_child
-                return self(other_child, ActionBag(coeff, state.swap_op, state.pick_op))
+                # new_state = ActionBag(coeff, state.swap_op, state.pick_op, state.block_indices)
+                # state = check_children_are_blocks((other_child, pushed_prio_child), new_state)
+                # return blockify(self(other_child, state))
+                return self(other_child, ActionBag(coeff, state.swap_op, state.pick_op, state.block_indices))
+
     elif expr.rank == 1:
         # expression is already partially optimised
         # meaning the coefficient is not multiplied on the outside of it
@@ -236,7 +239,7 @@ def _action_mul(expr, self, state):
             rank1expr, = tuple(filter(lambda child: child.rank == 1, expr.children))
             coeff = self(rank1expr, state)
             pick_op = expr.children.index(rank1expr)
-            return self(expr.children[pick_op^1], ActionBag(coeff, state.swap_op, pick_op))
+            return self(expr.children[pick_op^1], ActionBag(coeff, state.swap_op, pick_op, state.block_indices))
         else:
             return expr
 
@@ -259,10 +262,16 @@ def push_mul(tensor, coeff, options):
     mapper.swapc = SwapController()
     mapper.action = options["replace_mul_with_action"]
     mapper.block_indices = ()
-    a = mapper(tensor, ActionBag(coeff, None, 1))
-    if mapper.block_indices:
-        a = Block(a, (mapper.block_indices[0],))
-    return a
+    # FIXME blocking only from the outside may not be sufficient
+    # when subexpressions are already optimised by user
+    state = ActionBag(coeff, None, 1, ())
+    if tensor.children:
+        block_state = check_children_are_blocks(tensor.children, state)
+        a = mapper(tensor, block_state[0]) 
+        return blockify(a, block_state[0])
+    else:
+        return mapper(tensor, state)
+
 
 """ ActionBag class
 :arg coeff: what we contract with.
@@ -272,7 +281,36 @@ def push_mul(tensor, coeff, options):
                 and also in which operand the action has to be pushed,
                 basically determins if we pre or postmultiply
 """
-ActionBag = namedtuple("ActionBag", ["coeff", "swap_op",  "pick_op"])
+ActionBag = namedtuple("ActionBag", ["coeff", "swap_op",  "pick_op", "block_indices"])
+
+def blockify(child, state):
+    if state.block_indices:
+        return Block(child, (state.block_indices[state.pick_op^1],))
+    else:
+        return child
+
+def check_children_are_blocks(children, state):
+    # For Blocks the coefficient has to be pulled inside the expression
+    # which has to go along with a change of shape of the coefficient
+    # so a new coefficient needs to be generated on the non-indexed FS
+    # For Solve nodes e.g. we don't have a corresponding coefficient attached,
+    # so we need to generate one here
+    # this only has to happen once!
+    def is_block(node): return isinstance(node, Block)
+    def needs_new_coeff(last, new): return (not last or (last and (not last[0] == new)))
+    states = ()
+    coeff = state.coeff
+    for node in children:
+        indices = ()
+        if is_block(node):
+            if not states or (states and needs_new_coeff(states[0].block_indices, node._indices)):
+                tensor, = node.children
+                if state.coeff.shape[0] != tensor.shape[1]:
+                    coeff = AssembledVector(Function(tensor.arg_function_spaces[state.pick_op]))
+                    indices = node._indices
+        states += (ActionBag(coeff, state.swap_op, state.pick_op, indices), )
+    return states
+
 
 class SwapController(object):
 
@@ -285,7 +323,7 @@ class SwapController(object):
         :arg state: current state.
         :arg op: operand to be swapped.
         :returns: the modified code generation context."""
-        yield ActionBag(state.coeff, swap_op, state.pick_op)
+        yield ActionBag(state.coeff, swap_op, state.pick_op, state.block_indices)
 
 def optimise(expr, tsfc_parameters):
     # Optimise expression which is already partially optimised
