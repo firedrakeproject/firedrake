@@ -472,9 +472,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     new_coeffs = {}
                     old_coeffs = {}
                     for coeff, name, terminal in zip(coeffs, names, terminals):  
-                        old_coeff, new_coeff = builder.collect_coefficients(coeff,
-                                                                            names=name,
-                                                                            action_node=terminal)
+                        old_coeff, new_coeff = builder.collect_coefficients([coeff],
+                                                                            names=name)
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
@@ -582,7 +581,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
   
                     # Prepare data structures of tensor2temp for a new swipe
                     _, child2 = slate_node.children
-                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
+                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[3]}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     

@@ -9,6 +9,7 @@ from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
+from ufl.classes import Indexed
 import loopy
 
 from loopy.symbolic import SubArrayRef
@@ -526,21 +527,25 @@ class LocalLoopyKernelBuilder(object):
         arguments = []
         offset = 0
         last_mixed_c = None
-        for c, name in kernel_data:
-            # FIXME we are subarrayreffing into a mixed coefficient here
+        for c, info in kernel_data:
+            if isinstance(info, tuple):
+                name, shape = info
+                shape = shape if shape else (1,)
+            else:
+                name = info
+            # we are subarrayreffing into a mixed coefficient here
             # kernel data does not have the right structure for that at the moment
             # using last_mixed_c is a (bad) result of that, the code should be better when
             # kernel data is restructured
             if isinstance(c, tuple):  # then the coeff is coming from a mixed background
                 mixed_c, split_c = c
-                shp, = split_c.ufl_shape if split_c.ufl_shape else (1,)
+                shp, = shape if isinstance(info, tuple) else split_c.ufl_shape if split_c.ufl_shape else (1,)
                 idx = self.bag.index_creator((shp,))
                 offset_index = (pym.Sum((offset, idx[0])),)
                 c = pym.Subscript(pym.Variable(name), offset_index)
-                if last_mixed_c == mixed_c:
+                if last_mixed_c == mixed_c and len(arguments)==len(mixed_c._ufl_function_space.split()):
                     # reset offset whenyou encounter the second part
                     # of the split mixed coeff
-                    # FIXME this obvs does not work when you have a mixed FS of more componentes
                     offset = 0
                     last_mixed_c = None
                 else:
@@ -618,7 +623,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, new_coeffs=None, names=None, action_node=None):
+    def collect_coefficients(self, new_coeffs=None, names=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
@@ -626,7 +631,7 @@ class LocalLoopyKernelBuilder(object):
         # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
         # the coefficient in the right way. (Its space is FunctionSpace instead of
         # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
-        coeffs = self.expression.coefficients() if not action_node else action_node.coefficients()
+        coeffs = self.expression.coefficients() if not new_coeffs else new_coeffs
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
         new = False
@@ -640,63 +645,52 @@ class LocalLoopyKernelBuilder(object):
                 prefix = names[c._ufl_function_space]
                 new = True
             except:
-                # otherwise check if the splitted functionspace
-                # is in names
-                for fs in c._ufl_function_space.split():
-                    try:
-                        prefix = names[fs]
-                        new = True
-                    except:
-                        pass
                 # if the coefficient is not in names, it's not going to replaced
                 # so using the normal naming convention for the coefficient
                 if not new:
                     prefix = "w_{}".format(i)
-            element = c.ufl_element()
-            if type(element) == MixedElement:
-                mixed = OrderedDict()
-                try:
-                    # try to split the coefficient
-                    # for some reason there are coefficients defined on mixed function space
-                    # which cannot be split, I assume they are somehow already indexed
-                    loop = c.split()
-                    for j, c_ in enumerate(loop):
-                        if new:
-                            name = prefix
+            if not isinstance(c, Indexed):
+                element = c.ufl_element()
+                if type(element) == MixedElement:
+                    new_or_not = []
+                    subst_names = []
+                    split_coeffs = []
+                    extents = []
+                    for j,c_ in enumerate(c.split()):
+                        if names and c._ufl_function_space in names.keys():
+                            name = names[c._ufl_function_space]
+                            new = True
                         else:
-                            name = prefix+"_{}".format(j)
-                        info = (name, self.extent(c_))
-                        mixed.update({c_: info})
-                    if new:
-                        new_coeff_dict[c] = mixed
-                    else:
-                        coeff_dict[c] = mixed
-                except:
-                    # if the coefficient is not splitable
-                    # generate a coefficient for an argument on a mixed fs
-                    # then try to split that coefficient and link to the correct substitue
-                    # FIXME this might not be the right order, unclear how to deduct this from anything
-                    args = self.expression.arguments()
-                    from ufl import Coefficient
-                    missing_coeff = Coefficient(args[0].function_space())
-                    for j,c_ in enumerate((c,)+(missing_coeff,)):
+                            name = "w_{}".format(i)
+                            new = False
+                        subst_names.append(name)
+                        extents.append(self.extent(c_))
+                        new_or_not.append(new)
+                        split_coeffs.append(c_)
+                    if np.any(new_or_not):
+                        i = np.where(new_or_not)[0][0]
+                        new_name = subst_names[i]
+                        subst_names = [new_name[0]]*len(subst_names)
+
+                    for (((new, subst_name), ext), c_) in zip(zip(zip(new_or_not, subst_names), extents), split_coeffs):
+                        mixed = {c_: (subst_name, ext)}
                         if new:
-                            name = prefix
+                            if c in new_coeff_dict.keys():
+                                new_coeff_dict[c].update(mixed)
+                            else:
+                                new_coeff_dict[c] = mixed
                         else:
-                            name = "w_{}_{}".format(i, j)
-                        info = (name, self.extent(c_))
-                        mixed.update({c_: info})
-                    if new:
-                        new_coeff_dict[c] = mixed
-                    else:
-                        coeff_dict[c] = mixed
-            else:
-                # if we don't deal with a mixed coefficient we can just append it
-                name = prefix
-                if new:
-                    new_coeff_dict[c] = (name, self.extent(c))
+                            if c in coeff_dict.keys():
+                                coeff_dict[c].update(mixed)
+                            else:
+                                coeff_dict[c] = mixed
                 else:
-                    coeff_dict[c] = (name, self.extent(c))
+                    # if we don't deal with a mixed coefficient we can just append it
+                    name = prefix
+                    if new:
+                        new_coeff_dict[c] = (name, self.extent(c))
+                    else:
+                        coeff_dict[c] = (name, self.extent(c))
         return coeff_dict, new_coeff_dict
 
     def initialise_terminals(self, var2tensor, coefficients):
