@@ -1134,7 +1134,7 @@ class Action(BinaryOp):
     def _key(self):
         """Returns a key for hash and equality."""
         op1, op2 = self.operands
-        return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
+        return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient, self.block_indices)
     
     def coefficients(self):
         # We need to return the split coefficient, i.e. the one we act originally on
