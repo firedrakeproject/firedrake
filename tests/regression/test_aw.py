@@ -24,6 +24,7 @@ def test_aw(stress_element):
     green = '\033[92m'
     white = '\033[0m'
     blue = '\033[94m'
+    yellow = '\033[33m'
 
     N_base = 2
     mesh = UnitSquareMesh(N_base, N_base)
@@ -97,7 +98,7 @@ def test_aw(stress_element):
 
         params = {"snes_type": "newtonls",
                   "snes_linesearch_type": "basic",
-                  "snes_monitor": None,
+                  #"snes_monitor": None,
                   "mat_type": "aij",
                   "snes_max_it": 10,
                   "snes_lag_jacobian": -2,
@@ -134,11 +135,14 @@ def test_aw(stress_element):
         #B = assemble(a)
         #kappa = np.linalg.cond(A.array())
 
-        solver_parameters = {
+        slepc_parameters = {
+                #"eps_which": "smallest_magnitude",
                  "mat_type": "aij",
+                 #"eps_monitor": None,
+                 #"eps_view": None,
                  "eps_converged_reason": None,
                  "eps_type": "krylovschur",
-                 "eps_nev" : 10,
+                 "eps_nev" : 5,#100
                  "eps_max_it": 100,
                  "eps_tol" : 1e-15,
                  "eps_target" : 0,
@@ -150,8 +154,8 @@ def test_aw(stress_element):
                  "ds_parallel": "synchronized"
                  }
         opts = PETSc.Options()
-        for k in solver_parameters:
-            opts[k] = solver_parameters[k]
+        for k in slepc_parameters:
+            opts[k] = slepc_parameters[k]
         M = assemble(mass, mat_type="aij")
         comm = V.mesh().comm
         eps = SLEPc.EPS().create(comm=comm)
@@ -160,27 +164,30 @@ def test_aw(stress_element):
         eps.setFromOptions()
         eps.solve()
         min_lam = eps.getEigenvalue(0)
-        print(min_lam)
+        print(green, "Minimal eigenvalue: ", min_lam, white)
         
         Opts = PETSc.Options()
-        solver_parameters["eps_target"] = 300
-        for k in solver_parameters:
-            Opts[k] = solver_parameters[k]
+        # ! HACK !
+        slepc_parameters["eps_target"] = 1e16
+        #slepc_parameters["eps_which"] = "largest_magnitude"
+        for k in slepc_parameters:
+            Opts[k] = slepc_parameters[k]
         Eps = SLEPc.EPS().create(comm=comm)
         Eps.setOperators(M.M.handle)
         Eps.setProblemType(eps.ProblemType.HEP)
         Eps.setFromOptions()
         Eps.solve()
         max_lam = Eps.getEigenvalue(Eps.getConverged() - 1)
-        print(max_lam)
+        print(green, "Maximal eigenvalue: ", max_lam, white)
         kappa = abs(max_lam / min_lam)
-        print(kappa)
+        print(blue, "Condition number: ", kappa, white)
         print()
 
         mass_cond.append(kappa)
 
-    print(relative_magnitudes(mass_cond))
-    assert max(relative_magnitudes(mass_cond)) < 1.1
+    print(yellow, "Ratios of consecutive condition numbers: ", relative_magnitudes(mass_cond), white)
+    print()
+    assert max(relative_magnitudes(mass_cond)) < 1.2
 
     if stress_element.family().startswith("Conforming"):
         assert min(convergence_orders(l2_u)) > 1.9
