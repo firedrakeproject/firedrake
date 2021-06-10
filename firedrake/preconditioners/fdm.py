@@ -10,9 +10,9 @@ from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
-from firedrake.preconditioners.pmg import get_permuted_map
-from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.patch import bcdofs
+from firedrake.preconditioners.pmg import get_permuted_map
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -77,10 +77,18 @@ class FDMPC(PCBase):
 
         # Get problem coefficients
         appctx = self.get_appctx(pc)
-
         eta = appctx.get("eta", (N+1)*(N+ndim))
         mu = appctx.get("viscosity", None)  # sets the viscosity
         helm = appctx.get("helm", None)  # sets the potential
+        scale = appctx.get("scale", None)  # sets the diagonal scaling
+
+        self.scale = None
+        if scale is not None:
+            self.scale = firedrake.interpolate(scale, V)  # FIXME too slow
+            with self.scale.dat.vec as svec:
+                svec.sqrtabs()
+                svec.reciprocal()
+
         hflag = helm is not None
 
         eta = float(eta)
@@ -123,7 +131,8 @@ class FDMPC(PCBase):
         pc.setFromOptions()
 
     def update(self, pc):
-        pass
+        # FIXME too slow
+        self.initialize(pc)
 
     def applyTranspose(self, pc, x, y):
         pass
@@ -131,8 +140,12 @@ class FDMPC(PCBase):
     def apply(self, pc, x, y):
         self.uc.assign(firedrake.zero())
 
-        with self.uf.dat.vec_wo as xf:
-            x.copy(xf)
+        if self.scale is not None:
+            with self.uf.dat.vec_wo as xf, self.scale.dat.vec_ro as s:
+                xf.pointwiseMult(x, s)
+        else:
+            with self.uf.dat.vec_wo as xf:
+                x.copy(xf)
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.cell_node_map),
@@ -152,8 +165,14 @@ class FDMPC(PCBase):
                      self.uc.dat(op2.WRITE, self.cell_node_map),
                      self.uf.dat(op2.READ, self.cell_node_map))
 
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(y)
+        if self.scale is not None:
+            with self.uf.dat.vec as xc, self.scale.dat.vec_ro as s:
+                xc.pointwiseMult(xc, s)
+            with self.uc.dat.vec_ro as xc:
+                xc.copy(y)
+        else:
+            with self.uc.dat.vec_ro as xc:
+                xc.copy(y)
 
         y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
@@ -288,7 +307,11 @@ class FDMPC(PCBase):
         return Pmat
 
     def assemble_affine(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
-        from scipy.sparse import kron, csr_matrix
+        from scipy.sparse import kron, csr_matrix, spdiags
+
+        # FIXME these should go away at some point
+        local_diag_scale = 0
+        global_diag_scale = 0
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
@@ -303,6 +326,19 @@ class FDMPC(PCBase):
         needs_hdiv = bsize != ncomp
         if needs_hdiv:
             sdim = sdim // ncomp
+
+        if local_diag_scale:
+            family = "DQ"
+            degree = V.finat_element.degree
+            try:
+                degree, = set(degree)
+            except TypeError:
+                pass
+            DG = firedrake.FunctionSpace(self.mesh, family, degree)
+            diag = firedrake.Function(DG)
+            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=False, piola=needs_hdiv)
+            self.assemble_diagonal(Gq, Bq, diag)
+            did, _ = self.glonum_fun(diag.cell_node_map())
 
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
         if needs_hdiv:
@@ -359,6 +395,12 @@ class FDMPC(PCBase):
                         ae = kron(ae, Afdm[facet_perm[2]][fbc[2]][1], format="csr")
                         ae += kron(be, Afdm[facet_perm[2]][fbc[2]][0] * muj[2], format="csr")
 
+                if local_diag_scale:
+                    scale = diag.dat.data_ro[did(e)] / ae.diagonal()
+                    scale = np.sqrt(scale)
+                    se = spdiags(scale, 0, len(scale), len(scale))
+                    ae = se @ ae @ se
+
                 cell_csr.append(ae)
                 rows = lgmap.apply(ie[k] if needs_hdiv else k+bsize*ie)
                 cols = rows[ae.indices]
@@ -367,6 +409,7 @@ class FDMPC(PCBase):
                     i1 = ae.indptr[i+1]
                     prealloc.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
+        istart = 1 if needs_hdiv else 0
         if needs_interior_facet:
 
             # TODO extrude these arrays
@@ -386,21 +429,21 @@ class FDMPC(PCBase):
                     fid = np.reshape(jid(f), (2, -1))
                     fdof = fid[0][facet_data[f, 0]]
 
-                istart = 1 if needs_hdiv else 0
                 for k in range(istart, ncomp):
                     if needs_hdiv:
                         k0 = (k+idir[0]) % ncomp
                         k1 = (k+idir[1]) % ncomp
                         facet_perm = (k+np.arange(ndim)) % ndim
-                        mu = [Gfacet0.dat.data_ro[fdof], Gfacet1.dat.data_ro[fdof]]
-                        Piola = [Piola0.dat.data_ro[fdof][k0], Piola1.dat.data_ro[fdof][k1]]
+                        mu = [Gfacet0.dat.data_ro[fdof][idir[0]],
+                              Gfacet1.dat.data_ro[fdof][idir[1]]]
+                        Piola = [Piola0.dat.data_ro[fdof][k0],
+                                 Piola1.dat.data_ro[fdof][k1]]
                     else:
                         k0 = k
                         k1 = k
                         facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                               mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
-
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
@@ -419,10 +462,9 @@ class FDMPC(PCBase):
                                         sij*np.dot(np.dot(mu[1], Piola[i]), Piola[j])]
                             else:
                                 beta = [sij*mu[0], sij*mu[1]]
-
+                            adense[ii, jj] += eta * sum(beta)
                             adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
                             adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
-                            adense[ii, jj] += eta * sum(beta)
 
                     ae = csr_matrix(adense)
                     if ndim > 1:
@@ -476,7 +518,6 @@ class FDMPC(PCBase):
 
         if needs_interior_facet:
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
-            istart = 1 if needs_hdiv else 0
             for field, ae in enumerate(facet_csr):
                 f = field // (ncomp-istart)
                 k = field % (ncomp-istart) + istart
@@ -503,17 +544,26 @@ class FDMPC(PCBase):
                     Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
         Pmat.assemble()
-        if False:
+
+        if global_diag_scale:
             lgmap = V.dof_dset.lgmap
             Pmat.setLGMap(lgmap, lgmap)
             Pmat.zeroRowsColumnsLocal(self.bc_nodes)
             Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=False, piola=needs_hdiv)
             self.assemble_diagonal(Gq, Bq, self.uf)
             diag = Pmat.getDiagonal()
-            with self.uf.dat.vec as true_diag:
-                diag.pointwiseDivide(true_diag, diag)
-            diag.sqrtabs()
-            Pmat.diagonalScale(L=diag, R=diag)
+
+            if global_diag_scale == 1:
+                # Symmetric diagonal scaling
+                with self.uf.dat.vec as true_diag:
+                    diag.pointwiseDivide(true_diag, diag)
+                diag.sqrtabs()
+                Pmat.diagonalScale(L=diag, R=diag)
+            elif global_diag_scale == 2:
+                # Max diagonal
+                with self.uf.dat.vec as true_diag:
+                    true_diag.pointwiseMax(diag, true_diag)
+                    Pmat.setDiagonal(true_diag)
 
         return Pmat
 
@@ -579,23 +629,27 @@ class FDMPC(PCBase):
 
     def assemble_piola_facet(self, mu):
 
-        ndim = self.mesh.topological_dimension()
-        DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=(ndim, ndim))
-        test = firedrake.TestFunction(DGT)
         extruded = self.mesh.cell_set._extruded
         dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
-
-        n = FacetNormal(self.mesh)
         area = firedrake.FacetArea(self.mesh)
-        vol = abs(JacobianDeterminant(self.mesh))
-        hinv = area / vol
-        hn = hinv * n
-        i1, i2, i3, i4, j2, j4 = indices(6)
-        G = vol * as_tensor(hn[j2] * hn[j4] * mu[i1, j2, i3, j4], (i1, i3))
-        P = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh).T
 
+        Finv = JacobianInverse(self.mesh)
+        vol = abs(JacobianDeterminant(self.mesh))
+        i1, i2, i3, i4, j2, j4 = indices(6)
+        G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
+        G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
+
+        hinv = area / vol
+        Finv = hinv * FacetNormal(self.mesh)
+        # G = vol * as_tensor(Finv[j2] * Finv[j4] * mu[i1, j2, i3, j4], (i1, i3))
+        DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=G.ufl_shape)
+        test = firedrake.TestFunction(DGT)
         Gfacet0 = firedrake.assemble(inner(test('+'), G('+') / area) * dS_int)
         Gfacet1 = firedrake.assemble(inner(test('+'), G('-') / area) * dS_int)
+
+        P = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh).T
+        DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=P.ufl_shape)
+        test = firedrake.TestFunction(DGT)
         Pfacet0 = firedrake.assemble(inner(test('+'), P('+') / area) * dS_int)
         Pfacet1 = firedrake.assemble(inner(test('+'), P('-') / area) * dS_int)
         return Gfacet0, Gfacet1, Pfacet0, Pfacet1
@@ -857,22 +911,26 @@ class FDMPC(PCBase):
 
         restrict_kernel = op2.Kernel(transfer_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+        diagonal_kernel = None
         stencil_kernel = None
 
         if not needs_hdiv:
             VJ = [Vk.T @ Jhat for Vk in Vfdm]
             VD = [Vk.T @ Dhat for Vk in Vfdm]
-            nb = sum([Vk.size for Vk in VJ])
             Jhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in VJ])))
             Dhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in VD])))
+            nb = sum([Vk.size for Vk in VJ])
+            nxb = nx*nxq
+            nyb = ny*nyq
+            nzb = nz*nzq
 
             JX = "J"
-            JY = f"J+{nx*nxq}" if ndim > 1 else "&one"
-            JZ = f"J+{nx*nxq+ny*nyq}" if ndim > 2 else "&one"
+            JY = f"J+{nxb}" if ndim > 1 else "&one"
+            JZ = f"J+{nxb+nyb}" if ndim > 2 else "&one"
 
             DX = "D"
-            DY = f"D+{nx*nxq}" if ndim > 1 else "&one"
-            DZ = f"D+{nx*nxq+ny*nyq}" if ndim > 2 else "&one"
+            DY = f"D+{nxb}" if ndim > 1 else "&one"
+            DZ = f"D+{nxb+nyb}" if ndim > 2 else "&one"
 
             # FIXME I don't know how to use optional arguments here
             bcoef = "bcoef" if helm else "NULL"
@@ -898,7 +956,7 @@ class FDMPC(PCBase):
                 return;
             }}
 
-            void get_basis(PetscBLASInt dom, PetscScalar *J, PetscScalar *D, PetscScalar *B){{
+            void get_basis(PetscBLASInt dom, PetscScalar *J, PetscScalar *D, PetscScalar *B, PetscBLASInt ldb){{
                 PetscScalar *basis[2] = {{J, D}};
                 if(dom)
                     for({IntType_c} j=0; j<2; j++)
@@ -907,7 +965,7 @@ class FDMPC(PCBase):
                 else
                     for({IntType_c} j=0; j<2; j++)
                         for({IntType_c} i=0; i<2; i++)
-                            mult3({nb}, basis[i], basis[j], B+(i+2*j)*{nb});
+                            mult3(ldb, basis[i], basis[j], B+(i+2*j)*ldb);
                 return;
             }}
 
@@ -920,18 +978,18 @@ class FDMPC(PCBase):
                           PetscScalar *bcoef,
                           PetscScalar *band){{
 
-                PetscScalar BX[{4 * nb}];
-                PetscScalar BY[{4 * nb}];
-                PetscScalar BZ[{4 * nb}];
+                PetscScalar BX[{4 * nxb}];
+                PetscScalar BY[{4 * nyb}];
+                PetscScalar BZ[{4 * nzb}];
                 PetscScalar t0[{nquad}], t1[{nquad}], t2[{sdim}] = {{0.0E0}};
                 PetscScalar scal;
                 {IntType_c} k, ix, iy, iz;
                 {IntType_c} ndiag = {sdim}, nquad = {nquad}, inc = 1;
 
-                get_basis(dom1, JX, DX, BX);
-                get_basis(dom2, JY, DY, BY);
+                get_basis(dom1, JX, DX, BX, {nxb});
+                get_basis(dom2, JY, DY, BY, {nyb});
                 if({ndim}==3)
-                    get_basis(dom3, JZ, DZ, BZ);
+                    get_basis(dom3, JZ, DZ, BZ, {nzb});
                 else
                     BZ[0] = 1.0E0;
 
@@ -948,7 +1006,7 @@ class FDMPC(PCBase):
                         iz = (i == {ndim-3}) + 2 * (j == {ndim-3});
                         scal = (i == j) ? 1.0E0 : 0.5E0;
                         BLAScopy_(&nquad, gcoef+k*nquad, &inc, t0, &inc);
-                        kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, 1, BX+ix*{nb}, BY+iy*{nb}, BZ+iz*{nb}, t0, t1);
+                        kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, 1, BX+ix*{nxb}, BY+iy*{nyb}, BZ+iz*{nzb}, t0, t1);
                         BLASaxpy_(&ndiag, &scal, t1, &inc, t2, &inc);
                     }}
 

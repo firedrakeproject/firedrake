@@ -43,6 +43,10 @@ class PMGBase(PCSNESBase):
     It is expected that many (most?) applications of this preconditioner
     will subclass :class:`PMGBase` to override `coarsen_element`.
     """
+
+    _prefix = "pmg_"
+    _type = "mg"
+
     def coarsen_element(self, ele):
         """
         Coarsen a given element to form the next problem down in the p-hierarchy.
@@ -111,12 +115,12 @@ class PMGBase(PCSNESBase):
             raise NotImplementedError("test and trial spaces must be the same")
 
         prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + "pmg_"
+        options_prefix = prefix + self._prefix
         pdm = PETSc.DMShell().create(comm=pc.comm)
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
-        self.coarse_degree = PETSc.Options(options_prefix).getInt("mg_coarse_degree", default=1)
+        self.coarse_degree = PETSc.Options(options_prefix).getInt(self._type+"_coarse_degree", default=1)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -162,12 +166,6 @@ class PMGBase(PCSNESBase):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
         fctx = get_appctx(fdm)
-
-        # Have we already done this?
-        cctx = fctx._coarse
-        if cctx is not None:
-            return cctx.J.arguments()[0].function_space().dm
-
         parent = get_parent(fdm)
         assert parent is not None
 
@@ -176,6 +174,14 @@ class PMGBase(PCSNESBase):
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
+
+        # Have we already done this?
+        # FIXME this is triggering weird gmg erros
+        cctx = fctx._coarse
+        if cctx is not None:
+            cV_old = cctx.J.arguments()[0].function_space()
+            if cV_old.dim() == cV.dim():
+                return cV_old.dm
 
         def get_max_degree(ele):
             if isinstance(ele, MixedElement):
@@ -270,7 +276,7 @@ class PMGBase(PCSNESBase):
 
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
-        fctx._coarse = cctx
+        # fctx._coarse = cctx
 
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
@@ -335,6 +341,9 @@ class PMGBase(PCSNESBase):
 
 
 class PMGPC(PCBase, PMGBase):
+    _prefix = "pmg_"
+    _type = "mg"
+
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
@@ -369,6 +378,9 @@ class PMGPC(PCBase, PMGBase):
 
 
 class PMGSNES(SNESBase, PMGBase):
+    _prefix = "pfas_"
+    _type = "fas"
+
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
