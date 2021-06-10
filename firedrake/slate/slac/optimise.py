@@ -48,7 +48,7 @@ def _drop_double_transpose_distributive(expr, self):
 
 @_drop_double_transpose.register(Action)
 def _drop_double_transpose_action(expr, self):
-    return type(expr)(*map(self, expr.children), expr.pick_op)
+    return type(expr)(*map(self, expr.children), expr.pick_op, expr.block_indices)
 
 
 @_drop_double_transpose.register(Solve)
@@ -78,8 +78,7 @@ def _action_tensor(expr, self, state):
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
         tensor, = expr.children  # drop the block node
-        self.block_indices = expr._indices
-        return Action(tensor, state.coeff, state.pick_op)
+        return Action(tensor, state.coeff, state.pick_op, block_indices=expr._indices)
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):

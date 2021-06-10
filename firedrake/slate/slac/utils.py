@@ -439,6 +439,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     c = 0 
     slate_loopy_name = builder.slate_loopy_name
+    # this index is needed so that we find the right bit of an AssembledVector to intialise
+    # this is in particular needed for acting blocks of tensor on a coefficient
+    coeff_init_index = None
     for insn in slate_loopy[slate_loopy_name].instructions:
         # TODO specialise the call instruction node and dispatch based on its type
         if (not isinstance(insn, lp.kernel.instruction.CallInstruction) or
@@ -505,10 +508,26 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     for init in inits:
                         insns.append(init)
                 
-                # replaction action call with tsfc call, which gets linked to tsfc kernel later 
-                action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
-                insns += action_insns
-                knl_list.update(action_knl_list)
+                    # replaces call with tsfc call, which gets linked to tsfc kernel later 
+                    action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                    insns += action_insns
+                    knl_list.update(action_knl_list)
+
+                    # actions on blocks need to be reinitalised in the parts we are not interested in
+                    if slate_node.block_indices:
+                        # We can get information about which part of a (non-split) coefficient is involved in the action
+                        # by looking at the right (or left if transposed) indices of the action
+                        # (because if tensor: (fs1xfs2) then coeff needs to match the right (or left one)
+                        coeff_init_index = slate_node.block_indices[slate_node.pick_op][0] if coeff_init_index==None else coeff_init_index
+                        pos = slate_node.block_indices[slate_node.pick_op^1][0]
+                        inits, _ = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients, pos, True)
+                        for init in inits:
+                            insns.append(init)
+                else:
+                    # replaction action call with tsfc call, which gets linked to tsfc kernel later 
+                    action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                    insns += action_insns
+                    knl_list.update(action_knl_list)
 
             else:
                 if not (isinstance(slate_node, sl.Solve)):
@@ -623,7 +642,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
-        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index)
         builder.bag = updated_bag
         for i in inits:
             insns.insert(0, i)
@@ -663,7 +682,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index =None):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
@@ -672,17 +691,8 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
                                 for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
                                 and t._function == cv}
-    
-    # FIXME we need to find the position of the part of the assembled vector that
-    # gets initialised with the coefficient (the others should be zero). This is important
-    # for Blocks
-    pos = (pos for (v,t) in var2terminal.items()
-                    for pos, (cv,ct) in enumerate(init_coeffs.items())
-                    if isinstance(t, sl.AssembledVector)
-                    and t._function == cv)
-    pos = 1 if len(list(init_coeffs.values())[0])>2 else None  # THIS IS NOT CORRECT
-
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs, zero, pos)   
+    pos = coeff_init_index
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs, pos, reinit)   
     tensor2temps.update(tensor2temp)        
 
     # Get all coeffs into the wrapper kernel

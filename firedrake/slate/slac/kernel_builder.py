@@ -693,7 +693,7 @@ class LocalLoopyKernelBuilder(object):
                         coeff_dict[c] = (name, self.extent(c))
         return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2tensor, coefficients, pos=None):
+    def initialise_terminals(self, var2tensor, coefficients, pos=None, reinit=False):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
@@ -712,14 +712,26 @@ class LocalLoopyKernelBuilder(object):
                                                    target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
 
-            if isinstance(slate_tensor, slate.Tensor):
+            if isinstance(slate_tensor, slate.Tensor) and not (reinit and len(slate_tensor.shape)<2):
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
-
+            elif reinit and len(slate_tensor.shape)<2:
+                offset = 0
+                for i, shp in enumerate(*slate_tensor.shapes.values()):
+                    indices = self.bag.index_creator((shp,))
+                    inames = {var.name for var in indices}
+                    offset_index = (pym.Sum((offset, indices[0])),)
+                    subst = (pos == i) if not pos == None else False
+                    if not subst:
+                        var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
+                        inits.append(loopy.Assignment(var, 0.0, id="reinit_" + gem_tensor.name + "_" +str(i),
+                                                    within_inames=frozenset(inames),
+                                                    within_inames_is_final=True))
+                    offset += shp
             elif isinstance(slate_tensor, slate.AssembledVector):
                 f = slate_tensor._function
                 coeff = coefficients[f]

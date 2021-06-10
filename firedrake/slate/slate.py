@@ -1060,9 +1060,10 @@ class Action(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
 
-    def __init__(self, A, b, pick_op):
+    def __init__(self, A, b, pick_op, block_indices=()):
         """Constructor for the Mul class."""
         self.split_b = b
+        self.block_indices = block_indices
         # FIXME should this be handled by the optimiser?
         if b.shape[0] != A.shape[pick_op]:
             # For Block nodes
