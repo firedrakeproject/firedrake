@@ -226,9 +226,10 @@ def _slate2gem_inverse(expr, self):
 
 @_slate2gem.register(sl.Action)
 def _slate2gem_action(expr, self):
-    name = f"A{len(self.var2terminal)}"
     assert expr not in self.var2terminal.values()
-    var = Action(*map(self, expr.children), name, expr.pick_op)
+    children = list(map(self, expr.children))
+    name = f"A{len(self.var2terminal)}"
+    var = Action(*children, name, expr.pick_op)
     self.var2terminal[var] = expr
     return var
 
