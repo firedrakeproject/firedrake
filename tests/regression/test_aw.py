@@ -135,9 +135,7 @@ def test_aw(stress_element):
         #kappa = np.linalg.cond(A.array())
 
         solver_parameters = {
-                 "eps_which": "smallest_magnitude",
                  "mat_type": "aij",
-                 "eps_monitor_conv" : None,
                  "eps_converged_reason": None,
                  "eps_type": "krylovschur",
                  "eps_nev" : 10,
@@ -165,10 +163,9 @@ def test_aw(stress_element):
         print(min_lam)
         
         Opts = PETSc.Options()
-        solver_parameters["eps_which"] = "largest_magnitude"
+        solver_parameters["eps_target"] = 300
         for k in solver_parameters:
             Opts[k] = solver_parameters[k]
-        #opts["eps_which"] = "largest_magnitude"
         Eps = SLEPc.EPS().create(comm=comm)
         Eps.setOperators(M.M.handle)
         Eps.setProblemType(eps.ProblemType.HEP)
