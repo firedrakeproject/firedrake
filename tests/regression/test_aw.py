@@ -2,7 +2,8 @@ from firedrake import *
 import pytest
 import numpy as np
 import scipy
-
+from petsc4py import PETSc
+from slepc4py import SLEPc
 
 #convergence_orders = lambda x: np.log2(np.array(x)[:-1] / np.array(x)[1:])
 # take the log of 1/the below
@@ -20,6 +21,10 @@ def stress_element(request):
 
 
 def test_aw(stress_element):
+    green = '\033[92m'
+    white = '\033[0m'
+    blue = '\033[94m'
+
     N_base = 2
     mesh = UnitSquareMesh(N_base, N_base)
     mh = MeshHierarchy(mesh, 4)
@@ -114,17 +119,67 @@ def test_aw(stress_element):
         l2_div_sigma.append(error_div_sigma)
 
         Sig = FunctionSpace(msh, stress_element)
-        sigh = Function(Sig)
+        sigh = TrialFunction(Sig)
         tau = TestFunction(Sig)
         mass = inner(sigh, tau)*dx
-        a = derivative(mass, sigh)
-        B = assemble(a, mat_type="aij").M.handle
-        nrow = B.getSize()[0]
-        ai, aj, av = B.getValuesCSR()
-        Asp = scipy.sparse.csr_matrix((av, aj, ai))
-        nnz = Asp.nnz
-        nrows = Asp.shape[0]
-        kappa = np.linalg.cond(Asp.todense())
+        #a = derivative(mass, sigh)
+        #B = assemble(a, mat_type="aij").M.handle
+        #nrow = B.getSize()[0]
+        #ai, aj, av = B.getValuesCSR()
+        #Asp = scipy.sparse.csr_matrix((av, aj, ai))
+        #nnz = Asp.nnz
+        #nrows = Asp.shape[0]
+        #kappa = np.linalg.cond(Asp.todense())
+
+        #B = assemble(a)
+        #kappa = np.linalg.cond(A.array())
+
+        solver_parameters = {
+                 "eps_which": "smallest_magnitude",
+                 "mat_type": "aij",
+                 "eps_monitor_conv" : None,
+                 "eps_converged_reason": None,
+                 "eps_type": "krylovschur",
+                 "eps_nev" : 10,
+                 "eps_max_it": 100,
+                 "eps_tol" : 1e-15,
+                 "eps_target" : 0,
+                 "st_type": "sinvert",
+                 "st_ksp_type": "preonly",
+                 "st_pc_type": "lu",
+                 "st_pc_factor_mat_solver_type": "mumps",
+                 "st_ksp_max_it": 10,
+                 "ds_parallel": "synchronized"
+                 }
+        opts = PETSc.Options()
+        for k in solver_parameters:
+            opts[k] = solver_parameters[k]
+        M = assemble(mass, mat_type="aij")
+        comm = V.mesh().comm
+        eps = SLEPc.EPS().create(comm=comm)
+        eps.setOperators(M.M.handle)
+        eps.setProblemType(eps.ProblemType.HEP)
+        eps.setFromOptions()
+        eps.solve()
+        min_lam = eps.getEigenvalue(0)
+        print(min_lam)
+        
+        Opts = PETSc.Options()
+        solver_parameters["eps_which"] = "largest_magnitude"
+        for k in solver_parameters:
+            Opts[k] = solver_parameters[k]
+        #opts["eps_which"] = "largest_magnitude"
+        Eps = SLEPc.EPS().create(comm=comm)
+        Eps.setOperators(M.M.handle)
+        Eps.setProblemType(eps.ProblemType.HEP)
+        Eps.setFromOptions()
+        Eps.solve()
+        max_lam = Eps.getEigenvalue(Eps.getConverged() - 1)
+        print(max_lam)
+        kappa = abs(max_lam / min_lam)
+        print(kappa)
+        print()
+
         mass_cond.append(kappa)
 
     print(relative_magnitudes(mass_cond))
