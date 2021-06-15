@@ -28,7 +28,8 @@ class PointsolveOperator(AbstractExternalOperator):
 
     _cache = {}
 
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, disp=False):
+    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
+                 val=None, name=None, dtype=ScalarType, operator_data, disp=False):
         r"""
         :param operands: operands on which act the :class:`PointsolveOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -57,7 +58,10 @@ class PointsolveOperator(AbstractExternalOperator):
         """
 
         local_operands = operands
-        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, local_operands=local_operands, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
+                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data['point_solve'], types.FunctionType):
@@ -502,7 +506,7 @@ class PointsolveOperator(AbstractExternalOperator):
                     raise NotImplementedError("Cross-derivatives not handled : %s" % deriv_index)
                 break
         self.dat.data[:] = res
-        return self.get_coefficient()
+        return self.result_coefficient()
 
     def _evaluate(self):
         r"""
@@ -569,7 +573,7 @@ class PointsolveOperator(AbstractExternalOperator):
         # Vectorized nonlinear solver (e.g. Newton, Halley...)
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
         self.dat.data[:] = res.squeeze()
-        return self.get_coefficient()
+        return self.result_coefficient()
 
 
 # Helper function #

@@ -17,7 +17,8 @@ class PointexprOperator(AbstractExternalOperator):
     of f pointwise.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data):
+    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
+                 val=None, name=None, dtype=ScalarType, operator_data):
         r"""
         :param operands: operands on which act the :class:`PointexrOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -34,7 +35,10 @@ class PointexprOperator(AbstractExternalOperator):
         """
 
         local_operands = operands
-        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, local_operands=local_operands, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
+                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data, types.FunctionType):

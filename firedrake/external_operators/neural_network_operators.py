@@ -17,7 +17,8 @@ class PointnetOperator(AbstractExternalOperator):
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, params_version=None, local_operands=(), nparams=None):
+    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
+                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, local_operands=(), nparams=None):
         r"""
         :param operands: operands on which act the :class:`PointnetOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -56,7 +57,10 @@ class PointnetOperator(AbstractExternalOperator):
                 if isinstance(derivatives, tuple):
                     derivatives += (0,)
 
-        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, local_operands=local_operands, dtype=dtype, operator_data=operator_data)
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
+                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          operator_data=operator_data)
 
         if params_version is not None:
             self._params_version = params_version
@@ -122,15 +126,16 @@ class PointnetOperator(AbstractExternalOperator):
                           operator_data=self.operator_data,
                           params_version=self._params_version)
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, name=None, operator_data=None, val=None, coefficient=None, arguments=(), add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, result_coefficient=None,
+                               argument_slots=(), name=None, operator_data=None, val=None, add_kwargs={}):
         "Overwrite _ufl_expr_reconstruct to pass on params_version"
         add_kwargs['params_version'] = self._params_version
         add_kwargs['nparams'] = self.nparams
         return AbstractExternalOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
                                                                derivatives=derivatives,
                                                                val=val, name=name,
-                                                               coefficient=coefficient,
-                                                               arguments=arguments,
+                                                               result_coefficient=result_coefficient,
+                                                               argument_slots=argument_slots,
                                                                operator_data=operator_data,
                                                                add_kwargs=add_kwargs)
 
@@ -151,7 +156,8 @@ class PytorchOperator(PointnetOperator):
         its inputs.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, coefficient=None, arguments=(), dtype=ScalarType, operator_data, params_version=None, nparams=None):
+    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
+                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
         r"""
         :param operands: operands on which act the :class:`PytorchOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -170,7 +176,10 @@ class PytorchOperator(PointnetOperator):
         """
 
         local_operands = operands
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, local_operands=local_operands, dtype=dtype, operator_data=operator_data, params_version=params_version, nparams=nparams)
+        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                                  result_coefficient=result_coefficient, argument_slots=argument_slots,
+                                  val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                  operator_data=operator_data, params_version=params_version, nparams=nparams)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
