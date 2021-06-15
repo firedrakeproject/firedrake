@@ -13,6 +13,7 @@ from firedrake.ufl_expr import Argument, derivative, apply_derivatives
 from firedrake.function import Function
 from firedrake.subspace import IndexedSubspace, extract_indexed_subspaces
 from firedrake.projected import FiredrakeProjected, propagate_projection
+from firedrake.petsc import PETSc
 
 
 class ExtractSubBlock(MultiFunction):
@@ -37,6 +38,7 @@ class ExtractSubBlock(MultiFunction):
 
     index_inliner = IndexInliner()
 
+    @PETSc.Log.EventDecorator()
     def split(self, form, argument_indices):
         """Split a form.
 
@@ -101,6 +103,7 @@ class ExtractSubBlock(MultiFunction):
         else:
             return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
 
+    @PETSc.Log.EventDecorator()
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
@@ -150,6 +153,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
+@PETSc.Log.EventDecorator()
 def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 

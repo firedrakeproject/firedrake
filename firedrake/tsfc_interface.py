@@ -36,6 +36,7 @@ from firedrake.formmanipulation import split_form, split_form_projected
 from firedrake.subspace import make_subspace_numbers_and_parts, extract_subspaces
 
 from firedrake.parameters import parameters as default_parameters
+from firedrake.petsc import PETSc
 from firedrake import utils
 
 # Set TSFC default scalar type at load time
@@ -285,6 +286,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     return kernels
 
 
+@PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
     """Compile a form using TSFC.
 

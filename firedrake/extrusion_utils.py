@@ -4,11 +4,13 @@ import numpy
 import islpy as isl
 
 from pyop2 import op2
+from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
 
 
+@PETSc.Log.EventDecorator()
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """

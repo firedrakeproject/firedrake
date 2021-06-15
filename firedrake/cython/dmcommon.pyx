@@ -530,6 +530,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt g_vertices[4]
         PetscInt vertices[4]
         PetscInt facets[4]
+        const PetscInt *cell_cone = NULL
         int reverse
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
@@ -572,7 +573,6 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
                 fi += 1
 
         # The first vertex is given by the entry in cell_orientations.
-        # The second vertex is always the one with the smaller global number.
         start_v = cell_orientations[cell]
 
         # Based on the cell orientation, we reorder the vertices and facets
@@ -582,7 +582,23 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
             off += 1
         assert off < 4
 
-        if g_vertices[(off + 1) % 4] < g_vertices[(off + 3) % 4]:
+        # The second vertex is chosen so that the first facet appering in
+        # the cone of c (cell_cone[0] in the below) would match up with
+        # the first facet or the second facet of the FInAT cell.
+        # The plex-intrinsic quadrilateral cell in general can be oriented
+        # in 8 different ways relative to the FInAT reference cell, but
+        # embedding this constraint in the construction of cell_closure
+        # reduces the total number of possible orientations by a factor of
+        # 2, letting the remaining 4 orientations naturally represented by
+        # the tensor product of the orientations (= (0, 1)) of the two
+        # intervals that compose the tensor-product quadrilateral cell of FInAT.
+        #
+        # Our using cell_one(c)[0] here ensures that cells in the halo are
+        # consistently oriented across MPI processes, and allows us to
+        # order global DoFs in the plex-intrinsic way that is meaningful
+        # during the save/load cycles.
+        CHKERR(DMPlexGetCone(plex.dm, c, &cell_cone))
+        if cell_cone[0] == c_facets[off] or cell_cone[0] == c_facets[(off + 2) % 4]:
             for i in range(off, 4):
                 vertices[i - off] = c_vertices[i]
                 facets[i - off] = c_facets[i]
@@ -2298,16 +2314,8 @@ def orientations_facet2cell(
                 dst_orient[i] = (cone_orient[i] < 0) ^ facet_orientations[cone[i] - fStart]
 
             # We select vertex X (figure above) as starting vertex.
-            # Both traversal order (CCW or CW) is fine. We choose the traversal
-            # where the second vertex has the smaller global number.
-            #
-            # The other traversal other would be an equally good choice,
-            # however, for cells in the halo, the same choice must be made in
-            # each MPI process which sees that cell.
-            #
-            # To ensure this, we only calculate cell orientations for the
-            # locally owned cells, and later exchange these values on the
-            # halo cells.
+            # We only calculate starting vertices for the locally owned
+            # cells, and later exchange these values on the halo cells.
             if dst_orient[2] and dst_orient[3]:
                 off = 0
             elif dst_orient[3] and dst_orient[0]:
@@ -2637,33 +2645,39 @@ def remove_ghosts_pic(PETSc.DM swarm, PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_pic_parent_cell_nums(PETSc.DM swarm, parentmesh):
+def label_pic_parent_cell_info(PETSc.DM swarm, parentmesh):
     """
     For each PIC in the input swarm, label its `parentcellnum` field with
-    the relevant cell number from the `parentmesh` in which is it emersed.
-    The cell numbering is that given by the `parentmesh.locate_cell`
-    method.
+    the relevant cell number from the `parentmesh` in which is it emersed
+    and the `refcoord` field with the relevant cell reference coordinate.
+    This information is given by the
+    `parentmesh.locate_cell_and_reference_coordinate` method.
+
+    For a swarm with N PICs emersed in `parentmesh`
+    the `parentcellnum` field is N long and
+    the `refcoord` field is N*parentmesh.topological_dimension() long.
 
     :arg swarm: The DMSWARM which contains the PICs immersed in
         `parentmesh`
     :arg parentmesh: The mesh within with the `swarm` PICs are immersed.
 
     ..note:: All PICs must be within the parentmesh or this will try to
-             assign `None` (returned by `parentmesh.locate_cell`) to a
-             `PetscReal`.
+             assign `None` (returned by
+             `parentmesh.locate_cell_and_reference_coordinate`) to the
+             `parentcellnum` or `refcoord` fields.
+
+
     """
     cdef:
-        PetscInt num_vertices, i, dim, parent_cell_num
+        PetscInt num_vertices, i, gdim, tdim
+        PetscInt parent_cell_num
         np.ndarray[PetscReal, ndim=2, mode="c"] swarm_coords
         np.ndarray[PetscInt, ndim=1, mode="c"] parent_cell_nums
+        np.ndarray[PetscReal, ndim=2, mode="c"] reference_coords
+        np.ndarray[PetscReal, ndim=1, mode="c"] reference_coord
 
-    if type(swarm) is not PETSc.DMSwarm:
-        raise ValueError("swarm must be a DMSwarm")
-
-    if parentmesh.topology_dm.handle != swarm.getCellDM().handle:
-        raise ValueError("parentmesh.topology_dm is not the swarm's CellDM")
-
-    dim = parentmesh.geometric_dimension()
+    gdim = parentmesh.geometric_dimension()
+    tdim = parentmesh.topological_dimension()
 
     num_vertices = swarm.getLocalSize()
 
@@ -2673,21 +2687,76 @@ def label_pic_parent_cell_nums(PETSc.DM swarm, parentmesh):
     max_num_vertices = comm.allreduce(num_vertices, op=MPI.MAX)
 
     # Create an out of mesh point to use in locate_cell when needed
-    out_of_mesh_point = np.full((1, dim), np.inf)
+    out_of_mesh_point = np.full((1, gdim), np.inf)
 
     # get fields - NOTE this isn't copied so make sure
     # swarm.restoreField is called for each field too!
-    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, dim))
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
     parent_cell_nums = swarm.getField("parentcellnum")
+    reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
 
     # find parent cell numbers
+    # TODO We should be able to do this for all the points in in one call to
+    # the parent mesh's _c_locator.
+    # SUGGESTED API 1:
+    #   parent_cell_nums, reference_coords = parentmesh.locate_cell_and_reference_coordinates(swarm_coords)
+    # with second call for collectivity.
+    # SUGGESTED API 2:
+    #   parent_cell_nums, reference_coords = parentmesh.locate_cell_and_reference_coordinates(swarm_coords, local_num_vertices)
+    # with behaviour changing inside locate_cell_and_reference_coordinates to
+    # ensure collectivity.
     for i in range(max_num_vertices):
         if i < num_vertices:
-            parent_cell_num = parentmesh.locate_cell(swarm_coords[i])
+            parent_cell_num, reference_coord = parentmesh.locate_cell_and_reference_coordinate(swarm_coords[i])
             parent_cell_nums[i] = parent_cell_num
+            reference_coords[i] = reference_coord
         else:
             parentmesh.locate_cell(out_of_mesh_point)  # should return None
 
     # have to restore fields once accessed to allow access again
+    swarm.restoreField("refcoord")
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def fill_reference_coordinates_function(reference_coordinates_f):
+    """
+    Fill the PyOP2 dat of an input vector valued function on a
+    VertexOnlyMesh `reference_coordinates_f` with the reference
+    coordinates of each vertex in their relevant reference cells.
+
+    :arg reference_coordinates_f: A vector valued function on a
+        VertexOnlyMesh (with vector dimension the topological dimension
+        of the parent mesh) which will have its dat modified.
+
+    :returns: The updated `reference_coordinates_f`.
+    """
+    cdef:
+        PetscInt num_vertices, i, gdim, parent_tdim
+        PETSc.DM swarm
+        np.ndarray[PetscReal, ndim=2, mode="c"] reference_coords
+
+    from firedrake.mesh import VertexOnlyMeshTopology
+    assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
+
+    gdim = reference_coordinates_f.function_space().mesh()._parent_mesh.geometric_dimension()
+    parent_tdim = reference_coordinates_f.function_space().mesh()._parent_mesh.topological_dimension()
+
+    swarm = reference_coordinates_f.function_space().mesh().topology_dm
+
+    num_vertices = swarm.getLocalSize()
+
+    assert reference_coordinates_f.dat.shape == (num_vertices, parent_tdim)
+
+    # get reference coord field - NOTE isn't copied so could have GC issues!
+    reference_coords = swarm.getField("refcoord").reshape((num_vertices, parent_tdim))
+
+    # store reference coord field in Function Dat.
+    reference_coordinates_f.dat.data[:] = reference_coords[:]
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("refcoord")
+
+    return reference_coordinates_f

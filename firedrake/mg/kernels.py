@@ -538,12 +538,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"])
 
-    fexpr, = fem.compile_ufl(f, **macro_cfg)
+    macro_context = fem.PointSetContext(**macro_cfg)
+    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
-    C_a, = fem.compile_ufl(X, **macro_cfg)
+    C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
                                            complex_mode=complex_mode)
-    macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
+    macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
     Vce = create_element(Vc.ufl_element())
 
@@ -579,8 +580,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     X = ufl.SpatialCoordinate(Vc.mesh())
     K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
                                         complex_mode=complex_mode)
-    C_0, = fem.compile_ufl(X, **coarse_cfg)
-    K, = fem.compile_ufl(K, **coarse_cfg)
+    coarse_context = fem.PointSetContext(**coarse_cfg)
+    C_0, = fem.compile_ufl(X, coarse_context)
+    K, = fem.compile_ufl(K, coarse_context)
 
     i = gem.Index()
     j = gem.Index()

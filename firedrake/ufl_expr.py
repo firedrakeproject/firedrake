@@ -13,6 +13,7 @@ from ufl.classes import Zero
 import firedrake
 from firedrake import utils
 from firedrake.projected import FiredrakeProjected
+from firedrake.petsc import PETSc
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -77,6 +78,7 @@ class Argument(ufl.argument.Argument):
         return Argument(function_space, number, part=part)
 
 
+@PETSc.Log.EventDecorator()
 def TestFunction(function_space, part=None):
     """Build a test function on the specified function space.
 
@@ -86,6 +88,7 @@ def TestFunction(function_space, part=None):
     return Argument(function_space, 0, part=part)
 
 
+@PETSc.Log.EventDecorator()
 def TrialFunction(function_space, part=None):
     """Build a trial function on the specified function space.
 
@@ -121,6 +124,7 @@ def TrialFunctions(function_space):
     return split(TrialFunction(function_space))
 
 
+@PETSc.Log.EventDecorator()
 def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
@@ -195,6 +199,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     return ufl.derivative(form, u, du, coefficient_derivatives)
 
 
+@PETSc.Log.EventDecorator()
 def action(form, coefficient):
     """Compute the action of a form on a coefficient.
 
@@ -213,6 +218,7 @@ def action(form, coefficient):
         return compute_form_action(form, coefficient)
 
 
+@PETSc.Log.EventDecorator()
 def adjoint(form, reordered_arguments=None):
     """Compute the adjoint of a form.
 
@@ -252,6 +258,7 @@ def adjoint(form, reordered_arguments=None):
         return ufl.adjoint(form, reordered_arguments)
 
 
+@PETSc.Log.EventDecorator()
 def CellSize(mesh):
     """A symbolic representation of the cell size of a mesh.
 
@@ -261,6 +268,7 @@ def CellSize(mesh):
     return 2.0 * ufl.Circumradius(mesh)
 
 
+@PETSc.Log.EventDecorator()
 def FacetNormal(mesh):
     """A symbolic representation of the facet normal on a cell in a mesh.
 

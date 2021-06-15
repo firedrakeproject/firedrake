@@ -10,7 +10,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
 
@@ -30,7 +29,7 @@ class HybridizationPC(SCBase):
     are performed element-local using the Slate language.
     """
 
-    @timed_function("HybridInit")
+    @PETSc.Log.EventDecorator("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -224,7 +223,7 @@ class HybridizationPC(SCBase):
                                              mat_type=mat_type,
                                              assembly_type="residual")
 
-        with timed_region("HybridOperatorAssembly"):
+        with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -325,7 +324,7 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
 
-    @timed_function("HybridUpdate")
+    @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
@@ -341,7 +340,7 @@ class HybridizationPC(SCBase):
         :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
-        with timed_region("HybridBreak"):
+        with PETSc.Log.Event("HybridBreak"):
             with self.unbroken_residual.dat.vec_wo as v:
                 x.copy(v)
 
@@ -367,7 +366,7 @@ class HybridizationPC(SCBase):
                       "vec_out": (broken_res_hdiv, INC)},
                      is_loopy_kernel=True)
 
-        with timed_region("HybridRHS"):
+        with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
@@ -404,7 +403,7 @@ class HybridizationPC(SCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
-        with timed_region("HybridProject"):
+        with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]

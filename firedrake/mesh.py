@@ -15,7 +15,6 @@ from firedrake.utils import IntType, RealType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
@@ -71,6 +70,8 @@ class _Facets(object):
     .. warning::
 
        The unique_markers argument **must** be the same on all processes."""
+
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
 
@@ -127,6 +128,7 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -172,6 +174,7 @@ class _Facets(object):
         else:
             return self.subset(subdomain_id)
 
+    @PETSc.Log.EventDecorator()
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
@@ -203,6 +206,7 @@ class _Facets(object):
                        "facet_to_cell_map")
 
 
+@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -220,6 +224,7 @@ def _from_gmsh(filename, comm=None):
     return gmsh_plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_exodus(filename, comm):
     """Read an Exodus .e or .exo file from `filename`.
 
@@ -230,6 +235,7 @@ def _from_exodus(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cgns(filename, comm):
     """Read a CGNS .cgns file from `filename`.
 
@@ -239,6 +245,7 @@ def _from_cgns(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_triangle(filename, dim, comm):
     """Read a set of triangle mesh files from `filename`.
 
@@ -306,6 +313,7 @@ def _from_triangle(filename, dim, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cell_list(dim, cells, coords, comm):
     """
     Create a DMPlex from a list of cells and coords.
@@ -383,7 +391,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
 
-    @timed_function("CreateMesh")
+    @PETSc.Log.EventDecorator("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -561,6 +569,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def cell_set(self):
         pass
 
+    @PETSc.Log.EventDecorator()
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
 
@@ -603,6 +612,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                                                     subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -642,7 +652,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
-    @timed_function("CreateMesh")
+    @PETSc.Log.EventDecorator("CreateMesh")
     def __init__(self, plex, name, reorder, distribution_parameters):
         """Half-initialise a mesh topology.
 
@@ -741,7 +751,7 @@ class MeshTopology(AbstractMeshTopology):
             dmcommon.complete_facet_labels(self.topology_dm)
 
             if reorder:
-                with timed_region("Mesh: reorder"):
+                with PETSc.Log.Event("Mesh: reorder"):
                     old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
                     reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
@@ -751,7 +761,7 @@ class MeshTopology(AbstractMeshTopology):
             self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: numbering"):
+            with PETSc.Log.Event("Mesh: numbering"):
                 dmcommon.mark_entity_classes(self.topology_dm)
                 self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
                 self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
@@ -826,6 +836,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
+    @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
@@ -922,6 +933,7 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    @PETSc.Log.EventDecorator()
     def set_partitioner(self, distribute, partitioner_type=None):
         """Set partitioner for (re)distributing underlying plex over comm.
 
@@ -970,6 +982,7 @@ class MeshTopology(AbstractMeshTopology):
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, layers):
         """Build an extruded mesh topology from an input mesh topology
 
@@ -1077,6 +1090,7 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
@@ -1094,6 +1108,7 @@ class ExtrudedMeshTopology(MeshTopology):
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
@@ -1169,6 +1184,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     another mesh.
     """
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, swarm, parentmesh, name, reorder):
         """
         Half-initialise a mesh topology.
@@ -1208,25 +1224,19 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell = ufl.Cell("vertex")
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
+        # Mark OP2 entities and derive the resulting Swarm numbering
+        with PETSc.Log.Event("Mesh: numbering"):
+            dmcommon.mark_entity_classes(self.topology_dm)
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
-            # Mark OP2 entities and derive the resulting Swarm numbering
-            with timed_region("Mesh: numbering"):
-                dmcommon.mark_entity_classes(self.topology_dm)
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            # Derive a cell numbering from the Swarm numbering
+            entity_dofs = np.zeros(tdim+1, dtype=IntType)
+            entity_dofs[-1] = 1
 
-                # Derive a cell numbering from the Swarm numbering
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-
-        self._callback = callback
+            self._cell_numbering = self.create_section(entity_dofs)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self.create_section(entity_dofs)
 
     @property
     def comm(self):
@@ -1306,6 +1316,23 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
+
+    @property
+    def cell_parent_cell_list(self):
+        """Return a list of parent mesh cells numbers in vertex only
+        mesh cell order.
+        """
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        self.topology_dm.restoreField("parentcellnum")
+        return cell_parent_cell_list
+
+    @property
+    def cell_parent_cell_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh cells.
+        """
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_cell_list, "cell_parent_cell")
 
 
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
@@ -1475,28 +1502,56 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None):
-        """Locate cell containg given point.
+        """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell.
-        :returns: cell number (int), or None (if the point is not in the domain)
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: cell number (int), or None (if the point is not
+            in the domain)
         """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[0]
 
+    def locate_reference_coordinate(self, x, tolerance=None):
+        """Get reference coordinates of a given point in its cell. Which
+        cell the point is in can be queried with the locate_cell method.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: reference coordinates within cell (numpy array) or
+            None (if the point is not in the domain)
+        """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[1]
+
+    def locate_cell_and_reference_coordinate(self, x, tolerance=None):
+        """Locate cell containing a given point and the reference
+        coordinates of the point within the cell.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: tuple either (cell number, reference coordinates)
+            (int, numpy array), or (None, None) (point is not in the domain)
+        """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
-
         x = np.asarray(x, dtype=utils.ScalarType)
         if not np.allclose(x.imag, 0):
             raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
-
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
+        X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
-            return None
+            return (None, None)
         else:
-            return cell
+            return cell, X
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -1510,10 +1565,14 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x)
+    int locator(struct Function *f, double *x, double *X)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        for(int i=0; i<%(geometric_dimension)d; i++) {
+            X[i] = reference_coords.X[i];
+        }
+        return cell;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -1526,10 +1585,12 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double)]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
@@ -1579,6 +1640,7 @@ values from f.)"""
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
 
+@PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
@@ -1606,7 +1668,7 @@ def make_mesh_from_coordinates(coordinates):
     return mesh
 
 
-@timed_function("CreateMesh")
+@PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1745,7 +1807,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@timed_function("CreateExtMesh")
+@PETSc.Log.EventDecorator("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
     """Build an extruded mesh from an input mesh
 
@@ -1880,6 +1942,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     return self
 
 
+@PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices
@@ -1936,9 +1999,9 @@ def VertexOnlyMesh(mesh, vertexcoords):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType)])
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
 
-    dmcommon.label_pic_parent_cell_nums(swarm, mesh)
+    dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
@@ -1967,6 +2030,10 @@ def VertexOnlyMesh(mesh, vertexcoords):
                                                   name="Coordinates")
 
     vmesh.__init__(coordinates)
+
+    # Save vertex reference coordinate (within reference cell) in function
+    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
+    vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
 
     return vmesh
 
@@ -2066,6 +2133,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     return swarm
 
 
+@PETSc.Log.EventDecorator()
 def SubDomainData(geometric_expr):
     """Creates a subdomain data object from a boolean-valued UFL expression.
 

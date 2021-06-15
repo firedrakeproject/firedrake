@@ -1,7 +1,7 @@
 import abc
 
 from firedrake.preconditioners import PCBase
-from pyop2.profiling import timed_region
+from firedrake.petsc import PETSc
 
 
 class SCBase(PCBase):
@@ -49,13 +49,13 @@ class SCBase(PCBase):
         :arg y: A PETSc vector for the result.
         """
 
-        with timed_region("SCForwardElim"):
+        with PETSc.Log.Event("SCForwardElim"):
             self.forward_elimination(pc, x)
 
-        with timed_region("SCSolve"):
+        with PETSc.Log.Event("SCSolve"):
             self.sc_solve(pc)
 
-        with timed_region("SCBackSub"):
+        with PETSc.Log.Event("SCBackSub"):
             self.backward_substitution(pc, y)
 
     def applyTranspose(self, pc, x, y):
