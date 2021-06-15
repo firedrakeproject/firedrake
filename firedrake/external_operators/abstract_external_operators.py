@@ -23,40 +23,35 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     Every subclass based on this class must provide the `_compute_derivatives` and '_evaluate' or `_evaluate_action` methods.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data=None, coefficient=None, arguments=(), local_operands=()):
-        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, arguments=arguments, local_operands=local_operands)
+    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
+                 val=None, name=None, dtype=ScalarType, operator_data=None):
+        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                                  result_coefficient=result_coefficient, argument_slots=argument_slots)
         fspace = self.ufl_function_space()
         if not isinstance(fspace, functionspaceimpl.WithGeometry):
             fspace = functionspaceimpl.FunctionSpace(function_space.mesh().topology, fspace.ufl_element())
             fspace = functionspaceimpl.WithGeometry(fspace, function_space.mesh())
 
-        # Check arguments and action_coefficients
-        # self._check_arguments_action_coefficients()
+        # Check
+        if len(argument_slots)-1 != sum(derivatives):
+            raise ValueError('Expecting number of items in the argument slots (%s) to be equal to the number of derivatives taken + 1 (%s)' % (len(argument_slots), sum(derivatives) + 1) )
 
-        if coefficient is None:
-            coefficient = Function(fspace, val, name, dtype)
-            self._val = coefficient.topological
-        elif not isinstance(coefficient, (Coefficient, ReferenceValue)):
+        if result_coefficient is None:
+            result_coefficient = Function(fspace, val, name, dtype)
+            self._val = result_coefficient.topological
+        elif not isinstance(result_coefficient, (Coefficient, ReferenceValue)):
             raise TypeError('Expecting a Coefficient and not %s', type(coefficient))
-        self._coefficient = coefficient
+        self._result_coefficient = result_coefficient
         self._val = val
         self._name = name
 
         self.operator_data = operator_data
 
-    def _check_arguments_action_coefficients(self):
-        if not any(self.is_type_global):
-            return
-        n_args = len(self._arguments)
-        n_action_coefficients = len(self._action_coefficients)
-        if n_args + n_action_coefficients != sum(self.derivatives):
-            raise ValueError('Expecting number of arguments (%s) + number of action arguments (%s) to be equal to the number of derivatives taken (%s)!' % (n_args, n_action_coefficients, sum(self.derivatives)))
-
     def name(self):
-        return getattr(self.get_coefficient(), '_name', self._name)
+        return getattr(self.result_coefficient(), '_name', self._name)
 
     def function_space(self):
-        return self.get_coefficient().function_space()
+        return self.result_coefficient().function_space()
 
     def _make_function_space_args(self, k, y, adjoint=False):
         """Make the function space of the Gateaux derivative: dN[x] = \frac{dN}{dOperands[k]} * y(x) if adjoint is False
@@ -75,36 +70,36 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     @property
     def dat(self):
-        return self.get_coefficient().dat
+        return self.result_coefficient().dat
 
     @property
     def topological(self):
         # When we replace coefficients in _build_coefficient_replace_map
         # we replace firedrake.Function by ufl.Coefficient and we lose track of val
-        return getattr(self.get_coefficient(), 'topological', self._val)
+        return getattr(self.result_coefficient(), 'topological', self._val)
 
     def assign(self, *args, **kwargs):
-        assign = self.get_coefficient().assign(*args, **kwargs)
+        assign = self.result_coefficient().assign(*args, **kwargs)
         # Keep track of the function's value
         self._val = assign.topological
         return assign
 
     def interpolate(self, *args, **kwargs):
-        interpolate = self.get_coefficient().interpolate(*args, **kwargs)
+        interpolate = self.result_coefficient().interpolate(*args, **kwargs)
         # Keep track of the function's value
         self._val = interpolate.topological
         return interpolate
 
     def split(self):
-        return self.get_coefficient().split()
+        return self.result_coefficient().split()
 
     @property
     def block_variable(self):
-        return self.get_coefficient().block_variable
+        return self.result_coefficient().block_variable
 
     @property
     def _ad_floating_active(self):
-        self.get_coefficient()._ad_floating_active
+        self.result_coefficient()._ad_floating_active
 
     def _compute_derivatives(self):
         """apply the derivatives on operator_data"""
