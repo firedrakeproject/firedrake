@@ -19,6 +19,7 @@ def test_abstract_external_operator(mesh):
     u = Function(V)
     w = Function(V)
     g = Function(V)
+    ghat = TrialFunction(V)
 
     def _check_extop_attributes_(x, ops, space, der, shape):
         assert x.ufl_function_space() == space
@@ -27,7 +28,9 @@ def test_abstract_external_operator(mesh):
         assert x.ufl_shape == shape
 
     f = lambda x, y: x*y
-    p = TestAbstractExternalOperator(u, w, g, function_space=V, derivatives=(0, 0, 1), name='abstract_po', operator_data=f)
+    args = (Argument(V, 0), ghat)
+    p = TestAbstractExternalOperator(u, w, g, function_space=V, derivatives=(0, 0, 1), argument_slots=args,
+                                     name='abstract_po', operator_data=f)
 
     _check_extop_attributes_(p, (u, w, g), V, (0, 0, 1), ())
 
