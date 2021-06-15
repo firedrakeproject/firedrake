@@ -63,7 +63,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     def add_dependencies(self, derivatives, args):
         """Reconstruct the external operator's dependency. More specifically, it reconstructs the external operators produced during form compiling and update adequately `coefficient_dict`"""
-        v = list(self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=d, arguments=a)
+        v = list(self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=d, argument_slots=a)
                  for d, a in zip(derivatives, args))
         self._extop_master.coefficient_dict.update({e.derivatives: e for e in v})
         return self
@@ -177,10 +177,10 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         """
         derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
         if self.is_type_global[idx]:
-            new_args = self.arguments() + ((x, True),)
+            new_args = self.argument_slots() + ((x, True),)
             function_space = self._make_function_space_args(idx, x, adjoint=True)
             return self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives,
-                                               function_space=function_space, arguments=new_args)
+                                               function_space=function_space, argument_slots=new_args)
         dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
         dNdq_adj = conj(transpose(dNdq))
         return inner(dNdq_adj, x)
@@ -189,7 +189,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, name=None, operator_data=None, val=None, coefficient=None, arguments=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, result_coefficient=None,
+                               argument_slots=None, name=None, operator_data=None, val=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
         deriv_multiindex = derivatives or self.derivatives
 
@@ -202,8 +203,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
                                                       derivatives=deriv_multiindex,
                                                       name=name,
-                                                      coefficient=coefficient,
-                                                      arguments=arguments,
+                                                      result_coefficient=result_coefficient,
+                                                      argument_slots=argument_slots,
                                                       operator_data=operator_data,
                                                       add_kwargs=add_kwargs)
         else:
@@ -212,8 +213,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         reconstruct_op = type(self)(*operands, function_space=function_space or self._extop_master.ufl_function_space(),
                                     derivatives=deriv_multiindex,
                                     name=name or self.name(),
-                                    coefficient=corresponding_coefficient,
-                                    arguments=arguments or (self.arguments()+self.action_coefficients()),
+                                    result_coefficient=corresponding_coefficient,
+                                    argument_slots=argument_slots or self.argument_slots(),
                                     operator_data=operator_data or self.operator_data,
                                     **add_kwargs)
 
