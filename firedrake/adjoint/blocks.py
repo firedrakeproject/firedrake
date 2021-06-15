@@ -2,7 +2,7 @@ from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
 from pyadjoint.tape import no_annotations
-from ufl.algorithms.analysis import extract_arguments_and_coefficients
+from ufl.algorithms.analysis import extract_arguments_and_coefficients, extract_coefficients
 from ufl import replace
 
 import firedrake
@@ -376,7 +376,7 @@ class PointwiseOperatorBlock(Block, Backend):
         return dNdm_adj
 
     def _replace_map(self):
-        coeffs_point_op = self.point_op.ufl_operands + (self.point_op.coefficient,)
+        coeffs_point_op = tuple(ci for opi in self.point_op.ufl_operands for ci in extract_coefficients(opi)) + (self.point_op.coefficient,)
         replace_coeffs = {}
         for block_variable in self.get_dependencies():
             coeff = block_variable.output

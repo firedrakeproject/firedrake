@@ -840,6 +840,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
 
         coefficients += tuple(e for e in new_coefficients if e not in coefficients)
         # If there are any PointwiseOperators, evaluate them now.
+        external_operators = list(set(external_operators))
         for e in external_operators:
             extop_loops.append(e.evaluate)
 

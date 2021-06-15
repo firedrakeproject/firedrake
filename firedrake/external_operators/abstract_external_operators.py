@@ -67,7 +67,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         return functionspaceimpl.WithGeometry(function_space, mesh)
 
     def add_dependencies(self, derivatives, args):
-        r"""Reconstruct the external operator's dependency. More specifically, it reconstructs the external operators produced during form compiling and update adequately `coefficient_dict`"""
+        """Reconstruct the external operator's dependency. More specifically, it reconstructs the external operators produced during form compiling and update adequately `coefficient_dict`"""
         v = list(self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=d, arguments=a)
                  for d, a in zip(derivatives, args))
         self._extop_master.coefficient_dict.update({e.derivatives: e for e in v})
