@@ -18,7 +18,7 @@ class PointnetOperator(AbstractExternalOperator):
      """
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, local_operands=(), nparams=None):
+                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
         r"""
         :param operands: operands on which act the :class:`PointnetOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -51,15 +51,13 @@ class PointnetOperator(AbstractExternalOperator):
                 # Assign and convert (from torch to numpy)
                 cw.dat.data[:] = param
                 operands += (cw,)
-                # TODO: At the moment the Global Neural Net case is not handled!!
-                local_operands += (cw,)
                 # Type exception is caught later
                 if isinstance(derivatives, tuple):
                     derivatives += (0,)
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          val=val, name=name, dtype=dtype,
                                           operator_data=operator_data)
 
         if params_version is not None:
@@ -175,10 +173,9 @@ class PytorchOperator(PointnetOperator):
         :param params_version: a dictionary keeping track of the model parameters version, to inform if whether we need to update them.
         """
 
-        local_operands = operands
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                   result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                  val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                  val=val, name=name, dtype=dtype,
                                   operator_data=operator_data, params_version=params_version, nparams=nparams)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64

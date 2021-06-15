@@ -57,10 +57,9 @@ class PointsolveOperator(AbstractExternalOperator):
         :param disp: boolean indication whether we display the max of the number of iterations taken over the pointwise solves.
         """
 
-        local_operands = operands
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          val=val, name=name, dtype=dtype,
                                           operator_data=operator_data)
 
         # Check

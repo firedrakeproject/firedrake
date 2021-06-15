@@ -34,10 +34,9 @@ class PointexprOperator(AbstractExternalOperator):
         :param operator_data: dictionary containing the function defining how to evaluate the :class:`PointexprOperator`.
         """
 
-        local_operands = operands
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, local_operands=local_operands, dtype=dtype,
+                                          val=val, name=name, dtype=dtype,
                                           operator_data=operator_data)
 
         # Check
