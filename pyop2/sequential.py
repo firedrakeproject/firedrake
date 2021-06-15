@@ -58,6 +58,7 @@ from pyop2.mpi import collective
 from pyop2.profiling import timed_region
 from pyop2.utils import cached_property, get_petsc_dir
 
+from petsc4py import PETSc
 import loopy
 
 
@@ -131,6 +132,7 @@ class JITModule(base.JITModule):
             return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
         return code.device_code()
 
+    @PETSc.Log.EventDecorator()
     @collective
     def compile(self):
         # If we weren't in the cache we /must/ have arguments
