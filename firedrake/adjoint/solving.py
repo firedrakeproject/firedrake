@@ -56,7 +56,7 @@ def annotate_solve(solve):
 
             if isinstance(args[0], ufl.equation.Equation):
                 extops_form = args[0].lhs.external_operators()
-                extops_coeff_form = [e.get_coefficient() for e in extops_form]
+                extops_coeff_form = [e.result_coefficient() for e in extops_form]
                 dict_extops = dict(zip(extops_coeff_form, extops_form))
                 for coeff in args[0].lhs.coefficients():
                     if coeff in extops_coeff_form:

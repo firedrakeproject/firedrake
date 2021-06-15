@@ -29,7 +29,7 @@ def annotate_assemble(assemble):
 
             extops_form = form.external_operators()
             for coeff in form.coefficients():
-                extops_coeff_form = [e.get_coefficient() for e in extops_form]
+                extops_coeff_form = [e.result_coefficient() for e in extops_form]
                 dict_extops = dict(zip(extops_coeff_form, extops_form))
                 if coeff in extops_coeff_form:
                     block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **kwargs)

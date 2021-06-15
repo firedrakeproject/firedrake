@@ -366,7 +366,7 @@ class PointwiseOperatorBlock(Block, Backend):
         return ufl.replace(self.point_op, self._replace_map())
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, N=None):
-        if self.point_op.get_coefficient() == block_variable.output:
+        if self.point_op.result_coefficient() == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
 
