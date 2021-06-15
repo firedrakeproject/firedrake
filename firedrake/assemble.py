@@ -818,7 +818,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     extop_loops = []
     if hasattr(expr, 'external_operators'):
         external_operators = list(expr.external_operators())
-        new_coefficients = list(e.get_coefficient() for e in external_operators)
+        new_coefficients = list(e.result_coefficient() for e in external_operators)
         for ki in kernels:
             if hasattr(ki.kinfo, 'external_operators'):
                 for k, v in ki.kinfo.external_operators.items():
@@ -836,13 +836,13 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
                         d.add_dependencies(deriv_ind, args_list)
                         reconstruct_extops = [e for k, e in d._extop_master.coefficient_dict.items() if k in v and e not in external_operators]
                         external_operators.extend(reconstruct_extops)
-                        new_coefficients.extend([e.get_coefficient() for e in reconstruct_extops])
+                        new_coefficients.extend([e.result_coefficient() for e in reconstruct_extops])
 
         coefficients += tuple(e for e in new_coefficients if e not in coefficients)
         # If there are any PointwiseOperators, evaluate them now.
         external_operators = list(set(external_operators))
         for e in external_operators:
-            extop_loops.append(e.evaluate)
+            extop_loops.append(e.assemble)
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
