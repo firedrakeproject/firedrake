@@ -15,7 +15,6 @@ from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.transform.callable import merge
-import itertools
 
 
 class RemoveRestrictions(MultiFunction):
@@ -291,10 +290,14 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
-    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
-                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
-                                    for terminal in terminal_tensors)))
+    terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
+    calls_and_kernels = tuple((c, k) for terminal in terminal_tensors
+                              for c, k in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+    if calls_and_kernels:  # tsfc may not give a kernel back
+        tsfc_calls, tsfc_kernels = zip(*calls_and_kernels)
+    else:
+        tsfc_calls = ()
+        tsfc_kernels = ()
 
     # Construct args
     args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
