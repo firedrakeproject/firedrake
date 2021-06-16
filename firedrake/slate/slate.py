@@ -115,6 +115,8 @@ class TensorBase(object, metaclass=ABCMeta):
     """A mock object that provides enough compatibility with ufl.Form
     that one can assemble a tensor."""
 
+    terminal = False
+
     _id = count()
 
     def __init__(self, *_):
@@ -383,6 +385,7 @@ class AssembledVector(TensorBase):
         raise ValueError("AssembledVector has no integrals")
 
     operands = ()
+    terminal = True
 
     def __new__(cls, function):
         if isinstance(function, AssembledVector):
@@ -518,6 +521,12 @@ class Block(TensorBase):
         self.operands = (tensor,)
         self._blocks = dict(enumerate(indices))
         self._indices = indices
+
+    @cached_property
+    def terminal(self):
+        """Blocks are only terminal when they sit on Tensors or AssembledVectors"""
+        tensor, = self.operands
+        return tensor.terminal
 
     @cached_property
     def _split_arguments(self):
@@ -701,6 +710,7 @@ class Tensor(TensorBase):
     """
 
     operands = ()
+    terminal = True
 
     def __init__(self, form):
         """Constructor for the Tensor class."""
