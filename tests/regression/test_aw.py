@@ -98,7 +98,7 @@ def test_aw(stress_element):
 
         params = {"snes_type": "newtonls",
                   "snes_linesearch_type": "basic",
-                  #"snes_monitor": None,
+                  "snes_monitor": None,
                   "mat_type": "aij",
                   "snes_max_it": 10,
                   "snes_lag_jacobian": -2,
@@ -189,8 +189,6 @@ def test_aw(stress_element):
 #    print()
 #    assert max(relative_magnitudes(mass_cond)) < 1.2
 
-    assert test_conditioning(stress_element, mh)
-
     if stress_element.family().startswith("Conforming"):
         assert min(convergence_orders(l2_u)) > 1.9
         assert min(convergence_orders(l2_sigma)) > 2.9
@@ -202,13 +200,15 @@ def test_aw(stress_element):
     else:
         raise ValueError("Don't know what the convergence should be")
 
-def test_conditioning(stress_element, mesh_hierarchy):
+    assert verify_conditioning(stress_element, mh)
+
+def verify_conditioning(stress_element, mesh_hierarchy):
     try:
-        #__import__('slepc4py', fromlist=['SLEPc'])
         from slepc4py import SLEPc
     except ImportError:
-        print("Conditioning of mass matrix not checked because SLEPc is not installed.")
-        return True
+        ## This line cannot be reached unless the convergence tests have passed.
+        pytest.skip(msg="Convergence tests passed, but SLEPc unavailable, so skipping mass conditioning sub-test")
+        #return True
     else:
         from petsc4py import PETSc
 
@@ -218,70 +218,71 @@ def test_conditioning(stress_element, mesh_hierarchy):
         yellow = '\033[33m'
         
         mass_cond = []
-        for msh in mesh_hierarchy[1:]:
+        for msh in mesh_hierarchy[:3]:
             Sig = FunctionSpace(msh, stress_element)
-            sigh = TrialFunction(Sig)
+            #sigh = TrialFunction(Sig)
+            sigh = Function(Sig)
             tau = TestFunction(Sig)
             mass = inner(sigh, tau)*dx
-            #a = derivative(mass, sigh)
-            #B = assemble(a, mat_type="aij").M.handle
-            #nrow = B.getSize()[0]
-            #ai, aj, av = B.getValuesCSR()
-            #Asp = scipy.sparse.csr_matrix((av, aj, ai))
-            #nnz = Asp.nnz
-            #nrows = Asp.shape[0]
-            #kappa = np.linalg.cond(Asp.todense())
+            a = derivative(mass, sigh)
+            B = assemble(a, mat_type="aij").M.handle
+            nrow = B.getSize()[0]
+            ai, aj, av = B.getValuesCSR()
+            Asp = scipy.sparse.csr_matrix((av, aj, ai))
+            nnz = Asp.nnz
+            nrows = Asp.shape[0]
+            kappa = np.linalg.cond(Asp.todense())
 
             #B = assemble(a)
             #kappa = np.linalg.cond(A.array())
 
             #V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
 
-            slepc_parameters = {
-                    #"eps_which": "smallest_magnitude",
-                     "mat_type": "aij",
-                     #"eps_monitor": None,
-                     #"eps_view": None,
-                     "eps_converged_reason": None,
-                     "eps_type": "krylovschur",
-                     "eps_nev" : 5,#100
-                     "eps_max_it": 100,
-                     "eps_tol" : 1e-15,
-                     "eps_target" : 0,
-                     "st_type": "sinvert",
-                     "st_ksp_type": "preonly",
-                     "st_pc_type": "lu",
-                     "st_pc_factor_mat_solver_type": "mumps",
-                     "st_ksp_max_it": 10,
-                     "ds_parallel": "synchronized"
-                     }
-            opts = PETSc.Options()
-            for k in slepc_parameters:
-                opts[k] = slepc_parameters[k]
-            M = assemble(mass, mat_type="aij")
-            comm = Sig.mesh().comm
-            eps = SLEPc.EPS().create(comm=comm)
-            eps.setOperators(M.M.handle)
-            eps.setProblemType(eps.ProblemType.HEP)
-            eps.setFromOptions()
-            eps.solve()
-            min_lam = eps.getEigenvalue(0)
-            print(green, "Minimal eigenvalue: ", min_lam, white)
+            #slepc_parameters = {
+            #        #"eps_which": "smallest_magnitude",
+            #         "mat_type": "aij",
+            #         #"eps_monitor": None,
+            #         #"eps_view": None,
+            #         "eps_converged_reason": None,
+            #         "eps_type": "krylovschur",
+            #         "eps_nev" : 5,#100
+            #         "eps_max_it": 100,
+            #         "eps_tol" : 1e-15,
+            #         "eps_target" : 0,
+            #         "st_type": "sinvert",
+            #         "st_ksp_type": "preonly",
+            #         "st_pc_type": "lu",
+            #         "st_pc_factor_mat_solver_type": "mumps",
+            #         "st_ksp_max_it": 10,
+            #         "ds_parallel": "synchronized"
+            #         }
+            #opts = PETSc.Options()
+            #for k in slepc_parameters:
+            #    opts[k] = slepc_parameters[k]
+            #M = assemble(mass, mat_type="aij")
+            #comm = Sig.mesh().comm
+            #eps = SLEPc.EPS().create(comm=comm)
+            #eps.setOperators(M.M.handle)
+            #eps.setProblemType(eps.ProblemType.HEP)
+            #eps.setFromOptions()
+            #eps.solve()
+            #min_lam = eps.getEigenvalue(0)
+            #print(green, "Minimal eigenvalue: ", min_lam, white)
         
-            Opts = PETSc.Options()
-            # ! HACK !
-            slepc_parameters["eps_target"] = 1e16
-            #slepc_parameters["eps_which"] = "largest_magnitude"
-            for k in slepc_parameters:
-                Opts[k] = slepc_parameters[k]
-            Eps = SLEPc.EPS().create(comm=comm)
-            Eps.setOperators(M.M.handle)
-            Eps.setProblemType(eps.ProblemType.HEP)
-            Eps.setFromOptions()
-            Eps.solve()
-            max_lam = Eps.getEigenvalue(Eps.getConverged() - 1)
-            print(green, "Maximal eigenvalue: ", max_lam, white)
-            kappa = abs(max_lam / min_lam)
+            #Opts = PETSc.Options()
+            ## ! HACK !
+            #slepc_parameters["eps_target"] = 1e16
+            ##slepc_parameters["eps_which"] = "largest_magnitude"
+            #for k in slepc_parameters:
+            #    Opts[k] = slepc_parameters[k]
+            #Eps = SLEPc.EPS().create(comm=comm)
+            #Eps.setOperators(M.M.handle)
+            #Eps.setProblemType(eps.ProblemType.HEP)
+            #Eps.setFromOptions()
+            #Eps.solve()
+            #max_lam = Eps.getEigenvalue(Eps.getConverged() - 1)
+            #print(green, "Maximal eigenvalue: ", max_lam, white)
+            #kappa = abs(max_lam / min_lam)
             print(blue, "Condition number: ", kappa, white)
             print()
 
@@ -289,7 +290,7 @@ def test_conditioning(stress_element, mesh_hierarchy):
 
         print(yellow, "Ratios of consecutive condition numbers: ", relative_magnitudes(mass_cond), white)
         print()
-        return (max(relative_magnitudes(mass_cond)) < 1.2)
+        return (max(relative_magnitudes(mass_cond)) < 1.1)
 
 test_aw(FiniteElement("AWc", triangle, 3))
 test_aw(FiniteElement("AWnc", triangle, 2))
