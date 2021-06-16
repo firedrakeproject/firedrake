@@ -653,7 +653,7 @@ class LocalLoopyKernelBuilder(object):
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return insn
 
-    def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
+    def generate_wrapper_kernel_args(self, tensor2temp):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"])]

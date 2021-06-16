@@ -300,7 +300,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
         tsfc_kernels = ()
 
     # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp)
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
