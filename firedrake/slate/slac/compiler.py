@@ -21,8 +21,11 @@ from hashlib import md5
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
+
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
 from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
+from firedrake.slate.slac.optimise import optimise
+
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
@@ -44,6 +47,7 @@ import loopy
 import gem
 from gem import indices as make_indices
 from tsfc.loopy import generate as generate_loopy
+import copy
 
 __all__ = ['compile_expression']
 
@@ -80,18 +84,18 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, tsfc_parameters, coffee):
+    def _cache_key(cls, expr, compiler_parameters, coffee):
         return md5((expr.expression_hash
-                    + str(sorted(tsfc_parameters.items()))
+                    + str(sorted(compiler_parameters.items()))
                     + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, tsfc_parameters, coffee=False):
+    def __init__(self, expr, compiler_parameters, coffee=False):
         if self._initialized:
             return
         if coffee:
-            self.split_kernel = generate_kernel(expr, tsfc_parameters)
+            self.split_kernel = generate_kernel(expr, compiler_parameters)
         else:
-            self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
+            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
         self._initialized = True
 
 
@@ -110,18 +114,20 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
+    # Update default parameters with passed parameters
+    # The deepcopy is needed because parameters is a nested dict
+    params = copy.deepcopy(parameters)
+    if tsfc_parameters is not None:
+        params["form_compiler"].update(tsfc_parameters)
+
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
-    params = parameters["form_compiler"].copy()
-    if tsfc_parameters is not None:
-        params.update(tsfc_parameters)
-    tsfc_parameters = params
-    key = str(sorted(tsfc_parameters.items()))
+    key = str(sorted(params.items()))
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, tsfc_parameters, coffee).split_kernel
+        kernel = SlateKernel(slate_expr, params, coffee).split_kernel
         return cache.setdefault(key, kernel)
 
 
@@ -145,22 +151,26 @@ def get_temp_info(loopy_kernel):
     return mem_total, num_temps, mems, shapes
 
 
-def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
+def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
 
+    # Optimise slate expr, e.g. push blocks as far inward as possible
+    if compiler_parameters["slate_compiler"]["optimise"]:
+        slate_expr = optimise(slate_expr)
+
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     gem_expr, var2terminal = slate_to_gem(slate_expr)
 
-    scalar_type = tsfc_parameters["scalar_type"]
+    scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
     slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
-                                      tsfc_parameters=tsfc_parameters)
+                                      tsfc_parameters=compiler_parameters["form_compiler"])
 
     name = "slate_wrapper"
     loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
@@ -189,7 +199,7 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def generate_kernel(slate_expr, tsfc_parameters=None):
+def generate_kernel(slate_expr, compiler_parameters=None):
     cpu_time = time.time()
 
     if len(slate_expr.ufl_domains()) > 1:
@@ -198,7 +208,7 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     Citations().register("Gibson2018")
     # Create a builder for the Slate expression
     builder = LocalKernelBuilder(expression=slate_expr,
-                                 tsfc_parameters=tsfc_parameters)
+                                 tsfc_parameters=compiler_parameters["form_compiler"])
 
     # Keep track of declared temporaries
     declared_temps = {}
