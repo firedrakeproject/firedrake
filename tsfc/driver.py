@@ -12,7 +12,6 @@ import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
-from ufl.differentiation import ReferenceGrad
 from ufl.log import GREEN
 from ufl.utils.sequences import max_degree
 
@@ -21,6 +20,7 @@ import gem.impero_utils as impero_utils
 
 from FIAT.reference_element import TensorProductCell
 
+import finat
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
@@ -330,7 +330,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
-    # Translate to GEM
+    # Create callable for translation to GEM
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
                       # FIXME: change if we ever implement
@@ -339,9 +339,10 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
+    fn = DualEvaluationCallable(expression, kernel_cfg)
 
-    # Use dual evaluation method to get gem tensor with (num_nodes, ) shape.
-    ir_shape = to_element.dual_evaluation(UFLtoGEMCallback(expression, kernel_cfg, complex_mode))
+    # Get gem tensor with (num_nodes, ) shape.
+    ir_shape = to_element.dual_evaluation(fn)
     broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape)
     shape_indices = gem.indices(broadcast_shape)
     basis_indices = tuple(gem.Index(extent=ex) for ex in ir_shape.shape)
@@ -365,62 +366,65 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
 
 
-class UFLtoGEMCallback(object):
-    """A callable defined given an UFL expression, returns a GEM expression
-    of the UFL expression evaluated at points. Defined as class to fix
-    for ReferenceGrad of constants having no topological dimension.
-
-    :arg expression: The UFL expression.
-    :arg kernel_cfg: Kernel config for fem.compile_ufl.
-    :arg complex_mode: Determine whether in complex mode.
+class DualEvaluationCallable(object):
     """
-    def __init__(self, expression, kernel_cfg, complex_mode):
-        # UFL expression to turn into GEM
+    Callable representing a function to dual evaluate.
+
+    When called, this takes in a
+    :class:`finat.point_set.AbstractPointSet` and returns a GEM
+    expression for evaluation of the function at those points.
+
+    :param expression: UFL expression for the function to dual evaluate.
+    :param kernel_cfg: A kernel configuration for creation of a
+        :class:`GemPointContext` or a :class:`PointSetContext`
+
+    Not intended for use outside of
+    :func:`compile_expression_dual_evaluation`.
+    """
+    def __init__(self, expression, kernel_cfg):
         self.expression = expression
-
-        # Geometric dimension or topological dimension
-        # For differentiating UFL Zero
-        # Fix for Zero expressions with no dimension
-        # TODO: Fix for topolgical dimension different from geometric
-        try:
-            self.dimension = expression.ufl_domain().topological_dimension()
-        except AttributeError:
-            self.dimension = 0
-
-        # Kernel config for fem.compile_ufl
         self.kernel_cfg = kernel_cfg
+        # TODO: Deal with case when expression can be split into subexpressions
+        # for dual evaluation on FInAT tensor product elements. If so add a
+        # ``self.factors`` property which can be tested for existence of in
+        # FInAT's tensor product element dual basis method.
 
-        # Determine whether in complex mode
-        self.complex_mode = complex_mode
+    def __call__(self, ps):
+        """The function to dual evaluate.
 
-    def __call__(self, point_set, derivative=0):
-        '''Wrapper function for converting UFL `expression` into GEM expression.
+        :param ps: The :class:`finat.point_set.AbstractPointSet` for
+            evaluating at
+        :returns: a gem expression representing the evaluation of the
+            input UFL expression at the given point set ``ps``.
+            For point set points with some shape ``(*value_shape)``
+            (i.e. ``()`` for scalar points ``(x)`` for vector points
+            ``(x, y)`` for tensor points etc) then the gem expression
+            has shape ``(*value_shape)`` and free indices corresponding
+            to the input :class:`finat.point_set.AbstractPointSet`'s
+            free indices alongside any input UFL expression free
+            indices.
+        """
 
-        :param point_set: FInAT PointSet
-        :param derivative: Maximum order of differentiation
-        '''
-        config = self.kernel_cfg.copy()
-        config.update(point_set=point_set)
+        if not isinstance(ps, finat.point_set.AbstractPointSet):
+            raise ValueError("Callable argument not a point set!")
 
-        # Using expression directly changes scope
-        dexpression = self.expression
-        for _ in range(derivative):
-            # Hack since UFL derivative of ConstantValue has no dimension
-            if isinstance(dexpression, ufl.constantvalue.Zero):
-                shape = dexpression.ufl_shape
-                free_indices = dexpression.ufl_free_indices
-                index_dimension = self.expression.ufl_index_dimensions
-                dexpression = ufl.constantvalue.Zero(
-                    shape + (self.dimension,), free_indices, index_dimension)
-            else:
-                dexpression = ReferenceGrad(dexpression)
-            dexpression = ufl_utils.preprocess_expression(dexpression, complex_mode=self.complex_mode)
-        # TODO: will need to be fem.GemPointContext in certain cases
-        gem_expr, = fem.compile_ufl(dexpression, fem.PointSetContext(**config), point_sum=False)
-        # In some cases point_set.indices may be dropped from expr, but nothing
+        # Avoid modifying saved kernel config
+        kernel_cfg = self.kernel_cfg.copy()
+
+        if isinstance(ps.expression, gem.Literal):
+            # Compile time known points
+            kernel_cfg.update(point_set=ps)
+            translation_context = fem.PointSetContext(**kernel_cfg)
+        else:
+            # Run time known points
+            kernel_cfg.update(point_indices=ps.indices, point_expr=ps.expression)
+            translation_context = fem.GemPointContext(**kernel_cfg)
+
+        gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
+        # In some cases ps.indices may be dropped from expr, but nothing
         # new should now appear
-        argument_multiindices = config["argument_multiindices"]
-        assert set(gem_expr.free_indices) <= set(chain(point_set.indices, *argument_multiindices))
+        argument_multiindices = kernel_cfg["argument_multiindices"]
+        assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
 
