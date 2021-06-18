@@ -73,7 +73,7 @@ class FiredrakeConfiguration(dict):
 
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
-                           "honour_petsc_dir", "with_parmetis",
+                           "honour_petsc_dir", "with_parmetis", "with_exodusii",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm", "torch",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
@@ -275,6 +275,8 @@ honoured.""",
                        help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
     group.add_argument("--with-parmetis", action="store_true",
                        help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
+    parser.add_argument("--with-exodusii", action="store_true",
+                       help="Install Exodus mesh format? (Modified BSD license, see https://github.com/sandialabs/seacas/blob/master/LICENSE)")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--petsc-int-type", choices=["int32", "int64"],
@@ -404,6 +406,8 @@ else:
                         help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--with-exodusii", action="store_true",
+                       help="Install Exodus mesh format.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -754,6 +758,9 @@ def get_petsc_options(minimal=False):
         if options.get("with_parmetis", None):
             # Non-free license.
             petsc_options.add("--download-parmetis")
+
+    if options["with_exodusii"]:
+        petsc_options.add("--download-exodusii")
 
     if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
