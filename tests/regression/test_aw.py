@@ -1,11 +1,11 @@
 from firedrake import *
 import pytest
 import numpy as np
-import scipy
 
 
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
+
 
 @pytest.fixture(scope='module', params=["conforming", "nonconforming"])
 def stress_element(request):
@@ -16,12 +16,14 @@ def stress_element(request):
     else:
         raise ValueError("Unknown family")
 
+
 @pytest.fixture(scope='module')
 def mesh_hierarchy(request):
     N_base = 2
     mesh = UnitSquareMesh(N_base, N_base)
     mh = MeshHierarchy(mesh, 4)
     return mh
+
 
 def test_aw_convergence(stress_element, mesh_hierarchy):
 
@@ -127,35 +129,17 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
 
 
 def test_aw_conditioning(stress_element, mesh_hierarchy):
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        # This line cannot be reached unless the convergence tests have passed.
-        pytest.skip(msg="Convergence tests passed, but SLEPc unavailable, so skipping mass conditioning sub-test")
-    else:
-        from petsc4py import PETSc
+    mass_cond = []
+    for msh in mesh_hierarchy[:3]:
+        Sig = FunctionSpace(msh, stress_element)
+        sigh = Function(Sig)
+        tau = TestFunction(Sig)
+        mass = inner(sigh, tau)*dx
+        a = derivative(mass, sigh)
+        B = assemble(a, mat_type="aij").M.handle
+        A = B.convert("dense").getDenseArray()
+        kappa = np.linalg.cond(A)
 
-        green = '\033[92m'
-        white = '\033[0m'
-        blue = '\033[94m'
-        yellow = '\033[33m'
+        mass_cond.append(kappa)
 
-        mass_cond = []
-        for msh in mesh_hierarchy[:3]:
-            Sig = FunctionSpace(msh, stress_element)
-            sigh = Function(Sig)
-            tau = TestFunction(Sig)
-            mass = inner(sigh, tau)*dx
-            a = derivative(mass, sigh)
-            B = assemble(a, mat_type="aij").M.handle
-            A = B.convert("dense").getDenseArray()
-            kappa = np.linalg.cond(A)
-
-            print(blue, "Condition number: ", kappa, white)
-            print()
-
-            mass_cond.append(kappa)
-
-        print(yellow, "Ratios of consecutive condition numbers: ", relative_magnitudes(mass_cond), white)
-        print()
-        assert max(relative_magnitudes(mass_cond)) < 1.1
+    assert max(relative_magnitudes(mass_cond)) < 1.1
