@@ -167,6 +167,7 @@ def _slate2gem(expr, self):
 
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
+@_slate2gem.register(sl.BlockAssembledVector)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
     name = f"T{len(self.var2terminal)}"
