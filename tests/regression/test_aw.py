@@ -16,26 +16,30 @@ def stress_element(request):
     else:
         raise ValueError("Unknown family")
 
-
-def test_aw(stress_element):
+@pytest.fixture(scope='module')
+def mesh_hierarchy(request):
     N_base = 2
     mesh = UnitSquareMesh(N_base, N_base)
     mh = MeshHierarchy(mesh, 4)
+    return mh
 
+def test_aw_convergence(stress_element, mesh_hierarchy):
+
+    mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
 
     # Warp the meshes
-    eps = Constant(1 / 2**(N_base-1))
+    eps = Constant(1 / 2)
     x, y = SpatialCoordinate(mesh)
     new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
                                              y - eps*sin(2*pi*x)*sin(2*pi*y)]))
     coords = [new]
-    for mesh in mh[1:]:
+    for mesh in mesh_hierarchy[1:]:
         fine = Function(mesh.coordinates.function_space())
         prolong(new, fine)
         coords.append(fine)
         new = fine
-    for mesh, coord in zip(mh, coords):
+    for mesh, coord in zip(mesh_hierarchy, coords):
         mesh.coordinates.assign(coord)
 
     nu = Constant(0.25)
@@ -58,7 +62,7 @@ def test_aw(stress_element):
     l2_div_sigma = []
 
     element = MixedElement([stress_element, VectorElement("DG", mesh.ufl_cell(), 1)])
-    for msh in mh[1:]:
+    for msh in mesh_hierarchy[1:]:
         x, y = SpatialCoordinate(msh)
         uex = as_vector([sin(pi*x)*sin(pi*y), sin(pi*x)*sin(pi*y)])
         sigex = as_tensor([[cos(pi*x)*cos(3*pi*y), y + 2*cos(pi*x/2)],
@@ -121,9 +125,8 @@ def test_aw(stress_element):
     else:
         raise ValueError("Don't know what the convergence should be")
 
-    assert verify_conditioning(stress_element, mh)
 
-def verify_conditioning(stress_element, mesh_hierarchy):
+def test_aw_conditioning(stress_element, mesh_hierarchy):
     try:
         from slepc4py import SLEPc
     except ImportError:
@@ -155,4 +158,4 @@ def verify_conditioning(stress_element, mesh_hierarchy):
 
         print(yellow, "Ratios of consecutive condition numbers: ", relative_magnitudes(mass_cond), white)
         print()
-        return (max(relative_magnitudes(mass_cond)) < 1.1)
+        assert max(relative_magnitudes(mass_cond)) < 1.1
