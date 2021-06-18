@@ -118,6 +118,7 @@ class TensorBase(object, metaclass=ABCMeta):
     that one can assemble a tensor."""
 
     terminal = False
+    assembled = False
 
     _id = count()
 
@@ -149,6 +150,8 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (type(op).__name__, op.arg_function_spaces[0].ufl_element()._ufl_signature_data_(), )
             elif isinstance(op, Block):
                 data = (type(op).__name__, op._indices, )
+            elif isinstance(op, BlockAssembledVector):
+                data = (type(op).__name__, op._indices, op._original_function, op._function)
             elif isinstance(op, Factorization):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
@@ -388,6 +391,7 @@ class AssembledVector(TensorBase):
 
     operands = ()
     terminal = True
+    assembled = True
 
     def __new__(cls, function):
         if isinstance(function, AssembledVector):
@@ -451,6 +455,74 @@ class AssembledVector(TensorBase):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self._function)
+
+
+class BlockAssembledVector(AssembledVector):
+    """This class is a symbolic representation of an assembled
+    vector of data contained in a set of :class:`firedrake.Function`s
+    defined on pieces of a split mixed function space.
+
+    :arg functions: A tuple of firedrake functions.
+    """
+    def __new__(cls, function, split_functions, indices):
+        if isinstance(split_functions, tuple) \
+           and all(isinstance(f, Coefficient) for f in split_functions):
+            self = TensorBase.__new__(cls)
+            self._function = split_functions
+            self._indices = indices
+            self._original_function = function
+            return self
+        else:
+            raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
+                            type(split_functions))
+
+    @cached_property
+    def form(self):
+        return self._function
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor is defined on.
+        """
+        return tuple(f.ufl_function_space() for f in self._function)
+
+    @cached_property
+    def _argument(self):
+        """Generates a tuple of 'test function' associated with this class."""
+        from firedrake.ufl_expr import TestFunction
+        return tuple(TestFunction(fs) for fs in self.arg_function_spaces)
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self._argument
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self._function
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with the tensor.
+        """
+        return tuple(domain for fs in self.arg_function_spaces for domain in fs.ufl_domains())
+
+    def subdomain_data(self):
+        """Returns mappings on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        return tuple({domain: {"cell": None}} for domain in self.ufl_domain())
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        return "BAV_%d" % self.id
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        return "BlockAssembledVector(%r)" % self._function
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self._function, self._original_function, self._indices)
 
 
 class Block(TensorBase):
@@ -581,6 +653,11 @@ class Block(TensorBase):
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
             return tuple(tensor._function.split()[i] for i in chain(*self._indices))
+
+    @cached_property
+    def assembled(self):
+        tensor, = self.operands
+        return tensor.assembled
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
