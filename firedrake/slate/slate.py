@@ -18,7 +18,7 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict
 
-from ufl import Coefficient
+from ufl import Coefficient, Constant
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -200,6 +200,17 @@ class TensorBase(object, metaclass=ABCMeta):
     @abstractmethod
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
+
+    @property
+    def coeff_map(self):
+        """A map from local coefficient numbers
+        to the split global coefficient numbers.
+        The split coefficients are defined on the pieces of the originally mixed function spaces.
+        """
+        return tuple((n, tuple(range(len(c.split()))))
+                     if isinstance(c, Function) or isinstance(c, Constant)
+                     else (n, (0,))
+                     for n, c in enumerate(self.coefficients()))
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -475,10 +486,6 @@ class BlockAssembledVector(AssembledVector):
         else:
             raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
                             type(split_functions))
-
-    @cached_property
-    def form(self):
-        return self._function
 
     @cached_property
     def arg_function_spaces(self):
