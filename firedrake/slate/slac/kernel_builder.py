@@ -263,7 +263,7 @@ class LocalKernelBuilder(object):
                 kint_type = kinfo.integral_type
                 needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
-                args = [c for i in kinfo.coefficient_map
+                args = [c for i, _ in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
 
                 if kinfo.oriented:
@@ -483,7 +483,7 @@ class LocalLoopyKernelBuilder(object):
                                 self.cell_size_arg))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        tsfc_coefficients = [tsfc_coefficients[i] for i, _ in kinfo.coefficient_map]
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):

@@ -187,7 +187,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        oriented=builder.bag.needs_cell_orientations,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       coefficient_map=slate_expr.coeff_map,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
                        needs_cell_sizes=builder.bag.needs_cell_sizes)
@@ -354,7 +354,7 @@ def generate_kernel_ast(builder, statements, declared_temps):
                        oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=tuple(range(len(expr_coeffs))),
+                       coefficient_map=slate_expr.coeff_map,
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers,
                        needs_cell_sizes=builder.needs_cell_sizes)
