@@ -145,9 +145,6 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
 
 branches = {}
 
-jenkins = "JENKINS_URL" in os.environ
-ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
-
 
 def resolve_doi_branches(doi):
     import requests
@@ -1536,8 +1533,9 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    if jenkins and ci_testing_firedrake:
-        check_call(["ln", "-s", "../../../", "firedrake"])
+    if "Build Firedrake" in os.environ.get("GITHUB_WORKFLOW", ""):
+        # When building Firedrake in CI, don't clone Firedrake again.
+        check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
 
