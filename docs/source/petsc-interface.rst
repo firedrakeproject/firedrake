@@ -72,6 +72,31 @@ For read-write access, use:
 These context managers ensure that if PETSc writes to the vector,
 Firedrake sees the modification of the values.
 
+
+Plotting the sparsity of a PETSc ``Mat``
+----------------------------------------
+
+Given a PETSc matrix of type ``'seqaij'``, we may access
+its compressed sparse row format and convert to that used in
+SciPy in the following way:
+
+.. code-block:: python3
+
+    import scipy.sparse as sp
+
+    indptr, indices, data = petsc_mat.getValuesCSR()
+    scipy_mat = sp.csr_matrix((data, indices, indptr), shape=petsc_mat.getSize())
+
+The sparsity pattern may then be straightforwardly plotted
+using matplotlib:
+
+.. code-block:: python3
+
+    import matplotlib.pyplot as plt
+
+    plt.spy(scipy_mat)
+
+
 Building an operator
 ====================
 
