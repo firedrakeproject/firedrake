@@ -64,7 +64,7 @@ class NonlinearVariationalSolverMixin:
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
                     self._ad_nlvs = type(self)(self._ad_problem_clone(self._ad_problem,
-                                                                                      block.get_dependencies()),
+                                                                                    block.get_dependencies()),
                                                                **self._ad_kwargs)
 
                 block._ad_nlvs = self._ad_nlvs
