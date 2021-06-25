@@ -457,7 +457,7 @@ class dereffed(object):
 
 @PETSc.Log.EventDecorator()
 @known_pyop2_safe
-def evaluate_expression(expr, subset=None):
+def evaluate_expression(expr, subset=None, dat_map=None):
     """Evaluate a pointwise expression.
 
     :arg expr: The expression to evaluate.
@@ -479,6 +479,7 @@ def evaluate_expression(expr, subset=None):
         if arguments is not None:
             try:
                 for kernel, iterset, args in arguments:
+                    args = Arg.recreate(dat_map)
                     with dereffed(args) as args:
                         firedrake.op2.par_loop(kernel, subset or iterset, *args)
                 return lvalue

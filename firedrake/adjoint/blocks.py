@@ -29,7 +29,23 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-    pass
+
+    def _replace_with_saved_output(self):
+        if self.expr is None:
+            return None
+
+        replace_map = {}
+        for dep in self.get_dependencies():
+            replace_map[dep.output.dat] = dep.saved_output.dat
+        return replace_map
+
+    def recompute_component(self, inputs, block_variable, idx, prepared, dat_map=None):
+        if self.expr is None:
+            prepared = inputs[0]
+        output = self.backend.Function(block_variable.output.function_space())
+        self.backend.Function.assign(output, prepared, dat_map)
+        output._expression_cache = block_variable.output.function_space()
+        return output
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
