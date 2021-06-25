@@ -394,14 +394,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self
 
         from firedrake import assemble_expressions
-        if dat_map is None:
-            assemble_expressions.evaluate_expression(
-                assemble_expressions.Assign(self, expr), subset)
-            return self
-        else:
-            assemble_expressions.evaluate_expression(
-                assemble_expressions.Assign(self, expr), subset, dat_map)
-            return self
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.Assign(self, expr), subset, dat_map)
+        return self
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
