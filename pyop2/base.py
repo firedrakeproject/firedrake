@@ -177,7 +177,7 @@ class Arg(object):
         :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
             global maps used during assembly.
             
-        Takes all the same arguments as _init_ overwriting them if necessary."""
+        Takes all the same arguments as _init_ overriding them if necessary."""
         if data is None:
             data = self.data
 
