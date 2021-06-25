@@ -246,6 +246,9 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     F01 = _F[:2]
     F12 = _F[1:3]
 
+    # Test make indexing with too few indices legal
+    assert _M[2] == _M[2, :3]
+
     # Test index checking
     with pytest.raises(ValueError):
         S.blocks[0]

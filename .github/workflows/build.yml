@@ -1,0 +1,70 @@
+name: Build Firedrake
+
+on:
+  # Push to master or PR
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    name: "Build Firedrake"  
+    # The type of runner that the job will run on
+    runs-on: self-hosted
+    # The docker container to use.
+    container:
+      image: firedrakeproject/firedrake-env:latest
+    strategy:
+      # Don't immediately kill real if complex fails and vice versa.
+      fail-fast: false
+      matrix:
+        include:
+         - scalar-type: real
+           complex: ""
+         - scalar-type: complex
+           complex: --complex
+    env:
+      FIREDRAKE_CI_TESTS: 1
+      PETSC_CONFIGURE_OPTIONS: --with-make-np=12 --download-mpich-device=ch3:sock
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      COMPLEX: ${{ matrix.complex }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf build
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Build Firedrake
+        run: |
+          cd ..
+          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager|| (cat firedrake-install.log && /bin/false)
+      - name: Install test dependencies
+        run: |
+          . ../build/bin/activate
+          python $(which firedrake-clean)
+          python -m pip install pytest-cov pytest-xdist
+          python -m pip list
+      - name: Test Firedrake
+        run: |
+          . ../build/bin/activate
+          echo OMP_NUM_THREADS is $OMP_NUM_THREADS
+          echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
+          python -m pytest --durations=200 -n 12 --cov firedrake -v tests
+      - name: Test pyadjoint
+        if: ${{ matrix.scalar-type == 'real' }}
+        run: |
+          . ../build/bin/activate
+          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 -v tests/firedrake_adjoint
+      - name: Cleanup
+        # Belt and braces: clean up before and after the run.
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf build

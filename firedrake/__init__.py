@@ -19,6 +19,7 @@ del sys, config
 import firedrake.petsc as petsc
 
 # Initialise PETSc events for both import and entire duration of program
+petsc.PETSc.Log.begin()
 _main_event = petsc.PETSc.Log.Event("firedrake")
 _main_event.begin()
 
