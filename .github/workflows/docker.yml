@@ -26,6 +26,7 @@ jobs:
       - name: Push to Docker Hub
         uses: docker/build-push-action@v2
         with:
-          push: false
+          push: true
+          load: true
           file: docker/Dockerfile.env
           tags: firedrakeproject/firedrake-env:latest
