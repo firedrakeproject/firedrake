@@ -185,10 +185,10 @@ class Arg(object):
             map = self.map
 
         if access is None:
-            data = self.access
+            access = self.access
 
         if lgmaps is None:
-            data = self.lgmaps
+            lgmaps = self.lgmaps
 
     @cached_property
     def _kernel_args_(self):
