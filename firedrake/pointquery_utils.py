@@ -3,8 +3,10 @@ import numpy
 import sympy
 
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
 from pyop2.sequential import generate_single_cell_wrapper
+
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -15,8 +17,6 @@ import gem.impero_utils as impero_utils
 import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
-
-from firedrake.utils import ScalarType_c
 
 from coffee.base import ArrayInit
 
@@ -50,7 +50,7 @@ def src_locate_cell(mesh, tolerance=None):
 
 
 def dX_norm_square(topological_dimension):
-    return " + ".join("dX[{0}]*dX[{0}]".format(i)
+    return " + ".join("PetscRealPart(dX[{0}])*PetscRealPart(dX[{0}])".format(i)
                       for i in range(topological_dimension))
 
 
@@ -65,7 +65,7 @@ def is_affine(ufl_element):
 
 def inside_check(fiat_cell, eps, X="X"):
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("%s[%d]" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
 
     return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
 
@@ -73,10 +73,10 @@ def inside_check(fiat_cell, eps, X="X"):
 def compute_celldist(fiat_cell, X="X", celldist="celldist"):
     dim = fiat_cell.get_spatial_dimension()
     s = """
-    %(celldist)s = %(X)s[0];
+    %(celldist)s = PetscRealPart(%(X)s[0]);
     for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
-        if (%(celldist)s > %(X)s[celldistdim]) {
-            %(celldist)s = %(X)s[celldistdim];
+        if (%(celldist)s > PetscRealPart(%(X)s[celldistdim])) {
+            %(celldist)s = PetscRealPart(%(X)s[celldistdim]);
         }
     }
     %(celldist)s *= -1;
@@ -91,10 +91,11 @@ def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
 
-    formatter = ArrayInit(X, precision=parameters["precision"])._formatter
+    formatter = ArrayInit(X, precision=numpy.finfo(parameters["scalar_type"]).resolution)._formatter
     return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
 
+@PETSc.Log.EventDecorator()
 def to_reference_coordinates(ufl_coordinate_element, parameters):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
@@ -107,8 +108,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
 
     # Translation to GEM
     C = ufl.Coefficient(ufl.FunctionSpace(domain, ufl_coordinate_element))
-    expr = ufl_utils.preprocess_expression(expr)
-    expr = ufl_utils.simplify_abs(expr)
+    expr = ufl_utils.preprocess_expression(expr, complex_mode=complex_mode)
+    expr = ufl_utils.simplify_abs(expr, complex_mode)
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
@@ -120,9 +121,9 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
-        precision=parameters["precision"],
         point_indices=(),
         point_expr=point,
+        scalar_type=parameters["scalar_type"]
     )
     translator = tsfc.fem.Translator(context)
     ir = map_expr_dag(translator, expr)
@@ -143,12 +144,13 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, parameters["precision"], ScalarType_c)
+    body = tsfc.coffee.generate(impero_c, {}, ScalarType)
     body.open_scope = False
 
     return body
 
 
+@PETSc.Log.EventDecorator()
 def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 
@@ -181,30 +183,28 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "extr_comment_out": "//" if extruded else "",
         "non_extr_comment_out": "//" if not extruded else "",
         "IntType": as_cstr(IntType),
+        "ScalarType": ScalarType_c,
     }
 
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
-    double X[%(geometric_dimension)d];
+    %(ScalarType)s X[%(geometric_dimension)d];
 };
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
-
-    const int space_dim = %(geometric_dimension)d;
 
     /*
      * Mapping coordinates from physical to reference space
      */
 
-    double *X = result->X;
-%(init_X)s
-    double x[space_dim];
+    %(ScalarType)s *X = result->X;
+    %(init_X)s
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        double dX[%(topological_dimension)d] = { 0.0 };
+        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
 %(to_reference_coords)s
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -220,19 +220,19 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 
 static inline void wrap_to_reference_coords(
     void* const result_, double* const x, int* const return_value, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
-    double const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
+    %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
 int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
-    int return_value;
+    int return_value = 0;
     %(extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, f->coords, f->coords_map);
     return return_value;
 }
 
 int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
 {
-    int return_value;
-    int layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
+    int return_value = 0;
+    %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
     %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, layers, f->coords, f->coords_map);
     return return_value;
 }

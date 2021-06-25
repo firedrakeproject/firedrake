@@ -21,7 +21,7 @@ As ever, we import firedrake and define a mesh.::
   u, p = TrialFunctions(Z)
   v, q = TestFunctions(Z)
 
-  a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
+  a = (inner(grad(u), grad(v)) - inner(p, div(v)) + inner(div(u), q))*dx
 
   L = inner(Constant((0, 0)), v) * dx
 

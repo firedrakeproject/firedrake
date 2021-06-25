@@ -59,7 +59,7 @@ def run_poisson(typ):
     u = Function(V)
     f = Function(V)
     v = TestFunction(V)
-    F = dot(grad(u), grad(v))*dx - f*v*dx
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
     bcs = [DirichletBC(V, 0, "on_boundary"),
            DirichletBC(V, 0, "top"),
            DirichletBC(V, 0, "bottom")]

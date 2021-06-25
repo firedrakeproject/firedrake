@@ -73,7 +73,7 @@ def run_two_poisson(typ):
     f_, g = split(f)
 
     v, q = TestFunctions(W)
-    F = dot(grad(u_), grad(v))*dx - f_*v*dx + dot(grad(p), grad(q))*dx - g*q*dx
+    F = inner(grad(u_), grad(v))*dx - inner(f_, v)*dx + inner(grad(p), grad(q))*dx - inner(g, q)*dx
     bcs = [DirichletBC(W.sub(0), 0.0, (1, 2, 3, 4)),
            DirichletBC(W.sub(1), 0.0, (1, 2, 3, 4))]
     # Choose a forcing function such that the exact solution is not an

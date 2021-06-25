@@ -68,20 +68,20 @@ def run_test(family, degree, n):
 
     # the IP viscosity term:
     F = (
-        + inner(grad(v), nu*2.*sym(grad(u)))*dx
-        + alpha/avg(h)*inner(outer_jump(v, n), nu*2.*sym(outer_jump(u, n)))*dS
-        - inner(avg(grad(v)), nu*2.*sym(outer_jump(u, n)))*dS
-        - inner(outer_jump(v, n), nu*2.*sym(avg(grad(u))))*dS
-        + 2.0*alpha/h*inner(outer(v, n), nu*2.*sym(outer(u-u0, n)))*ds_Dir
-        - inner(grad(v), nu*2.*sym(outer(u-u0, n)))*ds_Dir
-        - inner(outer(v, n), nu*2.*sym(grad(u)))*ds_Dir
-        - inner(outer(v, n), nu*stress)*ds_Neu
+        + inner(nu*2.*sym(grad(u)), grad(v)) * dx
+        + alpha/avg(h)*inner(outer_jump(v, n), nu*2.*sym(outer_jump(u, n))) * dS
+        - inner(nu*2.*sym(outer_jump(conj(u), n)), avg(grad(v))) * dS
+        - inner(nu*2.*sym(avg(grad(u))), outer_jump(conj(v), n)) * dS
+        + 2.0*alpha/h*inner(outer(v, n), nu*2.*sym(outer(u-u0, n))) * ds_Dir
+        - inner(nu*2.*sym(outer(conj(u-u0), n)), grad(v)) * ds_Dir
+        - inner(nu*2.*sym(grad(u)), outer(conj(v), n)) * ds_Dir
+        - inner(outer(v, n), nu*stress) * ds_Neu
     )
 
     # the MMS source term:
-    F += -inner(v, source)*dx
+    F += -inner(source, v) * dx
 
-    solver_parameters = {'ksp_converged_reason': True,
+    solver_parameters = {'ksp_converged_reason': None,
                          'ksp_type': 'preonly',
                          'pc_type': 'lu',
                          'mat_type': 'nest'}
@@ -115,11 +115,11 @@ def test_indexed_interior_facet_gradients():
     U_test = TestFunction(V)
 
     n = FacetNormal(mesh2d)
-    F1 = dot(jump(U_test[0], n), jump(uv[0], n))*dS
-    F2 = -dot(avg(grad(U_test[0])), jump(uv[0], n))*dS
+    F1 = inner(jump(uv[0], n), jump(U_test[0], n)) * dS
+    F2 = -inner(jump(uv[0], n), avg(grad(U_test[0]))) * dS
     F = F1+F2
     # the same thing written slightly differently:
-    F0 = dot(jump(U_test[0], n)-avg(grad(U_test[0])), jump(uv[0], n))*dS
+    F0 = inner(jump(uv[0], n), jump(U_test[0], n)-avg(grad(U_test[0]))) * dS
 
     M = assemble(derivative(F, uv)).M.values
     M1 = assemble(derivative(F1, uv)).M.values
@@ -149,9 +149,9 @@ def test_stress_form_ip_penalty_term(space):
     u = Function(U)
     n = FacetNormal(mesh2d)
 
-    F1 = inner(outer_jump(v, n), outer_jump(u, n))*dS
-    F2 = inner(outer_jump(v, n), outer_jump(n, u))*dS
-    F = inner(outer_jump(v, n), outer_jump(u, n)+outer_jump(n, u))*dS
+    F1 = inner(outer_jump(v, n), outer_jump(u, n)) * dS
+    F2 = inner(outer_jump(v, n), outer_jump(n, conj(u))) * dS
+    F = inner(outer_jump(v, n), outer_jump(u, n)+outer_jump(n, conj(u))) * dS
 
     M1 = assemble(derivative(F1, u)).M.values
     M2 = assemble(derivative(F2, u)).M.values

@@ -30,16 +30,16 @@ def test_lvp_equiv_hdg(degree):
     tau = Constant(1)
     qhat = q + tau*(u - uhat)*n
 
-    a = ((dot(v, q) - div(v)*u)*dx
-         + uhat('+')*jump(v, n=n)*dS
-         + uhat*dot(v, n)*ds
-         - dot(grad(w), q)*dx
-         + jump(qhat, n=n)*w('+')*dS
-         + dot(qhat, n)*w*ds
-         + mu('+')*jump(qhat, n=n)*dS
-         + mu*uhat*ds)
+    a = ((inner(q, v) - inner(u, div(v)))*dx
+         + inner(uhat('+'), jump(v, n=n))*dS
+         + inner(uhat, dot(v, n))*ds
+         - inner(q, grad(w))*dx
+         + inner(jump(qhat, n=n), w('+'))*dS
+         + inner(dot(qhat, n), w)*ds
+         + inner(jump(qhat, n=n), mu('+'))*dS
+         + inner(uhat, mu)*ds)
 
-    L = w*f*dx
+    L = inner(f, w)*dx
 
     params = {'mat_type': 'matfree',
               'pmat_type': 'matfree',

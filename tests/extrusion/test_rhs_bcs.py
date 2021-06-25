@@ -23,7 +23,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
 
     v = TestFunction(V)
 
-    res = abs(sum(assemble(u * v * dx).dat.data)
+    res = abs(sum(assemble(inner(u, v) * dx).dat.data)
               - (boundary * 1.0 / layers))
 
     if not test_mode:

@@ -6,7 +6,7 @@ def test_hand_specified_quadrature():
     V = FunctionSpace(mesh, 'CG', 2)
     v = TestFunction(V)
 
-    a = v*dx
+    a = conj(v) * dx
 
     norm_q0 = norm(assemble(a, form_compiler_parameters={'quadrature_degree': 0}))
     norm_q2 = norm(assemble(a, form_compiler_parameters={'quadrature_degree': 2}))

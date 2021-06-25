@@ -15,7 +15,7 @@ def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    return u*v*dx
+    return inner(u, v)*dx
 
 
 @pytest.fixture(params=["nest", "aij", "matfree"])

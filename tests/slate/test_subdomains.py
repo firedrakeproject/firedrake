@@ -30,7 +30,7 @@ def test_2d_facet_subdomains(mesh_2d, subdomain):
     x, y = SpatialCoordinate(mesh_2d)
     f = project(as_vector([x, y]), DG)
 
-    form = dot(f[0]*f[1]*u, n)*ds(subdomain)
+    form = inner(n, f[0]*f[1]*u)*ds(subdomain)
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -47,7 +47,7 @@ def test_3d_facet_subdomains(mesh_3d, subdomain):
     x, y, z = SpatialCoordinate(mesh_3d)
     f = project(as_vector([x, y, z]), DG)
 
-    form = dot(f[0]*f[1]*f[2]*u, n)*ds(subdomain)
+    form = inner(n, f[0]*f[1]*f[2]*u)*ds(subdomain)
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -64,7 +64,7 @@ def test_extr_vert_facet_subdomains(mesh_extr, subdomain):
     x, y, z = SpatialCoordinate(mesh_extr)
     f = project(as_vector([z, y, x]), DG)
 
-    form = dot(f[0]*f[1]*f[2]*u, n)*ds_v(subdomain)
+    form = inner(n, f[0]*f[1]*f[2]*u)*ds_v(subdomain)
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
@@ -80,7 +80,7 @@ def test_multiple_subdomains_2d(mesh_2d):
     f = project(as_vector([x, y]), DG)
 
     ds_sd = ds(1) + ds(2) + ds(3) + ds(4)
-    form = dot(f[0]*f[1]*u, n)*ds_sd
+    form = inner(n, f[0]*f[1]*u)*ds_sd
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -99,7 +99,7 @@ def test_multiple_subdomains_3d(mesh_3d):
     ds_sd = ds(1)
     for i in range(2, 7):
         ds_sd += ds(i)
-    form = dot(f[0]*f[1]*f[2]*u, n)*ds_sd
+    form = inner(n, f[0]*f[1]*f[2]*u)*ds_sd
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
@@ -116,7 +116,7 @@ def test_multiple_subdomains_extr(mesh_extr):
     f = project(as_vector([z, y, x]), DG)
 
     ds_vsd = ds_v(1) + ds_v(2) + ds_v(3) + ds_v(4)
-    form = dot(f[0]*f[1]*f[2]*u, n)*ds_vsd
+    form = inner(n, f[0]*f[1]*f[2]*u)*ds_vsd
 
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data

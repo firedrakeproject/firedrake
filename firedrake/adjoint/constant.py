@@ -1,11 +1,11 @@
+from functools import wraps
+from pyadjoint.adjfloat import AdjFloat
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
-from numpy_adjoint.array import ndarray
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
-from firedrake import Constant
 
 import numpy
 
@@ -14,7 +14,9 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
+            annotate = kwargs.pop("annotate", True)
             OverloadedType.__init__(self, *args,
                                     block_class=kwargs.pop("block_class", None),
                                     _ad_floating_active=kwargs.pop("_ad_floating_active", False),
@@ -22,20 +24,25 @@ class ConstantMixin(OverloadedType):
                                     output_block_class=kwargs.pop("output_block_class", None),
                                     _ad_output_args=kwargs.pop("_ad_output_args", None),
                                     _ad_outputs=kwargs.pop("_ad_outputs", None),
-                                    annotate=kwargs.pop("annotate", True), **kwargs)
+                                    annotate=annotate, **kwargs)
             init(self, *args, **kwargs)
+
+            other = args[0]
+            if isinstance(other, (type(self), AdjFloat)):
+                self.assign(other, annotate=annotate)
         return wrapper
 
     @staticmethod
     def _ad_annotate_assign(assign):
+        @wraps(assign)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
-                    other = create_overloaded_object(ndarray(other))
+                    other = create_overloaded_object(other)
 
-                block = ConstantAssignBlock(self, other)
+                block = ConstantAssignBlock(other)
                 tape = get_working_tape()
                 tape.add_block(block)
 
@@ -50,9 +57,6 @@ class ConstantMixin(OverloadedType):
 
     def get_derivative(self, options={}):
         return self._ad_convert_type(self.adj_value, options=options)
-
-    def adj_update_value(self, value):
-        self.original_block_variable.checkpoint = value._ad_create_checkpoint()
 
     def _ad_convert_type(self, value, options={}):
         if value is None:
@@ -79,20 +83,21 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values(self.values() + other.values())
 
     def _ad_dot(self, other, options=None):
-        return sum(self.values() * other.values())
+        if type(other) is AdjFloat:
+            return sum(self.values() * other)
+        else:
+            return sum(self.values() * other.values())
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        dst.assign(Constant(numpy.reshape(src[offset:offset + dst.value_size()], dst.ufl_shape)))
-        offset += dst.value_size()
+        l = dst.ufl_element().value_size()
+        dst.assign(numpy.reshape(src[offset:offset + l], dst.ufl_shape), annotate=False)
+        offset += l
         return dst, offset
 
     @staticmethod
     def _ad_to_list(m):
-        a = numpy.zeros(m.value_size())
-        p = numpy.zeros(m.value_size())
-        m.eval(a, p)
-        return a.tolist()
+        return m.values().tolist()
 
     def _ad_copy(self):
         return self._constant_from_values()
@@ -144,4 +149,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.values() if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape))
+        return type(self)(numpy.reshape(values, self.ufl_shape), domain=self.ufl_domain())

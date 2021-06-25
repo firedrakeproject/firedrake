@@ -24,12 +24,12 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v)) * dx
 
     f = Function(V)
     f.assign(2)
 
-    L = v * f * dx
+    L = inner(f, v) * dx
 
     out = Function(V, name="computed")
 
@@ -38,7 +38,7 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     solve(a == L, out, bcs=bcs)
 
-    res = sqrt(assemble(dot(out - exact, out - exact) * dx))
+    res = sqrt(assemble(inner(out - exact, out - exact) * dx))
 
     if not test_mode:
         print("The error is ", res)
@@ -64,12 +64,12 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v)) * dx
 
     f = Function(V)
     f.assign(2)
 
-    L = v * f * dx
+    L = inner(f, v) * dx
 
     out = Function(V, name="computed")
 
@@ -78,7 +78,7 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     solve(a == L, out, bcs=bcs)
 
-    res = sqrt(assemble(dot(out - exact, out - exact) * dx))
+    res = sqrt(assemble(inner(out - exact, out - exact) * dx))
 
     if not test_mode:
         print("The error is ", res)

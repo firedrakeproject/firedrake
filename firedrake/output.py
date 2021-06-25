@@ -3,11 +3,12 @@ import itertools
 import numpy
 import os
 import ufl
-import weakref
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.datatypes import IntType
 from pyop2.utils import as_tuple
+from pyadjoint import no_annotations
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
     vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
@@ -115,6 +116,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
                              variant="equispaced")
 
 
+@PETSc.Log.EventDecorator()
 def get_topology(coordinates):
     r"""Get the topology for VTU output.
 
@@ -200,7 +202,7 @@ def get_topology(coordinates):
             def vrange(cell_layers):
                 return numpy.repeat(cell_layers - cell_layers.cumsum(),
                                     cell_layers) + numpy.arange(cell_layers.sum())
-            offsets = numpy.outer(vrange(cell_layers), offsetMap)
+            offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
             num_cells = cell_layers.sum()
         else:
             cell_layers = mesh.cell_set.layers - 1
@@ -236,36 +238,56 @@ def get_byte_order(dtype):
             ">": "BigEndian"}[dtype.byteorder]
 
 
-def write_array(f, ofunction):
-    array = ofunction.array
-    numpy.uint32(array.nbytes).tofile(f)
-    if get_byte_order(array.dtype) == "BigEndian":
-        array = array.byteswap()
-    array.tofile(f)
-
-
-def write_array_descriptor(f, ofunction, offset=None, parallel=False):
+def prepare_ofunction(ofunction, real):
     array, name, _ = ofunction
-    shape = array.shape[1:]
-    ncmp = {0: "",
-            1: "3",
-            2: "9"}[len(shape)]
-    typ = {numpy.dtype("float32"): "Float32",
-           numpy.dtype("float64"): "Float64",
-           numpy.dtype("int32"): "Int32",
-           numpy.dtype("int64"): "Int64",
-           numpy.dtype("uint8"): "UInt8"}[array.dtype]
-    if parallel:
-        f.write(('<PDataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+    if array.dtype.kind == "c":
+        if real:
+            arrays = (array.real, )
+            names = (name, )
+        else:
+            arrays = (array.real, array.imag)
+            names = (name + " (real part)", name + " (imaginary part)")
     else:
-        if offset is None:
-            raise ValueError("Must provide offset")
-        f.write(('<DataArray Name="%s" type="%s" '
-                 'NumberOfComponents="%s" '
-                 'format="appended" '
-                 'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
-    return 4 + array.nbytes     # 4 is for the array size (uint32)
+        arrays = (array, )
+        names = (name,)
+    return arrays, names
+
+
+def write_array(f, ofunction, real=False):
+    arrays, _ = prepare_ofunction(ofunction, real=real)
+    for array in arrays:
+        numpy.uint32(array.nbytes).tofile(f)
+        if get_byte_order(array.dtype) == "BigEndian":
+            array = array.byteswap()
+        array.tofile(f)
+
+
+def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False):
+    arrays, names = prepare_ofunction(ofunction, real)
+    nbytes = 0
+    for array, name in zip(arrays, names):
+        shape = array.shape[1:]
+        ncmp = {0: "",
+                1: "3",
+                2: "9"}[len(shape)]
+        typ = {numpy.dtype("float32"): "Float32",
+               numpy.dtype("float64"): "Float64",
+               numpy.dtype("int32"): "Int32",
+               numpy.dtype("int64"): "Int64",
+               numpy.dtype("uint8"): "UInt8"}[array.dtype]
+        if parallel:
+            f.write(('<PDataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+        else:
+            if offset is None:
+                raise ValueError("Must provide offset")
+            offset += nbytes
+            nbytes += (4 + array.nbytes)  # 4 is for the array size (uint32)
+            f.write(('<DataArray Name="%s" type="%s" '
+                     'NumberOfComponents="%s" '
+                     'format="appended" '
+                     'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
+    return nbytes
 
 
 def active_field_attributes(ofunctions):
@@ -333,7 +355,7 @@ class File(object):
                b'</VTKFile>\n')
 
     def __init__(self, filename, project_output=False, comm=None, mode="w",
-                 target_degree=None, target_continuity=None):
+                 target_degree=None, target_continuity=None, adaptive=False):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -350,6 +372,7 @@ class File(object):
         :kwarg target_continuity: override the continuity of the output space;
             A UFL :class:`~.SobolevSpace` object: `H1` for a
             continuous output and `L2` for a discontinuous output.
+        :kwarg adaptive: allow different meshes at different exports if `True`.
 
         .. note::
 
@@ -396,8 +419,8 @@ class File(object):
                 f.write(self._header)
                 f.write(self._footer)
         elif self.comm.rank == 0 and mode == "a":
-            import xml.etree.ElementTree as ET
-            tree = ET.parse(os.path.abspath(filename))
+            import xml.etree.ElementTree as ElTree
+            tree = ElTree.parse(os.path.abspath(filename))
             # Count how many the file already has
             for parent in tree.iter():
                 for child in list(parent):
@@ -414,53 +437,43 @@ class File(object):
 
         self._fnames = None
         self._topology = None
-        self._output_functions = weakref.WeakKeyDictionary()
-        self._mappers = weakref.WeakKeyDictionary()
+        self._adaptive = adaptive
 
+    @no_annotations
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function, Projector, Interpolator
+            TensorFunctionSpace, Function
+        from tsfc.finatinterface import create_element as create_finat_element
 
         name = function.name()
         # Need to project/interpolate?
-        # If space is not the max element, we can do so.
-        if function.ufl_element == max_elem:
+        # If space is not the max element, we must do so.
+        finat_elem = function.function_space().finat_element
+        if finat_elem == create_finat_element(max_elem):
             return OFunction(array=get_array(function),
                              name=name, function=function)
         #  OK, let's go and do it.
+        # Build appropriate space for output function.
         shape = function.ufl_shape
-        output = self._output_functions.get(function)
-        if output is None:
-            # Build appropriate space for output function.
-            shape = function.ufl_shape
-            if len(shape) == 0:
-                V = FunctionSpace(function.ufl_domain(), max_elem)
-            elif len(shape) == 1:
-                if numpy.prod(shape) > 3:
-                    raise ValueError("Can't write vectors with more than 3 components")
-                V = VectorFunctionSpace(function.ufl_domain(), max_elem,
-                                        dim=shape[0])
-            elif len(shape) == 2:
-                if numpy.prod(shape) > 9:
-                    raise ValueError("Can't write tensors with more than 9 components")
-                V = TensorFunctionSpace(function.ufl_domain(), max_elem,
-                                        shape=shape)
-            else:
-                raise ValueError("Unsupported shape %s" % (shape, ))
-            output = Function(V)
-            self._output_functions[function] = output
-        if self.project:
-            projector = self._mappers.get(function)
-            if projector is None:
-                projector = Projector(function, output)
-                self._mappers[function] = projector
-            projector.project()
+        if len(shape) == 0:
+            V = FunctionSpace(function.ufl_domain(), max_elem)
+        elif len(shape) == 1:
+            if numpy.prod(shape) > 3:
+                raise ValueError("Can't write vectors with more than 3 components")
+            V = VectorFunctionSpace(function.ufl_domain(), max_elem,
+                                    dim=shape[0])
+        elif len(shape) == 2:
+            if numpy.prod(shape) > 9:
+                raise ValueError("Can't write tensors with more than 9 components")
+            V = TensorFunctionSpace(function.ufl_domain(), max_elem,
+                                    shape=shape)
         else:
-            interpolator = self._mappers.get(function)
-            if interpolator is None:
-                interpolator = Interpolator(function, output)
-                self._mappers[function] = interpolator
-            interpolator.interpolate()
+            raise ValueError("Unsupported shape %s" % (shape, ))
+        output = Function(V)
+        if self.project:
+            output.project(function)
+        else:
+            output.interpolate(function)
 
         return OFunction(array=get_array(output), name=name, function=output)
 
@@ -508,7 +521,7 @@ class File(object):
         functions = tuple(self._prepare_output(f, max_elem)
                           for f in functions)
 
-        if self._topology is None:
+        if self._topology is None or self._adaptive:
             self._topology = get_topology(coordinates.function)
 
         basename = "%s_%s" % (self.basename, next(self.counter))
@@ -540,7 +553,7 @@ class File(object):
                      'NumberOfCells="%d">\n' % (num_points, num_cells)).encode('ascii'))
             f.write(b'<Points>\n')
             # Vertex coordinates
-            offset += write_array_descriptor(f, coordinates, offset=offset)
+            offset += write_array_descriptor(f, coordinates, offset=offset, real=True)
             f.write(b'</Points>\n')
 
             f.write(b'<Cells>\n')
@@ -561,7 +574,7 @@ class File(object):
             # Appended data must start with "_", separating whitespace
             # from data
             f.write(b'_')
-            write_array(f, coordinates)
+            write_array(f, coordinates, real=True)
             write_array(f, connectivity)
             write_array(f, offsets)
             write_array(f, types)
@@ -585,7 +598,7 @@ class File(object):
 
             f.write(b'<PPoints>\n')
             # Vertex coordinates
-            write_array_descriptor(f, coordinates, parallel=True)
+            write_array_descriptor(f, coordinates, parallel=True, real=True)
             f.write(b'</PPoints>\n')
 
             f.write(b'<PCells>\n')
@@ -610,6 +623,7 @@ class File(object):
             f.write(b'</VTKFile>\n')
         return fname
 
+    @PETSc.Log.EventDecorator()
     def write(self, *functions, **kwargs):
         """Write functions to this :class:`File`.
 

@@ -1,6 +1,7 @@
 from pyop2 import op2
 
 import firedrake
+from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
 
@@ -23,6 +24,7 @@ def check_arguments(coarse, fine):
         raise ValueError("Mismatching function space shapes")
 
 
+@PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
@@ -31,8 +33,8 @@ def prolong(coarse, fine):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(coarse.split(), fine.split()):
-            myprolong, _, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myprolong(in_, out)
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.prolong(in_, out)
         return fine
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
@@ -83,6 +85,7 @@ def prolong(coarse, fine):
     return fine
 
 
+@PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual)
     Vf = fine_dual.function_space()
@@ -91,8 +94,8 @@ def restrict(fine_dual, coarse_dual):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine_dual.split(), coarse_dual.split()):
-            _, myrestrict, _ = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myrestrict(in_, out)
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.restrict(in_, out)
         return coarse_dual
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
@@ -144,6 +147,7 @@ def restrict(fine_dual, coarse_dual):
     return coarse_dual
 
 
+@PETSc.Log.EventDecorator()
 def inject(fine, coarse):
     check_arguments(coarse, fine)
     Vf = fine.function_space()
@@ -152,8 +156,8 @@ def inject(fine, coarse):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine.split(), coarse.split()):
-            _, _, myinject = firedrake.dmhooks.get_transfer_operators(in_.function_space().dm)
-            myinject(in_, out)
+            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager.inject(in_, out)
         return
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":

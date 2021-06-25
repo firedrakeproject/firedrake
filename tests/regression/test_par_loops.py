@@ -192,7 +192,9 @@ def test_cg_max_field(f):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i, 0] = fmax(c[i, 0], d[0, 0])
+        <float64> real_c = real(c[i, 0])
+        <float64> real_d = real(d[0, 0])
+        c[i, 0] = fmax(real_c, real_d)
     end
     """
     par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)},
@@ -209,7 +211,9 @@ def test_cg_max_field_extruded(f_extruded):
     domain = "{[i]: 0 <= i < c.dofs}"
     instructions = """
     for i
-        c[i, 0] = fmax(c[i, 0], d[0, 0])
+        <float64> real_c = real(c[i, 0])
+        <float64> real_d = real(d[0, 0])
+        c[i, 0] = fmax(real_c, real_d)
     end
     """
 
@@ -267,3 +271,20 @@ def test_walk_facets_rt():
              is_loopy_kernel=True)
 
     assert errornorm(f1, f2, degree_rise=0) < 1e-10
+
+
+def test_par_loop_respects_shape():
+    m = UnitSquareMesh(2, 2)
+    f_scalar = Function(FunctionSpace(m, "CG", 1))
+    f_vector = Function(VectorFunctionSpace(m, "CG", 1))
+
+    domain = "{[i] : 0 <= i < A.dofs}"
+    instructions = "A[i, 0] = 1"
+
+    par_loop((domain, instructions), dx, {'A': (f_vector, WRITE)},
+             is_loopy_kernel=True)
+    assert np.allclose(f_vector.dat.data[:, 0], 1.0)
+
+    par_loop((domain, instructions), dx, {'A': (f_scalar, WRITE)},
+             is_loopy_kernel=True)
+    assert np.allclose(f_scalar.dat.data, 1.0)

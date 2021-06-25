@@ -25,8 +25,13 @@ def A(W):
 
 
 @pytest.fixture
-def expect():
-    return Constant((1, 2, 3, 4, 5, 6))
+def expect(W):
+    f = Function(W)
+    f.sub(0).assign(Constant(1))
+    f.sub(1).assign(Constant((2, 3)))
+    f.sub(2).assign(Constant(4))
+    f.sub(3).assign(Constant((5, 6)))
+    return f
 
 
 @pytest.fixture
@@ -148,13 +153,13 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
 
 
 def test_matrix_types(W):
-    a = inner(TestFunction(W), TrialFunction(W))*dx
+    a = inner(TrialFunction(W), TestFunction(W))*dx
 
     with pytest.raises(ValueError):
         assemble(a, mat_type="baij")
 
     A = assemble(a)
-    assert A.M.handle.getType() == parameters["default_matrix_type"]
+    assert A.M.handle.getType() == "seq" + parameters["default_matrix_type"]
 
     A = assemble(a, mat_type="aij")
 

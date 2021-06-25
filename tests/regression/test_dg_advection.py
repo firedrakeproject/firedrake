@@ -24,15 +24,15 @@ def run_test(mesh):
 
     un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-    a_mass = phi*D*dx
-    a_int = dot(grad(phi), -u*D)*dx
-    a_flux = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS
+    a_mass = inner(D, phi) * dx
+    a_int = inner(-u*D, grad(phi))*dx
+    a_flux = inner(un('+')*D('+') - un('-')*D('-'), jump(phi))*dS
     arhs = a_mass - Dt * (a_int + a_flux)
 
     dD1 = Function(V)
     D1 = Function(V)
 
-    D0 = conditional(le(x[0], 0), 1, 0.0)
+    D0 = conditional(le(real(x[0]), 0), 1, 0.0)
     D = Function(V).interpolate(D0)
 
     t = 0.0

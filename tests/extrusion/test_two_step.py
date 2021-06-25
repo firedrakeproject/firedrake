@@ -34,8 +34,8 @@ def two_step(quadrilateral):
     # DO IN ONE STEP
     u = TrialFunction(X)
     v = TestFunction(X)
-    a = u * v * dx
-    L = div(grad(f0)) * v * dx
+    a = inner(u, v) * dx
+    L = inner(div(grad(f0)), v) * dx
 
     assemble(a)
     assemble(L)
@@ -45,8 +45,8 @@ def two_step(quadrilateral):
     # DO IN TWO STEPS
     u = TrialFunction(W)
     v = TestFunction(W)
-    a = dot(u, v) * dx
-    L = dot(grad(f0), v) * dx
+    a = inner(u, v) * dx
+    L = inner(grad(f0), v) * dx
 
     # Compute solution
     assemble(a)
@@ -57,8 +57,8 @@ def two_step(quadrilateral):
 
     u = TrialFunction(X)
     v = TestFunction(X)
-    a = u * v * dx
-    L = div(f1) * v * dx
+    a = inner(u, v) * dx
+    L = inner(div(f1), v) * dx
 
     # Compute solution
     assemble(a)

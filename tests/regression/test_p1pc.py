@@ -17,16 +17,16 @@ def mesh(request):
 @pytest.fixture
 def expected(mesh):
     if mesh.geometric_dimension() == 1:
-        return [5, 5, 5, 5]
+        return [2, 2, 2]
     elif mesh.geometric_dimension() == 2:
-        return [10, 12, 12, 12]
+        return [5, 5, 5]
     elif mesh.geometric_dimension() == 3:
-        return [4, 21, 22, 22]
+        return [7, 7, 7]
 
 
 def test_p_independence(mesh, expected):
     nits = []
-    for p in range(1, 5):
+    for p in range(2, 5):
         V = FunctionSpace(mesh, "CG", p)
 
         u = TrialFunction(V)
@@ -43,12 +43,16 @@ def test_p_independence(mesh, expected):
 
         solver = LinearVariationalSolver(problem, solver_parameters={
             "mat_type": "matfree",
-            "ksp_type": "cg",
-            "pc_type": "composite",
-            "pc_composite_type": "additive",
-            "pc_composite_pcs": "python,python",
-            "sub_0_pc_python_type": "firedrake.PatchPC",
-            "sub_0_patch": {
+            "ksp_type": "gmres",
+            "ksp_converged_reason": None,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.P1PC",
+            "pmg_mg_levels_ksp_type": "chebyshev",
+            "pmg_mg_levels_ksp_norm_type": "unpreconditioned",
+            "pmg_mg_levels_ksp_monitor_true_residual": None,
+            "pmg_mg_levels_pc_type": "python",
+            "pmg_mg_levels_pc_python_type": "firedrake.PatchPC",
+            "pmg_mg_levels_patch": {
                 "pc_patch_sub_mat_type": "aij",
                 "pc_patch_save_operators": True,
                 "pc_patch_construct_dim": 0,
@@ -56,11 +60,12 @@ def test_p_independence(mesh, expected):
                 "sub_ksp_type": "preonly",
                 "sub_pc_type": "lu",
             },
-            "sub_1_pc_python_type": "firedrake.P1PC",
-            "sub_1_lo": {
+            "pmg_mg_coarse": {
                 "mat_type": "aij",
                 "ksp_type": "preonly",
-                "pc_type": "cholesky",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                "assembled_pc_type": "cholesky",
             },
             "ksp_monitor": None})
 

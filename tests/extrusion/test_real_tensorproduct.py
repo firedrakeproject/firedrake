@@ -65,7 +65,12 @@ def test_vertical_average(V, expr, solution, tolerance):
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
+@pytest.fixture(params=[False, True],
+                ids=["prism", "hex"])
+def quadrilateral(request):
+    return request.param
+
+
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
     tolerance = 1e-14
@@ -75,7 +80,7 @@ def test_vertical_average_variable(quadrilateral):
     xy = SpatialCoordinate(mesh2d)
     p0_2d = FunctionSpace(mesh2d, 'DG', 0)
     f_2d = Function(p0_2d).interpolate(1 + xy[0])
-    max_layers = np.floor(f_2d.dat.data).astype(int)
+    max_layers = np.floor(f_2d.dat.data.real).astype(int)
     layers = np.zeros((p0_2d.dof_count, 2), dtype=int)
     layers[:, 1] = max_layers
 
@@ -87,20 +92,20 @@ def test_vertical_average_variable(quadrilateral):
 
     p0 = FunctionSpace(mesh, 'DG', 0)
     correct = Function(p0, name='solution').interpolate(1 + xyz[0])
-    correct.dat.data[:] = np.floor(correct.dat.data)/2
+    correct.dat.data[:] = np.floor(correct.dat.data.real)/2
 
     fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
     f_real = Function(fs_real).project(f)
 
-    l2err = l2err = sqrt(assemble((f_real-correct)*(f_real-correct)*dx))
+    l2err = l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
-                          (("CG", 3), 2e-7)])
+                          (("CG", 3), 2e-7)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""
     family, degree = testcase
@@ -121,17 +126,17 @@ def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
         xyz = SpatialCoordinate(mesh)
         f.interpolate((1+8*pi*pi)*cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
 
-        solve(dot(grad(u), grad(v))*dx + u*v*dx == f*v*dx, s)
+        solve(inner(grad(u), grad(v))*dx + inner(u, v)*dx == inner(f, v)*dx, s)
 
-    l2err = sqrt(assemble((sol_real-sol_ref)*(sol_real-sol_ref)*dx))
+    l2err = sqrt(assemble(inner((sol_real-sol_ref), (sol_real-sol_ref))*dx))
     assert abs(l2err) < tolerance
 
 
-@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("CG", 1, (4, 6)), 1.9),
                           (("CG", 2, (3, 5)), 2.9),
-                          (("CG", 3, (2, 4)), 3.9)])
+                          (("CG", 3, (2, 4)), 3.9)],
+                         ids=["CG1", "CG2", "CG3"])
 def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
     """Test convergence of depth-independent H. problem on Pn x Real space."""
     family, degree, (start, end) = testcase
@@ -149,9 +154,25 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
         f.interpolate((1+8*pi*pi)*cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
 
         out = Function(fspace)
-        solve(dot(grad(u), grad(v))*dx + u*v*dx == f*v*dx, out)
+        solve(inner(grad(u), grad(v))*dx + inner(u, v)*dx == inner(f, v)*dx, out)
 
         exact = Function(fspace)
         exact.interpolate(cos(2*pi*xyz[0])*cos(2*pi*xyz[1]))
-        l2err[ii - start] = sqrt(assemble((out-exact)*(out-exact)*dx))
+        l2err[ii - start] = sqrt(assemble(inner((out-exact), (out-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
+
+
+def test_real_tensorproduct_mixed(V):
+    mesh = V.mesh()
+    Q = FunctionSpace(mesh, "P", 2)
+
+    W = V*Q
+    for (s_, s) in zip(W.split(), (V, Q)):
+        assert s_.node_set is s.node_set
+        assert s_.dof_dset is s.dof_dset
+
+
+def test_real_tensorproduct_component(V):
+    for i in range(V.value_size):
+        s = V.sub(i)
+        assert V.node_set is s.node_set

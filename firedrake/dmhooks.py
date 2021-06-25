@@ -45,6 +45,7 @@ import firedrake
 from firedrake.petsc import PETSc
 
 
+@PETSc.Log.EventDecorator()
 def get_function_space(dm):
     """Get the :class:`~.FunctionSpace` attached to this DM.
 
@@ -65,6 +66,7 @@ def get_function_space(dm):
     return V
 
 
+@PETSc.Log.EventDecorator()
 def set_function_space(dm, V):
     """Set the :class:`~.FunctionSpace` on this DM.
 
@@ -260,7 +262,7 @@ pop_appctx = partial(pop_attr, "__appctx__")
 get_appctx = partial(get_attr, "__appctx__")
 
 
-def get_transfer_operators(dm):
+def get_transfer_manager(dm):
     appctx = get_appctx(dm)
     if appctx is None:
         # We're not in a solve, so all we can do is make a new one (not cached)
@@ -269,7 +271,7 @@ def get_transfer_operators(dm):
         firedrake.warning("This might be slow (you probably want to save it on an appctx)")
     else:
         transfer = appctx.transfer_manager
-    return (transfer.prolong, transfer.restrict, transfer.inject)
+    return transfer
 
 
 push_ctx_coarsener = partial(push_attr, "__ctx_coarsener__")
@@ -317,6 +319,7 @@ def create_matrix(dm):
     return ctx._jac.petscmat
 
 
+@PETSc.Log.EventDecorator()
 def create_field_decomposition(dm, *args, **kwargs):
     """Callback to decompose a DM.
 
@@ -349,6 +352,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     return names, W._ises, dms
 
 
+@PETSc.Log.EventDecorator()
 def create_subdm(dm, fields, *args, **kwargs):
     """Callback to create a sub-DM describing the specified fields.
 
@@ -395,6 +399,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
+@PETSc.Log.EventDecorator()
 def coarsen(dm, comm):
     """Callback to coarsen a DM.
 
@@ -429,10 +434,12 @@ def coarsen(dm, comm):
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
+        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     return cdm
 
 
+@PETSc.Log.EventDecorator()
 def refine(dm, comm):
     """Callback to refine a DM.
 

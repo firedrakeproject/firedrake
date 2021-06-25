@@ -5,6 +5,18 @@ from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
 
+from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
+                 Solve, Inverse, Variable, view)
+from gem import indices as make_indices
+from gem.node import Memoizer
+from gem.node import pre_traversal as traverse_dags
+
+from functools import singledispatch
+import firedrake.slate.slate as sl
+import loopy as lp
+from loopy.transform.callable import merge
+import itertools
+
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -136,40 +148,98 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-def eigen_tensor(expr, temporary, index):
-    """Returns an appropriate assignment statement for populating a particular
-    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
-    :meth:`block` of the eigen tensor is provided. Otherwise, no block
-    information is needed and the tensor is returned as is.
+def slate_to_gem(expression):
+    """Convert a slate expression to gem.
 
-    :arg expr: a `slate.Tensor` node.
-    :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column
-                information. This is provided by the SplitKernel
-                associated with the expr.
+    :arg expression: A slate expression.
+    :returns: A singleton list of gem expressions and a mapping from
+        gem variables to UFL "terminal" forms.
     """
-    if expr.is_mixed:
-        try:
-            row, col = index
-        except ValueError:
-            row = index[0]
-            col = 0
-        rshape = expr.shapes[0][row]
-        rstart = sum(expr.shapes[0][:row])
-        try:
-            cshape = expr.shapes[1][col]
-            cstart = sum(expr.shapes[1][:col])
-        except KeyError:
-            cshape = 1
-            cstart = 0
 
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                             rshape, cshape,
-                                                             rstart, cstart))
-    else:
-        tensor = temporary
+    mapper, var2terminal = slate2gem(expression)
+    return mapper, var2terminal
 
-    return tensor
+
+@singledispatch
+def _slate2gem(expr, self):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_slate2gem.register(sl.Tensor)
+@_slate2gem.register(sl.AssembledVector)
+def _slate2gem_tensor(expr, self):
+    shape = expr.shape if not len(expr.shape) == 0 else (1, )
+    name = f"T{len(self.var2terminal)}"
+    assert expr not in self.var2terminal.values()
+    var = Variable(name, shape)
+    self.var2terminal[var] = expr
+    return var
+
+
+@_slate2gem.register(sl.Block)
+def _slate2gem_block(expr, self):
+    child, = map(self, expr.children)
+    child_shapes = expr.children[0].shapes
+    offsets = tuple(sum(shape[:idx]) for shape, (idx, *_)
+                    in zip(child_shapes.values(), expr._indices))
+    return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offsets, expr.shape)))
+
+
+@_slate2gem.register(sl.Inverse)
+def _slate2gem_inverse(expr, self):
+    return Inverse(*map(self, expr.children))
+
+
+@_slate2gem.register(sl.Solve)
+def _slate2gem_solve(expr, self):
+    return Solve(*map(self, expr.children))
+
+
+@_slate2gem.register(sl.Transpose)
+def _slate2gem_transpose(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
+
+
+@_slate2gem.register(sl.Negative)
+def _slate2gem_negative(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Product(Literal(-1),
+                           Indexed(child, indices)),
+                           indices)
+
+
+@_slate2gem.register(sl.Add)
+def _slate2gem_add(expr, self):
+    A, B = map(self, expr.children)
+    indices = tuple(make_indices(len(A.shape)))
+    return ComponentTensor(Sum(Indexed(A, indices),
+                           Indexed(B, indices)),
+                           indices)
+
+
+@_slate2gem.register(sl.Mul)
+def _slate2gem_mul(expr, self):
+    A, B = map(self, expr.children)
+    *i, k = tuple(make_indices(len(A.shape)))
+    _, *j = tuple(make_indices(len(B.shape)))
+    ABikj = Product(Indexed(A, tuple(i + [k])),
+                    Indexed(B, tuple([k] + j)))
+    return ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+
+
+@_slate2gem.register(sl.Factorization)
+def _slate2gem_factorization(expr, self):
+    A, = map(self, expr.children)
+    return A
+
+
+def slate2gem(expression):
+    mapper = Memoizer(_slate2gem)
+    mapper.var2terminal = OrderedDict()
+    return mapper(expression), mapper.var2terminal
 
 
 def depth_first_search(graph, node, visited, schedule):
@@ -211,22 +281,49 @@ def topological_sort(exprs):
     return schedule
 
 
-def traverse_dags(exprs):
-    """Traverses a set of DAGs and returns each node.
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
+    """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
+    from firedrake.slate.slac.kernel_builder import SlateWrapperBag
+    coeffs = builder.collect_coefficients()
+    builder.bag = SlateWrapperBag(coeffs)
 
-    :arg exprs: An iterable of Slate expressions.
-    """
-    seen = set()
-    container = []
-    for tensor in exprs:
-        if tensor not in seen:
-            seen.add(tensor)
-            container.append(tensor)
-    while container:
-        tensor = container.pop()
-        yield tensor
+    # In the initialisation the loopy tensors for the terminals are generated
+    # Those are the needed again for generating the TSFC calls
+    inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
+    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
+    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
+                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
+                                    for terminal in terminal_tensors)))
 
-        for operand in tensor.operands:
-            if operand not in seen:
-                seen.add(operand)
-                container.append(operand)
+    # Construct args
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+    # Munge instructions
+    insns = inits
+    insns.extend(tsfc_calls)
+    insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
+
+    # Inames come from initialisations + loopyfying kernel args and lhs
+    domains = builder.bag.index_creator.domains
+
+    # Generates the loopy wrapper kernel
+    slate_wrapper = lp.make_function(domains, insns, args, name=name,
+                                     seq_dependencies=True, target=lp.CTarget(),
+                                     lang_version=(2018, 2))
+
+    # Generate program from kernel, so that one can register kernels
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+    from loopy.kernel.function_interface import CallableKernel
+
+    for tsfc_loopy in tsfc_kernels:
+        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
+        names = tsfc_loopy.callables_table
+        for name in names:
+            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+    slate_wrapper = merge([slate_wrapper, slate_loopy])
+    names = slate_loopy.callables_table
+    for name in names:
+        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+
+    return slate_wrapper

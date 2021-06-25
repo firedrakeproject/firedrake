@@ -5,6 +5,7 @@ from firedrake.mg.ufl_utils import coarsen
 
 
 @pytest.mark.parametrize("sub", (True, False), ids=["Z.sub(0)", "V"])
+@pytest.mark.skipcomplexnoslate
 def test_transfer_manager_inside_coarsen(sub):
     mesh = UnitSquareMesh(1, 1)
     mh = MeshHierarchy(mesh, 1)

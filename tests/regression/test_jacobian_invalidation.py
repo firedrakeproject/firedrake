@@ -12,11 +12,11 @@ def test_jac_invalid():
     f = Function(V).assign(1)
 
     # set up trivial projection problem
-    a = u*v*dx
-    L = f*v*dx
+    a = inner(u, v)*dx
+    L = inner(f, v)*dx
 
     out = Function(V)
-    problem = LinearVariationalProblem(a, L, out)
+    problem = LinearVariationalProblem(a, L, out, constant_jacobian=True)
     solver = LinearVariationalSolver(problem)
     solver.solve()
 

@@ -3,14 +3,17 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType, RealType, ScalarType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ, interpolate, FiniteElement, interval
-from firedrake.cython import dmplex
+    par_loop, dx, WRITE, READ, interpolate, FiniteElement, interval, tetrahedron
+from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+from firedrake.petsc import PETSc
+
+from pyadjoint.tape import no_annotations
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -19,15 +22,17 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
-           'CircleManifoldMesh',
+           'CircleManifoldMesh', 'UnitDiskMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
+           'PeriodicBoxMesh', 'PeriodicUnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
 
 
+@PETSc.Log.EventDecorator()
 def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of an interval.
@@ -62,20 +67,21 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
     plex = mesh._from_cell_list(1, cells, coords, comm)
     # Apply boundary IDs
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     coordinates = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
     vStart, vEnd = plex.getDepthStratum(0)  # vertices
     for v in range(vStart, vEnd):
         vcoord = plex.vecGetClosure(coord_sec, coordinates, v)
         if vcoord[0] == coords[0]:
-            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 1)
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 1)
         if vcoord[0] == coords[-1]:
-            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 2)
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
     return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of the interval [0,1].
@@ -91,6 +97,7 @@ def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of an interval.
 
@@ -109,16 +116,17 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    domain = ""
-    instructions = """
-    <float64> eps = 1e-12
-    <float64> pi = 3.141592653589793
-    <float64> a = atan2(old_coords[0, 1], old_coords[0, 0]) / (2*pi)
-    <float64> b = atan2(old_coords[1, 1], old_coords[1, 0]) / (2*pi)
-    <int32> swap = 1 if a >= b else 0
-    <float64> aa = fmin(a, b)
-    <float64> bb = fmax(a, b)
-    <float64> bb_abs = fabs(bb)
+    domain = "{ [i, j] : 0 <= i, j < 2 }"
+    instructions = f"""
+    <{RealType}> eps = 1e-12
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> oc[i, j] = real(old_coords[i, j])
+    <{RealType}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
+    <{RealType}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
+    <{IntType}> swap = 1 if a >= b else 0
+    <{RealType}> aa = fmin(a, b)
+    <{RealType}> bb = fmax(a, b)
+    <{RealType}> bb_abs = abs(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
@@ -139,6 +147,7 @@ cells are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of the unit interval
 
@@ -149,6 +158,7 @@ def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WOR
     return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
@@ -207,7 +217,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
         # there are two vertices in the cell
         cell_vertices = closure[5:]
-        cell_X = np.array([0., 0.])
+        cell_X = np.array([0., 0.], dtype=ScalarType)
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
@@ -306,6 +316,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     return mash
 
 
+@PETSc.Log.EventDecorator()
 def UnitTriangleMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference triangle
 
@@ -318,6 +329,7 @@ def UnitTriangleMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
+@PETSc.Log.EventDecorator()
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                   diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a rectangular mesh
@@ -388,7 +400,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -399,17 +411,18 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[2] - Lx) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
-
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
+    plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a square mesh
 
@@ -435,6 +448,7 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
                          comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a unit square mesh
 
@@ -459,6 +473,7 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
                       comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
                           distribution_parameters=None,
@@ -512,33 +527,35 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
-    instructions = """
-    <float64> pi = 3.141592653589793
-    <float64> eps = 1e-12
-    <float64> bigeps = 1e-1
-    <float64> Y = 0
-    <float64> Z = 0
+    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
+    instructions = f"""
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> eps = 1e-12
+    <{RealType}> bigeps = 1e-1
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
+    <{RealType}> Y = 0
+    <{RealType}> Z = 0
     for i
-        Y = Y + old_coords[i, 1]
-        Z = Z + old_coords[i, 2]
+        Y = Y + oc[i, 1]
+        Z = Z + oc[i, 2]
     end
     for j
-        <float64> phi = atan2(old_coords[j, 1], old_coords[j, 0])
-        <float64> _phi = fabs(sin(phi))
-        <double> _theta_1 = atan2(old_coords[j, 2], old_coords[j, 1] / sin(phi) - 1)
-        <double> _theta_2 = atan2(old_coords[j, 2], old_coords[j, 0] / cos(phi) - 1)
-        <float64> theta = _theta_1 if _phi > bigeps else _theta_2
-        new_coords[j, 0] = phi / (2 * pi)
-        new_coords[j, 0] = new_coords[j, 0] + 1 if new_coords[j, 0] < -eps else new_coords[j, 0]
-        <float64> _nc_abs = fabs(new_coords[j, 0])
-        new_coords[j, 0] = 1 if _nc_abs < eps and Y < 0 else new_coords[j, 0]
-        new_coords[j, 1] = theta / (2 * pi)
-        new_coords[j, 1] = new_coords[j, 1] + 1 if new_coords[j, 1] < -eps else new_coords[j, 1]
-        _nc_abs = fabs(new_coords[j, 1])
-        new_coords[j, 1] = 1 if _nc_abs < eps and Z < 0 else new_coords[j, 1]
-        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
-        new_coords[j, 1] = new_coords[j, 1] * Ly[0]
+        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
+        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
+        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
+        <{RealType}> abssin = abs(sin(phi))
+        <{RealType}> theta = theta1 if abssin > bigeps else theta2
+        <{RealType}> nc0 = phi / (2 * pi)
+        <{RealType}> absnc = 0
+        nc0 = nc0 + 1 if nc0 < -eps else nc0
+        absnc = abs(nc0)
+        nc0 = 1 if absnc < eps and Y < 0 else nc0
+        <{RealType}> nc1 = theta / (2 * pi)
+        nc1 = nc1 + 1 if nc1 < -eps else nc1
+        absnc = abs(nc1)
+        nc1 = 1 if absnc < eps and Z < 0 else nc1
+        new_coords[j, 0] = nc0 * Lx[0]
+        new_coords[j, 1] = nc1 * Ly[0]
     end
     """
 
@@ -555,6 +572,7 @@ cells in each direction are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
                        distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generate a periodic square mesh
@@ -587,6 +605,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
                                  diagonal=diagonal, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                            quadrilateral=False, distribution_parameters=None,
                            diagonal=None, comm=COMM_WORLD):
@@ -619,6 +638,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                               diagonal=diagonal, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
@@ -644,6 +664,59 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
     return m
 
 
+@PETSc.Log.EventDecorator()
+def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a mesh of the unit disk in 2D
+
+    :kwarg refinement_level: optional number of refinements (0 is a diamond)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD)."""
+    vertices = np.array([[0, 0],
+                         [1, 0],
+                         [1, 1],
+                         [0, 1],
+                         [-1, 1],
+                         [-1, 0],
+                         [-1, -1],
+                         [0, -1],
+                         [1, -1]], dtype=np.double)
+
+    cells = np.array([[0, 1, 2],
+                      [0, 2, 3],
+                      [0, 3, 4],
+                      [0, 4, 5],
+                      [0, 5, 6],
+                      [0, 6, 7],
+                      [0, 7, 8],
+                      [0, 8, 1]], np.int32)
+
+    plex = mesh._from_cell_list(2, cells, vertices, comm)
+
+    # mark boundary facets
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        for face in boundary_faces:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+    plex.removeLabel("boundary_faces")
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    coords = plex.getCoordinatesLocal().array.reshape(-1, 2)
+    for x in coords:
+        norm = np.sqrt(np.dot(x, x))
+        if norm > 1. / (1 << (refinement_level + 1)):
+            t = np.max(np.abs(x)) / norm
+            x[:] *= t
+
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
+    return m
+
+
+@PETSc.Log.EventDecorator()
 def UnitTetrahedronMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference tetrahedron.
 
@@ -656,7 +729,8 @@ def UnitTetrahedronMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+@PETSc.Log.EventDecorator()
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -665,6 +739,9 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
     :arg Lz: The extent in the z direction
+    :arg diagonal: Two ways of cutting hexadra, should be cut into 6
+        tetrahedra (``"default"``), or 5 tetrahedra thus less biased
+        (``"crossed"``)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -690,27 +767,48 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
                           np.arange(ny, dtype=np.int32),
                           np.arange(nz, dtype=np.int32))
-    v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
-    v1 = v0 + 1
-    v2 = v0 + (nx + 1)
-    v3 = v1 + (nx + 1)
-    v4 = v0 + (nx + 1)*(ny + 1)
-    v5 = v1 + (nx + 1)*(ny + 1)
-    v6 = v2 + (nx + 1)*(ny + 1)
-    v7 = v3 + (nx + 1)*(ny + 1)
+    if diagonal == "default":
+        v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1)*(ny + 1)
+        v5 = v1 + (nx + 1)*(ny + 1)
+        v6 = v2 + (nx + 1)*(ny + 1)
+        v7 = v3 + (nx + 1)*(ny + 1)
 
-    cells = [v0, v1, v3, v7,
-             v0, v1, v7, v5,
-             v0, v5, v7, v4,
-             v0, v3, v2, v7,
-             v0, v6, v4, v7,
-             v0, v2, v6, v7]
-    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        cells = [v0, v1, v3, v7,
+                 v0, v1, v7, v5,
+                 v0, v5, v7, v4,
+                 v0, v3, v2, v7,
+                 v0, v6, v4, v7,
+                 v0, v2, v6, v7]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    elif diagonal == "crossed":
+        v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1)*(ny + 1)
+        v5 = v1 + (nx + 1)*(ny + 1)
+        v6 = v2 + (nx + 1)*(ny + 1)
+        v7 = v3 + (nx + 1)*(ny + 1)
+
+        # There are only five tetrahedra in this cutting of hexahedra
+        cells = [v0, v1, v2, v4,
+                 v1, v7, v5, v4,
+                 v1, v2, v3, v7,
+                 v2, v4, v6, v7,
+                 v1, v2, v7, v4]
+        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        raise NotImplementedError("The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements")
+    else:
+        raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
 
     plex = mesh._from_cell_list(3, cells, coords, comm)
 
     # Apply boundary IDs
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -722,21 +820,23 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[3] - Lx) < xtol and abs(face_coords[6] - Lx) < xtol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[4]) < ytol and abs(face_coords[7]) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[4] - Ly) < ytol and abs(face_coords[7] - Ly) < ytol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
             if abs(face_coords[2]) < ztol and abs(face_coords[5]) < ztol and abs(face_coords[8]) < ztol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 5)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 6)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
+    plex.removeLabel("boundary_faces")
 
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a cube
 
@@ -761,6 +861,7 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
                    comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a unit cube
 
@@ -784,6 +885,117 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
                     comm=comm)
 
 
+@PETSc.Log.EventDecorator()
+def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a periodic mesh of a 3D box.
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nz: The number of cells in the z direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :arg Lz: The extent in the z direction
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    for n in (nx, ny, nz):
+        if n < 3:
+            raise ValueError("3D periodic meshes with fewer than 3 cells are not currently supported")
+
+    xcoords = np.arange(0., Lx, Lx/nx, dtype=np.double)
+    ycoords = np.arange(0., Ly, Ly/ny, dtype=np.double)
+    zcoords = np.arange(0., Lz, Lz/nz, dtype=np.double)
+    coords = np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+    i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
+                          np.arange(ny, dtype=np.int32),
+                          np.arange(nz, dtype=np.int32))
+    v0 = k*nx*ny + j*nx + i
+    v1 = k*nx*ny + j*nx + (i+1) % nx
+    v2 = k*nx*ny + ((j+1) % ny)*nx + i
+    v3 = k*nx*ny + ((j+1) % ny)*nx + (i+1) % nx
+    v4 = ((k+1) % nz)*nx*ny + j*nx + i
+    v5 = ((k+1) % nz)*nx*ny + j*nx + (i+1) % nx
+    v6 = ((k+1) % nz)*nx*ny + ((j+1) % ny)*nx + i
+    v7 = ((k+1) % nz)*nx*ny + ((j+1) % ny)*nx + (i+1) % nx
+
+    cells = [v0, v1, v3, v7,
+             v0, v1, v7, v5,
+             v0, v5, v7, v4,
+             v0, v3, v2, v7,
+             v0, v6, v4, v7,
+             v0, v2, v6, v7]
+    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    plex = mesh._from_cell_list(3, cells, coords, comm)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
+
+    old_coordinates = m.coordinates
+    new_coordinates = Function(VectorFunctionSpace(m, FiniteElement('DG', tetrahedron, 1, variant="equispaced")))
+
+    domain = ""
+    instructions = f"""
+    <{RealType}> x0 = real(old_coords[0, 0])
+    <{RealType}> x1 = real(old_coords[1, 0])
+    <{RealType}> x2 = real(old_coords[2, 0])
+    <{RealType}> x3 = real(old_coords[3, 0])
+    <{RealType}> x_max = fmax(fmax(fmax(x0, x1), x2), x3)
+    <{RealType}> y0 = real(old_coords[0, 1])
+    <{RealType}> y1 = real(old_coords[1, 1])
+    <{RealType}> y2 = real(old_coords[2, 1])
+    <{RealType}> y3 = real(old_coords[3, 1])
+    <{RealType}> y_max = fmax(fmax(fmax(y0, y1), y2), y3)
+    <{RealType}> z0 = real(old_coords[0, 2])
+    <{RealType}> z1 = real(old_coords[1, 2])
+    <{RealType}> z2 = real(old_coords[2, 2])
+    <{RealType}> z3 = real(old_coords[3, 2])
+    <{RealType}> z_max = fmax(fmax(fmax(z0, z1), z2), z3)
+
+    new_coords[0, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[0, 0] == 0.) else old_coords[0, 0]
+    new_coords[0, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[0, 1] == 0.) else old_coords[0, 1]
+    new_coords[0, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[0, 2] == 0.) else old_coords[0, 2]
+
+    new_coords[1, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[1, 0] == 0.) else old_coords[1, 0]
+    new_coords[1, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[1, 1] == 0.) else old_coords[1, 1]
+    new_coords[1, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[1, 2] == 0.) else old_coords[1, 2]
+
+    new_coords[2, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[2, 0] == 0.) else old_coords[2, 0]
+    new_coords[2, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[2, 1] == 0.) else old_coords[2, 1]
+    new_coords[2, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[2, 2] == 0.) else old_coords[2, 2]
+
+    new_coords[3, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[3, 0] == 0.) else old_coords[3, 0]
+    new_coords[3, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[3, 1] == 0.) else old_coords[3, 1]
+    new_coords[3, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[3, 2] == 0.) else old_coords[3, 2]
+    """
+    hx = Constant(Lx/nx)
+    hy = Constant(Ly/ny)
+    hz = Constant(Lz/nz)
+
+    par_loop((domain, instructions), dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "hx": (hx, READ),
+              "hy": (hy, READ),
+              "hz": (hz, READ)},
+             is_loopy_kernel=True)
+    m1 = mesh.Mesh(new_coordinates)
+    return m1
+
+
+@PETSc.Log.EventDecorator()
+def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+    """Generate a periodic mesh of a unit cube
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nz: The number of cells in the z direction
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
+
+
+@PETSc.Log.EventDecorator()
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                           distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the surface of the
@@ -867,6 +1079,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                               distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the unit sphere.
@@ -883,6 +1096,10 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                                  degree=degree, reorder=reorder, comm=comm)
 
 
+# mesh is mainly used as a utility, so it's unnecessary to annotate the construction
+# in this case.
+@PETSc.Log.EventDecorator()
+@no_annotations
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
                          z0=0.8,
@@ -953,14 +1170,14 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     x, y, z = ufl.SpatialCoordinate(m)
     # This will DTWT on meshes with more than 26 refinement levels.
     # (log_2 1e8 ~= 26.5)
-    tol = Constant(1.0e-8)
+    tol = ufl.real(Constant(1.0e-8))
     rnew = ufl.Max(1 - abs(z), 0)
     # Avoid division by zero (when rnew is zero, x & y are also zero)
-    x0 = ufl.conditional(ufl.lt(rnew, tol),
+    x0 = ufl.conditional(ufl.lt(ufl.real(rnew), tol),
                          0, x/rnew)
     y0 = ufl.conditional(ufl.lt(rnew, tol),
                          0, y/rnew)
-    theta = ufl.conditional(ufl.ge(y0, 0),
+    theta = ufl.conditional(ufl.ge(ufl.real(y0), 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
     m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
@@ -969,7 +1186,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     # push out to a sphere
     phi = ufl.pi*z/2
     # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
-    scale = ufl.conditional(ufl.lt(rnew, tol),
+    scale = ufl.conditional(ufl.lt(ufl.real(rnew), ufl.real(tol)),
                             0, ufl.cos(phi)/rnew)
     znew = ufl.sin(phi)
     # Make a copy of the coordinates so that we can blend two different
@@ -984,7 +1201,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     r = ufl.sqrt(Xlow[0]**2 + Xlow[1]**2 + Xlow[2]**2)
     Xradial = Constant(radius)*Xlow/r
 
-    s = (abs(z) - z0)/(1-z0)
+    s = ufl.real(abs(z) - z0)/(1-z0)
     exp = ufl.exp
     taper = ufl.conditional(ufl.gt(s, 1.0-tol),
                             1.0,
@@ -996,6 +1213,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                              hemisphere="both", z0=0.8, reorder=None,
                              distribution_parameters=None, comm=COMM_WORLD):
@@ -1148,6 +1366,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
+@PETSc.Log.EventDecorator()
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
                     reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate an cubed approximation to the surface of the
@@ -1182,6 +1401,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
                         distribution_parameters=None, comm=COMM_WORLD):
     """Generate a cubed approximation to the unit sphere.
@@ -1197,6 +1417,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
                            degree=degree, reorder=reorder, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
               distribution_parameters=None, comm=COMM_WORLD):
     """Generate a toroidal mesh
@@ -1242,6 +1463,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
                  distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
@@ -1346,7 +1568,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
     plex = mesh._from_cell_list(2, cells, vertices, comm)
 
-    plex.createLabel(dmplex.FACE_SETS_LABEL)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -1361,15 +1583,17 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
             j = i + 3
             if abs(face_coords[i]) < eps and abs(face_coords[j]) < eps:
                 # bottom of cylinder
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
                 # top of cylinder
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+    plex.removeLabel("boundary_faces")
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
+@PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
                                    reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generates RectangleMesh that is periodic in the x or y direction.
@@ -1422,19 +1646,19 @@ cells in each direction are not currently supported")
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
-
-    domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
-    instructions = """
-    <float64> Y = 0
-    <float64> pi = 3.141592653589793
+    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
+    instructions = f"""
+    <{RealType}> Y = 0
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
     for i
-        Y = Y + old_coords[i, 1]
+        Y = Y + oc[i, 1]
     end
     for j
-        new_coords[j, 0] = atan2(old_coords[j, 1], old_coords[j, 0]) / (pi* 2)
-        new_coords[j, 0] = new_coords[j, 0] + 1 if new_coords[j, 0] < 0 else new_coords[j, 0]
-        new_coords[j, 0] = 1 if new_coords[j, 0] == 0 and Y < 0 else new_coords[j, 0]
-        new_coords[j, 0] = new_coords[j, 0] * Lx[0]
+        <{RealType}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
+        nc0 = nc0 + 1 if nc0 < 0 else nc0
+        nc0 = 1 if nc0 == 0 and Y < 0 else nc0
+        new_coords[j, 0] = nc0 * Lx[0]
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end
     """

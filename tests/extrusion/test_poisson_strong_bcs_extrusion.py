@@ -29,16 +29,16 @@ def run_test(layers, quadrilateral):
 
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = dot(grad(u), grad(v)) * dx
+    a = inner(grad(u), grad(v)) * dx
     f = Function(V)
     f.assign(0)
-    L = v * f * dx
+    L = inner(f, v) * dx
     u = Function(V)
     exact = Function(V)
     xs = SpatialCoordinate(mesh)
     exact.interpolate(42*xs[2])
     solve(a == L, u, bcs=bcs)
-    res = sqrt(assemble(dot(u - exact, u - exact) * dx))
+    res = sqrt(assemble(inner(u - exact, u - exact) * dx))
     return res
 
 

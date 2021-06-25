@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: FEniCS '15
 
 .. image:: _static/queens_tower_narrow.jpg

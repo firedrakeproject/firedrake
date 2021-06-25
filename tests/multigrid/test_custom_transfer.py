@@ -17,8 +17,8 @@ def test_repeated_custom_transfer():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
-    L = v*dx
+    a = inner(u, v)*dx
+    L = conj(v)*dx
 
     uh = Function(V)
     options = {"ksp_type": "preonly",
@@ -39,6 +39,48 @@ def test_repeated_custom_transfer():
     assert count == 1
 
 
+optcount = 0
+
+
+class CountingTransferManager(TransferManager):
+    def prolong(self, *args, **kwargs):
+        global optcount
+        TransferManager.prolong(self, *args, **kwargs)
+        optcount += 1
+
+
+def test_repeated_custom_transfer_options():
+    mesh = UnitIntervalMesh(2)
+    mh = MeshHierarchy(mesh, 1)
+    mesh = mh[-1]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(u, v)*dx
+    L = conj(v)*dx
+
+    uh = Function(V)
+    options = {"ksp_type": "preonly",
+               "pc_type": "mg",
+               "mg_transfer_manager": __name__ + ".CountingTransferManager"}
+
+    problem = LinearVariationalProblem(a, L, uh)
+    solver = LinearVariationalSolver(problem, solver_parameters=options)
+    solver.solve()
+
+    global optcount
+    assert optcount == 1
+
+    uh.assign(0)
+
+    solve(a == L, uh, solver_parameters=options)
+
+    assert optcount == 2
+
+
+@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_split():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
@@ -63,8 +105,8 @@ def test_multiple_custom_transfer_split():
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    a = u*v*dx + p*q*dx
-    L = v*dx
+    a = inner(u, v)*dx + inner(p, q)*dx
+    L = conj(v)*dx
 
     options = {"ksp_type": "preonly",
                "pc_type": "fieldsplit",
@@ -86,6 +128,7 @@ def test_multiple_custom_transfer_split():
     assert count_Q == -2
 
 
+@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_monolithc():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
@@ -110,8 +153,8 @@ def test_multiple_custom_transfer_monolithc():
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    a = u*v*dx + p*q*dx
-    L = v*dx
+    a = inner(u, v)*dx + inner(p, q)*dx
+    L = conj(v)*dx
 
     options = {"ksp_type": "preonly",
                "pc_type": "mg",
@@ -125,7 +168,6 @@ def test_multiple_custom_transfer_monolithc():
     solver.set_transfer_manager(transfer)
 
     solver.solve()
-
     assert count_V == 2
     assert count_Q == -2
 
@@ -145,8 +187,8 @@ def test_custom_transfer_setting():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = u*v*dx
-    L = v*dx
+    a = inner(u, v)*dx
+    L = conj(v)*dx
 
     uh = Function(V)
     options = {"ksp_type": "preonly",

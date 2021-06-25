@@ -1,3 +1,5 @@
+import functools
+
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.vector as vector
@@ -14,7 +16,10 @@ __all__ = ["LinearSolver"]
 
 class LinearSolver(OptionsManager):
 
-    def __init__(self, A, P=None, solver_parameters=None,
+    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
+
+    @PETSc.Log.EventDecorator()
+    def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
                  near_nullspace=None, options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
@@ -47,24 +52,21 @@ class LinearSolver(OptionsManager):
         if P is not None and not isinstance(P, matrix.MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
+        solver_parameters = solving_utils.set_defaults(solver_parameters,
+                                                       A.a.arguments(),
+                                                       ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
         self.P = P if P is not None else A
 
         # Set up parameters mixin
-        super(LinearSolver, self).__init__(solver_parameters, options_prefix)
+        super().__init__(solver_parameters, options_prefix)
 
         self.A.petscmat.setOptionsPrefix(self.options_prefix)
         self.P.petscmat.setOptionsPrefix(self.options_prefix)
 
-        # Set some defaults
-        self.set_default_parameter("ksp_rtol", "1e-7")
-        # If preconditioning matrix is matrix-free, then default to no
-        # preconditioning.
+        # If preconditioning matrix is matrix-free, then default to jacobi
         if isinstance(self.P, matrix.ImplicitMatrix):
-            self.set_default_parameter("pc_type", "none")
-        elif self.P.block_shape != (1, 1):
-            # Otherwise, mixed problems default to jacobi.
             self.set_default_parameter("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
@@ -109,11 +111,12 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def _rhs(self):
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import assemble
+
         u = function.Function(self.trial_space)
         b = function.Function(self.test_space)
         expr = -action(self.A.a, u)
-        return u, create_assembly_callable(expr, tensor=b), b
+        return u, functools.partial(assemble, expr, tensor=b, assembly_type="residual"), b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
@@ -128,6 +131,7 @@ class LinearSolver(OptionsManager):
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
+    @PETSc.Log.EventDecorator()
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)

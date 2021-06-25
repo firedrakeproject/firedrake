@@ -27,6 +27,7 @@ def quadrilateral(request):
     return request.param
 
 
+@pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
     l2error = []
@@ -73,7 +74,7 @@ def test_periodic_rectangle_advection(degree, threshold,
 
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True)
+        mass_inv = assemble(Tensor(a_mass).inv)
         mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):
@@ -106,6 +107,7 @@ def test_periodic_rectangle_advection(degree, threshold,
     assert np.all(convergence > threshold)
 
 
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=3)
 def test_parallel_periodic_rectangle_advection():
     test_periodic_rectangle_advection(1, 1.8, "x", False)

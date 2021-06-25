@@ -31,13 +31,13 @@ def vector_laplace(n, degree):
 
     sigma, u = TrialFunctions(V)
     tau, v = TestFunctions(V)
-    a = (sigma*tau - dot(u, grad(tau)) + dot(grad(sigma), v) + dot(curl(u), curl(v)))*dx
-    L = dot(f, v)*dx
+    a = (inner(sigma, tau) - inner(u, grad(tau)) + inner(grad(sigma), v) + inner(curl(u), curl(v))) * dx
+    L = inner(f, v) * dx
 
     out = Function(V)
 
     # preconditioner for H1 x H(curl)
-    aP = (dot(grad(sigma), grad(tau)) + sigma*tau + dot(curl(u), curl(v)) + dot(u, v))*dx
+    aP = (inner(grad(sigma), grad(tau)) + inner(sigma, tau) + inner(curl(u), curl(v)) + inner(u, v)) * dx
 
     solve(a == L, out, Jp=aP,
           solver_parameters={'pc_type': 'fieldsplit',
@@ -48,8 +48,8 @@ def vector_laplace(n, degree):
 
     out_s, out_u = out.split()
 
-    return (sqrt(assemble(dot(out_u - exact_u, out_u - exact_u)*dx)),
-            sqrt(assemble((out_s - exact_s)*(out_s - exact_s)*dx)))
+    return (sqrt(assemble(inner(out_u - exact_u, out_u - exact_u) * dx)),
+            sqrt(assemble(inner(out_s - exact_s, out_s - exact_s) * dx)))
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),

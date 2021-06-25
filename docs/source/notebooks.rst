@@ -1,6 +1,7 @@
-================================
- Introductory Jupyter notebooks
-================================
+:orphan: true
+
+Introductory Jupyter notebooks
+==============================
 
 These notebooks provide an introduction to usage of Firedrake, and are
 designed to familiarise you with manipulating Firedrake objects to

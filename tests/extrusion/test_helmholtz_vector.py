@@ -51,8 +51,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         W = V1 * V2
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
-        a = (p*q - q*div(u) + dot(v, u) + div(v)*p)*dx
-        L = f*q*dx
+        a = (inner(p, q) - inner(div(u), q) + inner(u, v) + inner(p, div(v)))*dx
+        L = inner(f, q)*dx
 
         out = Function(W)
         solve(a == L, out, solver_parameters={'pc_type': 'fieldsplit',
@@ -61,5 +61,5 @@ def test_scalar_convergence(extmesh, testcase, convrate):
                                               'pc_fieldsplit_schur_fact_type': 'FULL',
                                               'fieldsplit_0_ksp_type': 'cg',
                                               'fieldsplit_1_ksp_type': 'cg'})
-        l2err[ii - start] = sqrt(assemble((out[3]-exact)*(out[3]-exact)*dx))
+        l2err[ii - start] = sqrt(assemble(inner((out[3]-exact), (out[3]-exact))*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()

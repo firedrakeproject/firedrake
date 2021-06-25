@@ -1,3 +1,5 @@
+import functools
+
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 
@@ -41,7 +43,7 @@ class PCDPC(PCBase):
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, \
             assemble, inner, grad, split, Constant, parameters
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
+        from firedrake.assemble import allocate_matrix
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "pcd_"
@@ -113,9 +115,12 @@ class PCDPC(PCBase):
         self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
                                   mat_type=self.Fp_mat_type,
                                   options_prefix=prefix + "Fp_")
-        self._assemble_Fp = create_assembly_callable(fp, tensor=self.Fp,
-                                                     form_compiler_parameters=context.fc_params,
-                                                     mat_type=self.Fp_mat_type)
+        self._assemble_Fp = functools.partial(assemble,
+                                              fp,
+                                              tensor=self.Fp,
+                                              form_compiler_parameters=context.fc_params,
+                                              mat_type=self.Fp_mat_type,
+                                              assembly_type="residual")
         self._assemble_Fp()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]

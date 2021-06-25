@@ -8,16 +8,16 @@ from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 import enum
 import numbers
+import abc
 
 from mpi4py import MPI
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType, RealType
 from pyop2 import op2
 from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
-from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple, tuplify
 
-import firedrake.cython.dmplex as dmplex
+import firedrake.cython.dmcommon as dmcommon
 import firedrake.expression as expression
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
@@ -30,7 +30,7 @@ from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked',
+__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType']
 
 
@@ -70,6 +70,8 @@ class _Facets(object):
     .. warning::
 
        The unique_markers argument **must** be the same on all processes."""
+
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
 
@@ -126,6 +128,7 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -171,6 +174,7 @@ class _Facets(object):
         else:
             return self.subset(subdomain_id)
 
+    @PETSc.Log.EventDecorator()
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
@@ -202,6 +206,7 @@ class _Facets(object):
                        "facet_to_cell_map")
 
 
+@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -219,6 +224,7 @@ def _from_gmsh(filename, comm=None):
     return gmsh_plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_exodus(filename, comm):
     """Read an Exodus .e or .exo file from `filename`.
 
@@ -229,6 +235,7 @@ def _from_exodus(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cgns(filename, comm):
     """Read a CGNS .cgns file from `filename`.
 
@@ -238,6 +245,7 @@ def _from_cgns(filename, comm):
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_triangle(filename, dim, comm):
     """Read a set of triangle mesh files from `filename`.
 
@@ -300,11 +308,12 @@ def _from_triangle(filename, dim, comm):
                 bid = facet[-1]
                 vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
-                plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], bid)
 
     return plex
 
 
+@PETSc.Log.EventDecorator()
 def _from_cell_list(dim, cells, coords, comm):
     """
     Create a DMPlex from a list of cells and coords.
@@ -337,107 +346,30 @@ def _from_cell_list(dim, cells, coords, comm):
     return plex
 
 
-class MeshTopology(object):
-    """A representation of mesh topology."""
+class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
+    """A representation of an abstract mesh topology without a concrete
+        PETSc DM implementation"""
 
-    @timed_function("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters):
-        """Half-initialise a mesh topology.
+    def __init__(self, name):
+        """Initialise an abstract mesh topology.
 
-        :arg plex: :class:`DMPlex` representing the mesh topology
         :arg name: name of the mesh
-        :arg reorder: whether to reorder the mesh (bool)
-        :arg distribution_parameters: options controlling mesh
-            distribution, see :func:`Mesh` for details.
         """
-        # Do some validation of the input mesh
-        distribute = distribution_parameters.get("partition")
-        self._distribution_parameters = distribution_parameters.copy()
-        if distribute is None:
-            distribute = True
 
-        overlap_type, overlap = distribution_parameters.get("overlap_type",
-                                                            (DistributedMeshOverlapType.FACET, 1))
-
-        if overlap < 0:
-            raise ValueError("Overlap depth must be >= 0")
-        if overlap_type == DistributedMeshOverlapType.NONE:
-            def add_overlap():
-                pass
-            if overlap > 0:
-                raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            def add_overlap():
-                dmplex.set_adjacency_callback(self._plex)
-                self._plex.distributeOverlap(overlap)
-                dmplex.clear_adjacency_callback(self._plex)
-                self._grown_halos = True
-        elif overlap_type == DistributedMeshOverlapType.VERTEX:
-            def add_overlap():
-                # Default is FEM (vertex star) adjacency.
-                self._plex.distributeOverlap(overlap)
-                self._grown_halos = True
-        else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
-
-        dmplex.validate_mesh(plex)
-        plex.setFromOptions()
         utils._init()
 
-        self._plex = plex
         self.name = name
-        self.comm = dup_comm(plex.comm.tompi4py())
+
+        self.topology_dm = None
+        r"The PETSc DM representation of the mesh topology."
 
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
         # Cell subsets for integration over subregions
         self._subsets = {}
-        # Mark exterior and interior facets
-        # Note.  This must come before distribution, because otherwise
-        # DMPlex will consider facets on the domain boundary to be
-        # exterior, which is wrong.
-        label_boundary = (self.comm.size == 1) or distribute
-        dmplex.label_facets(plex, label_boundary=label_boundary)
-
-        # Distribute the dm to all ranks
-        if self.comm.size > 1 and distribute:
-            # We distribute with overlap zero, in case we're going to
-            # refine this mesh in parallel.  Later, when we actually use
-            # it, we grow the halo.
-            partitioner = plex.getPartitioner()
-            if IntType.itemsize == 8:
-                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only)
-                from firedrake_configuration import get_config
-                if get_config().get("options", {}).get("with_parmetis", False):
-                    partitioner.setType(partitioner.Type.PARMETIS)
-                else:
-                    partitioner.setType(partitioner.Type.PTSCOTCH)
-            else:
-                partitioner.setType(partitioner.Type.CHACO)
-            try:
-                sizes, points = distribute
-                partitioner.setType(partitioner.Type.SHELL)
-                partitioner.setShellPartition(self.comm.size, sizes, points)
-            except TypeError:
-                pass
-            partitioner.setFromOptions()
-            plex.distribute(overlap=0)
-
-        dim = plex.getDimension()
-
-        # Allow empty local meshes on a process
-        cStart, cEnd = plex.getHeightStratum(0)  # cells
-        if cStart == cEnd:
-            nfacets = -1
-        else:
-            nfacets = plex.getConeSize(cStart)
-
-        # TODO: this needs to be updated for mixed-cell meshes.
-        nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(_cells[dim][nfacets])
 
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
@@ -445,56 +377,21 @@ class MeshTopology(object):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
-            if self.comm.size > 1:
-                add_overlap()
-
-            if reorder:
-                with timed_region("Mesh: reorder"):
-                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-                    reordering = np.empty_like(old_to_new)
-                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
-            else:
-                # No reordering
-                reordering = None
-            self._did_reordering = bool(reorder)
-
-            # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: numbering"):
-                dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
-                self._plex_renumbering = dmplex.plex_renumbering(self._plex,
-                                                                 self._entity_classes,
-                                                                 reordering)
-
-                # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-
-                entity_dofs[:] = 0
-                entity_dofs[-2] = 1
-                facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
-        self._callback = callback
-
     layers = None
     """No layers on unstructured mesh"""
 
     variable_layers = False
     """No variable layers on unstructured mesh"""
 
+    @property
+    def comm(self):
+        pass
+
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
 
-    @timed_function("CreateMesh")
+    @PETSc.Log.EventDecorator("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -512,106 +409,64 @@ class MeshTopology(object):
         This is to ensure consistent naming for some multigrid codes."""
         return self
 
-    def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
-        return self._ufl_cell
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
-    @utils.cached_property
+    def ufl_cell(self):
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This is true even for immersed manifold
+            meshes.
+
+        """
+        return self._ufl_mesh.ufl_cell()
+
+    def ufl_mesh(self):
+        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
+
+        .. note::
+
+            By convention, the UFL cells which specifically
+            represent a mesh topology have geometric dimension equal their
+            topological dimension. This convention will be reflected in this
+            UFL mesh and is true even for immersed manifold meshes.
+
+        """
+        return self._ufl_mesh
+
+    @property
+    @abc.abstractmethod
     def cell_closure(self):
         """2D array of ordered cell closures
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self._plex
-        dim = plex.getDimension()
+        pass
 
-        # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
-
-        cell = self.ufl_cell()
-        assert dim == cell.topological_dimension()
-        if cell.is_simplex():
-            import FIAT
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-
-            return dmplex.closure_ordering(plex, vertex_numbering,
-                                           cell_numbering, entity_per_cell)
-
-        elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
-            # Quadrilateral mesh
-            cell_ranks = dmplex.get_cell_remote_ranks(plex)
-
-            facet_orientations = dmplex.quadrilateral_facet_orientations(
-                plex, vertex_numbering, cell_ranks)
-
-            cell_orientations = dmplex.orientations_facet2cell(
-                plex, vertex_numbering, cell_ranks,
-                facet_orientations, cell_numbering)
-
-            dmplex.exchange_cell_orientations(plex,
-                                              cell_numbering,
-                                              cell_orientations)
-
-            return dmplex.quadrilateral_closure_ordering(
-                plex, vertex_numbering, cell_numbering, cell_orientations)
-
-        else:
-            raise NotImplementedError("Cell type '%s' not supported." % cell)
-
+    @abc.abstractmethod
     def _facets(self, kind):
-        if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+        pass
 
-        dm = self._plex
-        facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
-                                                     self._facet_ordering)
-        label = dmplex.FACE_SETS_LABEL
-        if dm.hasLabel(label):
-            from mpi4py import MPI
-            markers = dmplex.get_facet_markers(dm, facets)
-            local_markers = set(dm.getLabelIdIS(label).indices)
-
-            def merge_ids(x, y, datatype):
-                return x.union(y)
-
-            op = MPI.Op.Create(merge_ids, commute=True)
-
-            unique_markers = np.asarray(sorted(self.comm.allreduce(local_markers, op=op)),
-                                        dtype=IntType)
-            op.Free()
-        else:
-            markers = None
-            unique_markers = None
-
-        local_facet_number, facet_cell = \
-            dmplex.facet_numbering(dm, kind, facets,
-                                   self._cell_numbering,
-                                   self.cell_closure)
-
-        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
-        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
-        obj = _Facets(self, classes, kind,
-                      facet_cell, local_facet_number,
-                      markers, unique_markers=unique_markers)
-        obj.point2facetnumber = point2facetnumber
-        return obj
-
-    @utils.cached_property
+    @property
+    @abc.abstractmethod
     def exterior_facets(self):
-        return self._facets("exterior")
+        pass
 
-    @utils.cached_property
+    @property
+    @abc.abstractmethod
     def interior_facets(self):
-        return self._facets("interior")
+        pass
 
-    @utils.cached_property
+    @property
+    @abc.abstractmethod
     def cell_to_facets(self):
         """Returns a :class:`op2.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
@@ -622,15 +477,7 @@ class MeshTopology(object):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        cell_facets = dmplex.cell_facet_labeling(self._plex,
-                                                 self._cell_numbering,
-                                                 self.cell_closure)
-        if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
-        else:
-            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
-        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
-                       name="cell-to-local-facet-dat")
+        pass
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False):
         """Create a PETSc Section describing a function space.
@@ -638,7 +485,7 @@ class MeshTopology(object):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return dmplex.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
@@ -655,8 +502,8 @@ class MeshTopology(object):
         :arg entity_dofs: FInAT element entity DoFs
         :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmplex.get_cell_nodes(self, global_numbering,
-                                     entity_dofs, offsets)
+        return dmcommon.get_cell_nodes(self, global_numbering,
+                                       entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -681,29 +528,29 @@ class MeshTopology(object):
             raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
 
+    @abc.abstractmethod
     def num_cells(self):
-        cStart, cEnd = self._plex.getHeightStratum(0)
-        return cEnd - cStart
+        pass
 
+    @abc.abstractmethod
     def num_facets(self):
-        fStart, fEnd = self._plex.getHeightStratum(1)
-        return fEnd - fStart
+        pass
 
+    @abc.abstractmethod
     def num_faces(self):
-        fStart, fEnd = self._plex.getDepthStratum(2)
-        return fEnd - fStart
+        pass
 
+    @abc.abstractmethod
     def num_edges(self):
-        eStart, eEnd = self._plex.getDepthStratum(1)
-        return eEnd - eStart
+        pass
 
+    @abc.abstractmethod
     def num_vertices(self):
-        vStart, vEnd = self._plex.getDepthStratum(0)
-        return vEnd - vStart
+        pass
 
+    @abc.abstractmethod
     def num_entities(self, d):
-        eStart, eEnd = self._plex.getDepthStratum(d)
-        return eEnd - eStart
+        pass
 
     def size(self, d):
         return self.num_entities(d)
@@ -717,11 +564,12 @@ class MeshTopology(object):
         # Facets have co-dimension 1
         return self.ufl_cell().topological_dimension() - 1
 
-    @utils.cached_property
+    @property
+    @abc.abstractmethod
     def cell_set(self):
-        size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        pass
 
+    @PETSc.Log.EventDecorator()
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
 
@@ -751,19 +599,20 @@ class MeshTopology(object):
             return self._subsets[key]
         except KeyError:
             if subdomain_id == "otherwise":
-                ids = tuple(dmplex.get_cell_markers(self._plex,
-                                                    self._cell_numbering,
-                                                    sid)
+                ids = tuple(dmcommon.get_cell_markers(self.topology_dm,
+                                                      self._cell_numbering,
+                                                      sid)
                             for sid in all_integer_subdomain_ids)
                 to_remove = np.unique(np.concatenate(ids))
                 indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
-                indices = dmplex.get_cell_markers(self._plex,
-                                                  self._cell_numbering,
-                                                  subdomain_id)
+                indices = dmcommon.get_cell_markers(self.topology_dm,
+                                                    self._cell_numbering,
+                                                    subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
+    @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -800,9 +649,340 @@ class MeshTopology(object):
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
+class MeshTopology(AbstractMeshTopology):
+    """A representation of mesh topology implemented on a PETSc DMPlex."""
+
+    @PETSc.Log.EventDecorator("CreateMesh")
+    def __init__(self, plex, name, reorder, distribution_parameters):
+        """Half-initialise a mesh topology.
+
+        :arg plex: :class:`DMPlex` representing the mesh topology
+        :arg name: name of the mesh
+        :arg reorder: whether to reorder the mesh (bool)
+        :arg distribution_parameters: options controlling mesh
+            distribution, see :func:`Mesh` for details.
+        """
+
+        super().__init__(name)
+
+        # Do some validation of the input mesh
+        distribute = distribution_parameters.get("partition")
+        self._distribution_parameters = distribution_parameters.copy()
+        if distribute is None:
+            distribute = True
+        partitioner_type = distribution_parameters.get("partitioner_type")
+        overlap_type, overlap = distribution_parameters.get("overlap_type",
+                                                            (DistributedMeshOverlapType.FACET, 1))
+
+        if overlap < 0:
+            raise ValueError("Overlap depth must be >= 0")
+        if overlap_type == DistributedMeshOverlapType.NONE:
+            def add_overlap():
+                pass
+            if overlap > 0:
+                raise ValueError("Can't have NONE overlap with overlap > 0")
+        elif overlap_type == DistributedMeshOverlapType.FACET:
+            def add_overlap():
+                dmcommon.set_adjacency_callback(self.topology_dm)
+                self.topology_dm.distributeOverlap(overlap)
+                dmcommon.clear_adjacency_callback(self.topology_dm)
+                self._grown_halos = True
+        elif overlap_type == DistributedMeshOverlapType.VERTEX:
+            def add_overlap():
+                # Default is FEM (vertex star) adjacency.
+                self.topology_dm.distributeOverlap(overlap)
+                self._grown_halos = True
+        else:
+            raise ValueError("Unknown overlap type %r" % overlap_type)
+
+        dmcommon.validate_mesh(plex)
+        plex.setFromOptions()
+
+        self.topology_dm = plex
+        r"The PETSc DM representation of the mesh topology."
+        self._comm = dup_comm(plex.comm.tompi4py())
+
+        # Mark exterior and interior facets
+        # Note.  This must come before distribution, because otherwise
+        # DMPlex will consider facets on the domain boundary to be
+        # exterior, which is wrong.
+        label_boundary = (self.comm.size == 1) or distribute
+        dmcommon.label_facets(plex, label_boundary=label_boundary)
+
+        # Distribute/redistribute the dm to all ranks
+        if self.comm.size > 1 and distribute:
+            # We distribute with overlap zero, in case we're going to
+            # refine this mesh in parallel.  Later, when we actually use
+            # it, we grow the halo.
+            self.set_partitioner(distribute, partitioner_type)
+            plex.distribute(overlap=0)
+            # plex carries a new dm after distribute, which
+            # does not inherit partitioner from the old dm.
+            # It probably makes sense as chaco does not work
+            # once distributed.
+
+        tdim = plex.getDimension()
+
+        # Allow empty local meshes on a process
+        cStart, cEnd = plex.getHeightStratum(0)  # cells
+        if cStart == cEnd:
+            nfacets = -1
+        else:
+            nfacets = plex.getConeSize(cStart)
+
+        # TODO: this needs to be updated for mixed-cell meshes.
+        nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
+
+        # Note that the geometric dimension of the cell is not set here
+        # despite it being a property of a UFL cell. It will default to
+        # equal the topological dimension.
+        # Firedrake mesh topologies, by convention, which specifically
+        # represent a mesh topology (as here) have geometric dimension
+        # equal their topological dimension. This is reflected in the
+        # corresponding UFL mesh.
+        cell = ufl.Cell(_cells[tdim][nfacets])
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+
+        def callback(self):
+            """Finish initialisation."""
+            del self._callback
+            if self.comm.size > 1:
+                add_overlap()
+            dmcommon.complete_facet_labels(self.topology_dm)
+
+            if reorder:
+                with PETSc.Log.Event("Mesh: reorder"):
+                    old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    reordering = np.empty_like(old_to_new)
+                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+            else:
+                # No reordering
+                reordering = None
+            self._did_reordering = bool(reorder)
+
+            # Mark OP2 entities and derive the resulting Plex renumbering
+            with PETSc.Log.Event("Mesh: numbering"):
+                dmcommon.mark_entity_classes(self.topology_dm)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+                self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
+                                                                   self._entity_classes,
+                                                                   reordering)
+
+                # Derive a cell numbering from the Plex renumbering
+                entity_dofs = np.zeros(tdim+1, dtype=IntType)
+                entity_dofs[-1] = 1
+
+                self._cell_numbering = self.create_section(entity_dofs)
+                entity_dofs[:] = 0
+                entity_dofs[0] = 1
+                self._vertex_numbering = self.create_section(entity_dofs)
+
+                entity_dofs[:] = 0
+                entity_dofs[-2] = 1
+                facet_numbering = self.create_section(entity_dofs)
+                self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
+        self._callback = callback
+
+    @property
+    def comm(self):
+        return self._comm
+
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        plex = self.topology_dm
+        tdim = plex.getDimension()
+
+        # Cell numbering and global vertex numbering
+        cell_numbering = self._cell_numbering
+        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+
+        cell = self.ufl_cell()
+        assert tdim == cell.topological_dimension()
+        if cell.is_simplex():
+            import FIAT
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+
+            return dmcommon.closure_ordering(plex, vertex_numbering,
+                                             cell_numbering, entity_per_cell)
+
+        elif cell.cellname() == "quadrilateral":
+            from firedrake_citations import Citations
+            Citations().register("Homolya2016")
+            Citations().register("McRae2016")
+            # Quadrilateral mesh
+            cell_ranks = dmcommon.get_cell_remote_ranks(plex)
+
+            facet_orientations = dmcommon.quadrilateral_facet_orientations(
+                plex, vertex_numbering, cell_ranks)
+
+            cell_orientations = dmcommon.orientations_facet2cell(
+                plex, vertex_numbering, cell_ranks,
+                facet_orientations, cell_numbering)
+
+            dmcommon.exchange_cell_orientations(plex,
+                                                cell_numbering,
+                                                cell_orientations)
+
+            return dmcommon.quadrilateral_closure_ordering(
+                plex, vertex_numbering, cell_numbering, cell_orientations)
+
+        else:
+            raise NotImplementedError("Cell type '%s' not supported." % cell)
+
+    @PETSc.Log.EventDecorator()
+    def _facets(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
+
+        dm = self.topology_dm
+        facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets"),
+                                                       self._facet_ordering)
+        label = dmcommon.FACE_SETS_LABEL
+        if dm.hasLabel(label):
+            from mpi4py import MPI
+            markers = dmcommon.get_facet_markers(dm, facets)
+            local_markers = set(dm.getLabelIdIS(label).indices)
+
+            def merge_ids(x, y, datatype):
+                return x.union(y)
+
+            op = MPI.Op.Create(merge_ids, commute=True)
+
+            unique_markers = np.asarray(sorted(self.comm.allreduce(local_markers, op=op)),
+                                        dtype=IntType)
+            op.Free()
+        else:
+            markers = None
+            unique_markers = None
+
+        local_facet_number, facet_cell = \
+            dmcommon.facet_numbering(dm, kind, facets,
+                                     self._cell_numbering,
+                                     self.cell_closure)
+
+        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
+        obj = _Facets(self, classes, kind,
+                      facet_cell, local_facet_number,
+                      markers, unique_markers=unique_markers)
+        obj.point2facetnumber = point2facetnumber
+        return obj
+
+    @utils.cached_property
+    def exterior_facets(self):
+        return self._facets("exterior")
+
+    @utils.cached_property
+    def interior_facets(self):
+        return self._facets("interior")
+
+    @utils.cached_property
+    def cell_to_facets(self):
+        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        facet types on each cell, including the relevant subdomain markers.
+
+        The `i`-th local facet on a cell with index `c` has data
+        `cell_facet[c][i]`. The local facet is exterior if
+        `cell_facet[c][i][0] == 0`, and interior if the value is `1`.
+        The value `cell_facet[c][i][1]` returns the subdomain marker of the
+        facet.
+        """
+        cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
+                                                   self._cell_numbering,
+                                                   self.cell_closure)
+        if isinstance(self.cell_set, op2.ExtrudedSet):
+            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+        else:
+            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
+                       name="cell-to-local-facet-dat")
+
+    def num_cells(self):
+        cStart, cEnd = self.topology_dm.getHeightStratum(0)
+        return cEnd - cStart
+
+    def num_facets(self):
+        fStart, fEnd = self.topology_dm.getHeightStratum(1)
+        return fEnd - fStart
+
+    def num_faces(self):
+        fStart, fEnd = self.topology_dm.getDepthStratum(2)
+        return fEnd - fStart
+
+    def num_edges(self):
+        eStart, eEnd = self.topology_dm.getDepthStratum(1)
+        return eEnd - eStart
+
+    def num_vertices(self):
+        vStart, vEnd = self.topology_dm.getDepthStratum(0)
+        return vEnd - vStart
+
+    def num_entities(self, d):
+        eStart, eEnd = self.topology_dm.getDepthStratum(d)
+        return eEnd - eStart
+
+    @utils.cached_property
+    def cell_set(self):
+        size = list(self._entity_classes[self.cell_dimension(), :])
+        return op2.Set(size, "Cells", comm=self.comm)
+
+    @PETSc.Log.EventDecorator()
+    def set_partitioner(self, distribute, partitioner_type=None):
+        """Set partitioner for (re)distributing underlying plex over comm.
+
+        :arg distribute: Boolean or (sizes, points)-tuple.  If (sizes, point)-
+            tuple is given, it is used to set shell partition. If Boolean, no-op.
+        :kwarg partitioner_type: Partitioner to be used: "chaco", "ptscotch", "parmetis",
+            "shell", or `None` (unspecified). Ignored if the distribute parameter
+            specifies the distribution.
+        """
+        from firedrake_configuration import get_config
+        plex = self.topology_dm
+        partitioner = plex.getPartitioner()
+        if type(distribute) is bool:
+            if partitioner_type:
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
+                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
+                if partitioner_type == "chaco":
+                    if IntType.itemsize == 8:
+                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
+                                         "but your Integer is %d bit." % IntType.itemsize * 8)
+                if partitioner_type == "parmetis":
+                    if not get_config().get("options", {}).get("with_parmetis", False):
+                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
+                                         "installed with 'parmetis'.")
+            else:
+                if IntType.itemsize == 8:
+                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
+                    # Chaco does not work on distributed meshes.
+                    if get_config().get("options", {}).get("with_parmetis", False):
+                        partitioner_type = "parmetis"
+                    else:
+                        partitioner_type = "ptscotch"
+                else:
+                    partitioner_type = "chaco"
+            partitioner.setType({"chaco": partitioner.Type.CHACO,
+                                 "ptscotch": partitioner.Type.PTSCOTCH,
+                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+        else:
+            sizes, points = distribute
+            partitioner.setType(partitioner.Type.SHELL)
+            partitioner.setShellPartition(self.comm.size, sizes, points)
+        # Command line option `-petscpartitioner_type <type>` overrides.
+        partitioner.setFromOptions()
+
+
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, layers):
         """Build an extruded mesh topology from an input mesh topology
 
@@ -810,27 +990,35 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
+
+        # TODO: refactor to call super().__init__
+
         from firedrake_citations import Citations
         Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
+        if isinstance(mesh.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
+
         mesh.init()
         self._base_mesh = mesh
-        self.comm = mesh.comm
+        self._comm = mesh.comm
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self._plex = mesh._plex
+        self.topology_dm = mesh.topology_dm
+        r"The PETSc DM representation of the mesh topology."
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
-            extents = extnum.layer_extents(self._plex,
+            extents = extnum.layer_extents(self.topology_dm,
                                            self._cell_numbering,
                                            layers)
             if np.any(extents[:, 3] - extents[:, 2] <= 0):
@@ -849,10 +1037,14 @@ class ExtrudedMeshTopology(MeshTopology):
         self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @property
+    def comm(self):
+        return self._comm
+
+    @property
     def name(self):
         return self._base_mesh.name
 
-    @property
+    @utils.cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -896,6 +1088,7 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
@@ -913,6 +1106,7 @@ class ExtrudedMeshTopology(MeshTopology):
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
+    @PETSc.Log.EventDecorator()
     def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
@@ -980,6 +1174,165 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
+# TODO: Could this be merged with MeshTopology given that dmcommon.pyx
+# now covers DMSwarms and DMPlexes?
+class VertexOnlyMeshTopology(AbstractMeshTopology):
+    """
+    Representation of a vertex-only mesh topology immersed within
+    another mesh.
+    """
+
+    @PETSc.Log.EventDecorator()
+    def __init__(self, swarm, parentmesh, name, reorder):
+        """
+        Half-initialise a mesh topology.
+
+        :arg swarm: Particle In Cell (PIC) :class:`DMSwarm` representing
+            vertices immersed within a :class:`DMPlex` stored in the
+            `parentmesh`
+        :arg parentmesh: the mesh within which the vertex-only mesh
+            topology is immersed.
+        :arg name: name of the mesh
+        :arg reorder: whether to reorder the mesh (bool)
+        """
+
+        super().__init__(name)
+
+        # TODO: As a performance optimisation, we should renumber the
+        # swarm to in parent-cell order so that we traverse efficiently.
+        if reorder:
+            raise NotImplementedError("Mesh reordering not implemented for vertex only meshes yet.")
+
+        dmcommon.validate_mesh(swarm)
+        swarm.setFromOptions()
+
+        self._parent_mesh = parentmesh
+        self.topology_dm = swarm
+        r"The PETSc DM representation of the mesh topology."
+        self._comm = dup_comm(swarm.comm.tompi4py())
+
+        # A cache of shared function space data on this mesh
+        self._shared_data_cache = defaultdict(dict)
+
+        # Cell subsets for integration over subregions
+        self._subsets = {}
+
+        tdim = 0
+
+        cell = ufl.Cell("vertex")
+        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+
+        # Mark OP2 entities and derive the resulting Swarm numbering
+        with PETSc.Log.Event("Mesh: numbering"):
+            dmcommon.mark_entity_classes(self.topology_dm)
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+
+            # Derive a cell numbering from the Swarm numbering
+            entity_dofs = np.zeros(tdim+1, dtype=IntType)
+            entity_dofs[-1] = 1
+
+            self._cell_numbering = self.create_section(entity_dofs)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self.create_section(entity_dofs)
+
+    @property
+    def comm(self):
+        return self._comm
+
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        swarm = self.topology_dm
+        tdim = 0
+
+        # Cell numbering and global vertex numbering
+        cell_numbering = self._cell_numbering
+        vertex_numbering = self._vertex_numbering.createGlobalSection(swarm.getPointSF())
+
+        cell = self.ufl_cell()
+        assert tdim == cell.topological_dimension()
+        assert cell.is_simplex()
+
+        import FIAT
+        topology = FIAT.ufc_cell(cell).get_topology()
+        entity_per_cell = np.zeros(len(topology), dtype=IntType)
+        for d, ents in topology.items():
+            entity_per_cell[d] = len(ents)
+
+        return dmcommon.closure_ordering(swarm, vertex_numbering,
+                                         cell_numbering, entity_per_cell)
+
+    def _facets(self, kind):
+        """Raises an AttributeError since cells in a
+        `VertexOnlyMeshTopology` have no facets.
+        """
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
+        raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
+
+    @utils.cached_property
+    def exterior_facets(self):
+        return self._facets("exterior")
+
+    @utils.cached_property
+    def interior_facets(self):
+        return self._facets("interior")
+
+    @utils.cached_property
+    def cell_to_facets(self):
+        """Raises an AttributeError since cells in a
+        `VertexOnlyMeshTopology` have no facets.
+        """
+        raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
+
+    def num_cells(self):
+        return self.num_vertices()
+
+    def num_facets(self):
+        return 0
+
+    def num_faces(self):
+        return 0
+
+    def num_edges(self):
+        return 0
+
+    def num_vertices(self):
+        return self.topology_dm.getLocalSize()
+
+    def num_entities(self, d):
+        if d > 0:
+            return 0
+        else:
+            return self.num_vertices()
+
+    @utils.cached_property
+    def cell_set(self):
+        size = list(self._entity_classes[self.cell_dimension(), :])
+        return op2.Set(size, "Cells", comm=self.comm)
+
+    @property
+    def cell_parent_cell_list(self):
+        """Return a list of parent mesh cells numbers in vertex only
+        mesh cell order.
+        """
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        self.topology_dm.restoreField("parentcellnum")
+        return cell_parent_cell_list
+
+    @property
+    def cell_parent_cell_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh cells.
+        """
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_cell_list, "cell_parent_cell")
+
+
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
@@ -1005,6 +1358,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
+        self._geometric_shared_data_cache = defaultdict(dict)
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -1025,6 +1379,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
+
+    @property
+    def _topology_dm(self):
+        """Alias of topology_dm"""
+        from warnings import warn
+        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
+        return self.topology_dm
 
     @utils.cached_property
     @MeshGeometryMixin._ad_annotate_coordinates_function
@@ -1100,14 +1461,23 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V)
-        coords_max = function.Function(V)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
 
+        if utils.complex_mode:
+            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+                raise ValueError("Coordinate field has non-zero imaginary part")
+            coords = function.Function(self.coordinates.function_space(),
+                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+                                       dtype=RealType)
+        else:
+            coords = self.coordinates
+
         cell_node_list = self.coordinates.function_space().cell_node_list
-        nodes_per_cell = len(cell_node_list[0])
+        _, nodes_per_cell = cell_node_list.shape
 
         domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
         instructions = """
@@ -1117,7 +1487,7 @@ values from f.)"""
         end
         """
         par_loop((domain, instructions), ufl.dx,
-                 {'f': (self.coordinates, READ),
+                 {'f': (coords, READ),
                   'f_min': (coords_min, MIN),
                   'f_max': (coords_max, MAX)},
                  is_loopy_kernel=True)
@@ -1130,22 +1500,56 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None):
-        """Locate cell containg given point.
+        """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell.
-        :returns: cell number (int), or None (if the point is not in the domain)
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: cell number (int), or None (if the point is not
+            in the domain)
+        """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[0]
+
+    def locate_reference_coordinate(self, x, tolerance=None):
+        """Get reference coordinates of a given point in its cell. Which
+        cell the point is in can be queried with the locate_cell method.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: reference coordinates within cell (numpy array) or
+            None (if the point is not in the domain)
+        """
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[1]
+
+    def locate_cell_and_reference_coordinate(self, x, tolerance=None):
+        """Locate cell containing a given point and the reference
+        coordinates of the point within the cell.
+
+        :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell. Default
+            is None.
+        :returns: tuple either (cell number, reference coordinates)
+            (int, numpy array), or (None, None) (point is not in the domain)
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         x = np.asarray(x, dtype=utils.ScalarType)
+        if not np.allclose(x.imag, 0):
+            raise ValueError("Point coordinates must have zero imaginary part")
+        x = x.real.copy()
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
+        X = np.empty_like(x)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
-            return None
+            return (None, None)
         else:
-            return cell
+            return cell, X
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -1159,10 +1563,14 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x)
+    int locator(struct Function *f, double *x, double *X)
     {
         struct ReferenceCoords reference_coords;
-        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        for(int i=0; i<%(geometric_dimension)d; i++) {
+            X[i] = reference_coords.X[i];
+        }
+        return cell;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -1175,10 +1583,12 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double)]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
@@ -1219,13 +1629,16 @@ values from f.)"""
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
-        return getattr(self._topology, name)
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
 
+@PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
@@ -1248,10 +1661,12 @@ def make_mesh_from_coordinates(coordinates):
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh.__init__(coordinates)
+    # Mark mesh as being made from coordinates
+    mesh._made_from_coordinates = True
     return mesh
 
 
-@timed_function("CreateMesh")
+@PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1276,6 +1691,8 @@ def Mesh(meshfile, **kwargs):
                  the default choice), ``False`` (do not) ``True``
                  (do), or a 2-tuple that specifies a partitioning of
                  the cells (only really useful for debugging).
+             - ``"partitioner_type"``: which may take ``"chaco"``,
+                 ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
              - ``"overlap_type"``: a 2-tuple indicating how to grow
                  the mesh overlap.  The first entry should be a
                  :class:`DistributedMeshOverlapType` instance, the
@@ -1375,8 +1792,8 @@ def Mesh(meshfile, **kwargs):
         coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
                                                            dim=geometric_dim)
 
-        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
-                                                   (self.num_vertices(), geometric_dim))
+        coordinates_data = dmcommon.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
+                                                     (self.num_vertices(), geometric_dim))
 
         coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                       val=coordinates_data,
@@ -1388,7 +1805,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@timed_function("CreateExtMesh")
+@PETSc.Log.EventDecorator("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
     """Build an extruded mesh from an input mesh
 
@@ -1400,8 +1817,10 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                          ``[a, b]`` where ``a`` indicates the starting
                          cell layer of the column and ``b`` the number
                          of cell layers in that column.
-    :arg layer_height:   the layer height, assuming all layers are evenly
-                         spaced. If this is omitted, the value defaults to
+    :arg layer_height:   the layer height.  A scalar value will result in
+                         evenly-spaced layers, whereas an array of values
+                         will vary the layer height through the extrusion.
+                         If this is omitted, the value defaults to
                          1/layers (i.e. the extruded mesh has total height 1.0)
                          unless a custom kernel is used.  Must be
                          provided if using a variable number of layers.
@@ -1451,14 +1870,30 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                              mesh.cell_set.total_size, layers.shape)
         if layer_height is None:
             raise ValueError("Must provide layer height for variable layers")
+
+        # variable-height layers need to be present for the maximum number
+        # of extruded layers
+        num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
+        num_layers = mesh.comm.allreduce(num_layers, op=MPI.MAX)
+
         # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
+
     else:
         if layer_height is None:
             # Default to unit
             layer_height = 1 / layers
+
+        num_layers = layers
+
         # All internal logic works with layers of base mesh (not layers of cells)
         layers = layers + 1
+
+    try:
+        assert num_layers == len(layer_height)
+    except TypeError:
+        # layer_height is a scalar; equi-distant layers are fine
+        pass
 
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 
@@ -1505,11 +1940,205 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     return self
 
 
+@PETSc.Log.EventDecorator()
+def VertexOnlyMesh(mesh, vertexcoords):
+    """
+    Create a vertex only mesh, immersed in a given mesh, with vertices
+    defined by a list of coordinates.
+
+    :arg mesh: The unstructured mesh in which to immerse the vertex only
+        mesh.
+    :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+
+    .. note::
+
+        The vertex only mesh uses the same communicator as the input `mesh`.
+
+    .. note::
+
+        Meshes created from a coordinates `firedrake.Function` and immersed
+        manifold meshes are not yet supported.
+    """
+
+    import firedrake.functionspace as functionspace
+    import firedrake.function as function
+
+    mesh.init()
+
+    vertexcoords = np.asarray(vertexcoords, dtype=np.double)
+    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension()
+    _, pdim = vertexcoords.shape
+
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Extruded meshes are not supported")
+
+    if gdim != tdim:
+        raise NotImplementedError("Immersed manifold meshes are not supported")
+
+    # TODO Some better method of matching points to cells will need to
+    # be used for bendy meshes since our PETSc DMPlex implementation
+    # only supports straight-edged mesh topologies and meshes made from
+    # coordinate fields.
+    # We can hopefully update the coordinates field correctly so that
+    # the DMSwarm PIC can immerse itself in the DMPlex.
+    # We can also hopefully provide a callback for PETSc to use to find
+    # the parent cell id. We would add `DMLocatePoints` as an `op` to
+    # `DMShell` types and do `DMSwarmSetCellDM(yourdmshell)` which has
+    # `DMLocatePoints_Shell` implemented.
+    # Whether one or both of these is needed is unclear.
+
+    if mesh.coordinates.function_space().ufl_element().degree() > 1:
+        raise NotImplementedError("Only straight edged meshes are supported")
+
+    if hasattr(mesh, "_made_from_coordinates") and mesh._made_from_coordinates:
+        raise NotImplementedError("Meshes made from coordinate fields are not yet supported")
+
+    if pdim != gdim:
+        raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
+
+    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+
+    dmcommon.label_pic_parent_cell_info(swarm, mesh)
+
+    # Topology
+    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
+
+    # Geometry
+    tcell = topology.ufl_cell()
+    cell = tcell.reconstruct(geometric_dimension=gdim)
+    element = ufl.VectorElement("DG", cell, 0)
+    # Create mesh object
+    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh._topology = topology
+    vmesh._parent_mesh = mesh
+
+    # Finish the initialisation of mesh topology
+    vmesh.topology.init()
+
+    # Initialise mesh geometry
+    coordinates_fs = functionspace.VectorFunctionSpace(vmesh.topology, "DG", 0,
+                                                       dim=gdim)
+
+    coordinates_data = dmcommon.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
+                                                 (vmesh.num_vertices(), gdim))
+
+    coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                  val=coordinates_data,
+                                                  name="Coordinates")
+
+    vmesh.__init__(coordinates)
+
+    # Save vertex reference coordinate (within reference cell) in function
+    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
+    vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+
+    return vmesh
+
+
+def _pic_swarm_in_plex(plex, coords, fields=[]):
+    """
+    Create a Particle In Cell (PIC) DMSwarm, immersed in a DMPlex
+    at given point coordinates.
+
+    This should only by used for dmplexes associated with meshes with
+    straight edges. If not, the particles may be placed in the wrong
+    cells.
+
+    :arg plex: the DMPlex within with the DMSwarm should be
+        immersed.
+    :arg coords: an `ndarray` of (npoints, coordsdim) shape.
+    :kwarg fields: An optional list of named data which can be stored
+        for each point in the DMSwarm. The format should be::
+
+        [(fieldname1, blocksize1, dtype1),
+          ...,
+         (fieldnameN, blocksizeN, dtypeN)]
+
+        For example, the swarm coordinates themselves are stored in a
+        field named `DMSwarmPIC_coor` which, were it not created
+        automatically, would be initialised with
+        ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
+        All fields must have the same number of points. For more
+        information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
+    :return: the immersed DMSwarm
+
+    .. note::
+
+        The created DMSwarm uses the communicator of the input DMPlex.
+
+    .. note::
+
+        In complex mode the "DMSwarmPIC_coor" field is still saved as a
+        real number unlike the coordinates of a DMPlex which become
+        complex (though usually with zeroed imaginary parts).
+    """
+
+    # Check coords
+    coords = np.asarray(coords, dtype=RealType)
+    npoints, coordsdim = coords.shape
+    if coordsdim == 1:
+        raise NotImplementedError("You can't yet use a 1D DMPlex as DMSwarm cellDM.")
+
+    # Create a DMSWARM
+    swarm = PETSc.DMSwarm().create(comm=plex.comm)
+
+    # Set swarm DM dimension to match DMPlex dimension
+    # NB: Unlike a DMPlex, this does not correspond to the topological
+    #     dimension of a mesh (which would be 0). In all PETSc examples
+    #     the dimension of the DMSwarm is set to match that of the
+    #     DMPlex used with swarm.setCellDM
+    swarm.setDimension(plex.getDimension())
+
+    # Set coordinates dimension
+    swarm.setCoordinateDim(coordsdim)
+
+    # Link to DMPlex cells information for when swarm.migrate() is used
+    swarm.setCellDM(plex)
+
+    # Set to Particle In Cell (PIC) type
+    swarm.setType(PETSc.DMSwarm.Type.PIC)
+
+    # Register any fields
+    for name, size, dtype in fields:
+        swarm.registerField(name, size, dtype=dtype)
+    swarm.finalizeFieldRegister()
+
+    # Note that no new fields can now be associated with the DMSWARM.
+
+    # Add point coordinates - note we set redundant mode to False
+    # because we allow different MPI ranks to be given the overlapping
+    # lists of coordinates. The cell DM (`plex`) will then attempt to
+    # locate the coordinates within its rank-local sub domain and
+    # disregard those which are outside it. See https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSwarmSetPointCoordinates.html
+    # for more information. The result is that all DMPlex cells,
+    # including ghost cells on distributed meshes, have the relevent PIC
+    # coordinates associated with them. The DMPlex cell id associated
+    # with each PIC in the DMSwarm is accessed with the `DMSwarm_cellid`
+    # field.
+    swarm.setPointCoordinates(coords, redundant=False, mode=PETSc.InsertMode.INSERT_VALUES)
+
+    # Remove PICs which have been placed into ghost cells of a distributed DMPlex
+    dmcommon.remove_ghosts_pic(swarm, plex)
+
+    # Set the `SF` graph to advertises no shared points (since the halo
+    # is now empty) by setting the leaves to an empty list
+    sf = swarm.getPointSF()
+    nroots = swarm.getLocalSize()
+    sf.setGraph(nroots, None, [])
+    swarm.setPointSF(sf)
+
+    return swarm
+
+
+@PETSc.Log.EventDecorator()
 def SubDomainData(geometric_expr):
     """Creates a subdomain data object from a boolean-valued UFL expression.
 
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
+
+    .. code-block:: python3
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)

@@ -1,21 +1,19 @@
 import numpy as np
-import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize("method", ["topological", "geometric"])
-def test_extrusion_strong_bcs_caching(extmesh, method):
+def test_extrusion_strong_bcs_caching(extmesh):
     m = extmesh(1, 1, 1)
 
     V = FunctionSpace(m, "CG", 1)
 
-    bc1 = DirichletBC(V, 0, "bottom", method)
-    bc2 = DirichletBC(V, 1, "top", method)
+    bc1 = DirichletBC(V, 0, "bottom")
+    bc2 = DirichletBC(V, 1, "top")
 
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    a = u*v*dx
+    a = inner(u, v)*dx
 
     Aboth = assemble(a, bcs=[bc1, bc2])
     Aneither = assemble(a)

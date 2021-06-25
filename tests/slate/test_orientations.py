@@ -19,12 +19,12 @@ def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     f = Function(FunctionSpace(mesh, "DG", 0))
     f.interpolate(2*x + 2*y + 2*z)
 
-    mass = f*dot(sigma, tau)*dx
-    flux_dS = jump(f*tau, n=n)*dS
-    flux_ds = f*dot(tau, n)*ds
+    mass = f*inner(sigma, tau)*dx
+    flux_dS = jump(f*conj(tau), n=n)*dS
+    flux_ds = f*inner(n, tau)*ds
 
     A = assemble(Tensor(mass))
-    B = assemble(Tensor(dot(f*tau, n)*dS))
+    B = assemble(Tensor(dot(f*conj(tau), n)*dS))
     C = assemble(Tensor(flux_ds))
 
     refA = assemble(mass)

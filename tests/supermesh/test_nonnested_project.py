@@ -1,7 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from itertools import product
 import weakref
 

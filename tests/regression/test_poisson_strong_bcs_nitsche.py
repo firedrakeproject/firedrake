@@ -42,11 +42,11 @@ def run_test(x, degree, quadrilateral=False):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(v), grad(u)) * dx
+    a = inner(grad(u), grad(v)) * dx
 
     f = Function(V)
     f.assign(0)
-    L = v*f*dx
+    L = inner(f, v) * dx
 
     # This value of the stabilisation parameter gets us about 4 sf
     # accuracy.
@@ -58,7 +58,7 @@ def run_test(x, degree, quadrilateral=False):
     B = a - \
         inner(dot(grad(u), n), v)*(ds(3) + ds(4)) - \
         inner(u, dot(grad(v), n))*(ds(3) + ds(4)) + \
-        (1.0/(h*gamma))*u*v*(ds(3) + ds(4))
+        (1.0/(h*gamma))*inner(u, v)*(ds(3) + ds(4))
 
     u_0 = Function(V)
     u_0.assign(0)
@@ -66,10 +66,10 @@ def run_test(x, degree, quadrilateral=False):
     u_1.assign(42)
 
     F = L - \
-        inner(u_0, dot(grad(v), n))*ds(3) - \
-        inner(u_1, dot(grad(v), n))*ds(4) + \
-        (1.0/(h*gamma))*u_0*v*ds(3) + \
-        (1.0/(h*gamma))*u_1*v*ds(4)
+        inner(u_0, dot(grad(v), n)) * ds(3) - \
+        inner(u_1, dot(grad(v), n)) * ds(4) + \
+        (1.0/(h*gamma))*inner(u_0, v) * ds(3) + \
+        (1.0/(h*gamma))*inner(u_1, v) * ds(4)
 
     u = Function(V)
     solve(B == F, u)
@@ -77,7 +77,7 @@ def run_test(x, degree, quadrilateral=False):
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate(42*x[1])
-    return sqrt(assemble(dot(u - f, u - f)*dx))
+    return sqrt(assemble(inner(u - f, u - f)*dx))
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])

@@ -25,11 +25,11 @@ def integrate_rhs(family, degree):
 
     domain = ""
     instructions = """
-    x[0,0] = (c[1,2] + c[0,2]) / 2
+    x[0,0] = 0.5 * (c[1,2] + c[0,2])
     """
 
     par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
-             is_loopy_kernel=True)
+             is_loopy_kernel=True, kernel_kwargs={"requires_zeroed_output_arguments": True})
 
     g = assemble(f * dx)
 
@@ -39,4 +39,4 @@ def integrate_rhs(family, degree):
 def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-    assert integrate_rhs(family, degree) < 5.0e-13
+    assert integrate_rhs(family, degree) < 2.0e-12

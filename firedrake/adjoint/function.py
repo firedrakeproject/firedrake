@@ -1,7 +1,8 @@
+from functools import wraps
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 
 
@@ -9,6 +10,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_init(init):
+        @wraps(init)
         def wrapper(self, *args, **kwargs):
             FloatingType.__init__(self, *args,
                                   block_class=kwargs.pop("block_class", None),
@@ -22,21 +24,25 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_project(project):
-
+        @wraps(project)
         def wrapper(self, b, *args, **kwargs):
 
             annotate = annotate_tape(kwargs)
+
+            if annotate:
+                bcs = kwargs.get("bcs", [])
+                if isinstance(b, firedrake.Function) and b.ufl_domain() != self.function_space().mesh():
+                    block = SupermeshProjectBlock(b, self.function_space(), self, bcs)
+                else:
+                    block = ProjectBlock(b, self.function_space(), self, bcs)
+
+                tape = get_working_tape()
+                tape.add_block(block)
 
             with stop_annotating():
                 output = project(self, b, *args, **kwargs)
 
             if annotate:
-                bcs = kwargs.pop("bcs", [])
-                block = ProjectBlock(b, self.function_space(), output, bcs)
-
-                tape = get_working_tape()
-                tape.add_block(block)
-
                 block.add_output(output.create_block_variable())
 
             return output
@@ -44,18 +50,28 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_split(split):
-
+        @wraps(split)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
-            if annotate:
-                raise NotImplementedError("Function.split has no adjoint implementation yet")
-            return split(self, *args, **kwargs)
+            with stop_annotating():
+                output = split(self, *args, **kwargs)
 
+            if annotate:
+                output = tuple(firedrake.Function(output[i].function_space(),
+                                                  output[i],
+                                                  block_class=FunctionSplitBlock,
+                                                  _ad_floating_active=True,
+                                                  _ad_args=[self, i],
+                                                  _ad_output_args=[i],
+                                                  output_block_class=FunctionMergeBlock,
+                                                  _ad_outputs=[self])
+                               for i in range(len(output)))
+            return output
         return wrapper
 
     @staticmethod
     def _ad_annotate_copy(copy):
-
+        @wraps(copy)
         def wrapper(self, *args, **kwargs):
             annotate = annotate_tape(kwargs)
             func = copy(self, *args, **kwargs)
@@ -76,7 +92,7 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_assign(assign):
-
+        @wraps(assign)
         def wrapper(self, other, *args, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""
@@ -98,6 +114,74 @@ class FunctionMixin(FloatingType):
                 block.add_output(self.create_block_variable())
 
             return ret
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_iadd(__iadd__):
+        @wraps(__iadd__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __iadd__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self + other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_isub(__isub__):
+        @wraps(__isub__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __isub__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self - other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_imul(__imul__):
+        @wraps(__imul__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __imul__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self*other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_idiv(__idiv__):
+        @wraps(__idiv__)
+        def wrapper(self, other, **kwargs):
+            annotate = annotate_tape(kwargs)
+            func = __idiv__(self, other, **kwargs)
+
+            if annotate:
+                block = FunctionAssignBlock(func, self/other)
+                tape = get_working_tape()
+                tape.add_block(block)
+                block.add_output(func.create_block_variable())
+
+            return func
 
         return wrapper
 
@@ -140,10 +224,6 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint
-
-    @no_annotations
-    def adj_update_value(self, value):
-        self.original_block_variable.checkpoint = value._ad_create_checkpoint()
 
     @no_annotations
     def _ad_mul(self, other):

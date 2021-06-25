@@ -18,12 +18,6 @@ class Op(IntEnum):
     INJECT = 2
 
 
-def is_native(element):
-    if isinstance(element.cell(), ufl.TensorProductCell):
-        return reduce(and_, map(is_native, element.sub_elements()))
-    return element.family() in native
-
-
 class TransferManager(object):
     class Cache(object):
         """A caching object for work vectors and matrices.
@@ -34,8 +28,11 @@ class TransferManager(object):
             degree = element.degree()
             family = lambda c: "DG" if c.is_simplex() else "DQ"
             if isinstance(cell, ufl.TensorProductCell):
-                scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
-                                                            for (c, d) in zip(cell.sub_cells(), degree)))
+                if type(degree) is int:
+                    scalar_element = ufl.FiniteElement("DQ", cell=cell, degree=degree)
+                else:
+                    scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
+                                                                for (c, d) in zip(cell.sub_cells(), degree)))
             else:
                 scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
             shape = element.value_shape()
@@ -71,11 +68,18 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
+    def is_native(self, element):
+        if element in self.native_transfers.keys():
+            return True
+        if isinstance(element.cell(), ufl.TensorProductCell) and len(element.sub_elements()) > 0:
+            return reduce(and_, map(self.is_native, element.sub_elements()))
+        return element.family() in native
+
     def _native_transfer(self, element, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if is_native(element):
+            if self.is_native(element):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
@@ -123,8 +127,8 @@ class TransferManager(object):
         try:
             return cache._V_DG_mass[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
-                                                   firedrake.TrialFunction(V))*firedrake.dx)
+            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
+                                                   firedrake.TestFunction(DG))*firedrake.dx)
             return cache._V_DG_mass.setdefault(key, M.petscmat)
 
     def DG_inv_mass(self, DG):
@@ -138,8 +142,8 @@ class TransferManager(object):
         try:
             return cache._DG_inv_mass[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TestFunction(DG),
-                                                                    firedrake.TrialFunction(DG))*firedrake.dx).inv)
+            M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                                    firedrake.TestFunction(DG))*firedrake.dx).inv)
             return cache._DG_inv_mass.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass(self, V, DG):
@@ -154,10 +158,10 @@ class TransferManager(object):
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
-            a = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
-                                                 firedrake.TrialFunction(V))*firedrake.dx)
-            b = firedrake.Tensor(firedrake.inner(firedrake.TestFunction(V),
-                                                 firedrake.TrialFunction(DG))*firedrake.dx)
+            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
+                                                 firedrake.TestFunction(V))*firedrake.dx)
+            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                 firedrake.TestFunction(V))*firedrake.dx)
             M = firedrake.assemble(a.inv * b)
             return cache._V_approx_inv_mass.setdefault(key, M.petscmat)
 
@@ -172,8 +176,8 @@ class TransferManager(object):
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(V),
-                                                   firedrake.TrialFunction(V))*firedrake.dx)
+            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
+                                                   firedrake.TestFunction(V))*firedrake.dx)
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
@@ -208,6 +212,7 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
+    @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
@@ -220,7 +225,7 @@ class TransferManager(object):
 
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if is_native(source_element) and is_native(target_element):
+        if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, transfer_op)(source, target)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
@@ -282,7 +287,7 @@ class TransferManager(object):
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
-        if is_native(source_element) and is_native(target_element):
+        if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement

@@ -41,8 +41,10 @@ Features:
 
   .. container:: youtube
 
-    .. youtube:: xhxvM1N8mDQ?modestbranding=1;controls=0;rel=0
-       :width: 400px
+    .. youtube:: K6ggbbfVWpc?modestbranding=1;controls=0;rel=0
+       :width: 450px
+
+    River plume simulated with the Firedrake-based `Thetis ocean model <https://thetisproject.org>`_.
 
 .. only:: latex
 

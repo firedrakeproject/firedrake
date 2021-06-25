@@ -1,6 +1,6 @@
 from firedrake import *
 import numpy
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 
 def test_steady_advection_variable_layers():
@@ -32,18 +32,18 @@ def test_steady_advection_variable_layers():
 
     selector = interpolate(
         conditional(
-            Or(x < 0.1,
-               x > 0.9),
+            Or(real(x) < 0.1,
+               real(x) > 0.9),
             4,
-            conditional(Or(And(x > 0.1, x < 0.2),
-                           And(x > 0.8, x < 0.9)),
+            conditional(Or(And(real(x) > 0.1, real(x) < 0.2),
+                           And(real(x) > 0.8, real(x) < 0.9)),
                         3, 2)),
         V)
 
     layers = numpy.empty((10, 2), dtype=IntType)
 
     layers[:, 0] = 0
-    layers[:, 1] = selector.dat.data_ro
+    layers[:, 1] = selector.dat.data_ro.real
 
     extmesh = ExtrudedMesh(mesh, layers=layers,
                            layer_height=0.25)
@@ -71,7 +71,7 @@ def test_steady_advection_variable_layers():
     u0 = project(velocity, W)
 
     x, y = SpatialCoordinate(extmesh)
-    inflow = conditional(And(y > 0.25, y < 0.75),
+    inflow = conditional(And(real(y) > 0.25, real(y) < 0.75),
                          1.0,
                          0.5)
 
@@ -82,24 +82,24 @@ def test_steady_advection_variable_layers():
     D = TrialFunction(DG0)
     phi = TestFunction(DG0)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
-    a3 = phi*un*D*ds_v(2)  # outflow at right-hand wall
-    a4 = phi*un*D*ds_t     # outflow on top boundary
+    a1 = -inner(D, dot(u0, grad(phi)))*dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi))*dS_v
+    a3 = inner(D*un, phi)*ds_v(2)  # outflow at right-hand wall
+    a4 = inner(un*D, phi)*ds_t     # outflow on top boundary
     a = a1 + a2 + a3 + a4
 
-    L = -inflow*phi*dot(u0, n)*ds_v(1)  # inflow at left-hand wall
+    L = -inner(inflow*dot(u0, n), phi)*ds_v(1)  # inflow at left-hand wall
 
     out = Function(DG0)
     solve(a == L, out)
 
-    expected = interpolate(conditional(x > 0.5,
-                                       conditional(y < 0.25,
+    expected = interpolate(conditional(real(x) > 0.5,
+                                       conditional(real(y) < 0.25,
                                                    0.5,
-                                                   conditional(y < 0.5,
+                                                   conditional(real(y) < 0.5,
                                                                1.0,
                                                                0.0)),
-                                       conditional(And(y > 0.25, y < 0.75),
+                                       conditional(And(real(y) > 0.25, real(y) < 0.75),
                                                    1.0,
                                                    0.5)),
                            DG0)

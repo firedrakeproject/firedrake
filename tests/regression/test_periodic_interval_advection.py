@@ -50,7 +50,7 @@ def run_test(degree):
 
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True)
+        mass_inv = assemble(Tensor(a_mass).inv)
         mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):
@@ -81,6 +81,7 @@ def run_test(degree):
     return np.asarray(l2error)
 
 
+@pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
@@ -88,6 +89,7 @@ def test_periodic_1d_advection(degree, threshold):
     assert np.all(convergence > threshold)
 
 
+@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=2)
 def test_periodic_1d_advection_parallel(degree, threshold):
     l2error = run_test(degree)

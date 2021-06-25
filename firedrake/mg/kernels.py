@@ -2,7 +2,7 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from pyop2.datatypes import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType_c, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
 from firedrake.mg import utils
@@ -29,7 +29,6 @@ from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
-from firedrake.utils import ScalarType_c
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -59,8 +58,9 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     evaluate_template_c = """#include <math.h>
 #include <stdio.h>
+#include <petsc.h>
 
-static inline void to_reference_coords_kernel(double *X, const double *x0, const double *C)
+static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
 
@@ -102,7 +102,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         _.update(parameters)
         parameters = _
 
-    expression = tsfc.ufl_utils.preprocess_expression(expression)
+    expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
 
     # # Collect required coefficients
 
@@ -137,14 +137,14 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  precision=parameters["precision"],
                   point_indices=(),
                   point_expr=point,
-                  argument_multiindices=argument_multiindices)
+                  argument_multiindices=argument_multiindices,
+                  scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression)
+    expression = tsfc.ufl_utils.simplify_abs(expression, complex_mode)
 
     # Translate UFL -> GEM
     if coefficient:
@@ -191,7 +191,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, {}, ScalarType)
 
     # Build kernel tuple
     kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
@@ -200,11 +200,18 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 
 def prolong_kernel(expression):
+    meshc = expression.ufl_domain()
     hierarchy, level = utils.get_level(expression.ufl_domain())
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
-    key = (("prolong", )
+    if meshc.cell_set._extruded:
+        idx = levelf * hierarchy.refinements_per_level
+        assert idx == int(idx)
+        level_ratio = (hierarchy._meshes[int(idx)].layers - 1) // (meshc.layers - 1)
+    else:
+        level_ratio = 1
+    key = (("prolong", level_ratio)
            + expression.ufl_element().value_shape()
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -220,18 +227,18 @@ def prolong_kernel(expression):
 
         args = eval_args[-1].gencode(not_scope=True)
         R, coarse = (a.sym.symbol for a in eval_args)
-        my_kernel = """
+        my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(double *R, %(args)s, const double *X, const double *Xc)
+        static void pyop2_kernel_prolong(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
@@ -261,7 +268,7 @@ def prolong_kernel(expression):
                     abort();
                 }
             }
-            const double *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 %(R)s[i] = 0;
             }
@@ -273,7 +280,7 @@ def prolong_kernel(expression):
                "R": R,
                "spacedim": element.cell.get_spatial_dimension(),
                "coarse": coarse,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
@@ -289,7 +296,12 @@ def restrict_kernel(Vf, Vc):
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
-    key = (("restrict", )
+    if Vf.extruded:
+        assert Vc.extruded
+        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    key = (("restrict", level_ratio)
            + Vf.ufl_element().value_shape()
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -305,19 +317,19 @@ def restrict_kernel(Vf, Vc):
         eval_args = evaluate_kernel.args[:-1]
         args = eval_args[-1].gencode(not_scope=True)
         R, fine = (a.sym.symbol for a in eval_args)
-        my_kernel = """
+        my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(double *R, %(args)s, const double *X, const double *Xc)
+        static void pyop2_kernel_restrict(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xci = Xc + i*%(Xc_cell_inc)d;
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
@@ -350,13 +362,13 @@ def restrict_kernel(Vf, Vc):
             }
 
             {
-            const double *Ri = %(R)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *Ri = %(R)s + cell*%(coarse_cell_inc)d;
             pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
             }
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -374,7 +386,12 @@ def inject_kernel(Vf, Vc):
     hierarchy, level = utils.get_level(Vc.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vf.ufl_domain().coordinates
-    key = (("inject", )
+    if Vf.extruded:
+        assert Vc.extruded
+        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    key = (("inject", level_ratio)
            + Vf.ufl_element().value_shape()
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -383,7 +400,7 @@ def inject_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
@@ -397,14 +414,14 @@ def inject_kernel(Vf, Vc):
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_inject(double *R, const double *X, const double *f, const double *Xf)
+        static void pyop2_kernel_inject(PetscScalar *R, const PetscScalar *X, const PetscScalar *f, const PetscScalar *Xf)
         {
-            double Xref[%(tdim)d];
+            PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
-                const double *Xfi = Xf + i*%(Xf_cell_inc)d;
+                const PetscScalar *Xfi = Xf + i*%(Xf_cell_inc)d;
                 double celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xfi);
                 if (%(inside_cell)s) {
@@ -433,7 +450,7 @@ def inject_kernel(Vf, Vc):
                     abort();
                 }
             }
-            const double *fi = f + cell*%(f_cell_inc)d;
+            const PetscScalar *fi = f + cell*%(f_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
@@ -501,6 +518,8 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
+    if complex_mode:
+        raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
@@ -513,17 +532,19 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     precision=parameters["precision"],
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
-                     quadrature_rule=macro_quadrature_rule)
+                     quadrature_rule=macro_quadrature_rule,
+                     scalar_type=parameters["scalar_type"])
 
-    fexpr, = fem.compile_ufl(f, **macro_cfg)
+    macro_context = fem.PointSetContext(**macro_cfg)
+    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
-    C_a, = fem.compile_ufl(X, **macro_cfg)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())))
-    macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
+    C_a, = fem.compile_ufl(X, macro_context)
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
+                                           complex_mode=complex_mode)
+    macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
     Vce = create_element(Vc.ufl_element())
 
@@ -539,16 +560,18 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
-                      quadrature_rule=quadrature_rule)
+                      quadrature_rule=quadrature_rule,
+                      scalar_type=parameters["scalar_type"])
 
     X = ufl.SpatialCoordinate(Vc.mesh())
-    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()))
-    C_0, = fem.compile_ufl(X, **coarse_cfg)
-    K, = fem.compile_ufl(K, **coarse_cfg)
+    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
+                                        complex_mode=complex_mode)
+    coarse_context = fem.PointSetContext(**coarse_cfg)
+    C_0, = fem.compile_ufl(X, coarse_context)
+    K, = fem.compile_ufl(K, coarse_context)
 
     i = gem.Index()
     j = gem.Index()
@@ -609,11 +632,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ScalarType_c)
+    body = generate_coffee(impero_c, index_names, ScalarType)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     local_tensor = coarse_builder.local_tensor
-    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType_c))
+    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
                                                    coarse_builder.coordinates_arg]
@@ -624,7 +647,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
     expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
-    Ainv, = compile_expression(expr)
+    Ainv, = compile_expression(expr, coffee=True)
     Ainv = Ainv.kinfo.kernel
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")

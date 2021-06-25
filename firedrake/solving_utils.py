@@ -1,13 +1,16 @@
+import functools
+from itertools import chain
+
 import numpy
 
-import itertools
-
 from pyop2 import op2
+from firedrake_configuration import get_config
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
+from firedrake.logging import warning
 
 
 def _make_reasons(reasons):
@@ -19,6 +22,101 @@ KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
 
 
 SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+
+
+if get_config()["options"]["petsc_int_type"] == "int32":
+    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
+                              "ksp_type": "preonly",
+                              "ksp_rtol": 1e-7,
+                              "pc_type": "lu",
+                              "pc_factor_mat_solver_type": "mumps",
+                              "mat_mumps_icntl_14": 200}
+else:
+    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
+                              "ksp_type": "preonly",
+                              "ksp_rtol": 1e-7,
+                              "pc_type": "lu",
+                              "pc_factor_mat_solver_type": "superlu_dist"}
+
+
+def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults={}):
+    """Set defaults for solver parameters.
+
+    :arg solver_parameters: dict of user solver parameters to override/extend defaults
+    :arg arguments: arguments for the bilinear form (need to know if we have a Real block).
+    :arg ksp_defaults: Default KSP parameters.
+    :arg snes_defaults: Default SNES parameters."""
+    if solver_parameters:
+        # User configured something, try and set sensible direct solve
+        # defaults for missing bits.
+        parameters = solver_parameters.copy()
+        for k, v in snes_defaults.items():
+            parameters.setdefault(k, v)
+        keys = frozenset(parameters.keys())
+        ksp_defaults = ksp_defaults.copy()
+        skip = set()
+        if "pc_type" in keys:
+            skip.update({"pc_factor_mat_solver_type", "mat_mumps_icntl_14",
+                         # Might reasonably expect to get petsc default
+                         "ksp_type"})
+        if parameters.get("mat_type") in {"matfree", "nest"}:
+            # Non-LU defaults.
+            ksp_defaults["ksp_type"] = "gmres"
+            ksp_defaults["pc_type"] = "jacobi"
+        for k, v in ksp_defaults.items():
+            if k not in skip:
+                parameters.setdefault(k, v)
+        return parameters
+
+    # OK, we're in full defaults mode now.
+    parameters = dict(chain.from_iterable(
+        d.items() for d in (ksp_defaults, snes_defaults)))
+
+    if any(V.ufl_element().family() == "Real"
+           for a in arguments for V in a.function_space()):
+        test, trial = arguments
+        if test.function_space() != trial.function_space():
+            # Don't know what to do here. How did it happen?
+            raise ValueError("Can't generate defaults for non-square problems with real blocks")
+
+        fields = []
+        reals = []
+        for i, V_ in enumerate(test.function_space()):
+            if V_.ufl_element().family() == "Real":
+                reals.append(i)
+            else:
+                fields.append(i)
+        if len(fields) == 0:
+            # Just reals, GMRES
+            opts = {"ksp_type": "gmres",
+                    "pc_type": "none"}
+            parameters.update(opts)
+        else:
+            warning("Real block detected, generating Schur complement elimination PC")
+            # Full Schur complement eliminating onto Real blocks.
+            opts = {"mat_type": "matfree",
+                    "ksp_type": "fgmres",
+                    "pc_type": "fieldsplit",
+                    "pc_fieldsplit_type": "schur",
+                    "pc_fieldsplit_schur_fact_type": "full",
+                    "pc_fieldsplit_0_fields": ",".join(map(str, fields)),
+                    "pc_fieldsplit_1_fields": ",".join(map(str, reals)),
+                    "fieldsplit_0": {
+                        "ksp_type": "preonly",
+                        "pc_type": "python",
+                        "pc_python_type": "firedrake.AssembledPC",
+                        "assembled": DEFAULT_KSP_PARAMETERS,
+                    },
+                    "fieldsplit_1": {
+                        "ksp_type": "gmres",
+                        "pc_type": "none",
+                    }}
+            parameters.update(opts)
+        return parameters
+    else:
+        # We can assemble an AIJ matrix, factor it with a sparse
+        # direct method.
+        return parameters
 
 
 def check_snes_convergence(snes):
@@ -60,8 +158,12 @@ class _SNESContext(object):
         ``"state"``.
     :arg pre_jacobian_callback: User-defined function called immediately
         before Jacobian assembly
+    :arg post_jacobian_callback: User-defined function called immediately
+        after Jacobian assembly
     :arg pre_function_callback: User-defined function called immediately
         before residual assembly
+    :arg post_function_callback: User-defined function called immediately
+        after residual assembly
     :arg options_prefix: The options prefix of the SNES.
     :arg transfer_manager: Object that can transfer functions between
         levels, typically a :class:`~.TransferManager`
@@ -72,12 +174,14 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
+                 post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import create_assembly_callable
-        from firedrake.bcs import DirichletBC
+        from firedrake.assemble import assemble
+
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -90,6 +194,8 @@ class _SNESContext(object):
         self._problem = problem
         self._pre_jacobian_callback = pre_jacobian_callback
         self._pre_function_callback = pre_function_callback
+        self._post_jacobian_callback = post_jacobian_callback
+        self._post_function_callback = post_function_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -125,13 +231,16 @@ class _SNESContext(object):
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
-        self.bcs_F = [bc if isinstance(bc, DirichletBC) else bc._F for bc in problem.bcs]
-        self.bcs_J = [bc if isinstance(bc, DirichletBC) else bc._J for bc in problem.bcs]
-        self.bcs_Jp = [bc if isinstance(bc, DirichletBC) else bc._Jp for bc in problem.bcs]
-        self._assemble_residual = create_assembly_callable(self.F,
-                                                           tensor=self._F,
-                                                           bcs=self.bcs_F,
-                                                           form_compiler_parameters=self.fcp)
+        self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
+        self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
+        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
+
+        self._assemble_residual = functools.partial(assemble,
+                                                    self.F,
+                                                    tensor=self._F,
+                                                    bcs=self.bcs_F,
+                                                    form_compiler_parameters=self.fcp,
+                                                    assembly_type="residual")
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -145,9 +254,42 @@ class _SNESContext(object):
 
     @property
     def transfer_manager(self):
+        """This allows the transfer manager to be set from options, e.g.
+
+        solver_parameters = {"ksp_type": "cg",
+                             "pc_type": "mg",
+                             "mg_transfer_manager": __name__ + ".manager"}
+
+        The value for "mg_transfer_manager" can either be a specific instantiated
+        object, or a function or class name. In the latter case it will be invoked
+        with no arguments to instantiate the object.
+
+        If "snes_type": "fas" is used, the relevant option is "fas_transfer_manager",
+        with the same semantics.
+        """
         if self._transfer_manager is None:
-            from firedrake import TransferManager
-            self._transfer_manager = TransferManager(use_averaging=True)
+            opts = PETSc.Options()
+            prefix = self.options_prefix or ""
+            if opts.hasName(prefix + "mg_transfer_manager"):
+                managername = opts[prefix + "mg_transfer_manager"]
+            elif opts.hasName(prefix + "fas_transfer_manager"):
+                managername = opts[prefix + "fas_transfer_manager"]
+            else:
+                managername = None
+
+            if managername is None:
+                from firedrake import TransferManager
+                transfer = TransferManager(use_averaging=True)
+            else:
+                (modname, objname) = managername.rsplit('.', 1)
+                mod = __import__(modname)
+                obj = getattr(mod, objname)
+                if isinstance(obj, type):
+                    transfer = obj()
+                else:
+                    transfer = obj
+
+            self._transfer_manager = transfer
         return self._transfer_manager
 
     @transfer_manager.setter
@@ -174,6 +316,7 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
 
+    @PETSc.Log.EventDecorator()
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
@@ -243,7 +386,7 @@ class _SNESContext(object):
             bcs = []
             for bc in problem.bcs:
                 if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
+                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
                     bc_temp = bc.reconstruct(field, V, subu, u)
                 if bc_temp is not None:
@@ -275,6 +418,10 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
+
+        if ctx._post_function_callback is not None:
+            with ctx._F.dat.vec as F_:
+                ctx._post_function_callback(X, F_)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
@@ -311,6 +458,9 @@ class _SNESContext(object):
 
         ctx._assemble_jac()
 
+        if ctx._post_jacobian_callback is not None:
+            ctx._post_jacobian_callback(X, J)
+
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
@@ -341,10 +491,10 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
-            _, _, inject = dmhooks.get_transfer_operators(fine._x.function_space().dm)
-            inject(fine._x, ctx._x)
+            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
+            manager.inject(fine._x, ctx._x)
 
-            for bc in itertools.chain(*ctx._problem.bcs):
+            for bc in chain(*ctx._problem.bcs):
                 if isinstance(bc, DirichletBC):
                     bc.apply(ctx._x)
 
@@ -365,12 +515,14 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.J,
-                                        tensor=self._jac,
-                                        bcs=self.bcs_J,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.mat_type)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.J,
+                                 tensor=self._jac,
+                                 bcs=self.bcs_J,
+                                 form_compiler_parameters=self.fcp,
+                                 mat_type=self.mat_type,
+                                 assembly_type="residual")
 
     @cached_property
     def is_mixed(self):
@@ -391,12 +543,14 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.Jp,
-                                        tensor=self._pjac,
-                                        bcs=self.bcs_Jp,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.pmat_type)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.Jp,
+                                 tensor=self._pjac,
+                                 bcs=self.bcs_Jp,
+                                 form_compiler_parameters=self.fcp,
+                                 mat_type=self.pmat_type,
+                                 assembly_type="residual")
 
     @cached_property
     def _F(self):

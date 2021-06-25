@@ -65,7 +65,7 @@ def solver_params(request):
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
                "fas_coarse_assembled_mat_mumps_icntl_14": 200,
                "snes_view": None
-               }
+        }
     elif request.param == 1:
         return {
                "mat_type": "matfree",  # noqa: E126
@@ -113,7 +113,7 @@ def solver_params(request):
                "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
                "fas_coarse_assembled_mat_mumps_icntl_14": 200,
                "snes_view": None
-               }
+        }
     else:
         return {
                "mat_type": "matfree",  # noqa: E126

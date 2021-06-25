@@ -42,10 +42,10 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
         project(d1, target)
 
     with pytest.raises(NotImplementedError):
-        assemble(d1*TestFunction(V2)*dx(domain=mesh3))
+        assemble(inner(d1, TestFunction(V2))*dx(domain=mesh3))
 
     with pytest.raises(NotImplementedError):
-        assemble(d1*TestFunction(V2)*dx(domain=mesh1))
+        assemble(inner(d1, TestFunction(V2))*dx(domain=mesh1))
 
 
 def test_mismatching_meshes_constant(mesh1, mesh3):
@@ -81,10 +81,10 @@ def test_functional(mesh1, mesh2):
 
 
 @pytest.mark.parametrize("form,expect", [
-    (lambda v, mesh1, mesh2: v*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda v, mesh1, mesh2: v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda v, mesh1, mesh2: v*dx(domain=mesh1) + v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
-], ids=["v*dx(mesh1)", "v*dx(mesh2)", "v*(dx(mesh1) + dx(mesh2)"])
+    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1), lambda vol, dim: vol),
+    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
+    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1) + conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+], ids=["conj(v)*dx(mesh1)", "conj(v)*dx(mesh2)", "conj(v)*(dx(mesh1) + dx(mesh2)"])
 def test_one_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)
 
@@ -101,10 +101,10 @@ def test_one_form(mesh1, mesh2, form, expect):
 
 
 @pytest.mark.parametrize("form,expect", [
-    (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1) + u*v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
-], ids=["u*v*dx(mesh1)", "u*v*dx(mesh2)", "u*v*(dx(mesh1) + dx(mesh2)"])
+    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1), lambda vol, dim: vol),
+    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
+    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1) + inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+], ids=["inner(u, v)*dx(mesh1)", "inner(u, v)*dx(mesh2)", "inner(u, v)*(dx(mesh1) + dx(mesh2)"])
 def test_two_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)
 

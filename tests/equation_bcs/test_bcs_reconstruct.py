@@ -5,7 +5,7 @@ def test_bc_on_sub_sub_domain():
 
     # Solve a vector poisson problem
 
-    mesh = UnitSquareMesh(500, 500)
+    mesh = UnitSquareMesh(50, 50)
 
     V = VectorFunctionSpace(mesh, "CG", 1)
     VV = MixedFunctionSpace([V, V])
@@ -28,22 +28,20 @@ def test_bc_on_sub_sub_domain():
 
     F = 0
     for u, v in zip(split(uu), split(vv)):
-        F += (- inner(grad(u), grad(v)) - dot(f, v)) * dx
+        F += (- inner(grad(u), grad(v)) - inner(f, v)) * dx
 
     bcs = [DirichletBC(VV.sub(0).sub(0), gg[0][0], 1),
            DirichletBC(VV.sub(0).sub(1), gg[0][1], 2),
            DirichletBC(VV.sub(1).sub(0), gg[1][0], 3),
            DirichletBC(VV.sub(1).sub(1), gg[1][1], "on_boundary")]
 
-    parameters = {"mat_type": "matfree",
+    parameters = {"mat_type": "nest",
                   "snes_type": "ksponly",
                   "ksp_type": "preonly",
                   "pc_type": "fieldsplit",
                   "pc_fieldsplit_type": "additive",
                   "fieldsplit_ksp_type": "preonly",
-                  "fieldsplit_pc_type": "python",
-                  "fieldsplit_pc_python_type": "firedrake.AssembledPC",
-                  "fieldsplit_assembled_pc_type": "lu"}
+                  "fieldsplit_pc_type": "lu"}
 
     solve(F == 0, uu, bcs=bcs, solver_parameters=parameters)
 
@@ -51,5 +49,5 @@ def test_bc_on_sub_sub_domain():
     f.interpolate(as_vector([cos(2 * pi * x) * cos(2 * pi * y),
                              cos(2 * pi * x) * cos(2 * pi * y)]))
 
-    assert(sqrt(assemble(dot(uu.split()[0] - f, uu.split()[0] - f) * dx)) < 4.0e-05)
-    assert(sqrt(assemble(dot(uu.split()[1] - f, uu.split()[1] - f) * dx)) < 4.0e-05)
+    assert(sqrt(assemble(dot(uu.split()[0] - f, uu.split()[0] - f) * dx)) < 4.0e-03)
+    assert(sqrt(assemble(dot(uu.split()[1] - f, uu.split()[1] - f) * dx)) < 4.0e-03)

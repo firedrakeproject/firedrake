@@ -47,12 +47,6 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
             Function(VFS(mesh, "CG", order)).interpolate(mesh.coordinates)
             for mesh in mh]
         ho_meshes = [Mesh(T) for T in Ts]
-        from collections import defaultdict
-        for i, m in enumerate(ho_meshes):
-            m._shared_data_cache = defaultdict(dict)
-            for k in mh[i]._shared_data_cache:
-                if k != "hierarchy_physical_node_locations":
-                    m._shared_data_cache[k] = mh[i]._shared_data_cache[k]
         mh = HierarchyBase(
             ho_meshes, mh.coarse_to_fine_cells,
             mh.fine_to_coarse_cells,
@@ -72,8 +66,8 @@ def make_coarse_mesh(stepfile, cad, element_size, dim, comm=COMM_WORLD, distribu
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
     stepname = os.path.basename(os.path.splitext(stepfile)[0])
-    geopath = os.path.join(curdir, "coarse-%s.geo" % (stepname))
-    mshpath = geopath.replace("geo", "msh")
+    geopath = os.path.join(curdir, "coarse-%s.geo" % stepname)
+    mshpath = os.path.join(curdir, "coarse-%s.msh" % stepname)
 
     if not os.path.isfile(mshpath) or not cache:
 

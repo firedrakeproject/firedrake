@@ -6,13 +6,15 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType, IntType, as_ctypes
+
+from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
+from firedrake.petsc import PETSc
 try:
     import cachetools
 except ImportError:
@@ -28,10 +30,9 @@ class _CFunction(ctypes.Structure):
     _fields_ = [("n_cols", c_int),
                 ("extruded", c_int),
                 ("n_layers", c_int),
-                ("coords", POINTER(c_double)),
+                ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
-                # FIXME: what if f does not have type double?
-                ("f", POINTER(c_double)),
+                ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
                 ("sidx", c_void_p)]
 
@@ -59,7 +60,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
-        ufl.Coefficient.__init__(self, function_space.ufl_element())
+        ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -74,13 +75,14 @@ class CoordinatelessFunction(ufl.Coefficient):
             assert val.comm == self.comm
             self.dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
+            self.dat = function_space.make_dat(val, dtype, self.name())
 
     @utils.cached_property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
 
+    @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
@@ -106,6 +108,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
+    @PETSc.Log.EventDecorator()
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -120,6 +123,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                                 name="view[%d](%s)" % (i, self.name()))
                          for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -222,6 +226,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
@@ -270,6 +275,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
+    @PETSc.Log.EventDecorator()
+    @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
         r"""Return a copy of this Function.
 
@@ -282,7 +289,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        return getattr(self._data, name)
+        val = getattr(self._data, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(Function, self).__dir__()
@@ -293,6 +302,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.split()))
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_split
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -307,6 +317,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
                          for i in range(self.function_space().value_size))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -322,6 +333,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self._components[i]
         return self._split[i]
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
@@ -344,6 +356,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
+    @PETSc.Log.EventDecorator()
     def interpolate(self, expression, subset=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
@@ -352,6 +365,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset)
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
@@ -371,9 +385,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif (isinstance(expr, Function)
+              and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
             return self
 
@@ -382,6 +399,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             assemble_expressions.Assign(self, expr), subset)
         return self
 
+    @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
@@ -399,6 +417,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_isub
     @utils.known_pyop2_safe
     def __isub__(self, expr):
 
@@ -416,6 +435,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_imul
     @utils.known_pyop2_safe
     def __imul__(self, expr):
 
@@ -433,6 +453,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         return self
 
+    @FunctionMixin._ad_annotate_idiv
     @utils.known_pyop2_safe
     def __idiv__(self, expr):
 
@@ -470,10 +491,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             c_function.extruded = 0
             c_function.n_layers = 1
-        c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.coords = coordinates.dat.data.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        # FIXME: What about complex?
-        c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.f = self.dat.data.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -492,7 +512,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return cache[tolerance]
         except KeyError:
             result = make_c_evaluate(self, tolerance=tolerance)
-            result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
+            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_void_p]
             result.restype = c_int
             return cache.setdefault(tolerance, result)
 
@@ -502,6 +522,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         return self.at(coord)
 
+    @PETSc.Log.EventDecorator()
     def at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
@@ -517,7 +538,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.array(arg, dtype=float)
+        arg = np.asarray(arg, dtype=utils.ScalarType)
+        if utils.complex_mode:
+            if not np.allclose(arg.imag, 0):
+                raise ValueError("Provided points have non-zero imaginary part")
+            arg = arg.real.copy()
 
         dont_raise = kwargs.get('dont_raise', False)
 
@@ -554,7 +579,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             r"""Helper function to evaluate at a single point."""
             err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
                                                         x.ctypes.data_as(POINTER(c_double)),
-                                                        buf.ctypes.data_as(POINTER(c_double)))
+                                                        buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
@@ -573,7 +598,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                 if mixed:
                     l_result.append((i, tuple(f.at(p) for f in split)))
                 else:
-                    p_result = np.zeros(value_shape, dtype=float)
+                    p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
                     l_result.append((i, p_result))
             except PointNotInDomainError:
@@ -625,6 +650,7 @@ class PointNotInDomainError(Exception):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
+@PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
@@ -650,8 +676,10 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     arg.position = 1
     args.append(arg)
 
+    p_ScalarType_c = f"{utils.ScalarType_c}*"
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=["double*", "double*"],
+                                            forward_args=[p_ScalarType_c,
+                                                          p_ScalarType_c],
                                             kernel_name="evaluate_kernel",
                                             wrapper_name="wrap_evaluate"))
 

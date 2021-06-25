@@ -1,3 +1,4 @@
+from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
 from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock
@@ -29,6 +30,7 @@ def annotate_solve(solve):
 
     """
 
+    @wraps(solve)
     def wrapper(*args, **kwargs):
 
         annotate = annotate_tape(kwargs)

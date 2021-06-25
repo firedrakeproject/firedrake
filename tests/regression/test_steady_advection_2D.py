@@ -43,7 +43,7 @@ def run_left_to_right(mesh, DGDPC0, W):
     u0 = project(velocity, W)
 
     xs = SpatialCoordinate(mesh)
-    inflowexpr = conditional(And(xs[1] > 0.25, xs[1] < 0.75), 1.0, 0.5)
+    inflowexpr = conditional(And(real(xs[1]) > 0.25, real(xs[1]) < 0.75), 1.0, 0.5)
     inflow = Function(DGDPC0)
     inflow.interpolate(inflowexpr)
 
@@ -53,12 +53,12 @@ def run_left_to_right(mesh, DGDPC0, W):
     D = TrialFunction(DGDPC0)
     phi = TestFunction(DGDPC0)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(2)  # outflow at right-hand wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un*D, phi) * ds(2)  # outflow at right-hand wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(1)  # inflow at left-hand wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(1)  # inflow at left-hand wall
 
     out = Function(DGDPC0)
     solve(a == L, out)
@@ -93,12 +93,12 @@ def run_up_to_down(mesh, DGDPC1, W):
     D = TrialFunction(DGDPC1)
     phi = TestFunction(DGDPC1)
 
-    a1 = -D*dot(u0, grad(phi))*dx
-    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = phi*un*D*ds(3)  # outflow at lower wall
+    a1 = -D * inner(u0, grad(phi)) * dx
+    a2 = inner(un('+')*D('+') - un('-')*D('-'), jump(phi)) * dS
+    a3 = inner(un*D, phi) * ds(3)  # outflow at lower wall
     a = a1 + a2 + a3
 
-    L = -inflow*phi*dot(u0, n)*ds(4)  # inflow at upper wall
+    L = -inflow * inner(dot(u0, n), phi) * ds(4)  # inflow at upper wall
 
     out = Function(DGDPC1)
     solve(a == L, out)

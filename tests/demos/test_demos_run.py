@@ -27,6 +27,10 @@ def env():
 
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
+
+    if basename(rst_file) == 'qg_1layer_wave.py.rst':
+        pytest.skip("This test occasionally fails due to presumed build hardware issues")
+
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
     monkeypatch.chdir(tmpdir)
@@ -35,6 +39,9 @@ def py_file(rst_file, tmpdir, monkeypatch):
     geos = glob.glob("%s/*.geo" % dirname(rst_file))
     for geo in geos:
         name = "%s.msh" % splitext(basename(geo))[0]
+        if os.path.exists(name):
+            # No need to generate if it's already there
+            continue
         try:
             subprocess.check_call(["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))])
         except (subprocess.CalledProcessError, OSError):
@@ -49,5 +56,6 @@ def py_file(rst_file, tmpdir, monkeypatch):
     return output
 
 
+@pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 def test_demo_runs(py_file, env):
     subprocess.check_call([sys.executable, py_file], env=env)

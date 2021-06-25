@@ -3,7 +3,8 @@ import ufl
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.datatypes import ScalarType
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType
 
 import firedrake.utils as utils
 from firedrake.adjoint.constant import ConstantMixin
@@ -17,12 +18,8 @@ def _globalify(value):
     rank = len(shape)
     if rank == 0:
         dat = op2.Global(1, data)
-    elif rank == 1:
-        dat = op2.Global(shape, data)
-    elif rank == 2:
-        dat = op2.Global(shape, data)
     else:
-        raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
+        dat = op2.Global(shape, data)
     return dat, rank, shape
 
 
@@ -65,13 +62,14 @@ class Constant(ufl.Coefficient, ConstantMixin):
             e = ufl.FiniteElement("Real", cell, 0)
         elif rank == 1:
             e = ufl.VectorElement("Real", cell, 0, shape[0])
-        elif rank == 2:
+        else:
             e = ufl.TensorElement("Real", cell, 0, shape=shape)
 
         fs = ufl.FunctionSpace(domain, e)
         super(Constant, self).__init__(fs)
         self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
 
+    @PETSc.Log.EventDecorator()
     def evaluate(self, x, mapping, component, index_values):
         """Return the evaluation of this :class:`Constant`.
 
@@ -82,7 +80,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
         :arg index_values: ignored.
         """
         if component in ((), None):
-            if self.ufl_shape is ():
+            if self.ufl_shape == ():
                 return self.dat.data_ro[0]
             return self.dat.data_ro
         return self.dat.data_ro[component]
@@ -116,6 +114,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
+    @PETSc.Log.EventDecorator()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.

@@ -99,6 +99,7 @@ def solver(V, space, solver_parameters):
     return solver
 
 
+@pytest.mark.skipcomplexnoslate
 def test_riesz(V, solver, use_averaging):
     if use_averaging == "Default":
         transfer = None
@@ -113,5 +114,6 @@ def test_riesz(V, solver, use_averaging):
 
 
 @pytest.mark.parallel(nprocs=3)
+@pytest.mark.skipcomplexnoslate
 def test_riesz_parallel(V, solver, use_averaging):
     test_riesz(V, solver, use_averaging)

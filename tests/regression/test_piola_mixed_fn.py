@@ -15,8 +15,8 @@ def test_project():
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
     f1, f2 = split(f)
-    a = dot(u1, v1)*dx + dot(u2, v2)*dx
-    L = dot(f1, v1)*dx + dot(f2, v2)*dx
+    a = inner(u1, v1)*dx + inner(u2, v2)*dx
+    L = inner(f1, v1)*dx + inner(f2, v2)*dx
 
     solve(a == L, out)
 
@@ -43,8 +43,8 @@ def test_sphere_project():
     u1, u2, u3 = TrialFunctions(W)
     v1, v2, v3 = TestFunctions(W)
     f1, f2, f3 = split(f)
-    a = dot(u1, v1)*dx + dot(u2, v2)*dx + dot(u3, v3)*dx
-    L = dot(f1, v1)*dx + dot(f2, v2)*dx + dot(f3, v3)*dx
+    a = inner(u1, v1)*dx + inner(u2, v2)*dx + inner(u3, v3)*dx
+    L = inner(f1, v1)*dx + inner(f2, v2)*dx + inner(f3, v3)*dx
 
     solve(a == L, out)
 

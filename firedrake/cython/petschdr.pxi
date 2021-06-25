@@ -1,13 +1,18 @@
 cimport petsc4py.PETSc as PETSc
 cimport mpi4py.MPI as MPI
+cimport numpy as np
 
 cdef extern from "mpi-compat.h":
     pass
 
+IF COMPLEX:
+   ctypedef np.complex128_t PetscScalar
+ELSE:
+   ctypedef double PetscScalar
+
 cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef double PetscReal
-   ctypedef double PetscScalar
    ctypedef enum PetscBool:
        PETSC_TRUE, PETSC_FALSE
    ctypedef enum PetscCopyMode:
@@ -24,6 +29,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
+    int DMPlexGetChart(PETSc.PetscDM,PetscInt*,PetscInt*)
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
@@ -35,6 +41,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
     int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
+    int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
@@ -49,6 +56,9 @@ cdef extern from "petscdmlabel.h" nogil:
 
 cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
+
+cdef extern from "petscdmswarm.h" nogil:
+    int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
 
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -117,6 +127,9 @@ cdef extern from "petscmat.h" nogil:
     int MatAssemblyBegin(PETSc.PetscMat, PetscInt)
     int MatAssemblyEnd(PETSc.PetscMat, PetscInt)
     PetscInt MAT_FINAL_ASSEMBLY = 0
+
+cdef extern from * nogil:
+    int PetscObjectTypeCompare(PETSc.PetscObject, char[], PetscBool*)
 
 # --- Error handling taken from petsc4py (src/PETSc.pyx) -------------
 

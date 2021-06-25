@@ -63,14 +63,14 @@ def run_periodic_helmholtz(direction, quadrilateral, diagonal):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = dot(grad(u), grad(v))*dx + u*v*dx
-    L = f*v*dx
+    a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    L = inner(f, v)*dx
 
     out = Function(V)
     solve(a == L, out, solver_parameters={'ksp_type': 'cg'}, bcs=bcs)
 
-    l2err = sqrt(assemble((out-u_exact)*(out-u_exact)*dx))
-    l2norm = sqrt(assemble(u_exact*u_exact*dx))
+    l2err = sqrt(assemble(inner((out-u_exact), (out-u_exact))*dx))
+    l2norm = sqrt(assemble(inner(u_exact, u_exact)*dx))
     assert l2err/l2norm < 0.004
 
 

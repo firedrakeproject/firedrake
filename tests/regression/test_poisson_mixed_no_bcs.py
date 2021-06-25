@@ -49,8 +49,8 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     f = Function(DG).interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
     # Define variational form
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
-    L = - f*v*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
+    L = - inner(f, v)*dx
 
     # Compute solution
     w = Function(W)

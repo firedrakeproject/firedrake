@@ -1,8 +1,10 @@
+import functools
+
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
-from pyop2.profiling import timed_function
 
 
 __all__ = ['SCPC']
@@ -16,7 +18,7 @@ class SCPC(SCBase):
     static condensation for problems with up to three fields.
     """
 
-    @timed_function("SCPCInit")
+    @PETSc.Log.EventDecorator("SCPCInit")
     def initialize(self, pc):
         """Set up the problem context. This takes the incoming
         three-field system and constructs the static
@@ -26,16 +28,15 @@ class SCPC(SCBase):
         variables are recovered via back-substitution.
         """
 
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+        from firedrake import assemble
+        from firedrake.assemble import allocate_matrix
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
-        from firedrake.interpolation import interpolate
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
-        _, P = pc.getOperators()
-        self.cxt = P.getPythonContext()
+        A, P = pc.getOperators()
+        self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
 
@@ -70,12 +71,7 @@ class SCPC(SCBase):
         for bc in cxt_bcs:
             if bc.function_space().index != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            if isinstance(bc.function_arg, Function):
-                bc_arg = interpolate(bc.function_arg, Vc)
-            else:
-                # Constants don't need to be interpolated
-                bc_arg = bc.function_arg
-            bcs.append(DirichletBC(Vc, bc_arg, bc.sub_domain))
+            bcs.append(DirichletBC(Vc, bc.function_arg, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
@@ -85,31 +81,70 @@ class SCPC(SCBase):
         self.solution = Function(W)
 
         # Get expressions for the condensed linear system
-        A = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A, self.residual, elim_fields)
+        A_tensor = Tensor(self.bilinear_form)
+        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = create_assembly_callable(
-            r_expr,
-            tensor=self.condensed_rhs,
-            form_compiler_parameters=self.cxt.fc_params)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                r_expr,
+                                                tensor=self.condensed_rhs,
+                                                form_compiler_parameters=self.cxt.fc_params,
+                                                assembly_type="residual")
 
         # Allocate and set the condensed operator
         self.S = allocate_matrix(S_expr,
                                  bcs=bcs,
                                  form_compiler_parameters=self.cxt.fc_params,
-                                 mat_type=mat_type)
-        self._assemble_S = create_assembly_callable(
-            S_expr,
-            tensor=self.S,
-            bcs=bcs,
-            form_compiler_parameters=self.cxt.fc_params,
-            mat_type=mat_type)
+                                 mat_type=mat_type,
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
+
+        self._assemble_S = functools.partial(assemble,
+                                             S_expr,
+                                             tensor=self.S,
+                                             bcs=bcs,
+                                             form_compiler_parameters=self.cxt.fc_params,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
 
         self._assemble_S()
         Smat = self.S.petscmat
+
+        # If a different matrix is used for preconditioning,
+        # assemble this as well
+        if A != P:
+            self.cxt_pc = P.getPythonContext()
+            P_tensor = Tensor(self.cxt_pc.a)
+            P_reduced_sys = self.condensed_system(P_tensor,
+                                                  self.residual,
+                                                  elim_fields)
+            S_pc_expr = P_reduced_sys.lhs
+            self.S_pc_expr = S_pc_expr
+
+            # Allocate and set the condensed operator
+            self.S_pc = allocate_matrix(S_expr,
+                                        bcs=bcs,
+                                        form_compiler_parameters=self.cxt.fc_params,
+                                        mat_type=mat_type,
+                                        options_prefix=prefix,
+                                        appctx=self.get_appctx(pc))
+
+            self._assemble_S_pc = functools.partial(assemble,
+                                                    S_pc_expr,
+                                                    tensor=self.S_pc,
+                                                    bcs=bcs,
+                                                    form_compiler_parameters=self.cxt.fc_params,
+                                                    mat_type=mat_type,
+                                                    assembly_type="residual")
+
+            self._assemble_S_pc()
+            Smat_pc = self.S_pc.petscmat
+
+        else:
+            self.S_pc_expr = S_expr
+            Smat_pc = Smat
 
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
@@ -119,17 +154,36 @@ class SCPC(SCBase):
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
+        # Create a SNESContext for the DM associated with the trace problem
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          S_expr,
+                                          bcs,
+                                          mat_type,
+                                          self.cxt.fc_params,
+                                          options_prefix=prefix)
+
+        # Push new context onto the dm associated with the condensed problem
+        c_dm = Vc.dm
+
         # Set up ksp for the condensed problem
         c_ksp = PETSc.KSP().create(comm=pc.comm)
         c_ksp.incrementTabLevel(1, parent=pc)
+
+        # Set the dm for the condensed solver
+        c_ksp.setDM(c_dm)
+        c_ksp.setDMActive(False)
         c_ksp.setOptionsPrefix(prefix)
-        c_ksp.setOperators(Smat)
-        c_ksp.setUp()
-        c_ksp.setFromOptions()
+        c_ksp.setOperators(A=Smat, P=Smat_pc)
         self.condensed_ksp = c_ksp
 
+        with dmhooks.add_hooks(c_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            c_ksp.setFromOptions()
+
         # Set up local solvers for backwards substitution
-        self.local_solvers = self.local_solver_calls(A, self.residual,
+        self.local_solvers = self.local_solver_calls(A_tensor,
+                                                     self.residual,
                                                      self.solution,
                                                      elim_fields)
 
@@ -156,9 +210,8 @@ class SCPC(SCBase):
         :arg elim_fields: An iterable of eliminated field indices
                           to recover.
         """
-
+        from firedrake import assemble
         from firedrake.slate.static_condensation.la_utils import backward_solve
-        from firedrake.assemble import create_assembly_callable
 
         fields = x.split()
         systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
@@ -169,21 +222,27 @@ class SCPC(SCBase):
             be = local_system.rhs
             i, = local_system.field_idx
             local_solve = Ae.solve(be, decomposition="PartialPivLU")
-            solve_call = create_assembly_callable(
-                local_solve,
-                tensor=fields[i],
-                form_compiler_parameters=self.cxt.fc_params)
+            solve_call = functools.partial(assemble,
+                                           local_solve,
+                                           tensor=fields[i],
+                                           form_compiler_parameters=self.cxt.fc_params,
+                                           assembly_type="residual")
             local_solvers.append(solve_call)
 
         return local_solvers
 
-    @timed_function("SCPCUpdate")
+    @PETSc.Log.EventDecorator("SCPCUpdate")
     def update(self, pc):
         """Update by assembling into the KSP operator. No
         need to reconstruct symbolic objects.
         """
 
         self._assemble_S()
+
+        # Only reassemble if a preconditioning operator
+        # is provided for the condensed system
+        if hasattr(self, "S_pc"):
+            self._assemble_S_pc()
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
@@ -207,13 +266,17 @@ class SCPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
-        with self.condensed_rhs.dat.vec_ro as rhs:
-            if self.condensed_ksp.getInitialGuessNonzero():
-                acc = self.solution.split()[self.c_field].dat.vec
-            else:
-                acc = self.solution.split()[self.c_field].dat.vec_wo
-            with acc as sol:
-                self.condensed_ksp.solve(rhs, sol)
+        dm = self.condensed_ksp.getDM()
+
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+
+            with self.condensed_rhs.dat.vec_ro as rhs:
+                if self.condensed_ksp.getInitialGuessNonzero():
+                    acc = self.solution.split()[self.c_field].dat.vec
+                else:
+                    acc = self.solution.split()[self.c_field].dat.vec_wo
+                with acc as sol:
+                    self.condensed_ksp.solve(rhs, sol)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -232,6 +295,8 @@ class SCPC(SCBase):
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
 
-        viewer.printfASCII("Static condensation preconditioner\n")
-        viewer.printfASCII("KSP to solve the reduced system:\n")
-        self.condensed_ksp.view(viewer=viewer)
+        super(SCPC, self).view(pc, viewer)
+        if hasattr(self, "condensed_ksp"):
+            viewer.printfASCII("Solving linear system using static condensation.\n")
+            self.condensed_ksp.view(viewer=viewer)
+            viewer.printfASCII("Locally reconstructing unknowns.\n")

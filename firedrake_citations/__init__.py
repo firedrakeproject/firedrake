@@ -264,3 +264,16 @@ Citations().add("Gibson2018", """
   url =          {https://arxiv.org/abs/1802.00303}
 }
 """)
+
+Citations().add("Kolev2009", """
+@Misc{Kolev2009,
+  author =       {Kolev, Tzanio V and Vassilevski, Panayot S},
+  title =        {{Parallel auxiliary space AMG for H (curl) problems}},
+  journal =      {Journal of Computational Mathematics},
+  year =         2009,
+  volume =       27,
+  number =       5,
+  pages =        {604--623},
+  url =          {https://www.jstor.org/stable/43693530}
+}
+""")

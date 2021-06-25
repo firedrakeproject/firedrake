@@ -3,9 +3,9 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
@@ -61,7 +61,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
         np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
         PetscInt i, j, k, l, m, node, fine, layer
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
-        PetscInt layers
+        PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         bint extruded
 
     fine_map = Vf.cell_node_map().values
@@ -73,26 +73,36 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
     if extruded:
         coarse_offset = Vc.offset
         fine_offset = Vf.offset
-        layers = Vc.mesh().layers - 1
+        coarse_layers = Vc.mesh().layers - 1
+        fine_layers = Vf.mesh().layers - 1
+
+        ratio = fine_layers // coarse_layers
+        assert ratio * coarse_layers == fine_layers # check ratio is an int
     coarse_cells = coarse_map.shape[0]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
+
+    ndof = fine_per_cell * fine_cell_per_coarse_cell
+    if extruded:
+        ndof *= ratio
     coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
-                                  fine_per_cell * fine_cell_per_coarse_cell),
+                                  ndof),
                                  -1,
                                  dtype=IntType)
     for i in range(coarse_cells):
         for j in range(coarse_per_cell):
             node = coarse_map[i, j]
             if extruded:
-                for layer in range(layers):
+                for coarse_layer in range(coarse_layers):
                     k = 0
                     for l in range(fine_cell_per_coarse_cell):
                         fine = coarse_to_fine_cells[i, l]
-                        for m in range(fine_per_cell):
-                            coarse_to_fine_map[node + coarse_offset[j]*layer, k] = (fine_map[fine, m] +
-                                                                                    fine_offset[m]*layer)
-                            k += 1
+                        for layer in range(ratio):
+                            fine_layer = coarse_layer * ratio + layer
+                            for m in range(fine_per_cell):
+                                coarse_to_fine_map[node + coarse_offset[j]*coarse_layer, k] = (fine_map[fine, m] +
+                                                                                               fine_offset[m]*fine_layer)
+                                k += 1
             else:
                 k = 0
                 for l in range(fine_cell_per_coarse_cell):
@@ -110,7 +120,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
     cdef:
         np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
         np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
-        PetscInt i, j, k, node, layer, layers
+        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
@@ -241,8 +251,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse
         np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
-    cdm = mc._plex
-    fdm = mf._plex
+    cdm = mc.topology_dm
+    fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = 2 ** dim
     ncoarse = mc.cell_set.size
@@ -294,44 +304,31 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def filter_exterior_facet_labels(PETSc.DM plex):
-    """Remove exterior facet labels from things that aren't facets.
-
+def filter_labels(PETSc.DM dm, keep, *label_names):
+    """Remove labels from points that are not in keep.
+    :arg dm: DM object with labels.
+    :arg keep: subsection of the DMs chart on which to retain label values.
+    :arg label_names: names of labels (strings) to clear.
     When refining, every point "underneath" the refined entity
-    receives its label.  But we want the facet label to really only
-    apply to facets, so clear the labels from everything else."""
+    receives its label. But we typically have labels applied only to
+    entities of a given stratum height (and rely on that elsewhere),
+    so clear the labels from everything else.
+    """
     cdef:
-        PetscInt pStart, pEnd, fStart, fEnd, p, value
-        PetscBool has_bdy_ids, has_bdy_faces
-        DMLabel exterior_facets = NULL
-        DMLabel boundary_ids = NULL
-        DMLabel boundary_faces = NULL
+        PetscInt pStart, pEnd, kStart, kEnd, p, value
+        DMLabel dmlabel = NULL
 
-    pStart, pEnd = plex.getChart()
-    fStart, fEnd = plex.getHeightStratum(1)
+    pStart, pEnd = dm.getChart()
+    kStart, kEnd = keep
 
-    # Plex will always have an exterior_facets label (maybe
-    # zero-sized), but may not always have boundary_ids or
-    # boundary_faces.
-    has_bdy_ids = plex.hasLabel(dmplex.FACE_SETS_LABEL)
-    has_bdy_faces = plex.hasLabel("boundary_faces")
-
-    CHKERR(DMGetLabel(plex.dm, <const char*>b"exterior_facets", &exterior_facets))
-    if has_bdy_ids:
-        label = dmplex.FACE_SETS_LABEL.encode()
-        CHKERR(DMGetLabel(plex.dm, <const char*>label, &boundary_ids))
-    if has_bdy_faces:
-        CHKERR(DMGetLabel(plex.dm, <const char*>b"boundary_faces", &boundary_faces))
-    for p in range(pStart, pEnd):
-        if p < fStart or p >= fEnd:
-            CHKERR(DMLabelGetValue(exterior_facets, p, &value))
-            if value >= 0:
-                CHKERR(DMLabelClearValue(exterior_facets, p, value))
-            if has_bdy_ids:
-                CHKERR(DMLabelGetValue(boundary_ids, p, &value))
+    for label in label_names:
+        if not dm.hasLabel(label):
+            # Nothing to clear here.
+            continue
+        label = label.encode()
+        CHKERR(DMGetLabel(dm.dm, <const char*>label, &dmlabel))
+        for p in range(pStart, pEnd):
+            if p < kStart or p >= kEnd:
+                CHKERR(DMLabelGetValue(dmlabel, p, &value))
                 if value >= 0:
-                    CHKERR(DMLabelClearValue(boundary_ids, p, value))
-            if has_bdy_faces:
-                CHKERR(DMLabelGetValue(boundary_faces, p, &value))
-                if value >= 0:
-                    CHKERR(DMLabelClearValue(boundary_faces, p, value))
+                    CHKERR(DMLabelClearValue(dmlabel, p, value))

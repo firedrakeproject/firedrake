@@ -18,8 +18,8 @@ def test_scalar_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(u*v*dx)
-    assemble(dot(grad(u), grad(v))*dx)
+    assemble(inner(u, v)*dx)
+    assemble(inner(grad(u), grad(v))*dx)
 
 
 # three valid combinations for hdiv: 1) hdiv x DG, 2) hcurl x DG, 3) DG x CG
@@ -38,7 +38,7 @@ def test_hdiv_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx)
+    assemble(inner(u, v)*dx)
     assemble(inner(grad(u), grad(v))*dx)
 
 
@@ -58,5 +58,5 @@ def test_hcurl_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx)
+    assemble(inner(u, v)*dx)
     assemble(inner(grad(u), grad(v))*dx)

@@ -16,7 +16,7 @@ def test_nullspace(V):
     x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
-    L = -v*ds(3) + v*ds(4)
+    L = -conj(v)*ds(3) + conj(v)*ds(4)
 
     nullspace = VectorSpaceBasis(constant=True)
     u = Function(V)
@@ -24,7 +24,7 @@ def test_nullspace(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_orthonormalize():
@@ -51,7 +51,7 @@ def test_transpose_nullspace():
         v = TestFunction(V)
 
         a = inner(grad(u), grad(v))*dx
-        L = v*dx
+        L = conj(v)*dx
 
         nullspace = VectorSpaceBasis(constant=True)
         u = Function(V)
@@ -76,7 +76,7 @@ def test_nullspace_preassembled(V):
     x = SpatialCoordinate(V.mesh())
 
     a = inner(grad(u), grad(v))*dx
-    L = -v*ds(3) + v*ds(4)
+    L = -conj(v)*ds(3) + conj(v)*ds(4)
 
     nullspace = VectorSpaceBasis(constant=True)
     u = Function(V)
@@ -86,7 +86,7 @@ def test_nullspace_preassembled(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_nullspace_mixed():
@@ -99,7 +99,7 @@ def test_nullspace_mixed():
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
 
     bc1 = Function(BDM).assign(0.0)
     bc2 = Function(BDM).project(Constant((0, 1)))
@@ -111,18 +111,22 @@ def test_nullspace_mixed():
 
     f = Function(DG)
     f.assign(0)
-    L = f*v*dx
+    L = inner(f, v)*dx
 
     # Null space is constant functions in DG and empty in BDM.
     nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
 
-    solve(a == L, w, bcs=bcs, nullspace=nullspace)
+    solve(a == L, w, bcs=bcs, nullspace=nullspace,
+          solver_parameters={
+              'ksp_type': 'minres',
+              'ksp_converged_reason': None,
+              'pc_type': 'none'})
 
     exact = Function(DG)
     exact.interpolate(x[1] - 0.5)
 
     sigma, u = w.split()
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 1e-7
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 1e-7
 
     # Now using a Schur complement
     w.assign(0)
@@ -137,7 +141,7 @@ def test_nullspace_mixed():
                              'fieldsplit_1_pc_type': 'none'})
 
     sigma, u = w.split()
-    assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
 def test_near_nullspace(tmpdir):
@@ -203,3 +207,167 @@ def test_near_nullspace(tmpdir):
 
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
+
+
+def test_nullspace_mixed_multiple_components():
+    # tests mixed nullspace with nullspace components in both spaces
+    # and passing of sub-nullspace in fieldsplit
+
+    mesh = PeriodicRectangleMesh(10, 10, 1, 1)
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "CG", 1)
+    Z = MixedFunctionSpace([V, W])
+
+    N, M = TestFunctions(Z)
+    z = Function(Z)
+    u, p = split(z)
+
+    x, y = SpatialCoordinate(mesh)
+    khat = Constant((0., -1.))
+    mu = Constant(1.0)
+    g = Constant(1.0)
+    tau = mu * (grad(u)+transpose(grad(u)))
+    # added constant to create inconsistent rhs:
+    rho = sin(pi*y)*cos(pi*x) + Constant(1.0)
+
+    F_stokes = inner(tau, grad(N)) * dx + inner(grad(p), N) * dx
+    F_stokes += inner(g * rho * khat, N) * dx
+    F_stokes += -inner(u, grad(M)) * dx
+
+    PETSc.Sys.popErrorHandler()
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'snes_type': 'ksponly',
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_schur_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'ksp_rtol': '1e-9',
+            'ksp_test_null_space': None,
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-7',
+            'ksp_monitor': None,
+        }
+    }
+
+    ux0 = Function(Z.sub(0))
+    ux0.assign(Constant((1.0, 0.)))
+    uy0 = Function(Z.sub(0))
+    uy0.assign(Constant((0.0, 1.)))
+    uv_nullspace = VectorSpaceBasis([ux0, uy0])
+    uv_nullspace.orthonormalize()
+
+    p_nullspace = VectorSpaceBasis(constant=True)
+
+    mix_nullspace = MixedVectorSpaceBasis(Z, [uv_nullspace, p_nullspace])
+
+    problem = NonlinearVariationalProblem(F_stokes, z)
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=solver_parameters,
+        nullspace=mix_nullspace, transpose_nullspace=mix_nullspace)
+    solver.solve()
+
+    assert solver.snes.getConvergedReason() > 0
+    schur_ksp = solver.snes.ksp.pc.getFieldSplitSubKSP()[1]
+    assert schur_ksp.getConvergedReason() > 0
+    assert schur_ksp.getIterationNumber() < 6
+
+
+def test_near_nullspace_mixed():
+    # test nullspace and nearnullspace for a mixed Stokes system
+    # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
+    PETSc.Sys.popErrorHandler()
+    n = 64
+    mesh = UnitSquareMesh(n, n)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    P = FunctionSpace(mesh, "CG", 1)
+    W = V*P
+
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    x, y = SpatialCoordinate(mesh)
+    inside_box = And(abs(x-0.5) < 0.2, abs(y-0.75) < 0.2)
+    mu = conditional(inside_box, 1e8, 1)
+
+    a = inner(mu*2*sym(grad(u)), grad(v))*dx
+    a += -inner(p, div(v))*dx + inner(div(u), q)*dx
+
+    f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
+    L = inner(f, v)*dx
+
+    bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
+
+    rotW = Function(W)
+    rotV, _ = rotW.split()
+    rotV.interpolate(as_vector((-y, x)))
+
+    c0 = Function(W)
+    c0V, _ = c0.split()
+    c1 = Function(W)
+    c1V, _ = c1.split()
+    c0V.interpolate(Constant([1., 0.]))
+    c1V.interpolate(Constant([0., 1.]))
+
+    near_nullmodes = VectorSpaceBasis([c0V, c1V, rotV])
+    near_nullmodes.orthonormalize()
+    near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
+
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+
+    w = Function(W)
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'pc_type': 'fieldsplit',
+        'ksp_type': 'preonly',
+        'pc_fieldsplit_type': 'schur',
+        'fieldsplit_schur_fact_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'ksp_rtol': 1e-7,
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'ksp_converged_reason': None,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-5',
+            'ksp_monitor': None,
+        }
+    }
+
+    problem = LinearVariationalProblem(a, L, w, bcs=bcs)
+    solver = LinearVariationalSolver(
+        problem, appctx={'mu': mu},
+        nullspace=pressure_nullspace,
+        transpose_nullspace=pressure_nullspace,
+        near_nullspace=near_nullmodes_W,
+        solver_parameters=solver_parameters)
+    solver.solve()
+
+    assert solver.snes.getConvergedReason() > 0
+    ksp_inner, _ = solver.snes.ksp.pc.getFieldSplitSubKSP()
+    assert ksp_inner.getConvergedReason() > 0
+    A, P = ksp_inner.getOperators()
+    assert A.getNearNullSpace().handle
+    # currently ~64 vs. >110-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 70

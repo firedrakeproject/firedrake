@@ -20,11 +20,11 @@ from decorator import decorator
 from functools import partial
 
 from pyop2 import op2
-from pyop2.datatypes import IntType
+from firedrake.utils import IntType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
-from firedrake.cython import dmplex
+from firedrake.cython import dmcommon
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -87,7 +87,7 @@ def get_node_set(mesh, key):
     nodes_per_entity, real_tensorproduct = key
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
-    halo = halo_mod.Halo(mesh._plex, global_numbering)
+    halo = halo_mod.Halo(mesh.topology_dm, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 
@@ -124,8 +124,8 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
-    if mesh._plex.getStratumSize(kind, 1) > 0:
-        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
+    if mesh.topology_dm.getStratumSize(kind, 1) > 0:
+        return dmcommon.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
@@ -150,10 +150,14 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
 
     class magic(dict):
         def __missing__(self, key):
-            return self.setdefault(key,
-                                   {mesh.cell_set: lambda: cell_node_list,
-                                    mesh.interior_facets.set: interior_facet_node_list,
-                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+            if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list}[key]())
+            else:
+                return self.setdefault(key,
+                                       {mesh.cell_set: lambda: cell_node_list,
+                                        mesh.interior_facets.set: interior_facet_node_list,
+                                        mesh.exterior_facets.set: exterior_facet_node_list}[key]())
 
     return magic()
 
@@ -168,10 +172,13 @@ def get_map_cache(mesh, key):
         real_tensorproduct is True if the function space is a degenerate
         fs x Real tensorproduct.
     """
-    return {mesh.cell_set: None,
-            mesh.interior_facets.set: None,
-            mesh.exterior_facets.set: None,
-            "boundary_node": None}
+    if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
+        return {mesh.cell_set: None}
+    else:
+        return {mesh.cell_set: None,
+                mesh.interior_facets.set: None,
+                mesh.exterior_facets.set: None,
+                "boundary_node": None}
 
 
 @cached
@@ -198,43 +205,29 @@ def get_boundary_masks(mesh, key, finat_element):
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
     :arg finat_element: The FInAT element.
-    :returns: A dict mapping ``"topological"`` and ``"geometric"``
-        keys to boundary nodes or ``None``.  If not None, the entry in
-        the mask dict 3-tuple of a Section, an array of indices, and
+    :returns: ``None`` or a 3-tuple of a Section, an array of indices, and
         an array indicating which points in the Section correspond to
         the facets of the cell.  If section.getDof(p) is non-zero,
         then there are ndof basis functions topologically associated
-        with points in the closure of
-        point p (for "topological", ndof basis functions with non-zero
-        support on points in the closure of p for "geometric").  The
-        basis function indices are in the index array, starting at
-        section.getOffset(p).
+        with points in the closure of point p.  The basis function
+        indices are in the index array, starting at section.getOffset(p).
     """
     if not mesh.cell_set._extruded:
         return None
-    masks = {}
     _, kind = key
     assert kind in {"cell", "interior_facet"}
     dim = finat_element.cell.get_spatial_dimension()
     ecd = finat_element.entity_closure_dofs()
-    try:
-        esd = finat_element.entity_support_dofs()
-    except NotImplementedError:
-        # 4-D cells
-        esd = None
     # Number of entities on cell excepting the cell itself.
     chart = sum(map(len, ecd.values())) - 1
     closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    support_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
     # Double up for interior facets.
     if kind == "cell":
         ncell = 1
     else:
         ncell = 2
     closure_section.setChart(0, ncell*chart)
-    support_section.setChart(0, ncell*chart)
     closure_indices = []
-    support_indices = []
     facet_points = []
     p = 0
 
@@ -248,21 +241,13 @@ def get_boundary_masks(mesh, key, finat_element):
                 closure_section.setDof(p, len(ecd[ent][key]))
                 vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
                 closure_indices.extend(vals + cell*offset)
-                if esd is not None:
-                    support_section.setDof(p, ncell*len(esd[ent][key]))
-                    vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
-                    support_indices.extend(vals + cell*offset)
                 if sum(ent) == dim - 1:
                     facet_points.append(p)
                 p += 1
     closure_section.setUp()
-    support_section.setUp()
     closure_indices = numpy.asarray(closure_indices, dtype=IntType)
-    support_indices = numpy.asarray(support_indices, dtype=IntType)
     facet_points = numpy.asarray(facet_points, dtype=IntType)
-    masks["topological"] = (closure_section, closure_indices, facet_points)
-    masks["geometric"] = (support_section, support_indices, facet_points)
-    return masks
+    return (closure_section, closure_indices, facet_points)
 
 
 @cached
@@ -284,24 +269,23 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     """Get top or bottom boundary nodes of an extruded function space.
 
     :arg mesh: The mesh to cache on.
-    :arg key: The key a 3-tuple of ``(entity_dofs_key, sub_domain, method)``.
-        Where sub_domain indicates top or bottom and method is whether
-        we should identify dofs on facets topologically or geometrically.
+    :arg key: The key a 2-tuple of ``(entity_dofs_key, sub_domain)``.
+        Where sub_domain indicates top or bottom.
     :arg V: The FunctionSpace to select from.
     :arg entity_dofs: The flattened entity dofs.
     :returnsL: A numpy array of the (unique) boundary nodes.
     """
-    _, sub_domain, method = key
+    _, sub_domain = key
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
         return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
-                                                V.cell_boundary_masks[method],
+                                                V.cell_boundary_masks,
                                                 offset,
                                                 sub_domain)
     else:
         idx = {"bottom": -2, "top": -1}[sub_domain]
-        section, indices, facet_points = V.cell_boundary_masks[method]
+        section, indices, facet_points = V.cell_boundary_masks
         facet = facet_points[idx]
         dof = section.getDof(facet)
         off = section.getOffset(facet)
@@ -313,18 +297,23 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
 
 
 @cached
-def get_boundary_nodes(mesh, key, V):
-    _, sub_domain, method = key
-    indices = dmplex.boundary_nodes(V, sub_domain, method)
-    # We need a halo exchange to determine all bc nodes.
-    # Should be improved by doing this on the DM topology once.
-    d = op2.Dat(V.dof_dset.set, dtype=IntType)
-    d.data_with_halos[indices] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy where returns an int64
-    return indices.astype(IntType)
+def get_facet_closure_nodes(mesh, key, V):
+    """Function space nodes in the closure of facets with a given
+    marker.
+    :arg mesh: Mesh to cache on
+    :arg key: (edofs, sub_domain) tuple
+    :arg V: function space.
+    :returns: numpy array of unique nodes in the closure of facets
+       with provided markers (both interior and exterior)."""
+    _, sub_domain = key
+    if sub_domain not in {"on_boundary", "top", "bottom"}:
+        valid = set(mesh.interior_facets.unique_markers)
+        valid |= set(mesh.exterior_facets.unique_markers)
+        invalid = set(sub_domain) - valid
+        if invalid:
+            raise LookupError(f"BC construction got invalid markers {invalid}. "
+                              f"Valid markers are '{valid}'")
+    return dmcommon.facet_closure_nodes(V, sub_domain)
 
 
 def get_max_work_functions(V):
@@ -393,6 +382,7 @@ class FunctionSpaceData(object):
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, finat_element, real_tensorproduct=False):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
@@ -435,89 +425,24 @@ class FunctionSpaceData(object):
     def __str__(self):
         return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
 
-    def boundary_nodes(self, V, sub_domain, method):
-        if method not in {"topological", "geometric"}:
-            raise ValueError("Don't know how to extract nodes with method '%s'", method)
+    @PETSc.Log.EventDecorator()
+    def boundary_nodes(self, V, sub_domain):
         if sub_domain in ["bottom", "top"]:
             if not V.extruded:
                 raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
                                  sub_domain)
             entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-            key = (entity_dofs_key(entity_dofs), sub_domain, method)
+            key = (entity_dofs_key(entity_dofs), sub_domain)
             return get_top_bottom_boundary_nodes(V.mesh(), key, V)
         else:
             if sub_domain == "on_boundary":
                 sdkey = sub_domain
             else:
                 sdkey = as_tuple(sub_domain)
-            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
-            return get_boundary_nodes(V.mesh(), key, V)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
+            return get_facet_closure_nodes(V.mesh(), key, V)
 
-    def lgmap(self, V, bcs, lgmap=None):
-        assert len(V) == 1, "lgmap should not be called on MixedFunctionSpace"
-        V = V.topological
-        if bcs is None or len(bcs) == 0:
-            return lgmap or V.dof_dset.lgmap
-
-        # Boundary condition list *must* be collectively ordered already.
-        # Key is a sorted list of bc subdomain, bc method, bc component.
-        bc_key = []
-        for bc in bcs:
-            fs = bc.function_space()
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != V:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-            bc_key.append(bc._cache_key)
-
-        def key(a):
-            tpl, *rest = a
-            if len(tpl) == 1 and isinstance(tpl[0], str):
-                # tpl = ("some_string", )
-                return (True, tpl[0], (), tuple(rest))
-            else:
-                # Ex:
-                # tpl = ((facet_dim, ((1,), (2,), (3,))),
-                #        (edge_dim, ((1, 3), (1, 4))),
-                #        (vert_dim, ((1, 3, 4), )))
-                return (False, "", tpl, tuple(rest))
-
-        bc_key = tuple(sorted(bc_key, key=key))
-        node_set = V.node_set
-        key = (node_set, V.value_size, lgmap is None, bc_key)
-        try:
-            return self.map_cache[key]
-        except KeyError:
-            pass
-        unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if lgmap is None:
-            lgmap = V.dof_dset.lgmap
-            if unblocked:
-                indices = lgmap.indices.copy()
-                bsize = 1
-            else:
-                indices = lgmap.block_indices.copy()
-                bsize = lgmap.getBlockSize()
-                assert bsize == V.value_size
-        else:
-            # MatBlock case, LGMap is already unrolled.
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-            unblocked = True
-        nodes = []
-        for bc in bcs:
-            if bc.function_space().component is not None:
-                nodes.append(bc.nodes * V.value_size + bc.function_space().component)
-            elif unblocked:
-                tmp = bc.nodes * V.value_size
-                for i in range(V.value_size):
-                    nodes.append(tmp + i)
-            else:
-                nodes.append(bc.nodes)
-        nodes = numpy.unique(numpy.concatenate(nodes))
-        indices[nodes] = -1
-        return self.map_cache.setdefault(key, PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm))
-
+    @PETSc.Log.EventDecorator()
     def get_map(self, V, entity_set, map_arity, name, offset):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
@@ -543,6 +468,7 @@ class FunctionSpaceData(object):
         return val
 
 
+@PETSc.Log.EventDecorator()
 def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     """Return the :class:`FunctionSpaceData` for the given
     element.
@@ -553,8 +479,8 @@ def get_shared_data(mesh, finat_element, real_tensorproduct=False):
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
-    if not isinstance(mesh, mesh_mod.MeshTopology):
-        raise ValueError("%s is not a MeshTopology" % mesh)
+    if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
+        raise ValueError("%s is not an AbstractMeshTopology" % mesh)
     if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(finat_element))

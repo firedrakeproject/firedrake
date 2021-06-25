@@ -40,7 +40,7 @@ def test_poisson():
 
         out = Function(V)
 
-        solve(dot(grad(u), grad(v))*dx == f*v*dx, out, bcs=bcs)
+        solve(inner(grad(u), grad(v))*dx == inner(f, v)*dx, out, bcs=bcs)
 
         exactfs = FunctionSpace(mesh, "CG", 2)
         xs = SpatialCoordinate(mesh)

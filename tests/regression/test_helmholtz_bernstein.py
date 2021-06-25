@@ -46,8 +46,8 @@ def helmholtz(V):
     f = Function(V)
     x = SpatialCoordinate(V.ufl_domain())
     f.project(np.prod([cos(2*pi*xi) for xi in x]))
-    a = (dot(grad(v), grad(u)) + v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     # Compute solution
     x = Function(V)

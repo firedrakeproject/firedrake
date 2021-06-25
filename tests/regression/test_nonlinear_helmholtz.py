@@ -28,15 +28,15 @@ def run_test(r, parameters={}):
     v = TestFunction(V)
     f = Function(V)
     f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    a = (dot(grad(v), grad(u)) + lmbda * v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     # Compute solution
     solve(a - L == 0, u, solver_parameters=parameters)
 
     f.interpolate(cos(x[0]*2*pi)*cos(x[1]*2*pi))
 
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 def run_convergence_test(parameters={}):

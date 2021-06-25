@@ -7,7 +7,7 @@ def test_top_bcs_interior_facet(extmesh_2D):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = u('-')*v('-')*dS_v
+    a = inner(u('-'), v('-'))*dS_v
     bcs = DirichletBC(V, 0, "top")
     A = assemble(a, bcs=bcs).M.values
 
@@ -30,7 +30,7 @@ def test_bottom_bcs_interior_facet(extmesh_2D):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = u('-')*v('-')*dS_v
+    a = inner(u('-'), v('-'))*dS_v
     bcs = DirichletBC(V, 0, "bottom")
     A = assemble(a, bcs=bcs).M.values
 

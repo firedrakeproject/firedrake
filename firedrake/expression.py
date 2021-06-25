@@ -3,8 +3,6 @@ from operator import itemgetter
 import ufl
 
 from pyop2 import op2
-from pyop2.datatypes import ScalarType
-
 import firedrake.utils as utils
 
 
@@ -32,7 +30,7 @@ class Expression(ufl.Coefficient):
     :class:`.Function` to the square of the magnitude of the
     coordinate:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         class MyExpression(Expression):
             def eval(self, value, X):
@@ -44,7 +42,7 @@ class Expression(ufl.Coefficient):
     This :class:`Expression` could be interpolated onto the
     :class:`.Function` ``f`` by executing:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         f.interpolate(MyExpression())
 
@@ -55,7 +53,7 @@ class Expression(ufl.Coefficient):
     override the :meth:`value_shape` method of that
     :class:`Expression`. For example:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         class MyExpression(Expression):
             def eval(self, value, X):
@@ -66,11 +64,13 @@ class Expression(ufl.Coefficient):
 
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
-        r"""
-        C string expressions have now been removed from Firedrake, so passing ``code`` into this constructor will trigger an exception.
-        :param kwargs: user-defined values that are accessible in the
-                       Expression code.  These values maybe updated by
-                       accessing the property of the same name.
+        r"""C string expressions have now been removed from Firedrake, so
+        passing ``code`` into this constructor will trigger an
+        exception.
+
+        :arg kwargs: user-defined values that are accessible in the
+             Expression code.  These values maybe updated by
+             accessing the property of the same name.
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         if code is not None:
@@ -106,12 +106,12 @@ class Expression(ufl.Coefficient):
             # Save the argument for later reconstruction
             self._kwargs[slot] = val
             # Scalar arguments have to be treated specially
-            val = np.array(val, dtype=np.float64)
+            val = np.array(val, dtype=utils.ScalarType)
             shape = val.shape
             rank = len(shape)
             if rank == 0:
                 shape = 1
-            val = op2.Global(shape, val, dtype=ScalarType, name=slot)
+            val = op2.Global(shape, val, dtype=utils.ScalarType, name=slot)
             # Record the Globals in a known order (for later passing
             # to a par_loop).  Remember their "name" too, so we can
             # construct a kwarg dict when applying python expressions.

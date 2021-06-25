@@ -1,6 +1,7 @@
 from operator import iadd, isub, imul, itruediv
 from functools import partial
 from itertools import permutations
+from firedrake.assemble_expressions import Assign, evaluate_expression
 
 import pytest
 
@@ -119,7 +120,7 @@ def evaluate(v, x):
         assert len(v) == len(x)
     except TypeError:
         x = (x,) * len(v)
-    return all(np.all(v_ == x_) for v_, x_ in zip(v, x))
+    return all(np.all(abs(v_ - x_) < 1.e-14) for v_, x_ in zip(v, x))
 
 
 def ioptest(f, expr, x, op):
@@ -157,24 +158,19 @@ scalar_tests = common_tests + [
     'assigntest(f, sqrt(one), 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
-    'exprtest(ufl.sign(minusthree), -1)',
+    'exprtest(ufl.sign(real(minusthree)), -1)',
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [
-    'exprtest(one[0] + one[1], (1, 1))',
-    'exprtest(one[1] + two[0], (2, 1))',
-    'exprtest(one[0] - one[1], (1, -1))',
-    'exprtest(one[1] - two[0], (-2, 1))',
-    'assigntest(f, one[0], (1, 0))',
-    'assigntest(f, one[1], (0, 1))',
-    'assigntest(two, one[0], (1, 0))',
-    'assigntest(two, one[1], (0, 1))',
-    'assigntest(two, one[0] + two[0], (3, 0))',
-    'assigntest(two, two[1] - one[1], (0, 1))',
-    'assigntest(f, one[0] + two[1], (1, 2))',
-    'iaddtest(one, one[0], (2, 1))',
-    'iaddtest(one, one[1], (1, 2))',
-    'assigntest(f, 2 * two[1] + 2 * minusthree[0], (-6, 4))']
+    'assigntest(f, one.sub(0), (1, 0))',
+    'assigntest(f, one.sub(1), (0, 1))',
+    'assigntest(two, one.sub(0), (1, 2))',
+    'assigntest(two, one.sub(1), (2, 1))',
+    'assigntest(two, one.sub(0) + two.sub(0), (3, 2))',
+    'assigntest(two, two.sub(1) - one.sub(1), (2, 1))',
+    'iaddtest(one, one.sub(0), (2, 1))',
+    'iaddtest(one, one.sub(1), (1, 2))',
+]
 
 indexed_fs_tests = [
     'assigntest(f, one, (1, 0))',
@@ -215,12 +211,36 @@ def test_mixed_expressions_indexed_fs(expr, msfunctions):
     assert eval(expr)
 
 
+def test_iadd_combination(sfs):
+    f = Function(sfs)
+    g = Function(sfs)
+    t = Constant(2)
+    g.assign(1)
+    f.assign(2)
+    f += t*g
+    assert np.allclose(f.dat.data_ro, 2 + 2)
+
+
 def test_different_fs_asign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
     f1, f2 = fs_combinations
     with pytest.raises(ValueError):
         f1.assign(f2)
+
+
+def test_assign_mfs_lincomp(mfs):
+    f = Function(mfs)
+    f.assign(1)
+    g = Function(mfs)
+    g.assign(2)
+    h = Function(mfs)
+    h.assign(3)
+    c = Constant(2)
+    d = Constant(4)
+    f.assign(f + c*g + d*h)
+    for f_ in f.dat.data_ro:
+        assert np.allclose(f_, 1 + 2*2 + 3 * 4)
 
 
 def test_asign_to_nonindexed_subspace_fails(mfs):
@@ -252,37 +272,6 @@ def test_assign_mixed_no_zero(mfs):
         assert np.allclose(v.dat.data_ro, 2.0)
 
 
-def test_assign_vector_const_to_mfs_scalar_vector(cg1, vcg1):
-    W = cg1*vcg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    s, v = w.split()
-
-    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
-    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:])
-
-
-def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
-    W = cg1*vcg1*vcg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    s, v, v2 = w.split()
-
-    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
-    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:3])
-    assert np.allclose(v2.dat.data_ro, c.dat.data_ro[3:])
-
-
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
@@ -299,19 +288,6 @@ def test_assign_scalar_const_to_vfs(vcg1):
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
-
-
-def test_assign_vector_const_to_mfs_scalars(cg1):
-    W = cg1*cg1*cg1
-
-    w = Function(W)
-
-    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
-
-    w.assign(c)
-
-    for i, w_ in enumerate(w.split()):
-        assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
 
 
 def test_assign_to_mfs_sub(cg1, vcg1):
@@ -405,22 +381,9 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
-@pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
+@pytest.mark.parametrize('value', [10, -10],
                          ids=lambda v: "(f = %d)" % v)
-@pytest.mark.parametrize('expr', ['f',
-                                  '2*f',
-                                  'tanh(f)',
-                                  '2 * tanh(f)',
-                                  'f + tanh(f)',
-                                  'cos(f) + sin(f)',
-                                  'cos(f)*cos(f) + sin(f)*sin(f)',
-                                  'tanh(f) + cos(f) + sin(f)',
-                                  '1.0/tanh(f) + 1.0/f',
-                                  'sqrt(f*f)',
-                                  'sin(cos(f))',
-                                  'sqrt(2 + cos(f))',
-                                  'sin(sqrt(abs(f)))',
-                                  '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'])
+@pytest.mark.parametrize('expr', ['f', '2*f', 'tanh(f)'])
 def test_math_functions(expr, value):
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, 'CG', 1)
@@ -445,7 +408,7 @@ def test_minmax(fn):
 
     h = Function(V)
 
-    h.assign(fn(f, g))
+    h.assign(fn(real(f), real(g)))
 
     if fn == min_value:
         expect = 1
@@ -453,3 +416,75 @@ def test_minmax(fn):
         expect = 2
 
     assert np.allclose(h.dat.data_ro, expect)
+
+
+def test_assign_mixed_multiple_shaped():
+    mesh = UnitTriangleMesh()
+    V = VectorFunctionSpace(mesh, "DG", 0)
+    Q = FunctionSpace(mesh, "P", 1)
+    P = FunctionSpace(mesh, "RT", 2)
+    X = TensorFunctionSpace(mesh, "DG", 1)
+
+    Z = V*Q*P*X
+
+    z1 = Function(Z)
+    z2 = Function(Z)
+
+    z1.dat[0].data[:] = [1, 2]
+    z1.dat[1].data[:] = 3
+    z1.dat[2].data[:] = 4
+    z1.dat[3].data[:] = [[6, 7], [8, 9]]
+
+    z2.dat[0].data[:] = [10, 11]
+    z2.dat[1].data[:] = 12
+    z2.dat[2].data[:] = 13
+    z2.dat[3].data[:] = [[15, 16], [17, 18]]
+
+    q = assemble(z1 - z2)
+    for q, p1, p2 in zip(q.split(), z1.split(), z2.split()):
+        assert np.allclose(q.dat.data_ro, p1.dat.data_ro - p2.dat.data_ro)
+
+
+def test_expression_cache():
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = TensorFunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = Function(V)
+    w = Function(W)
+
+    i, j = indices(2)
+    exprA = Assign(u, as_vector(2*u[i], i))
+    exprB = Assign(u, as_vector(2*u[j], j))
+
+    assert len(u._expression_cache) == 0
+
+    evaluate_expression(exprA)
+
+    assert exprA.fast_key in u._expression_cache
+    assert exprA.slow_key in u._expression_cache
+    assert exprB.fast_key not in u._expression_cache
+    assert exprB.slow_key in u._expression_cache
+
+    evaluate_expression(exprB)
+    assert exprB.fast_key in u._expression_cache
+    assert exprA.fast_key in u._expression_cache
+
+    assert exprB.slow_key == exprA.slow_key
+
+    assert len(u._expression_cache) == 3
+
+    u.assign(as_vector([1, 2]))
+    u.assign(as_vector(2*u[i], i))
+    v.assign(as_vector(2*u[j], j))
+    w.assign(as_tensor([[1, 2], [0, 3]]))
+    w.assign(as_tensor(w[i, j]+w[j, i], (i, j)))
+
+    u -= as_vector([2, 4])
+    assert u.dat.norm < 1e-15
+    v -= as_vector([4, 8])
+    assert v.dat.norm < 1e-15
+    w -= as_tensor([[2, 2], [2, 6]])
+    assert w.dat.norm < 1e-15
+
+    assert len(u._expression_cache) == 5

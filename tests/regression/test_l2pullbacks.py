@@ -69,8 +69,8 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
         f.project((1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2))
     elif meshtype in ['spherical-quad', 'spherical-tri']:
         f.project(x[0]*x[1]*x[2])
-    a = (p*q - q*div(u) + lmbda*inner(v, u) + div(v)*p) * dx
-    L = f*q*dx
+    a = (inner(p, q) - inner(div(u), q) + lmbda*inner(u, v) + inner(p, div(v))) * dx
+    L = inner(f, q)*dx
 
     # Compute solution
     sol = Function(W)
@@ -204,10 +204,10 @@ def laplacian_IP(r, degree, meshd, meshtype):
 
     n = FacetNormal(mesh)
     aV = (inner(grad(u), grad(v)) + inner(u, v)) * dx  # volume term
-    aIF = (inner(jump(u, n), jump(v, n)) * penalty_int - inner(avg(grad(u)), jump(v, n)) - inner(avg(grad(v)), jump(u, n))) * dIF  # interior facet term
-    aEF = (inner(u, v) * penalty_ext - inner(grad(u), v*n) - inner(grad(v), u*n)) * dEF  # exterior facet term
+    aIF = (inner(jump(u, n), jump(v, n)) * penalty_int - inner(avg(grad(u)), jump(v, n)) - inner(jump(u, n), avg(grad(v)))) * dIF  # interior facet term
+    aEF = (inner(u, v) * penalty_ext - inner(grad(u), v*n) - inner(u*n, grad(v))) * dEF  # exterior facet term
     a = aV + aEF + aIF
-    L = f*v*dx
+    L = inner(f, v)*dx
 
     # Compute solution
     sol = Function(V)

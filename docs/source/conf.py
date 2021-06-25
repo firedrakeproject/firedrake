@@ -24,8 +24,10 @@
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc',
-              'sphinx.ext.mathjax', 'sphinx.ext.intersphinx',
+              'sphinx.ext.mathjax',
+              'sphinx.ext.intersphinx',
               'sphinx.ext.viewcode',
+              'sphinx.ext.graphviz',
               'sphinxcontrib.youtube',
               'sphinxcontrib.bibtex']
 
@@ -49,7 +51,6 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Firedrake'
-copyright = u'2013-2018, Imperial College London and others'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -162,7 +163,7 @@ html_static_path = ['_static']
 html_show_sphinx = False
 
 # If true, "(C) Copyright ..." is shown in the HTML footer. Default is True.
-#html_show_copyright = True
+html_show_copyright = False
 
 # If true, an OpenSearch description file will be output, and all pages will
 # contain a <link> tag referring to it.  The value of this option must be the
@@ -257,5 +258,9 @@ intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
+    'matplotlib': ('https://matplotlib.org/', None),
     'python':('https://docs.python.org/3/', None),
 }
+
+#  -- Options for sphinxcontrib.bibtex ------------------------------------
+bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib']

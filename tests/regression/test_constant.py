@@ -31,7 +31,14 @@ def test_constant_assign_mismatch(init, new_vals):
 def test_constant_cast_to_float():
     val = 10.0
     c = Constant(val)
-    assert float(c) == val
+    assert float(c) == val  # raises a warning about casting float to complex
+
+
+@pytest.mark.skipreal
+def test_constant_cast_to_complex():
+    val = 10.0 + 10.0j
+    c = Constant(val)
+    assert complex(c) == val
 
 
 def test_indexed_vector_constant_cast_to_float():
@@ -137,10 +144,10 @@ def test_constant_assign_to_mixed():
 
     W = V*V
 
-    f = Function(W)
     c = Constant([10, 11])
-
-    f.assign(c)
+    f = Function(W)
+    f.sub(0).assign(c)
+    f.sub(1).assign(c)
 
     for d in f.dat.data_ro:
         assert np.allclose(d[:, 0], 10)

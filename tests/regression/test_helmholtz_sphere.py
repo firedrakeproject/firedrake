@@ -16,8 +16,8 @@ def run_helmholtz_sphere(MeshClass, r, d):
 
     f = Function(V).interpolate(x[0]*x[1]*x[2])
 
-    a = (dot(grad(v), grad(u)) + v * u) * dx
-    L = f * v * dx
+    a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    L = inner(f, v) * dx
 
     u = Function(V)
     solve(a == L, u, solver_parameters={"ksp_type": "cg"})
@@ -42,8 +42,8 @@ def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
 
     f = Function(Q)
     f.interpolate(x[0]*x[1]*x[2])
-    a = (p*q - q*div(u) + inner(v, u) + div(v)*p) * dx
-    L = f*q*dx
+    a = (inner(p, q) - inner(div(u), q) + inner(u, v) + inner(p, div(v))) * dx
+    L = inner(f, q) * dx
 
     soln = Function(W)
 

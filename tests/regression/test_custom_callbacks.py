@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import ScalarType
 import numpy as np
 
 
@@ -14,8 +15,10 @@ def test_callbacks():
     temp = Function(V)
     alpha = Constant(0.0)
     beta = Constant(0.0)
+    gamma = Constant(0.0)
+    delta = Constant(0.0)
 
-    F = alpha*u*v*dx - beta*f*v*dx  # we will override alpha and beta later
+    F = inner(alpha*u, v) * dx - inner(beta*f, v) * dx  # we will override alpha and beta later
 
     def update_alpha(current_solution):
         alpha.assign(1.0)
@@ -32,6 +35,12 @@ def test_callbacks():
             # this is reached when calculating the residual after one iteration
             beta.assign(2.0)
 
+    def update_gamma(current_solution, F):
+        gamma.assign(1)
+
+    def update_delta(current_solution, J):
+        delta.assign(3)
+
     problem = NonlinearVariationalProblem(F, u)
 
     # Perform only one iteration; expect to get u = 1.5
@@ -42,8 +51,13 @@ def test_callbacks():
     solver = NonlinearVariationalSolver(problem,
                                         pre_jacobian_callback=update_alpha,
                                         pre_function_callback=update_beta,
+                                        post_function_callback=update_gamma,
+                                        post_jacobian_callback=update_delta,
                                         solver_parameters=params)
     solver.solve()
+
+    assert ScalarType.type(gamma) == 1 + 0j
+    assert ScalarType.type(delta) == 3 + 0j
 
     assert np.allclose(u.dat.data, 1.5)
 

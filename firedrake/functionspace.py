@@ -7,15 +7,16 @@ backwards-compatibility, argument checking, and dispatch.
 import ufl
 
 from pyop2.utils import flatten
-from pyop2.profiling import timed_function
 
 from firedrake import functionspaceimpl as impl
+from firedrake.petsc import PETSc
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
 
 
+@PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     """Build a scalar :class:`ufl.FiniteElement`.
 
@@ -34,15 +35,14 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     .. note::
 
        As a side effect, this function finalises the initialisation of
-       the provided mesh, by calling :meth:`.MeshTopology.init` (or
+       the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
        :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
-    if isinstance(family, ufl.FiniteElementBase):
-        return family
-
     topology = mesh.topology
     cell = topology.ufl_cell()
+    if isinstance(family, ufl.FiniteElementBase):
+        return family.reconstruct(cell=cell)
 
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
@@ -97,7 +97,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-@timed_function("CreateFunctionSpace")
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -121,15 +121,6 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
 
-    # Support foo x Real tensorproduct elements
-    real_tensorproduct = False
-    scalar_element = element
-    if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
-        scalar_element = element.sub_elements()[0]
-    if isinstance(scalar_element, ufl.TensorProductElement):
-        a, b = scalar_element.sub_elements()
-        real_tensorproduct = b.family() == 'Real'
-
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
 
@@ -138,13 +129,14 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
+        new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
         return new
 
 
+@PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.
@@ -181,6 +173,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
                         vdegree=None):
@@ -218,6 +211,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 

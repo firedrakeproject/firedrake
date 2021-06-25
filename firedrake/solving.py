@@ -27,8 +27,11 @@ from firedrake import solving_utils
 from firedrake import dmhooks
 import firedrake
 from firedrake.adjoint import annotate_solve
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType
 
 
+@PETSc.Log.EventDecorator()
 @annotate_solve
 def solve(*args, **kwargs):
     r"""Solve linear system Ax = b or variational problem a == L or F == 0.
@@ -41,7 +44,7 @@ def solve(*args, **kwargs):
 
     A linear system Ax = b may be solved by calling
 
-    .. code-block:: python
+    .. code-block:: python3
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
@@ -59,7 +62,7 @@ def solve(*args, **kwargs):
     solution). Optional arguments may be supplied to specify boundary
     conditions or solver parameters. Some examples are given below:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         solve(a == L, u)
         solve(a == L, u, bcs=bc)
@@ -72,7 +75,7 @@ def solve(*args, **kwargs):
     options as solver parameters.  For example, to solve the system
     using direct factorisation use:
 
-    .. code-block:: python
+    .. code-block:: python3
 
        solve(a == L, u, bcs=bcs,
              solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
@@ -94,7 +97,7 @@ def solve(*args, **kwargs):
     pure PETSc code.  See :class:`NonlinearVariationalSolver` for more
     details.
 
-    .. code-block:: python
+    .. code-block:: python3
 
         solve(F == 0, u)
         solve(F == 0, u, bcs=bc)
@@ -138,6 +141,10 @@ def _solve_varproblem(*args, **kwargs):
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
+
+    if form_compiler_parameters is None:
+        form_compiler_parameters = {}
+    form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
@@ -198,14 +205,14 @@ def _la_solve(A, x, b, **kwargs):
         Any boundary conditions must be applied when assembling the
         bilinear form as:
 
-        .. code-block:: python
+        .. code-block:: python3
 
            A = assemble(a, bcs=[bc1])
            solve(A, x, b)
 
     Example usage:
 
-    .. code-block:: python
+    .. code-block:: python3
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
@@ -318,10 +325,11 @@ def _extract_bcs(bcs):
     from firedrake.bcs import BCBase, EquationBC
     if bcs is None:
         return ()
-    try:
-        bcs = tuple(bcs)
-    except TypeError:
-        bcs = (bcs,)
+    if isinstance(bcs, (BCBase, EquationBC)):
+        return (bcs, )
+    else:
+        if not isinstance(bcs, (tuple, list)):
+            raise TypeError("bcs must be BCBase, EquationBC, tuple, or list, not '%s'." % type(bcs).__name__)
     for bc in bcs:
         if not isinstance(bc, (BCBase, EquationBC)):
             raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)

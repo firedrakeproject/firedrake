@@ -1,13 +1,15 @@
-import ufl
+import functools
 import numbers
-import numpy as np
 
+import numpy as np
+import ufl
+
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
 
@@ -27,7 +29,7 @@ class HybridizationPC(SCBase):
     are performed element-local using the Slate language.
     """
 
-    @timed_function("HybridInit")
+    @PETSc.Log.EventDecorator("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -37,9 +39,8 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC)
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+                               DirichletBC, assemble)
+        from firedrake.assemble import allocate_matrix
         from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
@@ -200,10 +201,11 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
-            tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                K * Atilde.inv * AssembledVector(self.broken_residual),
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params,
+                                                assembly_type="residual")
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
@@ -211,14 +213,17 @@ class HybridizationPC(SCBase):
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
-                                 options_prefix=prefix)
-        self._assemble_S = create_assembly_callable(schur_comp,
-                                                    tensor=self.S,
-                                                    bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type)
+                                 options_prefix=prefix,
+                                 appctx=self.get_appctx(pc))
+        self._assemble_S = functools.partial(assemble,
+                                             schur_comp,
+                                             tensor=self.S,
+                                             bcs=trace_bcs,
+                                             form_compiler_parameters=self.ctx.fc_params,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
 
-        with timed_region("HybridOperatorAssembly"):
+        with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -228,13 +233,39 @@ class HybridizationPC(SCBase):
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
 
-        # Set up the KSP for the system of Lagrange multipliers
+        # Create a SNESContext for the DM associated with the trace problem
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          schur_comp,
+                                          trace_bcs,
+                                          mat_type,
+                                          self.ctx.fc_params,
+                                          options_prefix=prefix)
+
+        # dm associated with the trace problem
+        trace_dm = TraceSpace.dm
+
+        # KSP for the system of Lagrange multipliers
         trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.incrementTabLevel(1, parent=pc)
+
+        # Set the dm for the trace solver
+        trace_ksp.setDM(trace_dm)
+        trace_ksp.setDMActive(False)
         trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(Smat)
-        trace_ksp.setUp()
-        trace_ksp.setFromOptions()
+        trace_ksp.setOperators(Smat, Smat)
+
+        # Option to add custom monitor
+        monitor = self.ctx.appctx.get('custom_monitor', None)
+        if monitor:
+            monitor.add_reconstructor(self.backward_substitution)
+            trace_ksp.setMonitor(monitor)
+
         self.trace_ksp = trace_ksp
+
+        with dmhooks.add_hooks(trace_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            trace_ksp.setFromOptions()
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
@@ -251,7 +282,7 @@ class HybridizationPC(SCBase):
         :arg split_trace_op: a ``dict`` of split forms that make up the trace
                              contribution in the hybridized mixed system.
         """
-        from firedrake.assemble import create_assembly_callable
+        from firedrake import assemble
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -279,17 +310,21 @@ class HybridizationPC(SCBase):
         R = K_1.T - C * A.inv * K_0.T
         u_rec = M.solve(f - C * A.inv * g - R * lambdar,
                         decomposition="PartialPivLU")
-        self._sub_unknown = create_assembly_callable(u_rec,
-                                                     tensor=u,
-                                                     form_compiler_parameters=self.ctx.fc_params)
+        self._sub_unknown = functools.partial(assemble,
+                                              u_rec,
+                                              tensor=u,
+                                              form_compiler_parameters=self.ctx.fc_params,
+                                              assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = create_assembly_callable(sigma_rec,
-                                                      tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
+        self._elim_unknown = functools.partial(assemble,
+                                               sigma_rec,
+                                               tensor=sigma,
+                                               form_compiler_parameters=self.ctx.fc_params,
+                                               assembly_type="residual")
 
-    @timed_function("HybridUpdate")
+    @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
@@ -305,7 +340,7 @@ class HybridizationPC(SCBase):
         :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
-        with timed_region("HybridBreak"):
+        with PETSc.Log.Event("HybridBreak"):
             with self.unbroken_residual.dat.vec_wo as v:
                 x.copy(v)
 
@@ -331,7 +366,7 @@ class HybridizationPC(SCBase):
                       "vec_out": (broken_res_hdiv, INC)},
                      is_loopy_kernel=True)
 
-        with timed_region("HybridRHS"):
+        with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
@@ -342,14 +377,18 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            if self.trace_ksp.getInitialGuessNonzero():
-                acc = self.trace_solution.dat.vec
-            else:
-                acc = self.trace_solution.dat.vec_wo
-            with acc as x_trace:
-                self.trace_ksp.solve(b, x_trace)
+        dm = self.trace_ksp.getDM()
+
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+
+            # Solve the system for the Lagrange multipliers
+            with self.schur_rhs.dat.vec_ro as b:
+                if self.trace_ksp.getInitialGuessNonzero():
+                    acc = self.trace_solution.dat.vec
+                else:
+                    acc = self.trace_solution.dat.vec_wo
+                with acc as x_trace:
+                    self.trace_ksp.solve(b, x_trace)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -364,7 +403,7 @@ class HybridizationPC(SCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
-        with timed_region("HybridProject"):
+        with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]
@@ -387,13 +426,10 @@ class HybridizationPC(SCBase):
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.pushASCIITab()
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
-        viewer.printfASCII("KSP solver for the multipliers:\n")
-        viewer.pushASCIITab()
-        self.trace_ksp.view(viewer)
-        viewer.popASCIITab()
-        viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
-        viewer.pushASCIITab()
-        viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
-        viewer.popASCIITab()
+        if hasattr(self, "trace_ksp"):
+            viewer.printfASCII("Applying hybridization to mixed problem.\n")
+            viewer.printfASCII("Statically condensing to trace system.\n")
+            viewer.printfASCII("KSP solver for the multipliers:\n")
+            self.trace_ksp.view(viewer)
+            viewer.printfASCII("Locally reconstructing solutions.\n")
+            viewer.printfASCII("Projecting broken flux into HDiv space.\n")

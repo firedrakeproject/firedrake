@@ -15,7 +15,7 @@ def test_left_inverse(mesh, degree):
     V = FunctionSpace(mesh, "DG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = u*v*dx
+    form = inner(u, v)*dx
 
     A = Tensor(form)
     Result = assemble(A.inv * A)
@@ -29,7 +29,7 @@ def test_right_inverse(mesh, degree):
     V = FunctionSpace(mesh, "DG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = u*v*dx
+    form = inner(u, v)*dx
 
     A = Tensor(form)
     Result = assemble(A * A.inv)
@@ -44,7 +44,7 @@ def test_symmetry(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = u*v*dx + inner(grad(u), grad(v))*dx
+    form = inner(u, v)*dx + inner(grad(u), grad(v))*dx
 
     A = Tensor(form)
     M1 = assemble(A)
@@ -59,7 +59,7 @@ def test_subtract_to_zero(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = u*v*dx
+    form = inner(u, v)*dx
 
     A = Tensor(form)
     M = assemble(A - A)
@@ -73,7 +73,7 @@ def test_add_the_negative(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = u*v*dx
+    form = inner(u, v)*dx
 
     A = Tensor(form)
     M = assemble(A + -A)
@@ -94,8 +94,8 @@ def test_aggressive_unaryop_nesting():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    A = Tensor(u*v*dx)
-    B = Tensor(2.0*u*v*dx)
+    A = Tensor(inner(u, v)*dx)
+    B = Tensor(2.0*inner(u, v)*dx)
 
     # This is a very silly way to write the vector of ones
     foo = (B.T*A.inv).T*G + (-A.inv.T*B.T).inv*F + B.inv*(A.T).T*F
@@ -111,8 +111,8 @@ def test_local_solve(decomp):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    A = Tensor(inner(v, u)*dx)
-    b = Tensor(inner(v, f)*dx)
+    A = Tensor(inner(u, v)*dx)
+    b = Tensor(inner(f, v)*dx)
     x = assemble(A.solve(b, decomposition=decomp))
 
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)

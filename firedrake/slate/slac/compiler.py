@@ -18,28 +18,32 @@ from coffee import base as ast
 
 import time
 from hashlib import md5
-import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
-from firedrake.slate.slac.kernel_builder import LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import ScalarType_c
+from firedrake.petsc import get_petsc_variables
+from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
 from gem.utils import groupby
+from gem import impero_utils
 
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
+from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 
 import firedrake.slate.slate as slate
 import numpy as np
-
+import loopy
+import gem
+from gem import indices as make_indices
+from tsfc.loopy import generate as generate_loopy
 
 __all__ = ['compile_expression']
 
@@ -51,34 +55,47 @@ except ValueError:
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
-if COMM_WORLD.rank == 0:
-    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
-    with open(filepath) as file:
-        for line in file:
-            if line.find("EIGEN_INCLUDE") == 0:
-                EIGEN_INCLUDE_DIR = line[18:].rstrip()
-                break
-    if EIGEN_INCLUDE_DIR is None:
-        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+BLASLAPACK_LIB = None
+BLASLAPACK_INCLUDE = None
+if not complex_mode:
+    if COMM_WORLD.rank == 0:
+        petsc_variables = get_petsc_variables()
+        EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
+        if EIGEN_INCLUDE_DIR is None:
+            raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+        EIGEN_INCLUDE_DIR = EIGEN_INCLUDE_DIR.lstrip('-I')
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+
+        BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+        BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
+        BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
+    else:
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, tsfc_parameters):
+    def _cache_key(cls, expr, tsfc_parameters, coffee):
         return md5((expr.expression_hash
-                    + str(sorted(tsfc_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(sorted(tsfc_parameters.items()))
+                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, tsfc_parameters):
+    def __init__(self, expr, tsfc_parameters, coffee=False):
         if self._initialized:
             return
-        self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        if coffee:
+            self.split_kernel = generate_kernel(expr, tsfc_parameters)
+        else:
+            self.split_kernel = generate_loopy_kernel(expr, tsfc_parameters)
         self._initialized = True
 
 
-def compile_expression(slate_expr, tsfc_parameters=None):
+def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -88,27 +105,92 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    if complex_mode:
+        raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
-    if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"]
+    params = parameters["form_compiler"].copy()
+    if tsfc_parameters is not None:
+        params.update(tsfc_parameters)
+    tsfc_parameters = params
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, tsfc_parameters).split_kernel
+        kernel = SlateKernel(slate_expr, tsfc_parameters, coffee).split_kernel
         return cache.setdefault(key, kernel)
+
+
+def get_temp_info(loopy_kernel):
+    """Get information about temporaries in loopy kernel.
+
+    Returns memory in bytes and number of temporaries.
+    """
+    mems = [temp.nbytes for temp in loopy_kernel.temporary_variables.values()]
+    mem_total = sum(mems)
+    num_temps = len(loopy_kernel.temporary_variables)
+
+    # Get number of temporaries of different shapes
+    shapes = {}
+    for temp in loopy_kernel.temporary_variables.values():
+        shape = temp.shape
+        if temp.storage_shape is not None:
+            shape = temp.storage_shape
+
+        shapes[len(shape)] = shapes.get(len(shape), 0) + 1
+    return mem_total, num_temps, mems, shapes
+
+
+def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
+    cpu_time = time.time()
+    if len(slate_expr.ufl_domains()) > 1:
+        raise NotImplementedError("Multiple domains not implemented.")
+
+    Citations().register("Gibson2018")
+
+    # Create a loopy builder for the Slate expression,
+    # e.g. contains the loopy kernels coming from TSFC
+    gem_expr, var2terminal = slate_to_gem(slate_expr)
+
+    scalar_type = tsfc_parameters["scalar_type"]
+    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+
+    builder = LocalLoopyKernelBuilder(expression=slate_expr,
+                                      tsfc_parameters=tsfc_parameters)
+
+    name = "slate_wrapper"
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
+    loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
+    loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
+
+    loopykernel = op2.Kernel(loopy_merged,
+                             name,
+                             include_dirs=BLASLAPACK_INCLUDE.split(),
+                             ldargs=BLASLAPACK_LIB.split())
+
+    kinfo = KernelInfo(kernel=loopykernel,
+                       integral_type="cell",  # slate can only do things as contributions to the cell integrals
+                       oriented=builder.bag.needs_cell_orientations,
+                       subdomain_id="otherwise",
+                       domain_number=0,
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       needs_cell_facets=builder.bag.needs_cell_facets,
+                       pass_layer_arg=builder.bag.needs_mesh_layers,
+                       needs_cell_sizes=builder.bag.needs_cell_sizes)
+
+    # Cache the resulting kernel
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
+    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    return (SplitKernel(idx, kinfo),)
 
 
 def generate_kernel(slate_expr, tsfc_parameters=None):
     cpu_time = time.time()
-    # TODO: Get PyOP2 to write into mixed dats
-    if slate_expr.is_mixed:
-        raise NotImplementedError("Compiling mixed slate expressions")
 
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
@@ -142,7 +224,8 @@ def generate_kernel(slate_expr, tsfc_parameters=None):
     kinfo = generate_kernel_ast(builder, statements, declared_temps)
 
     # Cache the resulting kernel
-    idx = tuple([0]*slate_expr.rank)
+    # Slate kernels are never split, so indicate that with None in the index slot.
+    idx = tuple([None]*slate_expr.rank)
     logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
@@ -219,8 +302,12 @@ def generate_kernel_ast(builder, statements, declared_temps):
                              qualifiers=["const"]))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
-    # added as the final argument to the kernel.
+    # added as the final argument to the kernel
+    # and the amount of layers before that.
     if builder.needs_mesh_layers:
+        args.append(ast.Decl("int", builder.mesh_layer_count_sym,
+                             pointers=[("restrict",)],
+                             qualifiers=["const"]))
         args.append(ast.Decl("int", builder.mesh_layer_sym))
 
     # Cell size information
@@ -485,18 +572,18 @@ def tensor_assembly_calls(builder):
 
         # FIXME: No variable layers assumption
         statements.append(ast.FlatBlock("/* Mesh levels: */\n"))
-        num_layers = builder.expression.ufl_domain().topological.layers - 1
-        int_top = assembly_calls["interior_facet_horiz_top"]
-        int_btm = assembly_calls["interior_facet_horiz_bottom"]
-        ext_top = assembly_calls["exterior_facet_top"]
-        ext_btm = assembly_calls["exterior_facet_bottom"]
-
-        eq_layer = ast.Eq(builder.mesh_layer_sym, num_layers - 1)
-        bottom = ast.Block(int_top + ext_btm, open_scope=True)
-        top = ast.Block(int_btm + ext_top, open_scope=True)
-        rest = ast.Block(int_btm + int_top, open_scope=True)
-        statements.append(ast.If(ast.Eq(builder.mesh_layer_sym, 0),
-                                 (bottom, ast.If(eq_layer, (top, rest)))))
+        num_layers = ast.Symbol(builder.mesh_layer_count_sym, rank=(0,))
+        layer = builder.mesh_layer_sym
+        types = ["interior_facet_horiz_top",
+                 "interior_facet_horiz_bottom",
+                 "exterior_facet_top",
+                 "exterior_facet_bottom"]
+        decide = [ast.Less(layer, num_layers),
+                  ast.Greater(layer, 0),
+                  ast.Eq(layer, num_layers),
+                  ast.Eq(layer, 0)]
+        for (integral_type, which) in zip(types, decide):
+            statements.append(ast.If(which, (ast.Block(assembly_calls[integral_type], open_scope=True),)))
 
     return statements
 
@@ -528,6 +615,33 @@ def parenthesize(arg, prec=None, parent=None):
     if prec is None or parent is None or prec >= parent:
         return arg
     return "(%s)" % arg
+
+
+def gem_to_loopy(gem_expr, var2terminal, scalar_type):
+    """ Method encapsulating stage 2.
+    Converts the gem expression dag into imperoc first, and then further into loopy.
+    :return slate_loopy: 2-tuple of loopy kernel for slate operations
+        and loopy GlobalArg for the output variable.
+    """
+    # Creation of return variables for outer loopy
+    shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
+    idx = make_indices(len(shape))
+    indexed_gem_expr = gem.Indexed(gem_expr, idx)
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type, is_output=True, is_input=True)]
+            + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
+               for var in var2terminal.keys()])
+    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
+
+    preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
+
+    # glue assignments to return variable
+    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+
+    # Part A: slate to impero_c
+    impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
+
+    # Part B: impero_c to loopy
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), args[0].copy()
 
 
 def slate_to_cpp(expr, temps, prec=None):

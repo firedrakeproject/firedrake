@@ -27,7 +27,7 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     # Define variational problem
     u = Function(V)
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
+    a = inner(grad(u), grad(v)) * dx
 
     bcs = [DirichletBC(V, Constant(0), 3),
            DirichletBC(V, Constant(42), 4)]
@@ -38,7 +38,7 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     f = Function(V)
     f.interpolate(42*x[1])
 
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 def run_test_linear(r, degree, parameters={}, quadrilateral=False):
@@ -50,8 +50,8 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
-    L = v*Constant(0)*dx
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(0), v) * dx
 
     bcs = [DirichletBC(V, Constant(0), 3),
            DirichletBC(V, Constant(42), 4)]
@@ -63,7 +63,7 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     f = Function(V)
     f.interpolate(42*x[1])
 
-    return sqrt(assemble(dot(u - f, u - f) * dx))
+    return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],

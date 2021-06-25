@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Firedrake '18
 
 .. image:: images/imperial_night.jpg

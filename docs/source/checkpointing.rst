@@ -59,7 +59,7 @@ Available modes are:
 For example, to open a checkpoint file for writing solution state,
 truncating any existing contents we use:
 
-.. code-block:: python
+.. code-block:: python3
 
    chk = DumbCheckpoint("dump", mode=FILE_CREATE)
 
@@ -76,14 +76,14 @@ A :class:`~.Function` is referenced in the checkpoint file by its
 passing an optional `name` argument.  For example, to store a
 :class:`~.Function` using its default name use:
 
-.. code-block:: python
+.. code-block:: python3
 
    f = Function(V, name="foo")
    chk.store(f)
 
 If instead we want to override the name we use:
 
-.. code-block:: python
+.. code-block:: python3
 
    chk.store(f, name="bar")
 
@@ -110,7 +110,7 @@ For example, assume we had previously saved a checkpoint containing
 two different :class:`~.Function`\s with names ``"A"`` and
 ``"B"``.  We can load these as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
    chk = DumbCheckpoint("dump.h5", mode=FILE_READ)
 
@@ -146,7 +146,7 @@ managers`_ which ensure that the checkpoint file is closed as soon as
 the object goes out of scope.  To use this approach, we use the python
 ``with`` statement:
 
-.. code-block:: python
+.. code-block:: python3
 
    # Normal code here
    with DumbCheckpoint("dump.h5", mode=FILE_UPDATE) as chk:
@@ -229,7 +229,7 @@ optional ``name`` argument.
 
 As an example, consider the following sequence:
 
-.. code-block:: python
+.. code-block:: python3
 
    with DumbCheckpoint("dump", single_file=False, mode=FILE_CREATE) as chk:
        chk.store(a)

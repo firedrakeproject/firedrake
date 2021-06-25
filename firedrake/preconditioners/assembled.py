@@ -1,4 +1,5 @@
 import abc
+import functools
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
@@ -20,7 +21,7 @@ class AssembledPC(PCBase):
     _prefix = "assembled_"
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, create_assembly_callable
+        from firedrake.assemble import allocate_matrix, assemble
         _, P = pc.getOperators()
 
         if pc.getType() != "python":
@@ -55,10 +56,13 @@ class AssembledPC(PCBase):
                                  form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = create_assembly_callable(a, tensor=self.P,
-                                                    bcs=bcs,
-                                                    form_compiler_parameters=fcp,
-                                                    mat_type=mat_type)
+        self._assemble_P = functools.partial(assemble,
+                                             a,
+                                             tensor=self.P,
+                                             bcs=bcs,
+                                             form_compiler_parameters=fcp,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
         self._assemble_P()
 
         # Transfer nullspace over
@@ -67,6 +71,7 @@ class AssembledPC(PCBase):
         tnullsp = P.getTransposeNullSpace()
         if tnullsp.handle != 0:
             Pmat.setTransposeNullSpace(tnullsp)
+        Pmat.setNearNullSpace(P.getNearNullSpace())
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -82,7 +87,7 @@ class AssembledPC(PCBase):
         octx = get_appctx(dm)
         oproblem = octx._problem
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

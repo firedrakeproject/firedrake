@@ -19,7 +19,7 @@ def test_multiple_poisson_Pn(quadrilateral, degree):
     # Solve 2 independent Poisson problems with strong boundary
     # conditions applied to the top and bottom for the first and on x
     # == 0 and x == 1 for the second.
-    a = dot(grad(u), grad(v))*dx + dot(grad(p), grad(q))*dx
+    a = inner(grad(u), grad(v))*dx + inner(grad(p), grad(q))*dx
 
     # BCs for first problem
     bc0 = [DirichletBC(W[0], 10.0, "top"),
@@ -67,8 +67,8 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
     # Solve two independent Poisson problems with a strong boundary
     # condition on the top and a weak condition on the bottom, and
     # vice versa.
-    a = dot(grad(u), grad(v))*dx + dot(grad(p), grad(q))*dx
-    L = Constant(1)*v*ds_b + Constant(4)*q*ds_t
+    a = inner(grad(u), grad(v))*dx + inner(grad(p), grad(q))*dx
+    L = inner(Constant(1), v)*ds_b + inner(Constant(4), q)*ds_t
 
     # BCs for first problem
     bc0 = [DirichletBC(W[0], 10.0, "top")]
@@ -111,7 +111,7 @@ def test_stokes_taylor_hood(mat_type):
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    a = inner(grad(u), grad(v))*dx - div(v)*p*dx + q*div(u)*dx
+    a = inner(grad(u), grad(v))*dx - inner(p, div(v))*dx + inner(div(u), q)*dx
 
     f = Constant((0, 0))
     L = inner(f, v)*dx

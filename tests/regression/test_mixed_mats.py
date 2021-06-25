@@ -138,7 +138,7 @@ def test_bcs_ordering():
     bc1 = DirichletBC(W.sub(0), 0, 1)
     bc2 = DirichletBC(W.sub(1), 1, 2)
 
-    a = (u*v + u*q + p*v + p*q)*dx
+    a = (inner(u, v) + inner(u, q) + inner(p, v) + inner(p, q))*dx
 
     A = assemble(a, bcs=[bc1, bc2])
 

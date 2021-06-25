@@ -17,8 +17,8 @@ def helmholtz_mixed(r, V1, V2, action=False):
 
     x = SpatialCoordinate(mesh)
     f.interpolate((1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2))
-    a = (p*q - q*div(u) + lmbda*inner(v, u) + div(v)*p) * dx
-    L = f*q*dx
+    a = (inner(p, q) - inner(div(u), q) + lmbda*inner(u, v) + inner(p, div(v))) * dx
+    L = inner(f, q) * dx
 
     # Compute solution
     sol = Function(W)
@@ -41,7 +41,7 @@ def helmholtz_mixed(r, V1, V2, action=False):
 
     # Analytical solution
     f.interpolate(sin(x[0]*pi*2)*sin(x[1]*pi*2))
-    return sqrt(assemble(dot(sol[2] - f, sol[2] - f) * dx))
+    return sqrt(assemble(inner(sol[2] - f, sol[2] - f) * dx))
 
 
 @pytest.mark.parametrize(('V1', 'V2', 'threshold', 'action'),

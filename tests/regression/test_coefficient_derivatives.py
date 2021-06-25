@@ -1,7 +1,9 @@
 from firedrake import *
 import numpy as np
+import pytest
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="Not complex differentiable")
 def test_coefficient_derivatives():
     m = UnitSquareMesh(3, 3)
     x = SpatialCoordinate(m)
