@@ -12,9 +12,6 @@ jobs:
     name: "Build Docker containers"  
     # The type of runner that the job will run on
     runs-on: self-hosted
-    # The docker container to use.
-    container:
-      image: firedrakeproject/firedrake-env:latest
     steps:
       - name: Check out the repo
         uses: actions/checkout@v2
