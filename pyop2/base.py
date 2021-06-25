@@ -177,18 +177,20 @@ class Arg(object):
         :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
             global maps used during assembly.
             
-        Takes all the same arguments as _init_ overriding them if necessary."""
-        if data is None:
-            data = self.data
+        Takes all the same arguments as _init_ overriding them, if necessary."""
+        if data is not None:
+            self.data = data
 
-        if map is None:
-            map = self.map
+        if map is not None:
+            self.map = map
 
-        if access is None:
-            access = self.access
+        if access is not None:
+            self.access = access
 
-        if lgmaps is None:
-            lgmaps = self.lgmaps
+        if lgmaps is not None:
+            self.lgmaps = lgmaps
+
+        # self.unroll_map = unroll_map
 
     @cached_property
     def _kernel_args_(self):
