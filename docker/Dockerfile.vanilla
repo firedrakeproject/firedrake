@@ -6,5 +6,6 @@ FROM firedrakeproject/firedrake-env:latest
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
 
 # Now install Firedrake.
+WORKDIR /root
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
 RUN bash -c "python3 firedrake-install --no-package-manager --disable-ssh --remove-build-files"
