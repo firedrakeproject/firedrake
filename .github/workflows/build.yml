@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: "Build Firedrake"  
+    name: "Build Firedrake"
     # The type of runner that the job will run on
     runs-on: self-hosted
     # The docker container to use.
