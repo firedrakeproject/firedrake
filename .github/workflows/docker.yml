@@ -40,3 +40,11 @@ jobs:
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.vanilla
           tags: firedrakeproject/firedrake-vanilla:latest
+      - name: Build and push firedrake-complex
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          no-cache: true
+          build-args: PETSC_CONFIGURE_OPTIONS
+          file: docker/Dockerfile.complex
+          tags: firedrakeproject/firedrake-complex:latest
