@@ -277,6 +277,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self._data
 
     @PETSc.Log.EventDecorator()
+    @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
         r"""Return a copy of this Function.
 

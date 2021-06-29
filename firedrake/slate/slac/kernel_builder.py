@@ -766,8 +766,9 @@ class SlateWrapperBag(object):
 
 
 class IndexCreator(object):
-    inames = OrderedDict()  # pym variable -> extent
-    namer = UniqueNameGenerator(forced_prefix="i_")
+    def __init__(self):
+        self.inames = OrderedDict()  # pym variable -> extent
+        self.namer = UniqueNameGenerator(forced_prefix="i_")
 
     def __call__(self, extents):
         """Create new indices with specified extents.
