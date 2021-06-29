@@ -184,7 +184,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     def pull_facet(x, pshape, idir):
-        return np.reshape(np.transpose(np.reshape(x.copy(), pshape), (idir+np.arange(len(pshape))) % len(pshape)), x.shape)
+        return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), idir, 0), x.shape)
 
     @staticmethod
     def index_bcs(x, pshape, bc, val):
@@ -412,10 +412,7 @@ class FDMPC(PCBase):
         istart = 1 if needs_hdiv else 0
         if needs_interior_facet:
 
-            # TODO extrude these arrays
-            lexico_facet, nfacet = self.glonum_fun(V.interior_facet_node_map())
-            facet_cells = self.mesh.interior_facets.facet_cell_map.values
-            facet_data = self.mesh.interior_facets.local_facet_dat.data
+            lexico_facet, nfacet, facet_cells, facet_data = self.get_facet_topology(V)
             rows = np.zeros((2*sdim,), dtype=PETSc.IntType)
 
             for f in range(nfacet):
@@ -431,6 +428,7 @@ class FDMPC(PCBase):
 
                 for k in range(istart, ncomp):
                     if needs_hdiv:
+                        # FIXME permutation is not cyclic
                         k0 = (k+idir[0]) % ncomp
                         k1 = (k+idir[1]) % ncomp
                         facet_perm = (k+np.arange(ndim)) % ndim
@@ -1072,6 +1070,57 @@ class FDMPC(PCBase):
         firedrake.par_loop((domain, instructions), firedrake.dx,
                            {"w": (weight, op2.INC)}, is_loopy_kernel=True)
         return weight
+
+    @staticmethod
+    @lru_cache(maxsize=10)
+    def get_facet_topology(V):
+        mesh = V.mesh()
+        intfacets = mesh.interior_facets
+        facet_cells = intfacets.facet_cell_map.values
+        facet_data = intfacets.local_facet_dat.data_ro
+
+        facet_node_map = V.interior_facet_node_map()
+        facet_values = facet_node_map.values_with_halo
+        nbase = facet_values.shape[0]
+
+        if mesh.layers:
+            layers = facet_node_map.iterset.layers_array
+            if layers.shape[0] == 1:
+
+                cell_node_map = V.cell_node_map()
+                cell_values = cell_node_map.values
+                cell_offset = cell_node_map.offset
+
+                facet_offset = facet_node_map.offset
+                nelh = cell_node_map.shape[0]
+                nelz = layers[0, 1] - layers[0, 0] - 1
+
+                nh = nbase * nelz
+                nv = nelh * (nelz - 1)
+                nfacets = nh + nv
+
+                lexico_base = lambda e: facet_values[e % nbase] + (e//nbase)*facet_offset
+
+                lexico_v = lambda e: np.append(cell_values[e % nelh] + (e//nelh)*cell_offset,
+                                               cell_values[e % nelh] + (e//nelh + 1)*cell_offset)
+
+                lexico_facet = lambda e: lexico_base(e) if e < nh else lexico_v(e-nh)
+
+                if nv:
+                    facet_data = np.concatenate((np.tile(facet_data, (nelz, 1)),
+                                                 np.tile(np.array([[5, 4]], facet_data.dtype), (nv, 1))), axis=0)
+
+                    facet_cells_base = [facet_cells + nelh*k for k in range(nelz)]
+                    facet_cells_base.append(np.array([[k, k+nelh] for k in range(nv)], facet_cells.dtype))
+                    facet_cells = np.concatenate(facet_cells_base, axis=0)
+
+            else:
+                raise NotImplementedError("Not implemented for variable layers")
+        else:
+            lexico_facet = lambda e: facet_values[e]
+            nfacets = nbase
+
+        return lexico_facet, nfacets, facet_cells, facet_data
 
     @staticmethod
     @lru_cache(maxsize=10)
