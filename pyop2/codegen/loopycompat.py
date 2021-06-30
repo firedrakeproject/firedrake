@@ -85,7 +85,7 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
                 get_kw_pos_association)
         _, pos_to_kw = get_kw_pos_association(callee_knl)
         arg_id_to_shape = {}
-        for arg_id, arg in insn.arg_id_to_val().items():
+        for arg_id, arg in insn.arg_id_to_arg().items():
             arg_id = pos_to_kw[arg_id]
 
             arg_descr = get_arg_descriptor_for_expression(caller_knl, arg)
