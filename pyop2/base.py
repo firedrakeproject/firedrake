@@ -169,7 +169,7 @@ class Arg(object):
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
 
-    def recreate(self, data=None, map=None, access=None, lgmaps=None, unroll_map=False):
+    def recreate(self, data=None, map=None, access=None, lgmaps=None, unroll_map=None):
         """:param data: A data-carrying object, either :class:`Dat` or class:`Mat`
         :param map:  A :class:`Map` to access this :class:`Arg` or the default
                      if the identity map is to be used.
@@ -178,19 +178,11 @@ class Arg(object):
             global maps used during assembly.
             
         Takes all the same arguments as _init_ overriding them, if necessary."""
-        if data is not None:
-            self.data = data
-
-        if map is not None:
-            self.map = map
-
-        if access is not None:
-            self.access = access
-
-        if lgmaps is not None:
-            self.lgmaps = lgmaps
-
-        # self.unroll_map = unroll_map
+        return type(self)(data = data or self.data,
+                          map = map or self.map,
+                          access = access or self.access,
+                          lgmaps = lgmaps or self.lgmaps,
+                          unroll_map = False if unroll_map is None else unroll_map)
 
     @cached_property
     def _kernel_args_(self):
