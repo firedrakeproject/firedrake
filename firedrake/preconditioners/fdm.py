@@ -344,7 +344,7 @@ class FDMPC(PCBase):
 
                 facet_perm = np.arange(ndim)
                 if needs_hdiv:
-                    facet_perm = (facet_perm+k) % ndim
+                    facet_perm = (facet_perm-k) % ndim
 
                 be = Afdm[facet_perm[0]][fbc[0]][1]
                 ae = Afdm[facet_perm[0]][fbc[0]][0] * muj[0]
@@ -384,11 +384,13 @@ class FDMPC(PCBase):
                     fid = np.reshape(jid(f), (2, -1))
                     fdof = fid[0][facet_data[f, 0]]
 
+                iord0 = np.insert(np.delete(np.arange(ndim), idir[0]), 0, idir[0])
+                iord1 = np.insert(np.delete(np.arange(ndim), idir[1]), 0, idir[1])
+
                 for k in range(istart, ncomp):
                     if needs_hdiv:
-                        # FIXME permutation is not cyclic
-                        k0 = (k+idir[0]) % ncomp
-                        k1 = (k+idir[1]) % ncomp
+                        k0 = iord0[k]
+                        k1 = iord1[k]
                         facet_perm = (np.arange(ndim)+k) % ndim
                         mu = [Gfacet0.dat.data_ro[fdof][idir[0]],
                               Gfacet1.dat.data_ro[fdof][idir[1]]]
@@ -400,6 +402,7 @@ class FDMPC(PCBase):
                         facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                               mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
+                    
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
@@ -418,6 +421,7 @@ class FDMPC(PCBase):
                                         sij*np.dot(np.dot(mu[1], Piola[i]), Piola[j])]
                             else:
                                 beta = [sij*mu[0], sij*mu[1]]
+                            
                             adense[ii, jj] += eta * sum(beta)
                             adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
                             adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
@@ -477,15 +481,17 @@ class FDMPC(PCBase):
             for field, ae in enumerate(facet_csr):
                 f = field // (ncomp-istart)
                 k = field % (ncomp-istart) + istart
+                idir = facet_data[f] // 2
                 if k == istart:
                     ie = lexico_facet(f)
                     if needs_hdiv:
                         icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
+                        iord0 = np.insert(np.delete(np.arange(ndim), idir[0]), 0, idir[0])
+                        iord1 = np.insert(np.delete(np.arange(ndim), idir[1]), 0, idir[1])
 
-                idir = facet_data[f] // 2
                 if needs_hdiv:
-                    k0 = (k+idir[0]) % ncomp
-                    k1 = (k+idir[1]) % ncomp
+                    k0 = iord0[k]
+                    k1 = iord1[k]
                     rows[:sdim] = self.pull_facet(icell[0][k0], pshape[k0], idir[0])
                     rows[sdim:] = self.pull_facet(icell[1][k1], pshape[k1], idir[1])
                 else:
@@ -1014,7 +1020,7 @@ class FDMPC(PCBase):
     def get_facet_topology(V):
         mesh = V.mesh()
         intfacets = mesh.interior_facets
-        facet_cells = intfacets.facet_cell_map.values
+        facet_cells = intfacets.facet_cell_map.values_with_halo
         facet_data = intfacets.local_facet_dat.data_ro
 
         facet_node_map = V.interior_facet_node_map()
