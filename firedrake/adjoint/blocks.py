@@ -39,12 +39,13 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
             replace_map[dep.output.dat] = dep.saved_output.dat
         return replace_map
 
-    def recompute_component(self, inputs, block_variable, idx, prepared, dat_map=None):
-        if self.expr is None:
-            prepared = inputs[0]
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        expr = inputs[0] if self.expr is None else self.expr
+
         output = self.backend.Function(block_variable.output.function_space())
-        self.backend.Function.assign(output, prepared, dat_map)
-        output._expression_cache = block_variable.output.function_space()
+        output._expression_cache = block_variable.output._expression_cache
+        # prepared is a map from the dats in the expression to the dats on the Block.
+        self.backend.Function.assign(output, expr, prepared) 
         return output
 
 
