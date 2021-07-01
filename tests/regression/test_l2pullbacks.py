@@ -80,16 +80,7 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
     else:
         system = a == L
 
-    # Block system is:
-    # V Ct
-    # Ch P
-    # Eliminate V by forming a schur complement
-    solve(system, sol, solver_parameters={'pc_type': 'fieldsplit',
-                                          'pc_fieldsplit_type': 'schur',
-                                          'ksp_type': 'cg',
-                                          'pc_fieldsplit_schur_fact_type': 'FULL',
-                                          'fieldsplit_V_ksp_type': 'cg',
-                                          'fieldsplit_P_ksp_type': 'cg'})
+    solve(system, sol)
 
     # Analytical solution
 
@@ -129,7 +120,9 @@ def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action,
                           ('RT', 2, 'tri', 1, False, 1.9),
                           ('RT', 2, 'tri', 2, False, 2.9),
                           ('BDM', 1, 'tri', 1, False, 1.88),
-                          ('BDM', 2, 'tri', 1, False, 1.9),
+                          pytest.param('BDM', 2, 'tri', 1, False, 1.9, marks=pytest.mark.skipcomplex(
+                              reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
+                          )),
                           ('BDM', 2, 'tri', 2, False, 2.9),
                           ('BDFM', 2, 'tri', 1, False, 1.9),
                           ('BDFM', 2, 'tri', 2, False, 2.9),
@@ -137,7 +130,9 @@ def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action,
                           ('RTCF', 2, 'quad', 1, False, 1.9),
                           ('RTCF', 2, 'quad', 2, False, 2.9),
                           ('RT', 2, 'tri', 1, True, 1.9),
-                          ('BDM', 2, 'tri', 1, True, 1.9)])
+                          pytest.param('BDM', 2, 'tri', 1, True, 1.9, marks=pytest.mark.skipcomplex(
+                              reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
+                          ))])
 def test_firedrake_helmholtz_mixed_l2pullbacks_sphere(family, degree, celltype, md, action, threshold):
     diff = np.array([helmholtz_mixed(r, 'spherical-' + celltype, family, degree, meshd=md, useaction=action) for r in range(2, 5)])
     print("l2 error norms:", diff)
