@@ -80,15 +80,6 @@ class FDMPC(PCBase):
         eta = appctx.get("eta", (N+1)*(N+ndim))
         mu = appctx.get("viscosity", None)  # sets the viscosity
         helm = appctx.get("helm", None)  # sets the potential
-        scale = appctx.get("scale", None)  # sets the diagonal scaling
-
-        self.scale = None
-        if scale is not None:
-            self.scale = firedrake.interpolate(scale, V)  # FIXME too slow
-            with self.scale.dat.vec as svec:
-                svec.sqrtabs()
-                svec.reciprocal()
-
         hflag = helm is not None
 
         eta = float(eta)
@@ -140,12 +131,8 @@ class FDMPC(PCBase):
     def apply(self, pc, x, y):
         self.uc.assign(firedrake.zero())
 
-        if self.scale is not None:
-            with self.uf.dat.vec_wo as xf, self.scale.dat.vec_ro as s:
-                xf.pointwiseMult(x, s)
-        else:
-            with self.uf.dat.vec_wo as xf:
-                x.copy(xf)
+        with self.uf.dat.vec_wo as xf:
+            x.copy(xf)
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.cell_node_map),
@@ -165,14 +152,8 @@ class FDMPC(PCBase):
                      self.uc.dat(op2.WRITE, self.cell_node_map),
                      self.uf.dat(op2.READ, self.cell_node_map))
 
-        if self.scale is not None:
-            with self.uf.dat.vec as xc, self.scale.dat.vec_ro as s:
-                xc.pointwiseMult(xc, s)
-            with self.uc.dat.vec_ro as xc:
-                xc.copy(y)
-        else:
-            with self.uc.dat.vec_ro as xc:
-                xc.copy(y)
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(y)
 
         y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
@@ -307,11 +288,7 @@ class FDMPC(PCBase):
         return Pmat
 
     def assemble_affine(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
-        from scipy.sparse import kron, csr_matrix, spdiags
-
-        # FIXME these should go away at some point
-        local_diag_scale = 0
-        global_diag_scale = 0
+        from scipy.sparse import kron, csr_matrix
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
@@ -327,23 +304,10 @@ class FDMPC(PCBase):
         if needs_hdiv:
             sdim = sdim // ncomp
 
-        if local_diag_scale:
-            family = "DQ"
-            degree = V.finat_element.degree
-            try:
-                degree, = set(degree)
-            except TypeError:
-                pass
-            DG = firedrake.FunctionSpace(self.mesh, family, degree)
-            diag = firedrake.Function(DG)
-            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=False, piola=needs_hdiv)
-            self.assemble_diagonal(Gq, Bq, diag)
-            did, _ = self.glonum_fun(diag.cell_node_map())
-
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
         if needs_hdiv:
             Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(mu)
-            jid, _ = self.glonum_fun(Gfacet0.interior_facet_node_map())
+            jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
 
         lexico_cell, nel = self.glonum_fun(V.cell_node_map())
         gid, _ = self.glonum_fun(Gq.cell_node_map())
@@ -359,7 +323,7 @@ class FDMPC(PCBase):
         facet_csr = []
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
         if needs_hdiv:
-            pshape = [[Afdm[(k+i) % ncomp][0][0].shape[0] for i in range(ndim)] for k in range(ncomp)]
+            pshape = [[Afdm[(k-i) % ncomp][0][0].shape[0] for i in range(ndim)] for k in range(ncomp)]
         else:
             pshape = [Ak[0][0].shape[0] for Ak in Afdm]
 
@@ -380,7 +344,7 @@ class FDMPC(PCBase):
 
                 facet_perm = np.arange(ndim)
                 if needs_hdiv:
-                    facet_perm = (k+facet_perm) % ndim
+                    facet_perm = (facet_perm+k) % ndim
 
                 be = Afdm[facet_perm[0]][fbc[0]][1]
                 ae = Afdm[facet_perm[0]][fbc[0]][0] * muj[0]
@@ -394,12 +358,6 @@ class FDMPC(PCBase):
                         be = kron(be, Afdm[facet_perm[1]][fbc[1]][1], format="csr")
                         ae = kron(ae, Afdm[facet_perm[2]][fbc[2]][1], format="csr")
                         ae += kron(be, Afdm[facet_perm[2]][fbc[2]][0] * muj[2], format="csr")
-
-                if local_diag_scale:
-                    scale = diag.dat.data_ro[did(e)] / ae.diagonal()
-                    scale = np.sqrt(scale)
-                    se = spdiags(scale, 0, len(scale), len(scale))
-                    ae = se @ ae @ se
 
                 cell_csr.append(ae)
                 rows = lgmap.apply(ie[k] if needs_hdiv else k+bsize*ie)
@@ -431,7 +389,7 @@ class FDMPC(PCBase):
                         # FIXME permutation is not cyclic
                         k0 = (k+idir[0]) % ncomp
                         k1 = (k+idir[1]) % ncomp
-                        facet_perm = (k+np.arange(ndim)) % ndim
+                        facet_perm = (np.arange(ndim)+k) % ndim
                         mu = [Gfacet0.dat.data_ro[fdof][idir[0]],
                               Gfacet1.dat.data_ro[fdof][idir[1]]]
                         Piola = [Piola0.dat.data_ro[fdof][k0],
@@ -542,26 +500,6 @@ class FDMPC(PCBase):
                     Pmat.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
 
         Pmat.assemble()
-
-        if global_diag_scale:
-            lgmap = V.dof_dset.lgmap
-            Pmat.setLGMap(lgmap, lgmap)
-            Pmat.zeroRowsColumnsLocal(self.bc_nodes)
-            Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=False, piola=needs_hdiv)
-            self.assemble_diagonal(Gq, Bq, self.uf)
-            diag = Pmat.getDiagonal()
-
-            if global_diag_scale == 1:
-                # Symmetric diagonal scaling
-                with self.uf.dat.vec as true_diag:
-                    diag.pointwiseDivide(true_diag, diag)
-                diag.sqrtabs()
-                Pmat.diagonalScale(L=diag, R=diag)
-            elif global_diag_scale == 2:
-                # Max diagonal
-                with self.uf.dat.vec as true_diag:
-                    true_diag.pointwiseMax(diag, true_diag)
-                    Pmat.setDiagonal(true_diag)
 
         return Pmat
 
