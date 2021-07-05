@@ -391,7 +391,7 @@ class FDMPC(PCBase):
                     if needs_hdiv:
                         k0 = iord0[k]
                         k1 = iord1[k]
-                        facet_perm = (np.arange(ndim)+k) % ndim
+                        facet_perm = np.insert(np.delete(np.arange(ndim), 0), k, 0)
                         mu = [Gfacet0.dat.data_ro[fdof][idir[0]],
                               Gfacet1.dat.data_ro[fdof][idir[1]]]
                         Piola = [Piola0.dat.data_ro[fdof][k0],
@@ -402,7 +402,6 @@ class FDMPC(PCBase):
                         facet_perm = (idir[0]+np.arange(ndim)) % ndim
                         mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
                               mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
-                    
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
@@ -421,7 +420,7 @@ class FDMPC(PCBase):
                                         sij*np.dot(np.dot(mu[1], Piola[i]), Piola[j])]
                             else:
                                 beta = [sij*mu[0], sij*mu[1]]
-                            
+
                             adense[ii, jj] += eta * sum(beta)
                             adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
                             adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
