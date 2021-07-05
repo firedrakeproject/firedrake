@@ -63,10 +63,10 @@ class NonlinearVariationalSolverMixin:
                                                        solver_kwargs=self._ad_kwargs,
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
-                    from firedrake import NonlinearVariationalSolver
-                    self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem,
-                                                                                      block.get_dependencies()),
-                                                               **self._ad_kwargs)
+                    self._ad_nlvs = type(self)(
+                        self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
+                        **self._ad_kwargs
+                    )
 
                 block._ad_nlvs = self._ad_nlvs
                 tape.add_block(block)
