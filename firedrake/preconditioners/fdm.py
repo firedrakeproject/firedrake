@@ -376,6 +376,7 @@ class FDMPC(PCBase):
             for f in range(nfacet):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
+
                 ie = lexico_facet(f)
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
@@ -392,10 +393,10 @@ class FDMPC(PCBase):
                         k0 = iord0[k]
                         k1 = iord1[k]
                         facet_perm = np.insert(np.delete(np.arange(ndim), 0), k, 0)
-                        mu = [Gfacet0.dat.data_ro[fdof][idir[0]],
-                              Gfacet1.dat.data_ro[fdof][idir[1]]]
-                        Piola = [Piola0.dat.data_ro[fdof][k0],
-                                 Piola1.dat.data_ro[fdof][k1]]
+                        mu = [Gfacet0.dat.data_ro_with_halos[fdof][idir[0]],
+                              Gfacet1.dat.data_ro_with_halos[fdof][idir[1]]]
+                        Piola = [Piola0.dat.data_ro_with_halos[fdof][k0],
+                                 Piola1.dat.data_ro_with_halos[fdof][k1]]
                     else:
                         k0 = k
                         k1 = k
@@ -1019,12 +1020,12 @@ class FDMPC(PCBase):
     def get_facet_topology(V):
         mesh = V.mesh()
         intfacets = mesh.interior_facets
-        facet_cells = intfacets.facet_cell_map.values_with_halo
+        facet_cells = intfacets.facet_cell_map.values
         facet_data = intfacets.local_facet_dat.data_ro
 
         facet_node_map = V.interior_facet_node_map()
-        facet_values = facet_node_map.values_with_halo
-        nbase = facet_values.shape[0]
+        facet_values = facet_node_map.values
+        nbase = facet_node_map.values.shape[0]
 
         if mesh.layers:
             layers = facet_node_map.iterset.layers_array
@@ -1033,14 +1034,13 @@ class FDMPC(PCBase):
                 cell_node_map = V.cell_node_map()
                 cell_values = cell_node_map.values
                 cell_offset = cell_node_map.offset
-
-                facet_offset = facet_node_map.offset
-                nelh = cell_node_map.shape[0]
+                nelh = cell_values.shape[0]
                 nelz = layers[0, 1] - layers[0, 0] - 1
 
                 nh = nbase * nelz
                 nv = nelh * (nelz - 1)
                 nfacets = nh + nv
+                facet_offset = facet_node_map.offset
 
                 lexico_base = lambda e: facet_values[e % nbase] + (e//nbase)*facet_offset
 
