@@ -84,18 +84,22 @@ def M(fs):
     v = TestFunction(fs)
     return inner(uhat, v) * dx
 
+
 @pytest.fixture
 def a(fs, f):
     v = TestFunction(fs)
     return inner(f, v) * dx
 
+
 def test_assemble_cofun(a):
     res = assemble(a)
     assert isinstance(res, Cofunction)
 
+
 def test_assemble_matrix(M):
     res = assemble(M)
-    assert isinstance(res, ufl.Matrix) 
+    assert isinstance(res, ufl.Matrix)
+
 
 def test_assemble_adjoint(M):
     res = assemble(adjoint(M))
@@ -103,14 +107,15 @@ def test_assemble_adjoint(M):
     res2 = assemble(adjoint(assembledM))
     assert isinstance(res, ufl.Matrix)
     assert res.M.handle == res.petscmat
-    assert np.allclose(res.M.handle[:,:], res2.M.handle[:,:], rtol=1e-14)
+    assert np.allclose(res.M.handle[:, :], res2.M.handle[:, :], rtol=1e-14)
+
 
 def test_assemble_action(M, f):
     res = assemble(action(M, f))
     assembledM = assemble(M)
     res2 = assemble(action(assembledM, f))
     assert isinstance(res2, Cofunction)
-    assert isinstance(res, Cofunction) 
+    assert isinstance(res, Cofunction)
     assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
     for f in res2.split():
         if f.function_space().rank == 2:
@@ -128,9 +133,8 @@ def test_vector_formsum(a):
     assert isinstance(formsum, ufl.form.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
-    
     assert abs(preassemble.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
-    
+
 
 def test_matrix_formsum(M):
     res = assemble(M)
@@ -139,13 +143,15 @@ def test_matrix_formsum(M):
     assert isinstance(formsum, ufl.form.FormSum)
     res2 = assemble(formsum)
     assert isinstance(res2, ufl.Matrix)
-    assert np.allclose(sumfirst.petscmat[:,:], res2.petscmat[:,:], rtol=1e-14)
-    
+    assert np.allclose(sumfirst.petscmat[:, :],
+                       res2.petscmat[:, :], rtol=1e-14)
+
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
@@ -162,8 +168,8 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
     a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
 
-    assembled_matrix = assemble(M)
-    preassemble_action = assemble(action(M,f))
+    assembled_matrix = assemble(a)
+    preassemble_action = assemble(action(a, f))
     postassemble_action = assemble(action(assembled_matrix, f))
 
     assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)

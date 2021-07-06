@@ -135,5 +135,6 @@ def test_auxiliary_dm():
     error_L2 = errornorm(u_exact, u, 'L2') / errornorm(u_exact, Function(FunctionSpace(mesh, 'CG', 1)), 'L2')
     assert error_L2 < 0.02
 
+
 if __name__ == "__main__":
     test_auxiliary_dm()

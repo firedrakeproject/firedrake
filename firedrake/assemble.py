@@ -11,7 +11,6 @@ from firedrake import (assemble_expressions, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from firedrake.petsc import PETSc
