@@ -7,15 +7,16 @@ backwards-compatibility, argument checking, and dispatch.
 import ufl
 
 from pyop2.utils import flatten
-from pyop2.profiling import timed_function
 
 from firedrake import functionspaceimpl as impl
+from firedrake.petsc import PETSc
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
 
 
+@PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     """Build a scalar :class:`ufl.FiniteElement`.
 
@@ -96,7 +97,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-@timed_function("CreateFunctionSpace")
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -135,7 +136,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
         return new
 
 
-@timed_function("CreateSpace")
+@PETSc.Log.EventDecorator()
 def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
               vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -174,6 +175,7 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
         return new
 
 
+@PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.
@@ -210,6 +212,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
                         vdegree=None):
@@ -247,6 +250,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 

@@ -67,3 +67,54 @@ def test_mtw():
 
     assert min(convergence_orders(l2_u)) > 1.8
     assert min(convergence_orders(l2_p)) > 0.8
+
+
+def test_mtw_interior_facet():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+    eps = Constant(0.5 / 2**3)
+
+    x, y = SpatialCoordinate(mesh)
+    new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
+                                             y - eps*sin(2*pi*x)*sin(2*pi*y)]))
+    mesh = Mesh(new)
+
+    V = FunctionSpace(mesh, 'Mardal-Tai-Winther', 3)
+
+    x, y = SpatialCoordinate(mesh)
+    uh = project(as_vector((x+y, 2*x-y)), V)
+
+    volume = assemble(div(uh)*dx)
+
+    n = FacetNormal(mesh)
+    # Check form
+    L = dot(uh, n)*ds + dot(uh('+'), n('+'))*dS + dot(uh('-'), n('-'))*dS
+    surface = assemble(L)
+    assert abs(volume - surface) < 1E-10
+
+    # Check linear form
+    v = TestFunction(V)
+    L = inner(n, v)*ds + inner(n('+'), v('+'))*dS + inner(n('-'), v('-'))*dS
+    b = assemble(L)
+
+    with b.vector().dat.vec_ro as L_vec:
+        with uh.vector().dat.vec_ro as uh_vec:
+            surface = L_vec.dot(uh_vec)
+
+    assert abs(volume - surface) < 1E-10
+
+    Q = FunctionSpace(mesh, 'Discontinuous Lagrange', 0)
+    q = TestFunction(Q)
+    # Check bilinear linear form
+    u = TrialFunction(V)
+    a = (inner(dot(u, n), q)*ds
+         + inner(dot(u('-'), n('-')), q('-'))*dS
+         + inner(dot(u('+'), n('+')), q('+'))*dS)
+    A = assemble(a).petscmat
+
+    y = A.createVecLeft()
+    with uh.vector().dat.vec_ro as uh_vec:
+        A.mult(uh_vec, y)
+        surface = y.sum()
+
+    assert abs(volume - surface) < 1E-10

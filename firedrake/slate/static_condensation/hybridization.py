@@ -1,14 +1,15 @@
-import ufl
+import functools
 import numbers
-import numpy as np
-import firedrake.dmhooks as dmhooks
 
+import numpy as np
+import ufl
+
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
 
 
@@ -28,7 +29,7 @@ class HybridizationPC(SCBase):
     are performed element-local using the Slate language.
     """
 
-    @timed_function("HybridInit")
+    @PETSc.Log.EventDecorator("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -38,9 +39,8 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC)
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+                               DirichletBC, assemble)
+        from firedrake.assemble import allocate_matrix
         from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
@@ -201,10 +201,11 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
-            tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                K * Atilde.inv * AssembledVector(self.broken_residual),
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params,
+                                                assembly_type="residual")
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
@@ -214,13 +215,15 @@ class HybridizationPC(SCBase):
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
-        self._assemble_S = create_assembly_callable(schur_comp,
-                                                    tensor=self.S,
-                                                    bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type)
+        self._assemble_S = functools.partial(assemble,
+                                             schur_comp,
+                                             tensor=self.S,
+                                             bcs=trace_bcs,
+                                             form_compiler_parameters=self.ctx.fc_params,
+                                             mat_type=mat_type,
+                                             assembly_type="residual")
 
-        with timed_region("HybridOperatorAssembly"):
+        with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -279,7 +282,7 @@ class HybridizationPC(SCBase):
         :arg split_trace_op: a ``dict`` of split forms that make up the trace
                              contribution in the hybridized mixed system.
         """
-        from firedrake.assemble import create_assembly_callable
+        from firedrake import assemble
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -307,17 +310,21 @@ class HybridizationPC(SCBase):
         R = K_1.T - C * A.inv * K_0.T
         u_rec = M.solve(f - C * A.inv * g - R * lambdar,
                         decomposition="PartialPivLU")
-        self._sub_unknown = create_assembly_callable(u_rec,
-                                                     tensor=u,
-                                                     form_compiler_parameters=self.ctx.fc_params)
+        self._sub_unknown = functools.partial(assemble,
+                                              u_rec,
+                                              tensor=u,
+                                              form_compiler_parameters=self.ctx.fc_params,
+                                              assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = create_assembly_callable(sigma_rec,
-                                                      tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
+        self._elim_unknown = functools.partial(assemble,
+                                               sigma_rec,
+                                               tensor=sigma,
+                                               form_compiler_parameters=self.ctx.fc_params,
+                                               assembly_type="residual")
 
-    @timed_function("HybridUpdate")
+    @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
@@ -333,7 +340,7 @@ class HybridizationPC(SCBase):
         :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
-        with timed_region("HybridBreak"):
+        with PETSc.Log.Event("HybridBreak"):
             with self.unbroken_residual.dat.vec_wo as v:
                 x.copy(v)
 
@@ -359,7 +366,7 @@ class HybridizationPC(SCBase):
                       "vec_out": (broken_res_hdiv, INC)},
                      is_loopy_kernel=True)
 
-        with timed_region("HybridRHS"):
+        with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
@@ -396,7 +403,7 @@ class HybridizationPC(SCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
-        with timed_region("HybridProject"):
+        with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]

@@ -26,8 +26,8 @@ from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form
-
 from firedrake.parameters import parameters as default_parameters
+from firedrake.petsc import PETSc
 from firedrake import utils
 
 # Set TSFC default scalar type at load time
@@ -139,7 +139,7 @@ class TSFCKernel(Cached):
             ast = kernel.ast
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
+            kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
                                                     requires_zeroed_output_arguments=True),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
@@ -157,6 +157,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
+@PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
     """Compile a form using TSFC.
 

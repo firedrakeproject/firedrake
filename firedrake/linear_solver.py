@@ -1,3 +1,5 @@
+import functools
+
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.cofunction as cofunction
@@ -17,6 +19,7 @@ class LinearSolver(OptionsManager):
 
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
                  near_nullspace=None, options_prefix=None):
@@ -109,11 +112,12 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def _rhs(self):
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import assemble
+
         u = function.Function(self.trial_space)
         b = function.Function(self.test_space)
         expr = -action(self.A.a, u)
-        return u, create_assembly_callable(expr, tensor=b), b
+        return u, functools.partial(assemble, expr, tensor=b, assembly_type="residual"), b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
@@ -128,6 +132,7 @@ class LinearSolver(OptionsManager):
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
+    @PETSc.Log.EventDecorator()
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
             raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)

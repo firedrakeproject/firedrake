@@ -1,7 +1,9 @@
 import abc
+import functools
 import ufl
 
 import firedrake
+from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import expression
 from firedrake import functionspace
@@ -64,6 +66,7 @@ def check_meshes(source, target):
     return source_mesh, target_mesh
 
 
+@PETSc.Log.EventDecorator()
 @annotate_project
 def project(v, V, bcs=None,
             solver_parameters=None,
@@ -115,6 +118,8 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             solver_parameters = solver_parameters.copy()
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
+        solver_parameters.setdefault("pc_type", "bjacobi")
+        solver_parameters.setdefault("sub_pc_type", "icc")
         self.source = source
         self.target = target
         self.solver_parameters = solver_parameters
@@ -184,9 +189,12 @@ class BasicProjector(ProjectorBase):
 
     @cached_property
     def assembler(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.rhs_form, tensor=self.residual,
-                                        form_compiler_parameters=self.form_compiler_parameters)
+        from firedrake.assemble import assemble
+        return functools.partial(assemble,
+                                 self.rhs_form,
+                                 tensor=self.residual,
+                                 form_compiler_parameters=self.form_compiler_parameters,
+                                 assembly_type="residual")
 
     @property
     def rhs(self):
@@ -208,6 +216,7 @@ class SupermeshProjector(ProjectorBase):
         return self.residual
 
 
+@PETSc.Log.EventDecorator()
 def Projector(v, v_out, bcs=None, solver_parameters=None,
               form_compiler_parameters=None, constant_jacobian=True,
               use_slate_for_inverse=False):

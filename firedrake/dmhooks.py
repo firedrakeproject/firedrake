@@ -45,6 +45,7 @@ import firedrake
 from firedrake.petsc import PETSc
 
 
+@PETSc.Log.EventDecorator()
 def get_function_space(dm):
     """Get the :class:`~.FunctionSpace` attached to this DM.
 
@@ -65,6 +66,7 @@ def get_function_space(dm):
     return V
 
 
+@PETSc.Log.EventDecorator()
 def set_function_space(dm, V):
     """Set the :class:`~.FunctionSpace` on this DM.
 
@@ -317,6 +319,7 @@ def create_matrix(dm):
     return ctx._jac.petscmat
 
 
+@PETSc.Log.EventDecorator()
 def create_field_decomposition(dm, *args, **kwargs):
     """Callback to decompose a DM.
 
@@ -349,6 +352,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     return names, W._ises, dms
 
 
+@PETSc.Log.EventDecorator()
 def create_subdm(dm, fields, *args, **kwargs):
     """Callback to create a sub-DM describing the specified fields.
 
@@ -395,6 +399,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
+@PETSc.Log.EventDecorator()
 def coarsen(dm, comm):
     """Callback to coarsen a DM.
 
@@ -434,6 +439,7 @@ def coarsen(dm, comm):
     return cdm
 
 
+@PETSc.Log.EventDecorator()
 def refine(dm, comm):
     """Callback to refine a DM.
 

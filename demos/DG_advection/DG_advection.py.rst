@@ -288,7 +288,7 @@ We first set up a figure and axes and draw the first frame. ::
 
   fig, axes = plt.subplots()
   axes.set_aspect('equal')
-  colors = tripcolor(q_init, num_sample_points=nsp, vmin=0, vmax=1, axes=axes)
+  colors = tripcolor(q_init, num_sample_points=nsp, vmin=1, vmax=2, axes=axes)
   fig.colorbar(colors)
 
 Now we'll create a function to call in each frame. This function will use the

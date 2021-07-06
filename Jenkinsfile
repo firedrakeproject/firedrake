@@ -5,6 +5,8 @@ pipeline {
     FIREDRAKE_CI_TESTS = "1"
     DOCKER_CREDENTIALS = credentials('f52ccab9-5250-4b17-9fb6-c3f1ebdcc986')
     PETSC_CONFIGURE_OPTIONS = "--with-make-np=12 --download-mpich-device=ch3:sock"
+    OMP_NUM_THREADS = "1"
+    OPENBLAS_NUM_THREADS = "1"
   }
   stages {
     stage('BuildAndTest') {
@@ -40,7 +42,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --package-branch ufl dualspace --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --no-package-manager || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --package-branch ufl dualspace --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager || (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
@@ -66,6 +68,8 @@ pipeline {
                   sh '''
       . ./firedrake/bin/activate
       cd firedrake/src/firedrake
+      echo OMP_NUM_THREADS is $OMP_NUM_THREADS
+      echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
       python -m pytest --durations=200 -n 12 --cov firedrake -v tests
       '''
                 }

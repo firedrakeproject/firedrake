@@ -11,6 +11,7 @@ from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+from firedrake.petsc import PETSc
 
 from pyadjoint.tape import no_annotations
 
@@ -31,6 +32,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'TorusMesh', 'CylinderMesh']
 
 
+@PETSc.Log.EventDecorator()
 def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of an interval.
@@ -79,6 +81,7 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
     return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of the interval [0,1].
@@ -94,6 +97,7 @@ def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of an interval.
 
@@ -143,6 +147,7 @@ cells are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of the unit interval
 
@@ -153,6 +158,7 @@ def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WOR
     return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
@@ -310,6 +316,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     return mash
 
 
+@PETSc.Log.EventDecorator()
 def UnitTriangleMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference triangle
 
@@ -322,6 +329,7 @@ def UnitTriangleMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
+@PETSc.Log.EventDecorator()
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                   diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a rectangular mesh
@@ -410,10 +418,11 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-
+    plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
     """Generate a square mesh
 
@@ -439,6 +448,7 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
                          comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a unit square mesh
 
@@ -463,6 +473,7 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
                       comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
                           distribution_parameters=None,
@@ -561,6 +572,7 @@ cells in each direction are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
                        distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generate a periodic square mesh
@@ -593,6 +605,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
                                  diagonal=diagonal, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                            quadrilateral=False, distribution_parameters=None,
                            diagonal=None, comm=COMM_WORLD):
@@ -625,6 +638,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                               diagonal=diagonal, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
@@ -650,6 +664,7 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of the unit disk in 2D
 
@@ -685,7 +700,7 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
         for face in boundary_faces:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-
+    plex.removeLabel("boundary_faces")
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -701,6 +716,7 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitTetrahedronMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference tetrahedron.
 
@@ -713,6 +729,7 @@ def UnitTetrahedronMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
+@PETSc.Log.EventDecorator()
 def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD):
     """Generate a mesh of a 3D box.
 
@@ -814,10 +831,12 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
+    plex.removeLabel("boundary_faces")
 
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
 
+@PETSc.Log.EventDecorator()
 def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a cube
 
@@ -842,6 +861,7 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
                    comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of a unit cube
 
@@ -865,6 +885,7 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
                     comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of a 3D box.
 
@@ -960,6 +981,7 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     return m1
 
 
+@PETSc.Log.EventDecorator()
 def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate a periodic mesh of a unit cube
 
@@ -973,6 +995,7 @@ def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None,
     return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                           distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the surface of the
@@ -1056,6 +1079,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                               distribution_parameters=None, comm=COMM_WORLD):
     """Generate an icosahedral approximation to the unit sphere.
@@ -1074,6 +1098,7 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
 
 # mesh is mainly used as a utility, so it's unnecessary to annotate the construction
 # in this case.
+@PETSc.Log.EventDecorator()
 @no_annotations
 def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          hemisphere="both",
@@ -1188,6 +1213,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                              hemisphere="both", z0=0.8, reorder=None,
                              distribution_parameters=None, comm=COMM_WORLD):
@@ -1340,6 +1366,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
+@PETSc.Log.EventDecorator()
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
                     reorder=None, distribution_parameters=None, comm=COMM_WORLD):
     """Generate an cubed approximation to the surface of the
@@ -1374,6 +1401,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
                         distribution_parameters=None, comm=COMM_WORLD):
     """Generate a cubed approximation to the unit sphere.
@@ -1389,6 +1417,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
                            degree=degree, reorder=reorder, comm=comm)
 
 
+@PETSc.Log.EventDecorator()
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
               distribution_parameters=None, comm=COMM_WORLD):
     """Generate a toroidal mesh
@@ -1434,6 +1463,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
     return m
 
 
+@PETSc.Log.EventDecorator()
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
                  distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
@@ -1557,11 +1587,13 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
             if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
                 # top of cylinder
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+    plex.removeLabel("boundary_faces")
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
+@PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
                                    reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
     """Generates RectangleMesh that is periodic in the x or y direction.

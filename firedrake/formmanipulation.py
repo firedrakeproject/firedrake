@@ -7,6 +7,7 @@ from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
 
 
@@ -32,6 +33,7 @@ class ExtractSubBlock(MultiFunction):
 
     index_inliner = IndexInliner()
 
+    @PETSc.Log.EventDecorator()
     def split(self, form, argument_indices):
         """Split a form.
 
@@ -79,6 +81,7 @@ class ExtractSubBlock(MultiFunction):
         else:
             return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
 
+    @PETSc.Log.EventDecorator()
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
@@ -127,6 +130,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
+@PETSc.Log.EventDecorator()
 def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 

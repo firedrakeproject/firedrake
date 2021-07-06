@@ -512,9 +512,9 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer),
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
                  "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
                  "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
 
         return [which]
@@ -633,9 +633,12 @@ class LocalLoopyKernelBuilder(object):
 
         return inits, tensor2temp
 
-    def slate_call(self, kernel, temporaries):
+    def slate_call(self, prg, temporaries):
+        name, = prg.callables_table.keys()
+        kernel = prg.callables_table[name].subkernel
+        output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
-        reads = []
+        reads = [output_var]
         for t in temporaries:
             shape = t.shape
             name = t.name
@@ -652,12 +655,17 @@ class LocalLoopyKernelBuilder(object):
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"])]
 
-        for loopy_inner in templated_subkernels:
-            for arg in loopy_inner.args[1:]:
-                if arg.name == self.cell_orientations_arg or\
-                   arg.name == self.cell_size_arg:
-                    if arg not in args:
-                        args.append(arg)
+        if self.bag.needs_cell_orientations:
+            ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
+            args.append(loopy.GlobalArg(self.cell_orientations_arg,
+                                        shape=ori_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
+
+        if self.bag.needs_cell_sizes:
+            siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
+            args.append(loopy.GlobalArg(self.cell_size_arg,
+                                        shape=siz_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
@@ -687,8 +695,7 @@ class LocalLoopyKernelBuilder(object):
         if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(),
                         dtype=np.int32))
-            args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
-                        dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
+            args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
         for tensor_temp in tensor2temp.values():
             args.append(tensor_temp)
@@ -715,7 +722,9 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("Integral type '%s' not recognized" % integral_type)
 
                 # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_lhs(slate_tensor, pym.Variable(loopy_tensor.name))
+                output_var = pym.Variable(loopy_tensor.name)
+                reads.append(output_var)
+                output = self.generate_lhs(slate_tensor, output_var)
                 kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
@@ -757,8 +766,9 @@ class SlateWrapperBag(object):
 
 
 class IndexCreator(object):
-    inames = OrderedDict()  # pym variable -> extent
-    namer = UniqueNameGenerator(forced_prefix="i_")
+    def __init__(self):
+        self.inames = OrderedDict()  # pym variable -> extent
+        self.namer = UniqueNameGenerator(forced_prefix="i_")
 
     def __call__(self, extents):
         """Create new indices with specified extents.
