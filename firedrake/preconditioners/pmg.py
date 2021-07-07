@@ -3,6 +3,7 @@ from itertools import chain
 import numpy as np
 
 from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
+from ufl import FiniteElement, EnrichedElement, HDivElement, HCurlElement, hexahedron
 from ufl.classes import Expr
 
 from pyop2 import op2
@@ -98,6 +99,14 @@ class PMGBase(PCSNESBase):
             return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):
             return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
+        elif isinstance(ele, EnrichedElement):
+            # NCF and NCF get decomposed eagerly
+            if all([isinstance(sub, HDivElement) for sub in ele._elements]):
+                return FiniteElement("NCF", hexahedron, N)
+            elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
+                return FiniteElement("NCE", hexahedron, N)
+            else:
+                raise NotImplementedError("I don't know how to coarsen a ", ele)
         else:
             return ele.reconstruct(degree=N)
 
@@ -488,7 +497,12 @@ def tensor_product_space_query(V):
             variant = "unsupported"
             use_tensorproduct = False
     elif isinstance(ele, firedrake.EnrichedElement):
-        family = {"NCF"}  # FIXME
+        if all([isinstance(sub, HDivElement) for sub in ele._elements]):
+            family = {"NCF"}
+        elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
+            family = {"NCE"}
+        else:
+            family = {"unknown"}
         variant = None
     else:
         family = {ele.family()}
@@ -497,8 +511,9 @@ def tensor_product_space_query(V):
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
     isHdiv = family <= {"RTCF", "NCF"}
+    isHcurl = family <= {"RTCE", "NCE"}
     isspectral = variant is None or variant == "spectral"
-    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv)
+    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv or isHcurl)
 
     return use_tensorproduct, N, ndim, family, variant
 
@@ -510,6 +525,16 @@ def get_permuted_map(V):
         ncomp, = V.finat_element.value_shape
         permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
         pshape = [N]*ndim
+        pshape[0] = -1
+        for k in range(ncomp):
+            permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
+
+        permutation = np.reshape(permutation, (-1,))
+        return PermutedMap(V.cell_node_map(), permutation)
+    elif use_tensorproduct and family <= {"RTCE", "NCE"}:
+        ncomp, = V.finat_element.value_shape
+        permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
+        pshape = [N+1]*ndim
         pshape[0] = -1
         for k in range(ncomp):
             permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
@@ -545,6 +570,12 @@ def get_line_element(V):
         element = [cg]
         for j in range(1, ndim):
             element.append(dg)
+    elif family <= {"RTCE", "NCE"}:
+        cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
+        dg = gauss_legendre.GaussLegendre(cell, N-1)
+        element = [dg]
+        for j in range(1, ndim):
+            element.append(cg)
     else:
         raise ValueError("Don't know how to get line element for %r" % family)
 
@@ -573,6 +604,14 @@ def get_line_nodes(V):
         for j in range(1, ndim):
             points.append(dg.get_points())
         return points
+    elif family <= {"RTCE", "NCE"}:
+        cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
+        dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
+        points = [dg.get_points()]
+        for j in range(1, ndim):
+            points.append(cg.get_points())
+        return points
+
     else:
         raise ValueError("Don't know how to get line nodes for %r" % family)
 

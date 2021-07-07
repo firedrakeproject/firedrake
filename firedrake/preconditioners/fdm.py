@@ -381,12 +381,11 @@ class FDMPC(PCBase):
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
                 if needs_hdiv:
-                    icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     fid = np.reshape(jid(f), (2, -1))
                     fdof = fid[0][facet_data[f, 0]]
-
-                iord0 = np.insert(np.delete(np.arange(ndim), idir[0]), 0, idir[0])
-                iord1 = np.insert(np.delete(np.arange(ndim), idir[1]), 0, idir[1])
+                    icell = np.reshape(lgmap.apply(ie), (2, ncomp, -1))
+                    iord0 = np.insert(np.delete(np.arange(ndim), idir[0]), 0, idir[0])
+                    iord1 = np.insert(np.delete(np.arange(ndim), idir[1]), 0, idir[1])
 
                 for k in range(istart, ncomp):
                     if needs_hdiv:
