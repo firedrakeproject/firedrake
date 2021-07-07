@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, wraps
 import numpy as np
 
 from ufl.referencevalue import ReferenceValue
@@ -223,6 +223,7 @@ class PytorchOperator(PointnetOperator):
 
     def _eval_update_weights(evaluate):
         """Check if we need to update the weights"""
+        @wraps(evaluate)
         def wrapper(self, *args, **kwargs):
             # Get Constants representing weights
             self_w = self._params_version['params']
