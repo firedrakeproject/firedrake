@@ -396,7 +396,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr), subset, dat_map)
+            assemble_expressions.Assign(self, expr), subset, dat_map=dat_map)
         return self
 
     @FunctionMixin._ad_annotate_iadd
