@@ -66,6 +66,7 @@ class WithGeometryBase(object):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
+    @PETSc.Log.EventDecorator()
     def split(self):
         r"""Split into a tuple of constituent spaces."""
         return self._split
@@ -78,6 +79,7 @@ class WithGeometryBase(object):
         else:
             return self._split
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         if len(self) == 1:
             bound = self.value_size
@@ -251,13 +253,15 @@ class WithGeometryBase(object):
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
+
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
     def __init__(self, function_space, mesh):
         super(WithGeometry, self).__init__(function_space, mesh)
-    
+
     def dual(self):
         return FiredrakeDualSpace(self.topological, self.mesh())
+
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
@@ -299,6 +303,7 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
@@ -551,6 +556,7 @@ class FunctionSpace(object):
         """
         return self._shared_data.boundary_nodes(self, sub_domain)
 
+    @PETSc.Log.EventDecorator()
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 

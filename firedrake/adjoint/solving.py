@@ -1,7 +1,8 @@
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
-from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, PointwiseOperatorBlock
+from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, PointwiseOperatorBlock, GenericSolveBlock, ProjectBlock
+
 import ufl
 
 
@@ -69,3 +70,17 @@ def annotate_solve(solve):
         return output
 
     return wrapper
+
+
+def get_solve_blocks():
+    """
+    Extract all blocks of the tape which correspond
+    to PDE solves, except for those which correspond
+    to calls of the ``project`` operator.
+    """
+    return [
+        block
+        for block in get_working_tape().get_blocks()
+        if issubclass(type(block), GenericSolveBlock)
+        and not issubclass(type(block), ProjectBlock)
+    ]

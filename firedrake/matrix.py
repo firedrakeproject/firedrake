@@ -5,6 +5,7 @@ import ufl
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+from types import SimpleNamespace
 
 
 class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
@@ -12,7 +13,7 @@ class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this
 
-    :arg a: the bilinear form this :class:`MatrixBase` represents 
+    :arg a: the bilinear form this :class:`MatrixBase` represents
             or a tuple of the arguments it represents
 
     :arg bcs: an iterable of boundary conditions to apply to this
@@ -170,10 +171,10 @@ class ImplicitMatrix(MatrixBase):
         # updated if necessary.
         self.petscmat.assemble()
 
+
 class AssembledMatrix(MatrixBase):
-    """A representation of the action of bilinear form operating
-    without explicitly assembling the associated matrix.  This class
-    wraps the relevant information for Python PETSc matrix.
+    """A representation of an matrix without knowing the underlying form.
+     This class wraps the relevant information for Python PETSc matrix.
 
     :arg a: A tuple of the arguments the matrix represents
 
@@ -181,7 +182,7 @@ class AssembledMatrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
-    :arg petscmat: the already constructed petsc matrix this object represents. 
+    :arg petscmat: the already constructed petsc matrix this object represents.
 
 
     .. note::
@@ -192,21 +193,19 @@ class AssembledMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
-        # sets self._a, self._bcs, and self._mat_type
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
-
-        options_prefix = kwargs.pop("options_prefix")
-        appctx = kwargs.get("appctx", {})
 
         self.petscmat = petscmat
 
-        # self.M = { "handle": self.petscmat}
+        # this allows call to self.M.handle without a new class
+        self.M = SimpleNamespace(handle=self.mat())
 
-    # def. 
+    def mat(self):
+        return self.petscmat
 
     def __add__(self, other):
         if isinstance(other, AssembledMatrix):
             return self.petscmat + other.petscmat
         else:
-            raise TypeError("Unable to add %s to AssembledMatrix" % (type(other)))
-
+            raise TypeError("Unable to add %s to AssembledMatrix"
+                            % (type(other)))

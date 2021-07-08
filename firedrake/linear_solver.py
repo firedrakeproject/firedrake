@@ -19,6 +19,7 @@ class LinearSolver(OptionsManager):
 
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
                  near_nullspace=None, options_prefix=None):
@@ -131,6 +132,7 @@ class LinearSolver(OptionsManager):
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
+    @PETSc.Log.EventDecorator()
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
             raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)

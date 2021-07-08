@@ -23,6 +23,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
 
 import firedrake
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
@@ -359,6 +360,7 @@ class IDiv(AugmentedAssign):
     symbol = "/="
 
 
+@PETSc.Log.EventDecorator()
 def compile_to_gem(expr, translator):
     """Compile a single pointwise expression to GEM.
 
@@ -408,6 +410,7 @@ def compile_to_gem(expr, translator):
     return preprocess_gem([lvalue, rvalue])
 
 
+@PETSc.Log.EventDecorator()
 def pointwise_expression_kernel(exprs, scalar_type):
     """Compile a kernel for pointwise expressions.
 
@@ -461,6 +464,7 @@ class dereffed(object):
             a.data = weakref.ref(a.data)
 
 
+@PETSc.Log.EventDecorator()
 @known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluate a pointwise expression.
@@ -501,6 +505,7 @@ def evaluate_expression(expr, subset=None):
     return lvalue
 
 
+@PETSc.Log.EventDecorator()
 def assemble_expression(expr, subset=None):
     """Evaluate a UFL expression pointwise and assign it to a new
     :class:`~.Function`.
