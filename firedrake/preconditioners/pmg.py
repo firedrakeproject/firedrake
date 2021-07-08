@@ -229,8 +229,7 @@ class PMGBase(PCSNESBase):
                 cbc_value = self.coarsen_bc_value(bc, cV_)
                 if type(bc) == firedrake.DirichletBC:
                     cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                      bc.sub_domain,
-                                                      method=bc.method))
+                                                      bc.sub_domain))
                 else:
                     raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
             return cbcs
@@ -452,8 +451,8 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     expr = TestFunction(P1)
     to_element = create_base_element(Pk.ufl_element())
 
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-    kernel = op2.Kernel(ast, ast.name)
+    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
     return kernel
 
 
@@ -673,7 +672,7 @@ class StandaloneInterpolationMatrix(object):
                    Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
         }}
         """
-        restrict_kernel = op2.Kernel(restrict_code, "restriction")
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel
 
     @staticmethod
@@ -681,8 +680,8 @@ class StandaloneInterpolationMatrix(object):
         from tsfc import compile_expression_dual_evaluation
         from tsfc.finatinterface import create_base_element
         to_element = create_base_element(Vf.ufl_element())
-        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _ = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-        return op2.Kernel(ast, ast.name)
+        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
+        return op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
 
     @staticmethod
     @lru_cache(maxsize=20)
@@ -848,8 +847,10 @@ class StandaloneInterpolationMatrix(object):
         """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+        prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel
 
     @staticmethod

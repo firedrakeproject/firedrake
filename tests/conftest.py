@@ -12,7 +12,7 @@ from firedrake.utils import complex_mode
 @pytest.fixture(autouse=True)
 def disable_gc_on_parallel(request):
     """ Disables garbage collection on parallel tests,
-    but only when run on Jenkins CI
+    but only when run on CI
     """
     from mpi4py import MPI
     if (MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):

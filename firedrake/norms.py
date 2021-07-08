@@ -3,10 +3,12 @@ from ufl import inner, div, grad, curl, dx
 from firedrake.assemble import assemble
 from firedrake import function
 from firedrake.logging import warning
+from firedrake.petsc import PETSc
 
 __all__ = ['errornorm', 'norm']
 
 
+@PETSc.Log.EventDecorator()
 def errornorm(u, uh, norm_type="L2", degree_rise=None, mesh=None):
     """Compute the error :math:`e = u - u_h` in the specified norm.
 
@@ -36,6 +38,7 @@ def errornorm(u, uh, norm_type="L2", degree_rise=None, mesh=None):
     return norm(u - uh, norm_type=norm_type, mesh=mesh)
 
 
+@PETSc.Log.EventDecorator()
 def norm(v, norm_type="L2", mesh=None):
     r"""Compute the norm of ``v``.
 

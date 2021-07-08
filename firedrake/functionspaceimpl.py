@@ -66,6 +66,7 @@ class WithGeometry(ufl.FunctionSpace):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
+    @PETSc.Log.EventDecorator()
     def split(self):
         r"""Split into a tuple of constituent spaces."""
         return self._split
@@ -78,6 +79,7 @@ class WithGeometry(ufl.FunctionSpace):
         else:
             return self._split
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         if len(self) == 1:
             bound = self.value_size
@@ -235,6 +237,19 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def boundary_nodes(self, sub_domain):
+        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        # Have to replicate the definition from FunctionSpace because
+        # we want to access the DM on the WithGeometry object.
+        return self._shared_data.boundary_nodes(self, sub_domain)
+
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
@@ -270,6 +285,7 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
@@ -511,18 +527,18 @@ class FunctionSpace(object):
                              "exterior_facet_node",
                              self.offset)
 
-    def boundary_nodes(self, sub_domain, method):
+    def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-        :arg method: the method for determining boundary nodes.
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        return self._shared_data.boundary_nodes(self, sub_domain, method)
+        return self._shared_data.boundary_nodes(self, sub_domain)
 
+    @PETSc.Log.EventDecorator()
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 

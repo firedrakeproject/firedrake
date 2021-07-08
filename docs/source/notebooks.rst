@@ -104,6 +104,13 @@ hybridisation
 Sum Factorisation
 =================
 
-Our final notebook takes a look under the hood at the sorts of
+In this notebook, we take a look under the hood at the sorts of
 performance optimisation that Firedrake's compilers can generate. In
 this case, we focus on `sum factorisation for tensor product elements <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/10-sum-factorisation.ipynb>`__.
+
+Solving adjoint problems
+========================
+
+In some cases, it can be useful to extract adjoint solution data
+which is written to tape by `dolfin-adjoint`. This notebook shows
+how to do that: `solving adjoint equations using firedrake-adjoint <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/11-extract-adjoint-solutions.ipynb>`__.
