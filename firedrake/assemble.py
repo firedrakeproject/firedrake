@@ -134,9 +134,9 @@ def assemble(expr, tensor=None, bcs=None, *,
 def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                   form_compiler_parameters,
                   mat_type, sub_mat_type,
-                  appctx, options_prefix):
+                  appctx, options_prefix, visited=None):
     stack = [expr]
-    visited = {}
+    visited = visited or {}
     while stack:
         e = stack.pop()
         unvisted_children = []
@@ -144,15 +144,17 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
         for arg in operands:
             if arg not in visited:
                 unvisted_children.append(arg)
-        
+
         if unvisted_children:
             stack.append(e)
             stack.extend(unvisted_children)
         else:
             visited[e] = base_form_visitor(e, tensor, bcs, diagonal, assembly_type,
-                form_compiler_parameters,
-                mat_type, sub_mat_type,
-                appctx, options_prefix, *(visited[arg] for arg in operands))
+                                           form_compiler_parameters,
+                                           mat_type, sub_mat_type,
+                                           appctx, options_prefix,
+                                           visited,
+                                           *(visited[arg] for arg in operands))
     return visited[expr]
 
 def base_form_operands(expr):
@@ -162,17 +164,52 @@ def base_form_operands(expr):
         return [expr.form()]
     if isinstance(expr, ufl.Action):
         return [expr.left(), expr.right()]
+    # if isinstance(expr, ufl.Form):
+    #    return expr.external_operators()
+    #if isinstance(expr, ufl.ExternalOperator):
+        # TODO: At the moment assemble nothing instead of only assembling BaseForm
+        #return tuple(expr.ufl_operands() u+ expr.argument_slots())
     return []
+
+def preprocess_form(form, fc_params):
+
+    from firedrake.parameters import parameters as default_parameters
+    from tsfc.parameters import is_complex
+
+    if fc_params is None:
+        fc_params = default_parameters["form_compiler"].copy()
+    else:
+        # Override defaults with user-specified values
+        _ = fc_params
+        fc_params = default_parameters["form_compiler"].copy()
+        fc_params.update(_)
+
+    complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
+
+    return ufl.algorithms.preprocess_form(form, complex_mode)
+
 
 def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                   form_compiler_parameters,
                   mat_type, sub_mat_type,
-                  appctx, options_prefix, *args):
+                  appctx, options_prefix, visited, *args):
     if isinstance(expr, ufl.form.Form):
+        expr = preprocess_form(expr, form_compiler_parameters)
+
+        if not isinstance(expr, ufl.form.Form):
+            res = assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
+                                      form_compiler_parameters,
+                                      mat_type, sub_mat_type,
+                                      appctx, options_prefix,
+                                      visited)
+            import ipdb; ipdb.set_trace()
+            return res
+
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
-                            form_compiler_parameters,
-                            mat_type, sub_mat_type,
-                            appctx, options_prefix)
+                             form_compiler_parameters,
+                             mat_type, sub_mat_type,
+                             appctx, options_prefix)
+
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1): 
             raise TypeError("Not enough operands for Adjoint")
@@ -231,14 +268,14 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
                                      appctx=appctx,
                                      options_prefix=options_prefix)
-           
+
         else:
             raise TypeError("Mismatching FormSum shapes")
+    elif isinstance(expr, ufl.ExternalOperator):
+        return expr.assemble()
     elif isinstance(expr, ufl.Cofunction) or isinstance(expr, ufl.Coargument) or isinstance(expr, ufl.Matrix):
-        print("Other")
         return expr
     elif isinstance(expr, ufl.Coefficient):
-        print("Coefficient")
         return expr
     else:
         print(type(expr))
@@ -832,7 +869,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
                         # compiled and therefore the differentiation bit of the code is not hit.
                         deriv_ind = tuple(v.keys())
                         expr_args = expr.arguments()
-                        args_list = tuple(tuple((expr_args[position], is_adj) for position, is_adj in args) for args in v.values())
+                        args_list = tuple(tuple(expr_args[position] for position in args) for args in v.values())
                         d.add_dependencies(deriv_ind, args_list)
                         reconstruct_extops = [e for k, e in d._extop_master.coefficient_dict.items() if k in v and e not in external_operators]
                         external_operators.extend(reconstruct_extops)
@@ -841,6 +878,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
         coefficients += tuple(e for e in new_coefficients if e not in coefficients)
         # If there are any PointwiseOperators, evaluate them now.
         external_operators = list(set(external_operators))
+        #import ipdb; ipdb.set_trace()
         for e in external_operators:
             extop_loops.append(e.assemble)
 
