@@ -45,8 +45,8 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         return self._compute_replace_map()
 
     from firedrake import petsc
-    with petsc.PETSc.Log.Stage("Recompute component assign"): 
-        with petsc.PETSc.Log.Event("Recompute component assign"):    
+    with petsc.PETSc.Log.Stage("recompute_component assign"): 
+        with petsc.PETSc.Log.Event("recompute_component assign"):    
             def recompute_component(self, inputs, block_variable, idx, prepared):
                 expr = inputs[0] if self.expr is None else self.expr
 
