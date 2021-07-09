@@ -44,14 +44,17 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
             return None
         return self._compute_replace_map()
 
-    def recompute_component(self, inputs, block_variable, idx, prepared):
-        expr = inputs[0] if self.expr is None else self.expr
+    from firedrake import petsc
+    with petsc.PETSc.Log.Stage("Recompute component assign"): 
+        with petsc.PETSc.Log.Event("Recompute component assign"):    
+            def recompute_component(self, inputs, block_variable, idx, prepared):
+                expr = inputs[0] if self.expr is None else self.expr
 
-        output = self.backend.Function(block_variable.output.function_space())
-        output._expression_cache = block_variable.output._expression_cache
-        # prepared is a map from the dats in the expression to the dats on the Block.
-        self.backend.Function.assign(output, expr, dat_map=prepared) 
-        return output
+                output = self.backend.Function(block_variable.output.function_space())
+                output._expression_cache = block_variable.output._expression_cache
+                # prepared is a map from the dats in the expression to the dats on the Block.
+                self.backend.Function.assign(output, expr, dat_map=prepared) 
+                return output
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
