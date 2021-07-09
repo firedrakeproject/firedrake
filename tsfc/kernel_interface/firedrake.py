@@ -358,8 +358,8 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
         funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
-
-        expression = gem.reshape(gem.Variable(name, (None,)),
+        value_size = coefficient.ufl_element().value_size()
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
 
         return funarg, expression

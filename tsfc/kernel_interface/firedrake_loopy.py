@@ -339,8 +339,9 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(coefficient.ufl_element().value_size(),))
-        expression = gem.reshape(gem.Variable(name, (None,)),
+        value_size = coefficient.ufl_element().value_size()
+        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(value_size,))
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
 
         return funarg, expression
