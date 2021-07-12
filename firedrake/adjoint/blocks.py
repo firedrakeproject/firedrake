@@ -141,13 +141,16 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def _init_solver_parameters(self, args, kwargs):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
-
+    
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        self._ad_nlvs_replace_forms()
-        self._ad_nlvs.parameters.update(self.solver_params)
-        self._ad_nlvs.solve()
-        func.assign(self._ad_nlvs._problem.u)
-        return func
+        from firedrake import petsc
+        with petsc.PETSc.Log.Stage("_forward_solve"):
+            with petsc.PETSc.Log.Event("_forward_solve"):
+                self._ad_nlvs_replace_forms()
+                self._ad_nlvs.parameters.update(self.solver_params)
+                self._ad_nlvs.solve()
+                func.assign(self._ad_nlvs._problem.u)
+                return func
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
