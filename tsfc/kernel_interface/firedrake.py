@@ -27,7 +27,8 @@ def make_builder(*args, **kwargs):
 class Kernel(object):
     __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
-                 "coefficient_numbers", "name", "__weakref__")
+                 "coefficient_numbers", "name", "__weakref__",
+                 "flop_count")
     """A compiled Kernel object.
 
     :kwarg ast: The COFFEE ast for the kernel.
@@ -42,11 +43,13 @@ class Kernel(object):
     :kwarg quadrature_rule: The finat quadrature rule used to generate this kernel
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
+    :kwarg flop_count: Estimated total flops for this kernel.
     """
     def __init__(self, ast=None, integral_type=None, oriented=False,
                  subdomain_id=None, domain_number=None, quadrature_rule=None,
                  coefficient_numbers=(),
-                 needs_cell_sizes=False):
+                 needs_cell_sizes=False,
+                 flop_count=0):
         # Defaults
         self.ast = ast
         self.integral_type = integral_type
@@ -55,6 +58,7 @@ class Kernel(object):
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
+        self.flop_count = flop_count
         super(Kernel, self).__init__()
 
 
@@ -267,7 +271,8 @@ class KernelBuilder(KernelBuilderBase):
         knl = self.kernel
         knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
+    def construct_kernel(self, name, impero_c, index_names, quadrature_rule,
+                         flop_count=0):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -277,6 +282,7 @@ class KernelBuilder(KernelBuilderBase):
         :arg impero_c: ImperoC tuple with Impero AST and other data
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule
+        :arg flop_count: Estimated total flops for this kernel.
 
         :returns: :class:`Kernel` object
         """
@@ -304,6 +310,7 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.quadrature_rule = quadrature_rule
         self.kernel.name = name
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
+        self.kernel.flop_count = flop_count
         return self.kernel
 
     def construct_empty_kernel(self, name):
@@ -351,8 +358,8 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
         funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
-
-        expression = gem.reshape(gem.Variable(name, (None,)),
+        value_size = coefficient.ufl_element().value_size()
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
 
         return funarg, expression
