@@ -266,7 +266,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self._expression_cache = cachetools.LRUCache(maxsize=50)
         else:
             self._expression_cache = None
-
+        
         if isinstance(function_space, Function):
             self.assign(function_space)
 
@@ -386,23 +386,32 @@ class Function(ufl.Coefficient, FunctionMixin):
         only be assigned to the nodes on that subset.
         """
         # tracking down assign
-        import inspect
-        frame = inspect.stack()[4]
+        #import inspect
+        #frame = inspect.stack()[4]
         #print(frame.filename, frame.lineno)
 
-        expr = ufl.as_ufl(expr)
+        with PETSc.Log.Stage("first_assign"):
+            with PETSc.Log.Event("frist_assign"):
+                expr = ufl.as_ufl(expr)
+
         if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
-            return self
+            with PETSc.Log.Stage("second_assign"):
+                with PETSc.Log.Event("second_assign"):
+                    self.dat.zero(subset=subset)
+                    return self             
         elif (isinstance(expr, Function)
               and expr.function_space() == self.function_space()):
-            expr.dat.copy(self.dat, subset=subset)
-            return self
+            with PETSc.Log.Stage("third_assign"):
+                with PETSc.Log.Event("third_assign"):
+                    expr.dat.copy(self.dat, subset=subset)
+                    return self
 
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr), subset, dat_map=dat_map)
-        return self
+        with PETSc.Log.Stage("fourth_assign"):
+            with PETSc.Log.Event("fourth_assign"):
+                from firedrake import assemble_expressions
+                assemble_expressions.evaluate_expression(
+                    assemble_expressions.Assign(self, expr), subset, dat_map=dat_map)
+                return self
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
