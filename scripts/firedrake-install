@@ -624,7 +624,18 @@ elif osname == "Darwin":
     petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
     petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
 
-petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
+for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+    if option.startswith("--with-hdf5-dir"):
+        petsc_options.discard("--download-hdf5")
+        os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+    petsc_options.add(option)
+if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
+    del os.environ["HDF5_DIR"]
+    log.info("""\nWarning: HDF5_DIR environment variable set, but ignored;
+use PETSC_CONFIGURE_OPTIONS="--with-hdf5-dir=$HDF5_DIR"
+to have PETSc built against $HDF5_DIR.
+""")
+petsc_options = list(petsc_options)
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -1016,14 +1027,18 @@ def build_and_install_h5py():
                 check_call(["git", "checkout", "firedrake"])
                 changed = True
         changed |= git_update("h5py")
+        # If h5py installation fails for some reason, we end up having a
+        # situation where h5py is not installed, but h5py directory is
+        # up-to-date, so we need to handle this here.
+        changed |= not is_installed("h5py")
     else:
         git_clone(url)
         changed = True
 
     petsc_dir, petsc_arch = get_petsc_dir()
-    hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
+    hdf5_dir = os.environ.get("HDF5_DIR", "%s/%s" % (petsc_dir, petsc_arch))
     if changed or args.rebuild:
-        log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
+        log.info("Linking h5py against HDF5_DIR=%s\n" % hdf5_dir)
         with environment(HDF5_DIR=hdf5_dir,
                          HDF5_MPI="ON",
                          **blas):
@@ -1597,8 +1612,6 @@ if mode == "install":
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
-    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
-    os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1711,8 +1724,6 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
-        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
-        os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:
