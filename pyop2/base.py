@@ -1594,6 +1594,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
         if other is self:
             return
+        if subset is None:
+            other.data[:] = self.data
+            return
         self._copy_parloop(other, subset=subset).compute()
 
     @collective
