@@ -385,7 +385,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-        # tracking down assign
+        # tracking assign
         #import inspect
         #frame = inspect.stack()[4]
         #print(frame.filename, frame.lineno)
