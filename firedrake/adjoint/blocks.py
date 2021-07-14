@@ -45,16 +45,16 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         return self._compute_replace_map()
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        from firedrake import petsc
-        with petsc.PETSc.Log.Stage("recompute_component"): 
-            with petsc.PETSc.Log.Event("recompute_component"):    
-                expr = inputs[0] if self.expr is None else self.expr
+        #from firedrake import petsc
+        #with petsc.PETSc.Log.Stage("recompute_component"): 
+            #with petsc.PETSc.Log.Event("recompute_component"):    
+        expr = inputs[0] if self.expr is None else self.expr
 
-                output = self.backend.Function(block_variable.output.function_space())
-                output._expression_cache = block_variable.output._expression_cache
-                # prepared is a map from the dats in the expression to the dats on the Block.
-                self.backend.Function.assign(output, expr, dat_map=prepared) 
-                return output
+        output = self.backend.Function(block_variable.output.function_space())
+        output._expression_cache = block_variable.output._expression_cache
+        # prepared is a map from the dats in the expression to the dats on the Block.
+        self.backend.Function.assign(output, expr, dat_map=prepared) 
+        return output
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
@@ -143,14 +143,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
     
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        from firedrake import petsc
-        with petsc.PETSc.Log.Stage("_forward_solve"):
-            with petsc.PETSc.Log.Event("_forward_solve"):
-                self._ad_nlvs_replace_forms()
-                self._ad_nlvs.parameters.update(self.solver_params)
-                self._ad_nlvs.solve()
-                func.assign(self._ad_nlvs._problem.u)
-                return func
+        # from firedrake import petsc
+        # with petsc.PETSc.Log.Stage("_forward_solve"):
+        #     with petsc.PETSc.Log.Event("_forward_solve"):
+        self._ad_nlvs_replace_forms()
+        self._ad_nlvs.parameters.update(self.solver_params)
+        self._ad_nlvs.solve()
+        func.assign(self._ad_nlvs._problem.u)
+        return func
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
@@ -165,6 +165,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return assign_map
 
     def _ad_assign_coefficients(self, form):
+        # from firedrake import petsc
+        # with petsc.PETSc.Log.Stage("_ad_assign_coefficients"):
+        #     with petsc.PETSc.Log.Event("_ad_assign_coefficients"):
         assign_map = self._ad_assign_map(form)
         for coeff, value in assign_map.items():
             coeff.assign(value)
