@@ -343,13 +343,11 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Get gem tensor with (num_nodes, ) shape.
     ir_shape = to_element.dual_evaluation(fn)
-    broadcast_shape = len(expression.ufl_shape) - len(to_element.value_shape)
-    shape_indices = gem.indices(broadcast_shape)
     basis_indices = tuple(gem.Index(extent=ex) for ex in ir_shape.shape)
     ir = gem.Indexed(ir_shape, basis_indices)
 
     # Build kernel body
-    return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
+    return_indices = basis_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
     return_expr = gem.Indexed(return_var, return_indices)
