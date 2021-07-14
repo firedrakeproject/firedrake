@@ -386,9 +386,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         only be assigned to the nodes on that subset.
         """
         # tracking assign
-        #import inspect
-        #frame = inspect.stack()[4]
-        #print(frame.filename, frame.lineno)
+        # import inspect
+        # frame = inspect.stack()[4]
+        # print(frame.filename, frame.lineno)
 
         with PETSc.Log.Stage("first_assign"):
             with PETSc.Log.Event("frist_assign"):
