@@ -1595,8 +1595,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         if other is self:
             return
         if subset is None:
-            other.data[:] = self.data
-            return
+            other.data[:] = self.data_ro 
+        else:
+            other.data[subset.indices] = self.data_ro[subset.indices]
         self._copy_parloop(other, subset=subset).compute()
 
     @collective
