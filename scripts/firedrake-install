@@ -1194,116 +1194,11 @@ def build_and_install_slepc():
             git_clone(url)
 
 
-def build_and_install_vtk():
-    import glob
-    # Check for non-x86_64 architecture
-    if platform.machine() != "x86_64":
-        log.info("This is not an x86_64 architecture. Building VTK from source.")
-
-        # Set up directory structure
-        os.makedirs("vtk/src")
-        os.makedirs("vtk/build")
-        os.makedirs("vtk/package/vtk")
-
-        # Download VTK source and switch to 9.0.1 tag
-        with directory("vtk/src"):
-            url = "git+https://gitlab.kitware.com/vtk/vtk.git"
-            git_clone(url)
-        with directory("vtk/src/vtk"):
-            check_call(["git", "checkout", "v9.0.1"])
-
-        # Create makefile using cmake
-        with directory("vtk/build"):
-
-            # Initial configure
-            log.info("Initial configure")
-            cmake_args = []
-            check_call(["cmake", "../src/vtk"])
-
-            # If we're on a Cray use gcc and g++ instead of cc and CC
-            try:
-                # Is this a Cray?
-                os.stat("/opt/cray")
-                log.info("This is a Cray system. Replacing cc/CC with gcc/g++")
-                # Set full path to gcc and g++
-                gcc_with_path = subprocess.run(["which", "gcc"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-                gxx_with_path = subprocess.run(["which", "g++"], stdout=subprocess.PIPE, universal_newlines=True).stdout.rstrip()
-                cmake_args.extend(["-DCMAKE_C_COMPILER:FILEPATH=" + gcc_with_path,
-                                   "-DCMAKE_CXX_COMPILER:FILEPATH=" + gxx_with_path])
-                check_call(["cmake"] + cmake_args + ["../src/vtk"])
-                check_call(["cmake"] + cmake_args + ["../src/vtk"])
-            except OSError:
-                pass
-
-            # Always include these arguments
-            log.info("Setting python parameters")
-            # We need the Python version later when making the wheel
-            vtk_python_version = platform.python_version_tuple()[0]+'.'+platform.python_version_tuple()[1]
-            cmake_args.extend(["-DVTK_WRAP_PYTHON:BOOL=ON", "-DVTK_PYTHON_VERSION:STRING=3"])
-            check_call(["cmake"] + cmake_args + ["../src/vtk"])
-            cmake_args.extend(["-DVTK_ENABLE_KITS:BOOL=ON"])
-            check_call(["cmake"] + cmake_args + ["../src/vtk"])
-
-            # Disable neon optimisations if this is ARM64
-            machine_type = subprocess.run(["uname", "-m"], stdout=subprocess.PIPE, universal_newlines=True)
-            if machine_type.stdout.rstrip() == "aarch64":
-                log.info("This is an ARM64 machine. Disabling NEON optimisations")
-                cmake_args.extend(["-DCMAKE_C_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'",
-                                   "-DCMAKE_CXX_FLAGS:STRING='-DPNG_ARM_NEON_OPT=0'"])
-                check_call(["cmake"] + cmake_args + ["../src/vtk"])
-
-            # Build VTK
-            log.info("Building VTK")
-            check_call(["make", "-j", "16"])
-
-            # Package VTK as a wheel
-        log.info("Packaging VTK as a wheel")
-        with directory("vtk/package"):
-            # Update setuptools and wheel
-            check_call(["pip3", "install", "--user", "--upgrade", "setuptools", "wheel"])
-
-            # Write a minimal README, setup.py and MANIFEST.in
-            with open('README', 'w') as f:
-                f.write("""
-VTK install for firedrake
-""")
-            with open('setup.py', 'w') as f:
-                f.write("""
-import setuptools
-
-setuptools.setup(
-    name="VTK",
-    version="9.0.1",
-    author="Kitware",
-    author_email="kitware@kitware.com",
-    description="The Visualization Toolkit (VTK)",
-    long_description="The Visualization Toolkit (VTK)",
-    long_description_content_type="text/markdown",
-    url="https://vtk.org",
-    packages=setuptools.find_packages(),
-    classifiers=[
-        "Operating System :: ARM64",
-    ],
-    python_requires='>=3.0',
-    include_package_data=True,
-)
-""")
-            with open('MANIFEST.in', 'w') as f:
-                f.write("""
-include vtk/*.so*
-""")
-
-            # Collate files for wheel
-            check_call(["cp"] + glob.glob("../build/lib64/*.so*") + ["vtk"])
-            check_call(["cp"] + glob.glob("../build/lib64/python"+vtk_python_version+"/site-packages/vtkmodules/*.so*") + ["vtk"])
-            check_call(["cp"] + glob.glob("../build/lib64/python"+vtk_python_version+"/site-packages/vtkmodules/*.py") + ["vtk"])
-
-            # Generate the wheel
-            check_call(["python3", "setup.py", "bdist_wheel"])
-
-        # Install the VTK wheel
-        log.info("Installing VTK wheel")
-        run_pip_install(["vtk/package/dist/VTK-9.0.1-py3-none-any.whl"])
+def install_vtk():
+    # Install wheel downloaded from
+    # https://github.com/firedrakeproject/VTKPythonPackage/releases/tag/firedrake_20210613
+    log.info("Installing VTK wheel")
+    run_pip_install(["/projects/exeter/firedrake/wheels/vtk-9.0.1-cp38-cp38-linux_aarch64.whl"])
 
 
 def install_documentation_dependencies():
@@ -1715,7 +1610,7 @@ if mode == "install":
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
-    build_and_install_vtk()
+    install_vtk()
 
     for p in packages:
         pip_requirements(p, compiler_env)
