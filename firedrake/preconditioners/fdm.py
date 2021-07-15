@@ -79,7 +79,7 @@ class FDMPC(PCBase):
         appctx = self.get_appctx(pc)
         eta = appctx.get("eta", (N+1)*(N+ndim))
         mu = appctx.get("viscosity", None)  # sets the viscosity
-        helm = appctx.get("helm", None)  # sets the potential
+        helm = appctx.get("reaction", None)  # sets the reaction
         hflag = helm is not None
 
         eta = float(eta)
@@ -337,6 +337,11 @@ class FDMPC(PCBase):
 
             mue = np.atleast_1d(np.sum(Gq.dat.data_ro[gid(e)], axis=0))
             bce = bcflags[e]
+            if Bq is not None:
+                bqe = np.atleast_1d(np.sum(Bq.dat.data_ro[bid(e)], axis=0))
+                if len(bqe) == 1:
+                    bqe = np.tile(bqe, ncomp)
+
             for k in range(ncomp):
                 bcj = bce[k] if len(bce.shape) == 2 else bce
                 muj = mue[k] if len(mue.shape) == 2 else mue
@@ -349,7 +354,7 @@ class FDMPC(PCBase):
                 be = Afdm[facet_perm[0]][fbc[0]][1]
                 ae = Afdm[facet_perm[0]][fbc[0]][0] * muj[0]
                 if Bq is not None:
-                    ae += be * sum(Bq.dat.data_ro[bid(e)])
+                    ae += be * bqe[k]
 
                 if ndim > 1:
                     ae = kron(ae, Afdm[facet_perm[1]][fbc[1]][1], format="csr")
@@ -560,8 +565,16 @@ class FDMPC(PCBase):
         if helm is None:
             Bq = None
         else:
-            Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
-                               quad_scheme="default")
+            if len(helm.ufl_shape) == 2:
+                helm = diag_vector(helm)
+
+            if len(helm.ufl_shape) == 1:
+                Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                                   quad_scheme="default")
+            else:
+                Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                                   quad_scheme="default")
+
             Q = firedrake.FunctionSpace(self.mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.assemble(inner(helm, q)*dx(degree=Nq))
