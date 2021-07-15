@@ -42,7 +42,7 @@ pipeline {
               sh 'mkdir tmp'
               dir('tmp') {
                 timestamps {
-                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch firedrake fs_filter --package-branch PyOP2 fs_filter --package-branch ufl transformed_form_argument --package-branch tsfc fs_filter --package-branch fiat add_entity_ids_by_differentiation_order --package-branch FInAT add_entity_ids_by_differentiation_order || (cat firedrake-install.log && /bin/false)'
+                  sh '../scripts/firedrake-install $COMPLEX --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager|| (cat firedrake-install.log && /bin/false)'
                 }
               }
             }
