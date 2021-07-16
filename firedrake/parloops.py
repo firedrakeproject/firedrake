@@ -13,6 +13,7 @@ import coffee.base as ast
 
 from firedrake.logging import warning
 from firedrake import constant
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType_c
 try:
     from cachetools import LRUCache
@@ -172,6 +173,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
                         "par_loop_kernel", **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets

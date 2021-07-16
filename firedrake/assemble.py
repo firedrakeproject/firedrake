@@ -11,6 +11,7 @@ from firedrake import (assemble_expressions, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.utils import ScalarType
 from pyop2 import op2
@@ -49,6 +50,7 @@ Please refer to :func:`assemble` for a description of the options.
 """
 
 
+@PETSc.Log.EventDecorator()
 @annotate_assemble
 def assemble(expr, tensor=None, bcs=None, *,
              diagonal=False,
@@ -131,6 +133,7 @@ def assemble(expr, tensor=None, bcs=None, *,
         raise TypeError(f"Unable to assemble: {expr}")
 
 
+@PETSc.Log.EventDecorator()
 def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                   form_compiler_parameters,
                   mat_type, sub_mat_type,
@@ -169,6 +172,7 @@ def assemble_form(expr, tensor, bcs, diagonal, assembly_type,
         raise AssertionError
 
 
+@PETSc.Log.EventDecorator()
 def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
                     mat_type=None, sub_mat_type=None, appctx={},
                     options_prefix=None):
@@ -188,6 +192,7 @@ def allocate_matrix(expr, bcs=(), form_compiler_parameters=None,
     return _make_matrix(expr, bcs, opts)
 
 
+@PETSc.Log.EventDecorator()
 def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
                              mat_type=None, sub_mat_type=None, diagonal=False):
     r"""Create a callable object than be used to assemble expr into a tensor.

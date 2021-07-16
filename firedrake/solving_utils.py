@@ -56,9 +56,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults
         ksp_defaults = ksp_defaults.copy()
         skip = set()
         if "pc_type" in keys:
-            skip.update({"pc_factor_mat_solver_type", "mat_mumps_icntl_14",
-                         # Might reasonably expect to get petsc default
-                         "ksp_type"})
+            # Might reasonably expect to get petsc defaults
+            skip.update({"pc_factor_mat_solver_type", "ksp_type"})
         if parameters.get("mat_type") in {"matfree", "nest"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
@@ -174,6 +173,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
@@ -315,6 +315,7 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
 
+    @PETSc.Log.EventDecorator()
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP

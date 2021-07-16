@@ -103,6 +103,8 @@ group.add_argument("--bibtex", action="store", nargs=1,
                    help="Retrieve the BibTeX entries corresponding to the release tag provided.", dest="release_tag")
 group.add_argument("--create-meta-release", action="store", nargs="?", const="firedrake-meta-release.json",
                    help="Create meta-record with data from specified file.", dest="meta_release")
+group.add_argument("--list-meta-records", action="store_true",
+                   help="List all known meta records")
 parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
                     help="Output to the named bibtex file rather than firedrake-zenodo.bib")
 parser.add_argument("--title", "-t", action="store", nargs=1,
@@ -329,6 +331,27 @@ def zenodo_records():
             elif expect < n:
                 raise LookupError("Have more hits than Zenodo reports in total")
             i += 1
+        else:
+            raise LookupError("Unable to get zenodo records: %s" % response.json())
+
+
+def zenodo_metarecords():
+    response = requests.get(f"{ZENODO_URL}/records", params={"q": 'creators.name:"firedrake-zenodo"',
+                                                             "size": 400,
+                                                             "sort": "mostrecent",
+                                                             "page": 1})
+    i = 1
+    while True:
+        if i > 20:
+            raise RuntimeError("More than 8000 meta records on zenodo?")
+        i += 1
+        if response.status_code == 200:
+            result = response.json()
+            yield from result["hits"]["hits"]
+            if result["links"].get("next") is not None:
+                response = requests.get(result["links"]["next"])
+            else:
+                break
         else:
             raise LookupError("Unable to get zenodo records: %s" % response.json())
 
@@ -670,6 +693,19 @@ def decode_info_file(encoded):
     name, data = encoded
     data = base64.decodebytes(data.encode())
     return (name, data)
+
+
+if args.list_meta_records:
+    records = list(zenodo_metarecords())
+    log.info("Information on all known Zenodo meta-records")
+    log.info(f"There are {len(records)} records known on Zenodo")
+    log.info("********************************************\n")
+    for record in records:
+        meta = record['metadata']
+        log.info(f"{meta['publication_date']} https://doi.org/{meta['doi']}")
+        log.info(f"{meta['title']}")
+        log.info("")
+    sys.exit(0)
 
 
 if args.meta_release:

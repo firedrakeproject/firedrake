@@ -50,6 +50,7 @@ class VectorSpaceBasis(object):
         self._constant = constant
         self._ad_orthogonalized = False
 
+    @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
         r"""The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
 
@@ -62,6 +63,7 @@ class VectorSpaceBasis(object):
                                                    comm=comm)
         return self._nullspace
 
+    @PETSc.Log.EventDecorator()
     def orthonormalize(self):
         r"""Orthonormalize the basis.
 
@@ -86,6 +88,7 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
+    @PETSc.Log.EventDecorator()
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
@@ -99,6 +102,7 @@ class VectorSpaceBasis(object):
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
+    @PETSc.Log.EventDecorator()
     def check_orthogonality(self, orthonormal=True):
         r"""Check if the basis is orthogonal.
 

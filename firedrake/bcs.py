@@ -9,7 +9,6 @@ from ufl import as_ufl, UFLException, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
-from pyop2.profiling import timed_function
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
 
@@ -21,6 +20,7 @@ from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.petsc import PETSc
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -36,6 +36,7 @@ class BCBase(object):
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
     '''
+    @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
@@ -169,6 +170,7 @@ class BCBase(object):
 
         return op2.Subset(self._function_space.node_set, self.nodes)
 
+    @PETSc.Log.EventDecorator()
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
 
@@ -186,6 +188,7 @@ class BCBase(object):
         except exceptions.MapValueError:
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
+    @PETSc.Log.EventDecorator()
     def set(self, r, val):
         r"""Set the boundary nodes to a prescribed (external) value.
         :arg r: the :class:`Function` to which the value should be applied.
@@ -199,6 +202,7 @@ class BCBase(object):
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
 
+    @PETSc.Log.EventDecorator()
     def as_subspace(self, field, V, use_split):
         fs = self._function_space
         if fs.parent is not None and isinstance(fs.parent.ufl_element(), VectorElement):
@@ -292,6 +296,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             self._function_arg_update()
         return self._function_arg
 
+    @PETSc.Log.EventDecorator()
     def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False):
         fs = self.function_space()
         if V is None:
@@ -371,7 +376,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         self.function_arg = val
         self._original_arg = val
 
-    @timed_function('ApplyBC')
+    @PETSc.Log.EventDecorator('ApplyBC')
     @DirichletBCMixin._ad_annotate_apply
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
@@ -451,6 +456,7 @@ class EquationBC(object):
     :arg Jp_eq_J: this flag is used only with the `reconstruct` method
     '''
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, *args, bcs=None, J=None, Jp=None, V=None, is_linear=False, Jp_eq_J=False):
         from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
@@ -520,6 +526,7 @@ class EquationBC(object):
         else:
             return getattr(self, f"_{form_type}")
 
+    @PETSc.Log.EventDecorator()
     def reconstruct(self, V, subu, u, field):
         _F = self._F.reconstruct(field=field, V=V, subu=subu, u=u)
         _J = self._J.reconstruct(field=field, V=V, subu=subu, u=u)
@@ -579,6 +586,7 @@ class EquationBCSplit(BCBase):
         bc.increment_bc_depth()
         self.bcs.append(bc)
 
+    @PETSc.Log.EventDecorator()
     def reconstruct(self, field=None, V=None, subu=None, u=None, row_field=None, col_field=None, action_x=None, use_split=False):
         subu = subu or self.u
         row_field = row_field or field
@@ -616,6 +624,7 @@ class EquationBCSplit(BCBase):
         return ebc
 
 
+@PETSc.Log.EventDecorator()
 def homogenize(bc):
     r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,

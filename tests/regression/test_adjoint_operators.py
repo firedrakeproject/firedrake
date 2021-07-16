@@ -649,3 +649,27 @@ def test_supermesh_project_hessian(vector):
     assert isinstance(source.block_variable.hessian_value, Vector)
     Hm = source.block_variable.hessian_value.inner(h.vector())
     assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_init_constant():
+    from firedrake_adjoint import ReducedFunctional, Control
+    mesh = UnitSquareMesh(1, 1)
+    c1 = Constant(1.0)
+    c2 = Constant(c1)
+    J = assemble(c2*dx(domain=mesh))
+    rf = ReducedFunctional(J, Control(c1))
+    assert np.isclose(rf(-1.0), -1.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_copy_function():
+    from firedrake_adjoint import ReducedFunctional, Control
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    one = Constant(1.0)
+    f = interpolate(one, V)
+    g = f.copy(deepcopy=True)
+    J = assemble(g*dx)
+    rf = ReducedFunctional(J, Control(f))
+    assert np.isclose(rf(interpolate(-one, V)), -J)
