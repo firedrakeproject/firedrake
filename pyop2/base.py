@@ -176,13 +176,13 @@ class Arg(object):
         :param access: An access descriptor of type :class:`Access`
         :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
             global maps used during assembly.
-            
+
         Takes all the same arguments as _init_ overriding them, if necessary."""
-        return type(self)(data = data or self.data,
-                          map = map or self.map,
-                          access = access or self.access,
-                          lgmaps = lgmaps or self.lgmaps,
-                          unroll_map = False if unroll_map is None else unroll_map)
+        return type(self)(data=data or self.data,
+                          map=map or self.map,
+                          access=access or self.access,
+                          lgmaps=lgmaps or self.lgmaps,
+                          unroll_map=False if unroll_map is None else unroll_map)
 
     @cached_property
     def _kernel_args_(self):
@@ -1792,37 +1792,25 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
     __div__ = __truediv__  # Python 2 compatibility
 
-    def __iadd__(self, other, subset=None):
+    def __iadd__(self, other):
         """Pointwise addition of fields."""
         return self._iop(other, operator.iadd)
-        # if subset is None:
-        #     other.data[:] *= self.data_ro 
-        # else:
-        #     other.data[subset.indices] *= self.data_ro[subset.indices]
+        # other.data[:] += self.data_ro
 
-    def __isub__(self, other, subset=None):
+    def __isub__(self, other):
         """Pointwise subtraction of fields."""
         return self._iop(other, operator.isub)
-        # if subset is None:
-        #     other.data[:] *= self.data_ro 
-        # else:
-        #     other.data[subset.indices] *= self.data_ro[subset.indices]
+        # other.data[:] -= self.data_ro
 
-    def __imul__(self, other, subset=None):
+    def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
         return self._iop(other, operator.imul)
-        # if subset is None:
-        #     other.data[:] *= self.data_ro 
-        # else:
-        #     other.data[subset.indices] *= self.data_ro[subset.indices]
+        # other.data[:] *= self.data_ro
 
-    def __itruediv__(self, other, subset=None):
+    def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.itruediv)
-        # if subset is None:
-        #     other.data[:] /= self.data_ro 
-        # else:
-        #     other.data[subset.indices] /= self.data_ro[subset.indices]
+        # other.data[:] /= self.data_ro
 
     __idiv__ = __itruediv__  # Python 2 compatibility
 
