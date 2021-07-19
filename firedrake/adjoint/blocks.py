@@ -45,9 +45,6 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         return self._compute_replace_map()
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        #from firedrake import petsc
-        #with petsc.PETSc.Log.Stage("recompute_component"): 
-            #with petsc.PETSc.Log.Event("recompute_component"):    
         expr = inputs[0] if self.expr is None else self.expr
 
         output = self.backend.Function(block_variable.output.function_space())
@@ -143,9 +140,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
     
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        # from firedrake import petsc
-        # with petsc.PETSc.Log.Stage("_forward_solve"):
-        #     with petsc.PETSc.Log.Event("_forward_solve"):
         self._ad_nlvs_replace_forms()
         self._ad_nlvs.parameters.update(self.solver_params)
         self._ad_nlvs.solve()
@@ -165,9 +159,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return assign_map
 
     def _ad_assign_coefficients(self, form):
-        # from firedrake import petsc
-        # with petsc.PETSc.Log.Stage("_ad_assign_coefficients"):
-        #     with petsc.PETSc.Log.Event("_ad_assign_coefficients"):
         assign_map = self._ad_assign_map(form)
         for coeff, value in assign_map.items():
             coeff.assign(value)
