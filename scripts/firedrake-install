@@ -1114,7 +1114,7 @@ def build_and_install_tinyasm():
 
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
-    url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
+    url = "git+https://github.com/tpaviot/pythonocc-core.git"
     if not os.path.exists("pythonocc-core"):
         git_clone(url)
         with directory("pythonocc-core"):
@@ -1358,7 +1358,6 @@ if mode == "install" or not args.update_script:
                              "zlib1g-dev",
                              "libboost-dev"]  # For ROL in pyadjoint
         if args.opencascade:
-            required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
 
         if args.with_blas is None and mode == "install":

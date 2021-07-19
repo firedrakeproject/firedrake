@@ -5,7 +5,7 @@ pytest-xdist
 ipython
 matplotlib
 pylint
-vtk==9.0.1
+vtk>=9.0.1
 pkgconfig
 cached_property
 requests
