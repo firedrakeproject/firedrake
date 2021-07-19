@@ -19,9 +19,6 @@ class MeshGeometryMixin(OverloadedType):
 
     @no_annotations
     def _ad_restore_at_checkpoint(self, checkpoint):
-        #from firedrake import petsc
-        #with petsc.PETSc.Log.Stage("_ad_restore_at_checkpoint"):
-            #with petsc.PETSc.Log.Event("_ad_restore_at_checkpoint"):
         self.coordinates.assign(checkpoint)
         return self
 
