@@ -184,7 +184,9 @@ A flame graph for your Firedrake script can be generated from py-spy with:
 
    $ py-spy record -o foo.svg --native -- python myscript.py
 
-Unfortunately, py-spy does not work when run in parallel.
+Beyond the inherent uncertainty that comes from using a sampling profiler,
+one substantial limitation of py-spy is that it does not work when run
+in parallel.
 
 pyinstrument
 ~~~~~~~~~~~~~
@@ -204,6 +206,31 @@ the ``-r html`` flag.
 Unfortunately, pyinstrument cannot profile native code. This means
 that information about the code's execution inside of PETSc is largely
 lost.
+
+memory_profiler
+~~~~~~~~~~~~~~~
+
+`memory_profiler <https://github.com/pythonprofilers/memory_profiler>`_
+is a useful tool that you can use to monitor the memory usage of your
+script. After installing it you can simply run:
+
+.. code-block:: bash
+
+   $ mprof run python myscript.py
+   $ mprof plot
+
+The former command will run your script and generate a file containing the
+profiling information. The latter then displays a plot of the memory usage
+against execution time for the whole script.
+
+memory_profiler also works in parallel. You can pass either of the
+``--include-children`` or ``--multiprocess`` flags to ``mprof``
+depending on whether or not you want to accumulate the memory usage
+across ranks or plot them separately. For example:
+
+.. code-block:: bash
+
+   $ mprof run --include-children mpiexec -n 4 python myscript.py
 
 Score-P
 ~~~~~~~
