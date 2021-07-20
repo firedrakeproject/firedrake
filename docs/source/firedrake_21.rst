@@ -18,23 +18,22 @@ with developers and other users.
 Key Dates
 ---------
 
-* Abstract submission deadline: TODO
-* Registration deadline: TODO
+* Abstract submission deadline: 31 August 2021
+* Registration deadline: 31 August 2021
 * Workshop: 15-17 September 2021
 
 Programme
 ---------
 
-Each day of the event has been split up into afternoon (14:00-TODO)
-and evening (TODO-18:30) sessions with the following events planned
-for each session:
+Each day will run between 14:00 and 18:30 (BST) and will be split up
+into two sessions with the following events planned for each session:
 
 +----------------+----------------------+-------------------------+-------------------+
 |                | Wednesday (15/09/21) | Thursday (16/09/21)     | Friday (17/09/21) |
 +================+======================+=========================+===================+
-| **14:00-TODO** | Talks                | Talks                   | Talks             |
+| **Session 1**  | Presentations        | Presentations           | Presentations     |
 +----------------+----------------------+-------------------------+-------------------+
-| **TODO-18:30** | Poster session       | Q&A with Firedrake team | Code clinic       | 
+| **Session 2**  | Poster session       | Q&A with Firedrake team | Code clinic       | 
 +----------------+----------------------+-------------------------+-------------------+
 
 Coffee breaks and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
@@ -47,9 +46,17 @@ Registration
 Registration costs £10. Please register via TODO.
 
 Location
-~~~~~~~~
+--------
 
 The workshop will be held on Zoom.
+
+Code clinic
+-----------
+
+The last session of the workshop is a 'code clinic'. Please bring your
+own codes that use Firedrake and members of the Firedrake development
+team will be on hand to offer expert advice on how to fix or improve
+your code.
 
 Abstract submission
 -------------------
@@ -60,15 +67,11 @@ an abstract on TODO.
 Prizes
 ------
 
-Prizes will be awarded for:
+Prizes will be awarded for the best presentations and posters given by students and postdocs.
 
-* Best Student Poster
-* Best Student Presentation
-* Best Postdoc Presentation
-
-The prize will be a copy of `PETSc for Partial Differential Equations:
+Each winner will be awarded with a copy of `PETSc for Partial Differential Equations:
 Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
-by Ed Beuler which contains an excellent chapter on using Firedrake.
+by Ed Beuler, which contains an excellent chapter on using Firedrake.
 
 Further details
 ---------------
