@@ -2,6 +2,12 @@
 
 .. title:: Firedrake '21
 
+.. image:: images/gathertown.jpg
+   :width: 80%
+   :alt: gather.town
+   :align: center
+   :target: https://fpaps.memberclicks.net/assets/images/2021_Symposium/fpa-gather-town-avatars.jpg
+
 Firedrake '21
 -------------
                
