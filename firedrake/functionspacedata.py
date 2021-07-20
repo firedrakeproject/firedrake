@@ -15,9 +15,12 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
 import numpy
+import ufl
 import finat
 from decorator import decorator
 from functools import partial
+
+from tsfc.finatinterface import create_element as _create_element
 
 from pyop2 import op2
 from firedrake.utils import IntType
@@ -32,6 +35,14 @@ from firedrake.petsc import PETSc
 
 
 __all__ = ("get_shared_data", )
+
+
+def create_element(ufl_element):
+    finat_element = _create_element(ufl_element)
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        # Retrieve scalar element
+        finat_element = finat_element.base_element
+    return finat_element
 
 
 @decorator
@@ -374,16 +385,25 @@ class FunctionSpaceData(object):
     stores that shared data.  It is cached on the mesh.
 
     :arg mesh: The mesh to share the data on.
-    :arg finat_element: The FInAT element describing how nodes are
-       attached to topological entities.
+    :arg ufl_element: The UFL element.
     """
-    __slots__ = ("map_cache", "entity_node_lists",
+    __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, finat_element, real_tensorproduct=False):
+    def __init__(self, mesh, ufl_element):
+        finat_element = create_element(ufl_element)
+        # Support foo x Real tensorproduct elements
+        real_tensorproduct = False
+        scalar_element = ufl_element
+        if isinstance(ufl_element, (ufl.VectorElement, ufl.TensorElement)):
+            scalar_element = ufl_element.sub_elements()[0]
+        if isinstance(scalar_element, ufl.TensorProductElement):
+            a, b = scalar_element.sub_elements()
+            real_tensorproduct = b.family() == 'Real'
+
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
@@ -396,6 +416,7 @@ class FunctionSpaceData(object):
 
         edofs_key = entity_dofs_key(entity_dofs)
 
+        self.real_tensorproduct = real_tensorproduct
         # Empty map caches. This is a sui generis cache
         # implementation because of the need to support boundary
         # conditions.
@@ -469,19 +490,19 @@ class FunctionSpaceData(object):
 
 
 @PETSc.Log.EventDecorator()
-def get_shared_data(mesh, finat_element, real_tensorproduct=False):
+def get_shared_data(mesh, ufl_element):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
-    :arg finat_element: A FInAT element.
-    :raises ValueError: if mesh or finat_element are invalid.
+    :arg ufl_element: A UFL element.
+    :raises ValueError: if mesh or ufl_element are invalid.
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
         raise ValueError("%s is not an AbstractMeshTopology" % mesh)
-    if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
+    if not isinstance(ufl_element, ufl.finiteelement.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
-                         type(finat_element))
-    return FunctionSpaceData(mesh, finat_element, real_tensorproduct=real_tensorproduct)
+                         type(ufl_element))
+    return FunctionSpaceData(mesh, ufl_element)
