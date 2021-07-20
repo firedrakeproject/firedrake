@@ -18,16 +18,16 @@ of a loop can also be signficant.
 It is always a bad idea to attempt to optimise your code without a solid
 understanding of where the bottlenecks are, else you could spend vast
 amounts of developer time resulting in little to no improvement in performance.
-
-The best strategy for performance optimisation should always be to start
+The best strategy for performance optimisation should therefore always be to start
 at the highest level possible with an overview of the entire problem before
-drilling down into specific hotspots. For this we recommend first profiling
-your script using a flame graph (see :ref:`below <generating-flame-graphs>`).
+drilling down into specific hotspots. To get this high level understanding of
+your script we strongly recommend that you first profile your script using a
+flame graph (see :ref:`below <generating-flame-graphs>`).
 
 .. _generating-flame-graphs:
 
-Generating flame graphs
------------------------
+Automatic flame graph generation with PETSc
+-------------------------------------------
 
 `Flame graphs <https://www.brendangregg.com/flamegraphs.html>`_ are a very
 useful entry point when trying to optimise your application since they make
@@ -56,78 +56,115 @@ would be amortized for longer-running problems.
    The flame graph output works in parallel too. The time per function in
    that case is given by the maximum value across all ranks.
 
-..
-  ## Generating the flame graph
 
-  To generate a flame graph from your Firedrake script you need to:
+Generating the flame graph
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  1. Run your code with the extra flag `-log_view :foo.txt:ascii_flamegraph`. This will run your program as usual but output an additional file called `foo.txt`.
+To generate a flame graph from your Firedrake script you need to:
 
-  2. Visualise the results. This can be done in one of two ways:
+1. Run your code with the extra flag ``-log_view :foo.txt:ascii_flamegraph``.
+   For example:
+
+   .. code-block:: bash
+
+     $ python myscript.py -log_view :foo.txt:ascii_flamegraph
+
+   This will run your program as usual but output an additional file
+   called ``foo.txt`` containing the profiling information.
+
+2. Visualise the results. This can be done in one of two ways:
     
-      - Generate an SVG file using the `flamegraph.pl` script from [this repository](https://github.com/brendangregg/FlameGraph) with the command:
+   * Generate an SVG file using the ``flamegraph.pl`` script from
+     `this repository <https://github.com/brendangregg/FlameGraph>`_
+     with the command:
 
-          ```bash
-          $ ./flamegraph.pl foo.txt > foo.svg
-          ```
+     .. code-block:: bash
 
-          You can then view the output file in your browser.
+       $ ./flamegraph.pl foo.txt > foo.svg
 
-      - Upload the file to [speedscope](https://www.speedscope.app/) and view it there.
+     You can then view ``foo.svg`` in your browser.
 
-  ## Adding your own events
+   * Upload the file to `speedscope <https://www.speedscope.app/>`_ and view it there.
 
-  It is very easy to add your own events to the flame graph and there are a few different ways of doing it.
-  The simplest methods are:
+Adding your own events
+~~~~~~~~~~~~~~~~~~~~~~
 
-  - With a context manager:
+It is very easy to add your own events to the flame graph and there
+are a few different ways of doing it. The simplest methods are:
+
+* With a context manager:
+
+  .. code-block:: python
       
-      ```python
       from firedrake.petsc import PETSc
 
       with PETSc.Log.Event("foo"):
           do_something_expensive()
-      ```
 
-  - With a decorator:
+* With a decorator:
 
-      ```python
+  .. code-block:: python
+
       from firedrake.petsc import PETSc
 
       @PETSc.Log.EventDecorator("foo")
       def do_something_expensive():
           ...
-      ```
 
-      If no arguments are passed to `PETSc.Log.EventDecorator` then the event name will be the same as the function.
+  If no arguments are passed to ``PETSc.Log.EventDecorator`` then the
+  event name will be the same as the function.
 
-  ## Extra information
+Caveats
+~~~~~~~
 
-  - The `flamegraph.pl` script assumes by default that the values in the stack traces are sample counts.
-    This means that if you hover over functions in the SVG it will report the count in terms of 'samples' rather than the correct unit of microseconds.
-    A simple fix to this is to include the command line option `--countname us` when you generate the SVG.
+* The ``flamegraph.pl`` script assumes by default that the values
+  in the stack traces are sample counts. This means that if you
+  hover over functions in the SVG it will report the count in terms
+  of 'samples' rather than the correct unit of microseconds. A simple
+  fix to this is to include the command line option ``--countname us``
+  when you generate the SVG. For example:
 
-  - If you use PETSc stages in your code these will be ignored in the flame graph.
+  .. code-block:: bash
 
-  - If you call `PETSc.Log.begin()` as part of your script/package then profiling will not work as expected. 
-    This is because it will start PETSc's default (flat) logging while we need to use nested logging instead.
+    $ ./flamegraph.pl --countname us foo.txt > foo.svg
 
-    This issue can be avoided with the simple guard:
-    
-    ```python
+* If you use PETSc stages in your code these will be ignored in the flame graph.
+
+* If you call ``PETSc.Log.begin()`` as part of your script/package
+  then profiling will not work as expected. This is because this
+  function starts PETSc's default (flat) logging while we need to
+  use nested logging instead.
+
+  This issue can be avoided with the simple guard:
+
+  .. code-block:: python
+  
     from firedrake.petsc import OptionsManager
 
     # If the -log_view flag is passed you don't need to call 
     # PETSc.Log.begin because it is done automatically.
     if "log_view" in OptionsManager.commandline_options:
         PETSc.Log.begin()
-    ```
 
-Common issues
--------------
+Common performance issues
+-------------------------
 
 Calling ``solve`` repeatedly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When solving PDEs, Firedrake uses a PETSc ``SNES`` (nonlinear solver)
+under the hood. Every time the user calls :py:func:`~firedrake.solving.solve`
+a new ``SNES`` is created and used to solve the problem. This is a
+convenient shorthand for scripts that only need to solve a problem
+once, but it is fairly expensive to set up a new ``SNES`` and so
+repeated calls to :py:func:`~firedrake.solving.solve` will introduce
+some overhead.
+
+To get around this problem, users should instead instantiate
+a variational problem (e.g. :py:class:`~.LinearVariationalProblem`)
+and solver (e.g. :py:class:`~.LinearVariationalSolver`) outside of
+the loop body. An example showing how this is done can be found
+in `this demo <https://firedrakeproject.org/demos/DG_advection.py.html>`_.
 
 HPC-specific considerations
 ---------------------------
