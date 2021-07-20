@@ -51,11 +51,8 @@ spent in those. Some time is also spent in ``firedrake.__init__`` but
 this corresponds to the amount of time spent importing Firedrake and
 would be amortized for longer-running problems.
 
-.. note::
-
-   The flame graph output works in parallel too. The time per function in
-   that case is given by the maximum value across all ranks.
-
+Flame graphs can also be generated for codes run in parallel with the
+reported times in the graph given by the maximum value across all ranks.
 
 Generating the flame graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -166,15 +163,36 @@ and solver (e.g. :py:class:`~.LinearVariationalSolver`) outside of
 the loop body. An example showing how this is done can be found
 in `this demo <https://firedrakeproject.org/demos/DG_advection.py.html>`_.
 
-HPC-specific considerations
----------------------------
+Other useful tools
+------------------
 
-Filesystem contention
-~~~~~~~~~~~~~~~~~~~~~
+Here we present a handful of performance analysis tools that users may
+find useful to run with their codes.
 
-* tarball the venv
+py-spy
+~~~~~~
 
-Parallel communication
-~~~~~~~~~~~~~~~~~~~~~~
+`py-spy <https://github.com/benfred/py-spy>`_ is a great sampling
+profiler that outputs directly to SVG flame graphs. It allows users
+to see the entire stack trace of the program rather than just the
+annotated PETSc events and unlike most Python profilers it can also
+profile native code.
 
-* Score-P
+A flame graph for your Firedrake script can be generated from py-spy with:
+
+.. code-block:: bash
+
+   $ py-spy record -o foo.svg --native -- python myscript.py
+
+Unfortunately, py-spy does not work when run in parallel and it will not
+run on MacOS.
+
+Score-P
+~~~~~~~
+
+`Score-P <https://www.vi-hps.org/projects/score-p/>`_ is a tool aimed
+at HPC users. We found it to provide some useful insight into MPI
+considerations such as load balancing and communication overhead.
+
+To use it with Firedrake, users will also need to install Score-P's
+`Python bindings <https://github.com/score-p/scorep_binding_python>`_.
