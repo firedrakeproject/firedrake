@@ -380,6 +380,30 @@ def entity_dofs_key(entity_dofs):
     return key
 
 
+def preprocess_ufl_element(mesh, ufl_element):
+    """Preprocess a UFL element for descretised representation
+
+    :arg mesh: The MeshTopology object
+    :arg ufl_element: The UFL element
+    :returns: A tuple of the FInAT element, entity_dofs, nodes_per_entity,
+        and real_tensorproduct derived from ufl_element.
+    """
+    if type(ufl_element) is ufl.MixedElement:
+        raise ValueError("Can't create FunctionSpace for MixedElement")
+    finat_element = create_element(ufl_element)
+    # Support foo x Real tensorproduct elements
+    real_tensorproduct = False
+    scalar_element = ufl_element
+    if isinstance(ufl_element, (ufl.VectorElement, ufl.TensorElement)):
+        scalar_element = ufl_element.sub_elements()[0]
+    if isinstance(scalar_element, ufl.TensorProductElement):
+        a, b = scalar_element.sub_elements()
+        real_tensorproduct = b.family() == 'Real'
+    entity_dofs = finat_element.entity_dofs()
+    nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
+    return (finat_element, entity_dofs, nodes_per_entity, real_tensorproduct)
+
+
 class FunctionSpaceData(object):
     """Function spaces with the same entity dofs share data.  This class
     stores that shared data.  It is cached on the mesh.
@@ -394,22 +418,9 @@ class FunctionSpaceData(object):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element):
-        finat_element = create_element(ufl_element)
-        # Support foo x Real tensorproduct elements
-        real_tensorproduct = False
-        scalar_element = ufl_element
-        if isinstance(ufl_element, (ufl.VectorElement, ufl.TensorElement)):
-            scalar_element = ufl_element.sub_elements()[0]
-        if isinstance(scalar_element, ufl.TensorProductElement):
-            a, b = scalar_element.sub_elements()
-            real_tensorproduct = b.family() == 'Real'
-
-        entity_dofs = finat_element.entity_dofs()
-        nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-
+        finat_element, entity_dofs, nodes_per_entity, real_tensorproduct = preprocess_ufl_element(mesh, ufl_element)
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
-
         # These are keyed only on nodes per topological entity.
         global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
         node_set = get_node_set(mesh, (nodes_per_entity, real_tensorproduct))
