@@ -184,8 +184,7 @@ A flame graph for your Firedrake script can be generated from py-spy with:
 
    $ py-spy record -o foo.svg --native -- python myscript.py
 
-Unfortunately, py-spy does not work when run in parallel and it will not
-run on MacOS.
+Unfortunately, py-spy does not work when run in parallel.
 
 Score-P
 ~~~~~~~
