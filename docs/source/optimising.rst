@@ -186,6 +186,25 @@ A flame graph for your Firedrake script can be generated from py-spy with:
 
 Unfortunately, py-spy does not work when run in parallel.
 
+pyinstrument
+~~~~~~~~~~~~~
+
+`pyinstrument <https://github.com/joerick/pyinstrument>`_ is a great
+sample-based profiling tool that you can use to easily identify
+hotspots in your code. To use the profiler simply run:
+
+.. code-block:: bash
+
+   $ pyinstrument myscript.py
+
+This will print out a timed callstack to the terminal. To instead
+generate an interactive graphic you can view in your browser pass
+the ``-r html`` flag.
+
+Unfortunately, pyinstrument cannot profile native code. This means
+that information about the code's execution inside of PETSc is largely
+lost.
+
 Score-P
 ~~~~~~~
 
