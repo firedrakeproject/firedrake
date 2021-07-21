@@ -327,8 +327,11 @@ def get_petsc_dir():
         return (dir, dir + arch)
     except KeyError:
         try:
-            import petsc
-            return (petsc.get_petsc_dir(), )
+            import petsc4py
+            config = petsc4py.get_config()
+            petsc_dir = config["PETSC_DIR"]
+            petsc_arch = config["PETSC_ARCH"]
+            return petsc_dir, petsc_dir + petsc_arch
         except ImportError:
             sys.exit("""Error: Could not find PETSc library.
 
