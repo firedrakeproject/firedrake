@@ -44,7 +44,7 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
-          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch firedrake fs_filter --package-branch PyOP2 fs_filter --package-branch ufl transformed_form_argument --package-branch tsfc fs_filter --package-branch fiat add_entity_ids_by_differentiation_order --package-branch FInAT add_entity_ids_by_differentiation_order || (cat firedrake-install.log && /bin/false)
+          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch firedrake fs_filter --package-branch ufl transformed_form_argument --package-branch tsfc fs_filter --package-branch fiat add_entity_ids_by_differentiation_order --package-branch FInAT add_entity_ids_by_differentiation_order || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../build/bin/activate
