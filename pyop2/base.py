@@ -1794,23 +1794,35 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        return self._iop(other, operator.iadd)
-        # other.data[:] += self.data_ro
+        # return self._iop(other, operator.iadd)
+        if other is None:
+            return self
+        else:
+            other.data[:] += self.data_ro
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
-        return self._iop(other, operator.isub)
-        # other.data[:] -= self.data_ro
+        # return self._iop(other, operator.isub)
+        if other is None:
+            return self
+        else:
+            other.data[:] -= self.data_ro
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        return self._iop(other, operator.imul)
-        # other.data[:] *= self.data_ro
+        # return self._iop(other, operator.imul)
+        if type(other) is float:
+            other = np.float64(other)
+        else:
+            other.data[:] *= self.data_ro
 
     def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
-        return self._iop(other, operator.itruediv)
-        # other.data[:] /= self.data_ro
+        # return self._iop(other, operator.itruediv)
+        if other is None:
+            return self
+        else:
+            other.data[:] /= self.data_ro
 
     __idiv__ = __itruediv__  # Python 2 compatibility
 
