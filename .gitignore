@@ -6,11 +6,9 @@ PyOP2.egg-info
 *.py[cdo]
 
 # Extension modules
-computeind.c
-computeind.so
-sparsity.cpp
 sparsity.so
-
+sparsity.c
+sparsity.cpython*.so
 # Docs
 pyop2.coffee.rst
 pyop2.rst
