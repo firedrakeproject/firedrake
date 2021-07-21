@@ -117,7 +117,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    hv=height_var)
         name = "pyop2_kernel_uniform_extrusion"
         ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
+                               lang_version=(2018, 2))
     elif extrusion_type == 'radial':
         domains = []
         dd = _get_arity_axis_inames('d')

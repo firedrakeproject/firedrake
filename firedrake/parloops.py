@@ -128,7 +128,8 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
     except KeyError:
         kargs.append(...)
         knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
+                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"],
+                                  target=loopy.CTarget(), lang_version=(2018, 2))
         knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
         if kernel_cache is not None:
             return kernel_cache.setdefault(key, knl)
