@@ -463,6 +463,7 @@ def evaluate_expression(expr, subset=None, dat_map=None):
     :arg expr: The expression to evaluate.
     :arg subset: An optional subset to apply the expression on.
     :returns: The lvalue in the provided expression."""
+
     lvalue = expr.lvalue
     cache = lvalue._expression_cache
     if cache is not None:
@@ -480,8 +481,8 @@ def evaluate_expression(expr, subset=None, dat_map=None):
             try:
                 for kernel, iterset, args in arguments:
                     with dereffed(args) as args:
-                        if dat_map:
-                            args = tuple(a.recreate(dat=dat_map[dat]) for a in args)
+                        if dat_map is not None:
+                            args = tuple(a.recreate(data=dat_map[dat]) for a in args)
                         firedrake.op2.par_loop(kernel, subset or iterset, *args)
                 return lvalue
             except ReferenceError:
