@@ -385,10 +385,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-        # tracking assign
-        # import inspect
-        # frame = inspect.stack()[4]
-        # print(frame.filename, frame.lineno)
 
         with PETSc.Log.Stage("first_assign"):
             with PETSc.Log.Event("frist_assign"):
@@ -410,7 +406,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             with PETSc.Log.Event("fourth_assign"):
                 from firedrake import assemble_expressions
                 assemble_expressions.evaluate_expression(
-                    assemble_expressions.Assign(self, expr), subset, dat_map=dat_map)
+                    assemble_expressions.Assign(self, expr), subset=subset, dat_map=dat_map)
                 return self
 
     @FunctionMixin._ad_annotate_iadd
