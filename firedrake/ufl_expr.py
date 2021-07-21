@@ -225,40 +225,36 @@ def adjoint(form, reordered_arguments=None):
     forms later, their arguments must match.  In that case, the user
     must provide a tuple reordered_arguments=(u2,v2).
     """
-    # tracking down assign
-    # import inspect
-    # frame = inspect.stack()[1]
-    # print(frame.filename, frame.lineno)
 
     if isinstance(form, firedrake.slate.TensorBase):
-        if reordered_arguments is not None:
-            # with PETSc.Log.Stage("first_adjoint"):
-                # with PETSc.Log.Event("first_adjoint"):
-            firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
-        if form.rank != 2:
-            # with PETSc.Log.Stage("second_adjoint"):
-                # with PETSc.Log.Event("second_adjoint"):
-            raise ValueError("Expecting rank-2 tensor")
-        return form.T
+        with PETSc.Log.Stage("first_adjoint"):
+            with PETSc.Log.Event("first_adjoint"):
+                if reordered_arguments is not None:
+                    firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
+                if form.rank != 2:
+                    raise ValueError("Expecting rank-2 tensor")
+                return form.T
     else:
-        if len(form.arguments()) != 2:
-            # with PETSc.Log.Stage("third_adjoint"):
-                # with PETSc.Log.Event("third_adjoint"):
-            raise ValueError("Expecting bilinear form")
-        # ufl.adjoint creates new Arguments if no reordered_arguments is
-        # given.  To avoid that, always pass reordered_arguments with
-        # firedrake.Argument objects.
-        if reordered_arguments is None:
-            # with PETSc.Log.Stage("fourth_adjoint"):
-                # with PETSc.Log.Event("fourth_adjoint"):
-            v, u = extract_arguments(form)
-            reordered_arguments = (Argument(u.function_space(),
-                                            number=v.number(),
-                                            part=v.part()),
-                                Argument(v.function_space(),
-                                            number=u.number(),
-                                            part=u.part()))
-        return ufl.adjoint(form, reordered_arguments)
+        with PETSc.Log.Stage("second_adjoint"):
+            with PETSc.Log.Event("second_adjoint"):
+                if len(form.arguments()) != 2:
+                    raise ValueError("Expecting bilinear form")
+                # ufl.adjoint creates new Arguments if no reordered_arguments is
+                # given.  To avoid that, always pass reordered_arguments with
+                # firedrake.Argument objects.
+        with PETSc.Log.Stage("third_adjoint"):
+            with PETSc.Log.Event("third_adjoint"):
+                if reordered_arguments is None:
+                    v, u = extract_arguments(form)
+                    reordered_arguments = (Argument(u.function_space(),
+                                                    number=v.number(),
+                                                    part=v.part()),
+                                        Argument(v.function_space(),
+                                                    number=u.number(),
+                                                    part=u.part()))
+        with PETSc.Log.Stage("fourth_adjoint"):
+            with PETSc.Log.Event("fourth_adjoint"):
+                return ufl.adjoint(form, reordered_arguments)
 
 
 @PETSc.Log.EventDecorator()
