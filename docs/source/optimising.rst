@@ -158,8 +158,8 @@ repeated calls to :py:func:`~firedrake.solving.solve` will introduce
 some overhead.
 
 To get around this problem, users should instead instantiate
-a variational problem (e.g. :py:class:`~.LinearVariationalProblem`)
-and solver (e.g. :py:class:`~.LinearVariationalSolver`) outside of
+a variational problem (e.g. :py:class:`~.NonlinearVariationalProblem`)
+and solver (e.g. :py:class:`~.NonlinearVariationalSolver`) outside of
 the loop body. An example showing how this is done can be found
 in `this demo <https://firedrakeproject.org/demos/DG_advection.py.html>`_.
 
