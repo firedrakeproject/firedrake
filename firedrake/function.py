@@ -266,7 +266,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self._expression_cache = cachetools.LRUCache(maxsize=50)
         else:
             self._expression_cache = None
-        
+
         if isinstance(function_space, Function):
             self.assign(function_space)
 
@@ -394,7 +394,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             with PETSc.Log.Stage("second_assign"):
                 with PETSc.Log.Event("second_assign"):
                     self.dat.zero(subset=subset)
-                    return self             
+                    return self    
         elif (isinstance(expr, Function)
               and expr.function_space() == self.function_space()):
             with PETSc.Log.Stage("third_assign"):
