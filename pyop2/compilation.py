@@ -33,6 +33,7 @@
 
 
 import os
+import shutil
 import subprocess
 import sys
 import ctypes
@@ -503,28 +504,26 @@ def clear_cache(prompt=False):
     if not os.path.exists(cachedir):
         return
 
-    files = [os.path.join(cachedir, f) for f in os.listdir(cachedir)
-             if os.path.isfile(os.path.join(cachedir, f))]
-    nfiles = len(files)
+    dirs = [os.path.join(cachedir, dir_) for dir_ in os.listdir(cachedir)]
+    ndirs = len(dirs)
 
-    if nfiles == 0:
+    if ndirs == 0:
         print("No cached libraries to remove")
         return
 
     remove = True
     if prompt:
-
-        user = input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+        user = input("Remove %d cached libraries from %s? [Y/n]: " % (ndirs, cachedir))
 
         while user.lower() not in ['', 'y', 'n']:
             print("Please answer y or n.")
-            user = input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+            user = input("Remove %d cached libraries from %s? [Y/n]: " % (ndirs, cachedir))
 
         if user.lower() == 'n':
             remove = False
 
     if remove:
-        print("Removing %d cached libraries from %s" % (nfiles, cachedir))
-        [os.remove(f) for f in files]
+        print("Removing %d cached libraries from %s" % (ndirs, cachedir))
+        [shutil.rmtree(dir_) for dir_ in dirs]
     else:
         print("Not removing cached libraries")
