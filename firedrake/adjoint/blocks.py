@@ -121,11 +121,12 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
+    def __init__(self, equation, func, bcs, adj_F, problem_J, solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self.problem_J = problem_J
+        self.adj_F = adj_F
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
