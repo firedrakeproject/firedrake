@@ -385,29 +385,19 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
-
-        with PETSc.Log.Stage("first_assign"):
-            with PETSc.Log.Event("frist_assign"):
-                expr = ufl.as_ufl(expr)
-
+        expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            with PETSc.Log.Stage("second_assign"):
-                with PETSc.Log.Event("second_assign"):
-                    self.dat.zero(subset=subset)
-                    return self    
+            self.dat.zero(subset=subset)
+            return self
         elif (isinstance(expr, Function)
               and expr.function_space() == self.function_space()):
-            with PETSc.Log.Stage("third_assign"):
-                with PETSc.Log.Event("third_assign"):
-                    expr.dat.copy(self.dat, subset=subset)
-                    return self
+            expr.dat.copy(self.dat, subset=subset)
+            return self
 
-        with PETSc.Log.Stage("fourth_assign"):
-            with PETSc.Log.Event("fourth_assign"):
-                from firedrake import assemble_expressions
-                assemble_expressions.evaluate_expression(
-                    assemble_expressions.Assign(self, expr), subset=subset, dat_map=dat_map)
-                return self
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.Assign(self, expr), subset=subset, dat_map=dat_map)
+        return self
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
