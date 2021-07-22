@@ -170,14 +170,14 @@ class Arg(object):
                     "To set of %s doesn't match the set of %s." % (map, data))
 
     def recreate(self, data=None, map=None, access=None, lgmaps=None, unroll_map=None):
-        """:param data: A data-carrying object, either :class:`Dat` or class:`Mat`
+        """Creates a new Dat based on the existing Dat with the changes specified.
+
+        :param data: A data-carrying object, either :class:`Dat` or class:`Mat`
         :param map:  A :class:`Map` to access this :class:`Arg` or the default
                      if the identity map is to be used.
         :param access: An access descriptor of type :class:`Access`
         :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
-            global maps used during assembly.
-
-        Takes all the same arguments as _init_ overriding them, if necessary."""
+            global maps used during assembly."""
         return type(self)(data=data or self.data,
                           map=map or self.map,
                           access=access or self.access,
@@ -1553,10 +1553,38 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Zero the data associated with this :class:`Dat`
 
         :arg subset: A :class:`Subset` of entries to zero (optional)."""
-        if subset is None:
-            self.data[:] = 0
+        if hasattr(self, "_zero_parloops"):
+            loops = self._zero_parloops
         else:
-            self.data[subset.indices] = 0
+            loops = {}
+            self._zero_parloops = loops
+
+        iterset = subset or self.dataset.set
+
+        loop = loops.get(iterset, None)
+
+        if loop is None:
+            try:
+                knl = self._zero_kernels[(self.dtype, self.cdim)]
+            except KeyError:
+                import islpy as isl
+                import pymbolic.primitives as p
+
+                inames = isl.make_zero_and_vars(["i"])
+                domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
+                x = p.Variable("dat")
+                i = p.Variable("i")
+                insn = loopy.Assignment(x.index(i), 0, within_inames=frozenset(["i"]))
+                data = loopy.GlobalArg("dat", dtype=self.dtype, shape=(self.cdim,))
+                knl = loopy.make_function([domain], [insn], [data], name="zero", target=loopy.CTarget(), lang_version=(2018, 2))
+
+                knl = _make_object('Kernel', knl, 'zero')
+                self._zero_kernels[(self.dtype, self.cdim)] = knl
+            loop = _make_object('ParLoop', knl,
+                                iterset,
+                                self(WRITE))
+            loops[iterset] = loop
+        loop.compute()
 
     @collective
     def copy(self, other, subset=None):
@@ -1566,10 +1594,28 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
         if other is self:
             return
-        if subset is None:
-            other.data[:] = self.data_ro
-        else:
-            other.data[subset.indices] = self.data_ro[subset.indices]
+        self._copy_parloop(other, subset=subset).compute()
+
+    @collective
+    def _copy_parloop(self, other, subset=None):
+        """Create the :class:`ParLoop` implementing copy."""
+        if not hasattr(self, '_copy_kernel'):
+            import islpy as isl
+            import pymbolic.primitives as p
+            inames = isl.make_zero_and_vars(["i"])
+            domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
+            _other = p.Variable("other")
+            _self = p.Variable("self")
+            i = p.Variable("i")
+            insn = loopy.Assignment(_other.index(i), _self.index(i), within_inames=frozenset(["i"]))
+            data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
+                    loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,))]
+            knl = loopy.make_function([domain], [insn], data, name="copy", target=loopy.CTarget(), lang_version=(2018, 2))
+
+            self._copy_kernel = _make_object('Kernel', knl, 'copy')
+        return _make_object('ParLoop', self._copy_kernel,
+                            subset or self.dataset.set,
+                            self(READ), other(WRITE))
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -1794,35 +1840,19 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        # return self._iop(other, operator.iadd)
-        if other is None:
-            return self
-        else:
-            other.data[:] += self.data_ro
+        return self._iop(other, operator.iadd)
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
-        # return self._iop(other, operator.isub)
-        if other is None:
-            return self
-        else:
-            other.data[:] -= self.data_ro
+        return self._iop(other, operator.isub)
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        # return self._iop(other, operator.imul)
-        if type(other) is float:
-            other = np.float64(other)
-        else:
-            other.data[:] *= self.data_ro
+        return self._iop(other, operator.imul)
 
     def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
-        # return self._iop(other, operator.itruediv)
-        if other is None:
-            return self
-        else:
-            other.data[:] /= self.data_ro
+        return self._iop(other, operator.itruediv)
 
     __idiv__ = __itruediv__  # Python 2 compatibility
 
