@@ -17,6 +17,11 @@ class NonlinearVariationalProblemMixin:
             self._ad_u = self.u
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+
+            from firedrake import derivative, adjoint
+            dFdu = derivative(self.F, self.u)
+            self._ad_adj_F = adjoint(dFdu)
+
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper
@@ -58,6 +63,7 @@ class NonlinearVariationalSolverMixin:
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
+                                                       problem._ad_adj_F,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
