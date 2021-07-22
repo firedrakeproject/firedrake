@@ -341,10 +341,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       scalar_type=parameters["scalar_type"])
     fn = DualEvaluationCallable(expression, kernel_cfg)
 
-    # Get gem tensor with (num_nodes, ) shape.
-    ir_shape = to_element.dual_evaluation(fn)
-    basis_indices = tuple(gem.Index(extent=ex) for ex in ir_shape.shape)
-    ir = gem.Indexed(ir_shape, basis_indices)
+    # Get gem.Indexed tensor and basis indices
+    ir, basis_indices = to_element.dual_evaluation(fn)
 
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
