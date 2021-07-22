@@ -501,29 +501,27 @@ def clear_cache(prompt=False):
     :arg prompt: if ``True`` prompt before removing any files
     """
     cachedir = configuration['cache_dir']
+
     if not os.path.exists(cachedir):
+        print("Cache directory could not be found")
         return
-
-    dirs = [os.path.join(cachedir, dir_) for dir_ in os.listdir(cachedir)]
-    ndirs = len(dirs)
-
-    if ndirs == 0:
+    if len(os.listdir(cachedir)) == 0:
         print("No cached libraries to remove")
         return
 
     remove = True
     if prompt:
-        user = input("Remove %d cached libraries from %s? [Y/n]: " % (ndirs, cachedir))
+        user = input(f"Remove cached libraries from {cachedir}? [Y/n]: ")
 
         while user.lower() not in ['', 'y', 'n']:
             print("Please answer y or n.")
-            user = input("Remove %d cached libraries from %s? [Y/n]: " % (ndirs, cachedir))
+            user = input(f"Remove cached libraries from {cachedir}? [Y/n]: ")
 
         if user.lower() == 'n':
             remove = False
 
     if remove:
-        print("Removing %d cached libraries from %s" % (ndirs, cachedir))
-        [shutil.rmtree(dir_) for dir_ in dirs]
+        print(f"Removing cached libraries from {cachedir}")
+        shutil.rmtree(cachedir)
     else:
         print("Not removing cached libraries")
