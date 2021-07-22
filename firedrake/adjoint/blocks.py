@@ -50,7 +50,7 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         output = self.backend.Function(block_variable.output.function_space())
         output._expression_cache = block_variable.output._expression_cache
         # prepared is a map from the dats in the expression to the dats on the Block.
-        self.backend.Function.assign(output, expr, dat_map=prepared) 
+        self.backend.Function.assign(output, expr, dat_map=prepared)
         return output
 
 
