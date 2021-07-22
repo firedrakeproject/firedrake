@@ -2,12 +2,13 @@ import numpy as np
 
 from firedrake.assemble import assemble, _vector_arg
 from firedrake.constant import Constant
+from firedrake.dmhooks import add_hooks
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
+from firedrake.linear_solver import LinearSolver
 from firedrake.logging import warning
 from firedrake.petsc import get_petsc_variables
 from firedrake.randomfunctiongen import PCG64, RandomGenerator
-from firedrake.solving import solve
 from firedrake.tsfc_interface import compile_form
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.utility_meshes import *
@@ -19,7 +20,7 @@ from inspect import signature
 
 from math import ceil, gamma
 
-from ufl import as_vector, BrokenElement, CellVolume, dx, inner, grad, MixedElement, SpatialCoordinate
+from ufl import as_vector, BrokenElement, dx, inner, grad, MixedElement, SpatialCoordinate
 
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
@@ -27,13 +28,14 @@ from pyop2.mpi import COMM_WORLD
 _default_pcg = PCG64()
 
 
-def WhiteNoise(V, rng=None):
+def WhiteNoise(V, rng=None, scale=1.0):
     r""" Generates a white noise sample
 
     :arg V: The :class: `firedrake.FunctionSpace` to construct a
         white noise sample on
     :arg rng: Initialised random number generator to use for obtaining
         random numbers
+    :arg scale: Multiplicative scale factor for the white noise
 
     Returns a :firedrake.Function: with
     b ~ Normal(0, M)
@@ -53,11 +55,6 @@ def WhiteNoise(V, rng=None):
     Vbrok = FunctionSpace(mesh, broken_elements)
     iid_normal = rng.normal(Vbrok, 0.0, 1.0)
     wnoise = Function(V)
-
-    # We also need cell volumes for correction
-    DG0 = FunctionSpace(mesh, 'DG', 0)
-    vol = Function(DG0)
-    vol.interpolate(CellVolume(mesh))
 
     # Create mass expression, assemble and extract kernel
     u = TrialFunction(V)
@@ -95,8 +92,7 @@ extern void dgemv_(char *TRANS,
 
 void apply_cholesky(double *__restrict__ z,
                     double *__restrict__ b,
-                    double const *__restrict__ coords,
-                    double const *__restrict__ volume)
+                    double const *__restrict__ coords)
 {{
     char uplo[1];
     int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
@@ -106,9 +102,7 @@ void apply_cholesky(double *__restrict__ z,
 
     char trans[1];
     int32_t stride = 1;
-    //double one = 1.0;
-    double scale = 1.0;//volume[0];
-    //printf("%g\\n", scale);
+    double scale = {scale};
     double zero = 0.0;
 
     {mass_ker.kinfo.kernel.name}(H, coords);
@@ -148,14 +142,13 @@ void apply_cholesky(double *__restrict__ z,
     z_arg = _vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
     b_arg = _vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
     coords = mesh.coordinates
-    volumes = _vector_arg(op2.READ, get_map, i, function=vol, V=DG0)
 
     op2.par_loop(cholesky_kernel,
                  mesh.cell_set,
                  z_arg,
                  b_arg,
-                 coords.dat(op2.READ, get_map(coords)),
-                 volumes)
+                 coords.dat(op2.READ, get_map(coords))
+                 )
 
     return wnoise
 
@@ -372,8 +365,6 @@ utility meshes.
         sigma_hat2 /= gamma(self.nu + self.dim/2)
         sigma_hat2 *= (2/np.pi)**(self.dim/2)
         sigma_hat2 *= self.lambd**(-self.dim)
-        # The factor of 0.5 doesn't appear in the paper, but numerical
-        # experiments show sample variance is out by a factor 2
         self.eta = self.sigma/np.sqrt(sigma_hat2)
 
         # Setup RNG if provided
@@ -385,7 +376,6 @@ utility meshes.
         self.wnoise = Function(self.V)
         a = (inner(u, v) + Constant(1/(self.kappa**2))*inner(grad(u), grad(v)))*dx
         self.A = assemble(a)
-        # ~ b = assemble(self.eta*self.wnoise*dx)
 
         # Solve problem once
         self.u_h = Function(self.V)
@@ -393,11 +383,15 @@ utility meshes.
             self.solver_param = {'ksp_type': 'cg', 'pc_type': 'gamg'}
         else:
             self.solver_param = solver_parameters
-        # ~ base_problem = LinearVariationalProblem(a, l, self.u_h)
-        # ~ self.base_solver = LinearVariationalSolver(
-            # ~ base_problem,
-            # ~ solver_parameters=self.solver_param
-        # ~ )
+
+        self.base_solver = LinearSolver(
+            self.A,
+            solver_parameters=self.solver_param
+        )
+        # We need the appctx if we want to perform geometric multigrid
+        lvproblem = LinearVariationalProblem(a, v*dx, Function(self.V))
+        lvsolver = LinearVariationalSolver(lvproblem)
+        self.lvs_ctx = lvsolver._ctx
 
         # For smoother solutions we must iterate this solve
         if self.k > 1:
@@ -418,9 +412,6 @@ utility meshes.
                          'correlation_length': self.correlation_length,
                          'rng': self.rng
                          }
-        # ~ print('dimension:', d,self. 'iterations:', k)
-        # ~ print('kappa:', kappa, 'sigma hat squared:', sigma_hat2, 'eta:', eta)
-        # ~ print('kappa**-2:', 1/(kappa**2))
         return rf_parameters
 
     def sample(self, rng=None):
@@ -438,12 +429,13 @@ utility meshes.
                 rng = self.rng
 
         # Generate a new white noise sample
-        self.wnoise.assign(WhiteNoise(self.V, rng))
-        b = assemble(self.eta*self.wnoise)
+        b = WhiteNoise(self.V, rng, scale=self.eta)
 
-        # Solve
-        solve(self.A, self.u_h, b, solver_parameters=self.solver_param)
-        # ~ self.base_solver.solve()
+        # Solve adding an appctx from the equivalent linear variational problem
+        ksp = self.base_solver.ksp
+        dm = ksp.getDM()
+        with add_hooks(dm, ksp, appctx=self.lvs_ctx, save=False):
+            self.base_solver.solve(self.u_h, b)
 
         # Iterate solve until required smoothness achieved
         if self.k > 1:
