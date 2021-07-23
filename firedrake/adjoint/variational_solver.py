@@ -12,16 +12,14 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            from firedrake import derivative, adjoint
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u
             self._ad_bcs = self.bcs
             self._ad_J = self.J
-
-            from firedrake import derivative, adjoint
             dFdu = derivative(self.F, self.u)
             self._ad_adj_F = adjoint(dFdu)
-
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper
