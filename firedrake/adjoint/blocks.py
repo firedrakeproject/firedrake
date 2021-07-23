@@ -29,29 +29,7 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-
-    def _compute_replace_map(self):
-        if self.expr is None:
-            return None
-
-        replace_map = {}
-        for dep in self.get_dependencies():
-            replace_map[dep.output.dat] = dep.saved_output.dat
-        return replace_map
-
-    def prepare_recompute_component(self, inputs, relevant_outputs):
-        if self.expr is None:
-            return None
-        return self._compute_replace_map()
-
-    def recompute_component(self, inputs, block_variable, idx, prepared):
-        expr = inputs[0] if self.expr is None else self.expr
-
-        output = self.backend.Function(block_variable.output.function_space())
-        output._expression_cache = block_variable.output._expression_cache
-        # prepared is a map from the dats in the expression to the dats on the Block.
-        self.backend.Function.assign(output, expr, dat_map=prepared) 
-        return output
+    pass
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
@@ -139,7 +117,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def _init_solver_parameters(self, args, kwargs):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
-    
+
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_nlvs_replace_forms()
         self._ad_nlvs.parameters.update(self.solver_params)

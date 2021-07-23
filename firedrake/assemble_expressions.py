@@ -481,8 +481,6 @@ def evaluate_expression(expr, subset=None, dat_map=None):
             try:
                 for kernel, iterset, args in arguments:
                     with dereffed(args) as args:
-                        if dat_map is not None:
-                            args = tuple(a.recreate(data=dat_map[dat]) for a in args)
                         firedrake.op2.par_loop(kernel, subset or iterset, *args)
                 return lvalue
             except ReferenceError:
