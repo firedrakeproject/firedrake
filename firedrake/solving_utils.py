@@ -56,9 +56,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults
         ksp_defaults = ksp_defaults.copy()
         skip = set()
         if "pc_type" in keys:
-            skip.update({"pc_factor_mat_solver_type", "mat_mumps_icntl_14",
-                         # Might reasonably expect to get petsc default
-                         "ksp_type"})
+            # Might reasonably expect to get petsc defaults
+            skip.update({"pc_factor_mat_solver_type", "ksp_type"})
         if parameters.get("mat_type") in {"matfree", "nest"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
