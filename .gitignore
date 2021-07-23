@@ -39,3 +39,4 @@ __pycache__/
 /firedrake_configuration/configuration.json
 /firedrake.egg-info
 /docs/source/element_list.csv
+demos/linear-wave-equation/wave_tank.msh
