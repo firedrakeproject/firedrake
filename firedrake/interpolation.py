@@ -444,7 +444,7 @@ def rebuild_dg(element, expr, rt_var_name):
 def rebuild_te(element, expr, rt_var_name):
     return finat.TensorFiniteElement(rebuild(element.base_element,
                                              expr, rt_var_name),
-                                     element.shape,
+                                     element._shape,
                                      transpose=element._transpose)
 
 
