@@ -44,7 +44,7 @@ into two sessions with the following events planned for each session:
 
 Coffee breaks and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
 
-The full programme is available on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_.
+The full programme will be made available on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_.
 
 Registration
 ------------
