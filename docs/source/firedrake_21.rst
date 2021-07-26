@@ -44,12 +44,12 @@ into two sessions with the following events planned for each session:
 
 Coffee breaks and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
 
-The full programme is available on TODO.
+The full programme is available on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_.
 
 Registration
 ------------
 
-Registration costs £10. Please register via TODO.
+Registration costs £10. More information about where to register will be provided shortly.
 
 Location
 --------
@@ -68,7 +68,7 @@ Abstract submission
 -------------------
 
 If you would like to deliver a talk or present a poster please submit
-an abstract on TODO.
+an abstract on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_..
 
 Prizes
 ------
@@ -82,4 +82,4 @@ by Ed Beuler, which contains an excellent chapter on using Firedrake.
 Further details
 ---------------
 
-For any queries, please contact TODO.
+For any queries, please contact `David Ham <mailto:david.ham@imperial.ac.uk>`_.
