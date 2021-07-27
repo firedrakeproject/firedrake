@@ -407,14 +407,14 @@ class DualEvaluationCallable(object):
         # Avoid modifying saved kernel config
         kernel_cfg = self.kernel_cfg.copy()
 
-        if isinstance(ps.expression, gem.Literal):
-            # Compile time known points
-            kernel_cfg.update(point_set=ps)
-            translation_context = fem.PointSetContext(**kernel_cfg)
-        else:
+        if isinstance(ps, finat.point_set.UnknownPointSet):
             # Run time known points
             kernel_cfg.update(point_indices=ps.indices, point_expr=ps.expression)
             translation_context = fem.GemPointContext(**kernel_cfg)
+        else:
+            # Compile time known points
+            kernel_cfg.update(point_set=ps)
+            translation_context = fem.PointSetContext(**kernel_cfg)
 
         gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
         # In some cases ps.indices may be dropped from expr, but nothing
