@@ -7,7 +7,7 @@ from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
-from tsfc.finatinterface import create_element, as_fiat_cell
+from tsfc.finatinterface import create_element, create_base_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
 
 import gem
@@ -234,7 +234,11 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
-        to_element = create_element(V.ufl_element())
+        if not isinstance(expr, firedrake.Expression):
+            to_element = create_element(V.ufl_element())
+        else:
+            # compile_python_kernel code pathway expects base element
+            to_element = create_base_element(V.ufl_element())
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -510,7 +514,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     function provided."""
 
     coords_space = coords.function_space()
-    coords_element = create_element(coords_space.ufl_element()).fiat_equivalent
+    coords_element = create_base_element(coords_space.ufl_element()).fiat_equivalent
 
     X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 
