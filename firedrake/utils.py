@@ -89,7 +89,7 @@ def get_eigen_include_dir():
     Returns ``None`` if not found.
     """
     try:
-        return get_petsc_variables()["EIGEN_INCLUDE_DIR"].lstrip("-I")
+        return get_petsc_variables()["EIGEN_INCLUDE"].lstrip("-I")
     except KeyError:
         try:
             return get_config()["libraries"]["EIGEN_INCLUDE_DIR"]
