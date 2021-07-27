@@ -124,6 +124,8 @@ def test_compound_expression():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+# Requires the relevant FInAT or FIAT duals to be defined
+@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hdiv_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)
@@ -143,6 +145,7 @@ def test_hdiv_2d():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hcurl_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)
