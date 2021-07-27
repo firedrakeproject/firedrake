@@ -97,6 +97,7 @@ finite element problems in Firedrake.
    petsc-interface
    parallelism
    zenodo
+   optimising
 
 Advanced tutorials
 ==================
