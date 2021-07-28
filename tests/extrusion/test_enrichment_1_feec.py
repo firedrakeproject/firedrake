@@ -88,7 +88,13 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     x, y, z = SpatialCoordinate(mesh)
 
     u = Function(W0)
-    u.interpolate(x*y - y*z)
+    try:
+        u.interpolate(x*y - y*z)
+    except NotImplementedError:
+        # Where we hit duals not being implemented for EnrichedElement we are
+        # trying build a dual for an enriched element consisting of a lagrange
+        # and bubble elements for what I don't think a dual is well defined.
+        u.project(x*y - y*z)
 
     v1 = TrialFunction(W1)
     v2 = TestFunction(W1)
@@ -129,7 +135,13 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     # TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3
 
     y = Function(W3)
-    y.interpolate(x*y - y*z)
+    try:
+        y.interpolate(x*y - y*z)
+    except NotImplementedError:
+        # Where we hit duals not being implemented for EnrichedElement we are
+        # trying build a dual for an enriched element consisting of a lagrange
+        # and bubble elements for what I don't think a dual is well defined.
+        y.project(x*y - y*z)
 
     w1 = TrialFunction(W2)
     w2 = TestFunction(W2)
