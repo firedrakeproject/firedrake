@@ -304,14 +304,16 @@ class Assign(object):
     @cached_property
     def fast_key(self):
         """A fast lookup key for this expression."""
-        return (type(self), hash(self.lvalue), hash(self.rvalue))
+        return (type(self), hash(self.lvalue.ufl_function_space()),
+                hash(self.rvalue))
 
     @cached_property
     def slow_key(self):
         """A slow lookup key for this expression (relabelling UFL indices)."""
         self.relabeller._reset()
         rvalue, = map_expr_dags(self.relabeller, [self.rvalue])
-        return (type(self), hash(self.lvalue), hash(rvalue))
+        return (type(self), hash(self.lvalue.ufl_function_space()),
+                hash(rvalue))
 
     @cached_property
     def par_loop_args(self):
@@ -477,14 +479,14 @@ def evaluate_expression(expr, subset=None, dat_map=None):
                 cache[fast_key] = arguments
             except KeyError:
                 arguments = None
-        if dat_map:
-            breakpoint()
         if arguments is not None:
             try:
                 for kernel, iterset, args in arguments:
                     with dereffed(args) as args:
                         if dat_map is not None:
-                            args = tuple(a.recreate(data=dat_map[dat]) for a in args)
+                            args = tuple(a.recreate(
+                                data=dat_map.get(a.data, expr.lvalue.dat))
+                                for a in args)
                         firedrake.op2.par_loop(kernel, subset or iterset, *args)
                 return lvalue
             except ReferenceError:
