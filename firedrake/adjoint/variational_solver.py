@@ -67,6 +67,8 @@ class NonlinearVariationalSolverMixin:
                     self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem,
                                                                                       block.get_dependencies()),
                                                                **self._ad_kwargs)
+                block._ad_nlvs = self._ad_nlvs
+                tape.add_block(block)
 
             with stop_annotating():
                 out = solve(self, **kwargs)
