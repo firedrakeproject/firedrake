@@ -305,7 +305,7 @@ class PMGBase(PCSNESBase):
         if mat_type == "matfree":
             I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
         elif mat_type == "aij":
-            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs))
+            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs), comm=cV.mesh().comm)
         else:
             raise ValueError("Unknown matrix type")
         return I
@@ -934,7 +934,7 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
         ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
 
     sizes = (Vc.dof_dset.layout_vec.getSizes(), Vf.dof_dset.layout_vec.getSizes())
-    M_shll = PETSc.Mat().createPython(sizes, ctx)
+    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.mesh().comm)
     M_shll.setUp()
 
     return M_shll
