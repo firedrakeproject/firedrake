@@ -477,6 +477,8 @@ def evaluate_expression(expr, subset=None, dat_map=None):
                 cache[fast_key] = arguments
             except KeyError:
                 arguments = None
+        if dat_map:
+            breakpoint()
         if arguments is not None:
             try:
                 for kernel, iterset, args in arguments:
