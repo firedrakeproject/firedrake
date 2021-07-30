@@ -47,6 +47,46 @@ resulting library when run in parallel.  Instructions on how best to
 configure MPI for the installation process are `found here
 <https://www.firedrakeproject.org/parallelism.html>`_.
 
+
+Installing SciPy
+----------------
+
+If you want to install ``scipy`` package alongside Firedrake you must
+ensure that the package is built against the same libraries as the rest
+of the Firedrake toolchain. To do this at install time simply add
+``scipy`` to the ``firedrake-install`` command line arguments::
+
+  python3 firedrake-install --pip-install scipy
+
+If you want to add ``scipy`` to your environemnt after installing
+Firedrake, first run ``firedrake-status`` and check whether the
+``with_blas:`` configuration option is set. If the value of
+``with_blas:`` is ``None``, that is, if you see::
+
+  with_blas: None
+
+then run::
+
+  unset BLAS
+
+Otherwise, if ``with_blas:`` is set to a path, for example::
+
+  with_blas: /opt/openblas
+
+first set the ``BLAS`` environment to that path by running::
+
+  export BLAS=/opt/openblas
+
+Finally, with the Firedrake venv activated, run::
+
+  pip install --no-build-isolation --no-binary mpi4py,islpy,numpy,scipy scipy
+
+.. note::
+
+   For details on which environment variables affect the installation of
+   ``scipy`` see the `build documentation <https://docs.scipy.org/doc/scipy/reference/building/>`_.
+
+
 Testing the installation
 ------------------------
 
