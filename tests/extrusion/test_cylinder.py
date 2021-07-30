@@ -4,20 +4,22 @@ import numpy as np
 import pytest
 
 
-def test_area():
-    len = 7
+@pytest.mark.parametrize("degree", [1, 2])
+def test_area(degree):
+    expected_conv = degree * 2
+    len = 6
     errors = np.zeros(len)
-    for i in range(2, 2+len):
-        m = CircleManifoldMesh(2**i)
+    for i in range(len):
+        m = CircleManifoldMesh(2**(i+3), degree=degree)
         mesh = ExtrudedMesh(m, layers=2**i, layer_height=1.0/(2**i))
         fs = FunctionSpace(mesh, "DG", 0)
         f = Function(fs).assign(1)
         # surface area is 2*pi*r*h = 2*pi
-        errors[i-2] = np.abs(assemble(f*dx) - 2*np.pi)
+        errors[i] = np.abs(assemble(f*dx) - 2*np.pi)
 
     # area converges quadratically to 2*pi
     for i in range(len-1):
-        assert ln(errors[i]/errors[i+1])/ln(2) > 1.95
+        assert ln(errors[i]/errors[i+1])/ln(2) > 0.98 * expected_conv
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
