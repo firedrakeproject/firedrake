@@ -69,6 +69,7 @@ def solve_init_params(self, args, kwargs, varform):
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        # Process the equation forms.
         if self.linear:
             tmp_u = self.compat.create_function(self.function_space)
             F_form = self.backend.action(self.lhs, tmp_u) - self.rhs
@@ -87,6 +88,8 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
         dFdu_form = self.backend.adjoint(dFdu)
         dJdu = dJdu.copy()
 
+        # Replacing values with checkpoints and gathering lhs and
+        # rhs in one single form.
         replace_map = self._replace_map(F_form)
         replace_map[tmp_u] = self.get_outputs()[0].saved_output
         F_form = replace(F_form, replace_map)
