@@ -67,7 +67,43 @@ def solve_init_params(self, args, kwargs, varform):
 
 
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
-    pass
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        if self.linear:
+            tmp_u = self.compat.create_function(self.function_space)
+            F_form = self.backend.action(self.lhs, tmp_u) - self.rhs
+        else:
+            tmp_u = self.func
+            F_form = self.lhs
+
+        fwd_block_variable = self.get_outputs()[0]
+        u = fwd_block_variable.output
+
+        dJdu = adj_inputs[0]
+
+        dFdu = self.backend.derivative(F_form,
+                                       u,
+                                       self.backend.TrialFunction(u.function_space()))
+        dFdu_form = self.backend.adjoint(dFdu)
+        dJdu = dJdu.copy()
+
+        replace_map = self._replace_map(F_form)
+        replace_map[tmp_u] = self.get_outputs()[0].saved_output
+        F_form = replace(F_form, replace_map)
+
+        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
+        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
+        self.adj_sol = adj_sol
+        if self.adj_cb is not None:
+            self.adj_cb(adj_sol)
+        if self.adj_bdy_cb is not None and compute_bdy:
+            self.adj_bdy_cb(adj_sol_bdy)
+
+        r = {}
+        r["form"] = F_form
+        r["adj_sol"] = adj_sol
+        r["adj_sol_bdy"] = adj_sol_bdy
+        return r
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
