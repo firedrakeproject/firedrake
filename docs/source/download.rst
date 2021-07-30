@@ -51,14 +51,14 @@ configure MPI for the installation process are `found here
 Installing SciPy
 ----------------
 
-If you want to install ``scipy`` package alongside Firedrake you must
-ensure that the package is built against the same libraries as the rest
-of the Firedrake toolchain. To do this at install time simply add
+If you want to install the ``scipy`` package alongside Firedrake you
+must ensure that the package is built against the same libraries as the
+rest of the Firedrake toolchain. To do this at install time simply add
 ``scipy`` to the ``firedrake-install`` command line arguments::
 
   python3 firedrake-install --pip-install scipy
 
-If you want to add ``scipy`` to your environemnt after installing
+If you want to add ``scipy`` to your environment after installing
 Firedrake, first run ``firedrake-status`` and check whether the
 ``with_blas:`` configuration option is set. If the value of
 ``with_blas:`` is ``None``, that is, if you see::
@@ -73,7 +73,7 @@ Otherwise, if ``with_blas:`` is set to a path, for example::
 
   with_blas: /opt/openblas
 
-first set the ``BLAS`` environment to that path by running::
+first set the ``BLAS`` environment variable to that path by running::
 
   export BLAS=/opt/openblas
 
