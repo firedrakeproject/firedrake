@@ -68,35 +68,12 @@ def solve_init_params(self, args, kwargs, varform):
 
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 
-    def _create_F_form(self):
-        # Process the equation forms.
-        if self.linear:
-            tmp_u = self.compat.create_function(self.function_space)
-            F_form = self.backend.action(self.lhs, tmp_u) - self.rhs
-        else:
-            tmp_u = self.func
-            F_form = self.lhs
-        return tmp_u, F_form
-
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        fwd_block_variable = self.get_outputs()[0]
-        u = fwd_block_variable.output
-
         dJdu = adj_inputs[0]
-
-        tmp_u, F_form = self._create_F_form()
-
-        dFdu = self.backend.derivative(F_form,
-                                       u,
-                                       self.backend.TrialFunction(u.function_space()))
-        dFdu_form = self.backend.adjoint(dFdu)
+        dFdu_form = self.adj_F
         dJdu = dJdu.copy()
 
-        # Replacing values with checkpoints and gathering lhs and
-        # rhs in one single form.
-        replace_map = self._replace_map(F_form)
-        replace_map[tmp_u] = self.get_outputs()[0].saved_output
-        F_form = replace(F_form, replace_map)
+        F_form = self._create_F_form()
 
         compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
@@ -111,28 +88,6 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
         r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
-
-    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
-        fwd_block_variable = self.get_outputs()[0]
-        u = fwd_block_variable.output
-
-        tmp_u, F_form = self._create_F_form()
-
-        # Obtain dFdu.
-        dFdu = self.backend.derivative(F_form,
-                                       u,
-                                       self.backend.TrialFunction(u.function_space()))
-
-        # Replacing values with checkpoints and gathering lhs and
-        # rhs in one single form.
-        replace_map = self._replace_map(F_form)
-        replace_map[tmp_u] = self.get_outputs()[0].saved_output
-        F_form = replace(F_form, replace_map)
-
-        return {
-            "form": F_form,
-            "dFdu": dFdu
-        }
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
