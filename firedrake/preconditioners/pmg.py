@@ -178,19 +178,17 @@ class PMGBase(PCSNESBase):
         parent = get_parent(fdm)
         assert parent is not None
 
+        # Have we already done this?
+        # FIXME this is triggering weird gmg erros
+        cctx = fctx._coarse
+        if cctx is not None:
+            return cctx.J.arguments()[0].function_space().dm
+
         test, trial = fctx.J.arguments()
         fV = test.function_space()
         cele = self.coarsen_element(fV.ufl_element())
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
-
-        # Have we already done this?
-        # FIXME this is triggering weird gmg erros
-        cctx = fctx._coarse
-        if cctx is not None:
-            cV_old = cctx.J.arguments()[0].function_space()
-            if cV_old.dim() == cV.dim():
-                return cV_old.dm
 
         def get_max_degree(ele):
             if isinstance(ele, MixedElement):
