@@ -518,30 +518,23 @@ def tensor_product_space_query(V):
 
 
 def get_permuted_map(V):
-    from pyop2 import PermutedMap
     use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
     if use_tensorproduct and family <= {"RTCF", "NCF"}:
-        ncomp, = V.finat_element.value_shape
-        permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
         pshape = [N]*ndim
         pshape[0] = -1
-        for k in range(ncomp):
-            permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
-
-        permutation = np.reshape(permutation, (-1,))
-        return PermutedMap(V.cell_node_map(), permutation)
     elif use_tensorproduct and family <= {"RTCE", "NCE"}:
-        ncomp, = V.finat_element.value_shape
-        permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
         pshape = [N+1]*ndim
         pshape[0] = -1
-        for k in range(ncomp):
-            permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
-
-        permutation = np.reshape(permutation, (-1,))
-        return PermutedMap(V.cell_node_map(), permutation)
     else:
         return V.cell_node_map()
+
+    from pyop2 import PermutedMap
+    ncomp, = V.finat_element.value_shape
+    permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
+    for k in range(ncomp):
+        permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
+    permutation = np.reshape(permutation, (-1,))
+    return PermutedMap(V.cell_node_map(), permutation)
 
 
 def get_line_element(V):
