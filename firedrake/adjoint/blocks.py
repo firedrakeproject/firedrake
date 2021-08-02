@@ -79,13 +79,12 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
         return tmp_u, F_form
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-
-        tmp_u, F_form = self._create_F_form()
-
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
 
         dJdu = adj_inputs[0]
+
+        tmp_u, F_form = self._create_F_form()
 
         dFdu = self.backend.derivative(F_form,
                                        u,
@@ -112,6 +111,28 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
         r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        fwd_block_variable = self.get_outputs()[0]
+        u = fwd_block_variable.output
+
+        tmp_u, F_form = self._create_F_form()
+
+        # Obtain dFdu.
+        dFdu = self.backend.derivative(F_form,
+                                       u,
+                                       self.backend.TrialFunction(u.function_space()))
+
+        # Replacing values with checkpoints and gathering lhs and
+        # rhs in one single form.
+        replace_map = self._replace_map(F_form)
+        replace_map[tmp_u] = self.get_outputs()[0].saved_output
+        F_form = replace(F_form, replace_map)
+
+        return {
+            "form": F_form,
+            "dFdu": dFdu
+        }
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
