@@ -284,7 +284,7 @@ class PMGBase(PCSNESBase):
 
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
-        # fctx._coarse = cctx
+        fctx._coarse = cctx
 
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
