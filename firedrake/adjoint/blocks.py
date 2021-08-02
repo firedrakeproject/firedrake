@@ -68,7 +68,7 @@ def solve_init_params(self, args, kwargs, varform):
 
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 
-    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+    def _create_F_form(self):
         # Process the equation forms.
         if self.linear:
             tmp_u = self.compat.create_function(self.function_space)
@@ -76,6 +76,11 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
         else:
             tmp_u = self.func
             F_form = self.lhs
+        return tmp_u, F_form
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+
+        tmp_u, F_form = self._create_F_form()
 
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
