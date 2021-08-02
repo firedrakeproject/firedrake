@@ -21,6 +21,7 @@ def expected(mesh):
         return [6, 6, 6]
 
 
+@pytest.mark.skipcomplex
 def test_p_independence(mesh, expected):
     nits = []
     for p in range(2, 5):
