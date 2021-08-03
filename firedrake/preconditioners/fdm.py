@@ -104,7 +104,7 @@ class FDMPC(PCBase):
             prealloc.setSizes(A.getSizes())
             prealloc.setUp()
             self.assemble_affine(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
-            
+
             lgmap = V.dof_dset.lgmap
             ndof = V.value_size * V.dof_dset.set.size
             nnz = get_preallocation(prealloc, ndof)
@@ -406,10 +406,10 @@ class FDMPC(PCBase):
                 e0, e1 = facet_cells[f]
                 idir = facet_data[f] // 2
 
-                ie = lexico_facet(f)                
+                ie = lexico_facet(f)
                 mu0 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
                 mu1 = np.atleast_1d(np.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
-                
+
                 if needs_hdiv:
                     fid = np.reshape(jid(f), (2, -1))
                     fdof = fid[0][facet_data[f, 0]]
