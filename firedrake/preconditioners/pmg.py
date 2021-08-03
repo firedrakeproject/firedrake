@@ -526,6 +526,7 @@ def get_permuted_map(V):
     else:
         return V.cell_node_map()
 
+    # FIXME this import comes from pyop2/wence-feature-permuted-map
     from pyop2 import PermutedMap
     ncomp, = V.finat_element.value_shape
     permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
