@@ -408,8 +408,8 @@ utility meshes.
         """
         rf_parameters = {'mu': self.mu,
                          'sigma': self.sigma,
-                         'smoothness': self.smoothness,
-                         'correlation_length': self.correlation_length,
+                         'smoothness': self.nu,
+                         'correlation_length': self.lambd,
                          'rng': self.rng
                          }
         return rf_parameters
