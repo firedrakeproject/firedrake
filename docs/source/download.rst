@@ -59,32 +59,9 @@ rest of the Firedrake toolchain. To do this at install time simply add
   python3 firedrake-install --pip-install scipy
 
 If you want to add ``scipy`` to your environment after installing
-Firedrake, first run ``firedrake-status`` and check whether the
-``with_blas:`` configuration option is set. If the value of
-``with_blas:`` is ``None``, that is, if you see::
+Firedrake, first activate the virtual environment, then run::
 
-  with_blas: None
-
-then run::
-
-  unset BLAS
-
-Otherwise, if ``with_blas:`` is set to a path, for example::
-
-  with_blas: /opt/openblas
-
-first set the ``BLAS`` environment variable to that path by running::
-
-  export BLAS=/opt/openblas
-
-Finally, with the Firedrake venv activated, run::
-
-  pip install --no-build-isolation --no-binary mpi4py,islpy,numpy,scipy scipy
-
-.. note::
-
-   For details on which environment variables affect the installation of
-   ``scipy`` see the `build documentation <https://docs.scipy.org/doc/scipy/reference/building/>`_.
+  firedrake-update --pip-install scipy
 
 
 Testing the installation

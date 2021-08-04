@@ -1662,6 +1662,12 @@ else:
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
 
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
+
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
