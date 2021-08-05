@@ -1,4 +1,4 @@
-from functools import lru_cache
+from functools import lru_cache, partial
 import numpy as np
 
 from pyop2 import op2
@@ -97,13 +97,14 @@ class FDMPC(PCBase):
             Gq, Bq = self.assemble_coef(mu, helm, Nq)
             self.Pmat = self.assemble_stencil(A, V, Gq, Bq, N, bcflags)
         elif fdm_type == "affine":
-            # Compute low-order PDE coefficients, such that the FDM
-            # sparsifies the assembled matrix
+            # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
+
+            # preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
             prealloc = PETSc.Mat().create(comm=A.comm)
             prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
             prealloc.setSizes(A.getSizes())
             prealloc.setUp()
-            self.assemble_affine(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            self.assemble_kron(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
 
             lgmap = V.dof_dset.lgmap
             ndof = V.value_size * V.dof_dset.set.size
@@ -112,8 +113,8 @@ class FDMPC(PCBase):
             self.Pmat.setBlockSize(V.value_size)
             self.Pmat.setLGMap(lgmap, lgmap)
 
-            # FIXME too ugly
-            self.myupdate = lambda P: self.assemble_affine(P, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, mu, helm, Nq,
+                                          Afdm, Dfdm, eta, bcflags, needs_interior_facet)
             self.update(pc)
         else:
             raise ValueError("Unknown fdm_type")
@@ -134,7 +135,7 @@ class FDMPC(PCBase):
 
     def update(self, pc):
         self.Pmat.zeroEntries()
-        self.myupdate(self.Pmat)
+        self._assemble_Pmat()
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def applyTranspose(self, pc, x, y):
@@ -299,7 +300,7 @@ class FDMPC(PCBase):
         Pmat.assemble()
         return Pmat
 
-    def assemble_affine(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
+    def assemble_kron(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
         from scipy.sparse import kron, csr_matrix
 
         imode = PETSc.InsertMode.ADD_VALUES
@@ -352,6 +353,7 @@ class FDMPC(PCBase):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
                     A.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                del ae, ie
             Bq = None
 
         for e in range(nel):
@@ -395,6 +397,8 @@ class FDMPC(PCBase):
                     i0 = ae.indptr[i]
                     i1 = ae.indptr[i+1]
                     A.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                del ae
+            del ie
 
         istart = 1 if needs_hdiv else 0
         if needs_interior_facet:
