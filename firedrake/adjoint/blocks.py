@@ -67,90 +67,7 @@ def solve_init_params(self, args, kwargs, varform):
 
 
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
-
-    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        fwd_block_variable = self.get_outputs()[0]
-        u = fwd_block_variable.output
-
-        dJdu = adj_inputs[0]
-
-        # Process the equation forms.
-        if self.linear:
-            tmp_u = self.compat.create_function(self.function_space)
-            F_form = self.backend.action(self.lhs, tmp_u) - self.rhs
-        else:
-            tmp_u = self.func
-            F_form = self.lhs
-
-        dFdu = self.backend.derivative(F_form,
-                                       u,
-                                       self.backend.TrialFunction(u.function_space()))
-        dFdu_form = self.backend.adjoint(dFdu)
-        dJdu = dJdu.copy()
-
-        # Replacing values with checkpoints and gathering lhs and
-        # rhs in one single form.
-        replace_map = self._replace_map(F_form)
-        replace_map[tmp_u] = self.get_outputs()[0].saved_output
-        F_form = replace(F_form, replace_map)
-
-        # Replace the form coefficients with checkpointed values.
-        dFdu_form = self._replace_form(dFdu_form)
-
-        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
-        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
-        self.adj_sol = adj_sol
-        if self.adj_cb is not None:
-            self.adj_cb(adj_sol)
-        if self.adj_bdy_cb is not None and compute_bdy:
-            self.adj_bdy_cb(adj_sol_bdy)
-
-        r = {}
-        r["form"] = F_form
-        r["adj_sol"] = adj_sol
-        r["adj_sol_bdy"] = adj_sol_bdy
-        return r
-
-    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        if not self.linear and self.func == block_variable.output:
-            # We are not able to calculate derivatives wrt initial guess.
-            return None
-        F_form = prepared["form"]
-        adj_sol = prepared["adj_sol"]
-        adj_sol_bdy = prepared["adj_sol_bdy"]
-        c = block_variable.output
-        c_rep = block_variable.saved_output
-
-        if isinstance(c, self.backend.Function):
-            trial_function = self.backend.TrialFunction(c.function_space())
-        elif isinstance(c, self.backend.Constant):
-            mesh = self.compat.extract_mesh_from_form(F_form)
-            trial_function = self.backend.TrialFunction(c._ad_function_space(mesh))
-        elif isinstance(c, self.compat.ExpressionType):
-            mesh = F_form.ufl_domain().ufl_cargo()
-            c_fs = c._ad_function_space(mesh)
-            trial_function = self.backend.TrialFunction(c_fs)
-        elif isinstance(c, self.backend.DirichletBC):
-            tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
-            return [tmp_bc]
-        elif isinstance(c, self.compat.MeshType):
-            # Using CoordianteDerivative requires us to do action before
-            # differentiating, might change in the future.
-            F_form_tmp = self.backend.action(F_form, adj_sol)
-            X = self.backend.SpatialCoordinate(c_rep)
-            dFdm = self.backend.derivative(-F_form_tmp, X, self.backend.TestFunction(c._ad_function_space()))
-
-            dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
-            return dFdm
-
-        dFdm = -self.backend.derivative(F_form, c_rep, trial_function)
-        dFdm = self.backend.adjoint(dFdm)
-        dFdm = dFdm * adj_sol
-        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
-        if isinstance(c, self.compat.ExpressionType):
-            return [[dFdm, c_fs]]
-        else:
-            return dFdm
+    pass
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
@@ -197,10 +114,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             for coeff in self.problem_J.coefficients():
                 self.add_dependency(coeff, no_duplicates=True)
 
-        if self.adj_F is not None:
-            for coeff in self.adj_F.coefficients():
-                self.add_dependency(coeff, no_duplicates=True)
-
     def _init_solver_parameters(self, args, kwargs):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
@@ -233,7 +146,75 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
-        self._ad_assign_coefficients(problem.adj_F)
+    
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        fwd_block_variable = self.get_outputs()[0]
+        u = fwd_block_variable.output
+
+        dJdu = adj_inputs[0]
+
+        F_form = self._create_F_form()
+
+        dFdu_form = self.adj_F
+        dJdu = dJdu.copy()
+
+        # Replace the form coefficients with checkpointed values.
+        dFdu_form = self._replace_form(dFdu_form)
+
+        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
+        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
+        self.adj_sol = adj_sol
+        if self.adj_cb is not None:
+            self.adj_cb(adj_sol)
+        if self.adj_bdy_cb is not None and compute_bdy:
+            self.adj_bdy_cb(adj_sol_bdy)
+
+        r = {}
+        r["form"] = F_form
+        r["adj_sol"] = adj_sol
+        r["adj_sol_bdy"] = adj_sol_bdy
+        return r
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        if not self.linear and self.func == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            return None
+        F_form = prepared["form"]
+        adj_sol = prepared["adj_sol"]
+        adj_sol_bdy = prepared["adj_sol_bdy"]
+        c = block_variable.output
+        c_rep = block_variable.saved_output
+
+        if isinstance(c, firedrake.Function):
+            trial_function = firedrake.TrialFunction(c.function_space())
+        elif isinstance(c, firedrake.Constant):
+            mesh = self.compat.extract_mesh_from_form(F_form)
+            trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
+        elif isinstance(c, self.compat.ExpressionType):
+            mesh = F_form.ufl_domain().ufl_cargo()
+            c_fs = c._ad_function_space(mesh)
+            trial_function = firedrake.TrialFunction(c_fs)
+        elif isinstance(c, firedrake.DirichletBC):
+            tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
+            return [tmp_bc]
+        elif isinstance(c, self.compat.MeshType):
+            # Using CoordianteDerivative requires us to do action before
+            # differentiating, might change in the future.
+            F_form_tmp = firedrake.action(F_form, adj_sol)
+            X = firedrake.SpatialCoordinate(c_rep)
+            dFdm = firedrake.derivative(-F_form_tmp, X, firedrake.TestFunction(c._ad_function_space()))
+
+            dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+            return dFdm
+
+        dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
+        dFdm = firedrake.adjoint(dFdm)
+        dFdm = dFdm * adj_sol
+        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+        if isinstance(c, self.compat.ExpressionType):
+            return [[dFdm, c_fs]]
+        else:
+            return dFdm
 
 
 class ProjectBlock(SolveVarFormBlock):
