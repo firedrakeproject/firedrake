@@ -115,7 +115,6 @@ class FDMPC(PCBase):
 
             self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, mu, helm, Nq,
                                           Afdm, Dfdm, eta, bcflags, needs_interior_facet)
-            self.update(pc)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -130,8 +129,9 @@ class FDMPC(PCBase):
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.Pmat, self.Pmat)
-        self.pc = pc
         pc.setFromOptions()
+        self.pc = pc
+        self.update(pc)
 
     def update(self, pc):
         self.Pmat.zeroEntries()
@@ -328,32 +328,34 @@ class FDMPC(PCBase):
         # Build sparse cell matrices and assemble global matrix
         flag2id = np.kron(np.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
         if needs_hdiv:
-            pshape = [[Afdm[(k-i) % ncomp][0][0].shape[0] for i in range(ndim)] for k in range(ncomp)]
+            pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
         else:
-            pshape = [Ak[0][0].shape[0] for Ak in Afdm]
+            pshape = [Ak[0][0].size[0] for Ak in Afdm]
 
         for row in V.dof_dset.lgmap.indices:
             A.setValue(row, row, 0.0E0, imode)
 
-        use_separate_reaction = False if Bq is None else len(Bq.ufl_shape) == 2
+        use_separate_reaction = False if Bq is None else (not needs_hdiv and len(Bq.ufl_shape) == 2)
 
         if use_separate_reaction:
+            aptr = np.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
+            aidx = np.tile(np.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
             for e in range(nel):
-                bqe = np.sum(Bq.dat.data_ro[bid(e)], axis=0)
-                ae = kron(Afdm[0][0][1], bqe, format="csr")
-                ae = kron(Afdm[1][0][1], ae, format="csr")
-                if ndim > 2:
-                    ae = kron(Afdm[2][0][1], ae, format="csr")
+                adata = np.sum(Bq.dat.data_ro[bid(e)], axis=0)
+                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata))
+                for k in range(ndim):
+                    ae = Afdm[ndim-k][0][1].kron(ae)
 
                 ie = lexico_cell(e)
                 ie = np.repeat(ie*bsize, bsize) + np.tile(np.arange(bsize, dtype=PETSc.IntType), len(ie))
+                indptr, indices, data = ae.getValuesCSR()
                 rows = lgmap.apply(ie)
-                cols = rows[ae.indices]
+                cols = rows[indices]
                 for i, row in enumerate(rows):
-                    i0 = ae.indptr[i]
-                    i1 = ae.indptr[i+1]
-                    A.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-                del ae, ie
+                    i0 = indptr[i]
+                    i1 = indptr[i+1]
+                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                ae.destroy()
             Bq = None
 
         for e in range(nel):
@@ -378,27 +380,28 @@ class FDMPC(PCBase):
                 if needs_hdiv:
                     facet_perm = (facet_perm-k) % ndim
 
-                be = Afdm[facet_perm[0]][fbc[0]][1]
-                ae = Afdm[facet_perm[0]][fbc[0]][0] * muj[0]
+                be = Afdm[facet_perm[0]][fbc[0]][1].copy()
+                ae = Afdm[facet_perm[0]][fbc[0]][0].copy()
+                ae.scale(muj[0])
                 if Bq is not None:
-                    ae += be * bqe[k]
+                    ae.axpy(bqe[k], be)
 
                 if ndim > 1:
-                    ae = kron(ae, Afdm[facet_perm[1]][fbc[1]][1], format="csr")
-                    ae += kron(be, Afdm[facet_perm[1]][fbc[1]][0] * muj[1], format="csr")
+                    ae = ae.kron(Afdm[facet_perm[1]][fbc[1]][1])
+                    ae.axpy(muj[1], be.kron(Afdm[facet_perm[1]][fbc[1]][0]))
                     if ndim > 2:
-                        be = kron(be, Afdm[facet_perm[1]][fbc[1]][1], format="csr")
-                        ae = kron(ae, Afdm[facet_perm[2]][fbc[2]][1], format="csr")
-                        ae += kron(be, Afdm[facet_perm[2]][fbc[2]][0] * muj[2], format="csr")
+                        be = be.kron(Afdm[facet_perm[1]][fbc[1]][1])
+                        ae = ae.kron(Afdm[facet_perm[2]][fbc[2]][1])
+                        ae.axpy(muj[2], be.kron(Afdm[facet_perm[2]][fbc[2]][0]))
 
+                indptr, indices, data = ae.getValuesCSR()
                 rows = lgmap.apply(ie[k] if needs_hdiv else k+bsize*ie)
-                cols = rows[ae.indices]
+                cols = rows[indices]
                 for i, row in enumerate(rows):
-                    i0 = ae.indptr[i]
-                    i1 = ae.indptr[i+1]
-                    A.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
-                del ae
-            del ie
+                    i0 = indptr[i]
+                    i1 = indptr[i+1]
+                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                ae.destroy()
 
         istart = 1 if needs_hdiv else 0
         if needs_interior_facet:
@@ -553,7 +556,6 @@ class FDMPC(PCBase):
         return Gq, Bq
 
     def assemble_piola_facet(self, mu):
-
         extruded = self.mesh.cell_set._extruded
         dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
         area = firedrake.FacetArea(self.mesh)
@@ -597,9 +599,32 @@ class FDMPC(PCBase):
         return Ahat, Bhat, Jhat, Dhat, what
 
     @staticmethod
+    def fdm_numpy_to_petsc(A_numpy, ismass):
+        n = A_numpy.shape[0]
+        nnz = np.full((n,), 1 if ismass else 3, dtype=PETSc.IntType)
+        nnz[[0, -1]] = 2 if ismass else n
+
+        imode = PETSc.InsertMode.INSERT
+        A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz)
+        for j, ajj in enumerate(A_numpy.diagonal()):
+            A_petsc.setValue(j, j, ajj, imode)
+
+        if ismass:
+            A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
+            A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
+        else:
+            idx = np.arange(n, dtype=PETSc.IntType)
+            A_petsc.setValues(0, idx, A_numpy[0], imode)
+            A_petsc.setValues(n-1, idx, A_numpy[-1], imode)
+            A_petsc.setValues(idx, 0, A_numpy[:][0], imode)
+            A_petsc.setValues(idx, n-1, A_numpy[:][-1], imode)
+
+        A_petsc.assemble()
+        return A_petsc
+
+    @staticmethod
     def fdm_cg(Ahat, Bhat):
         from scipy.linalg import eigh
-        from scipy.sparse import csr_matrix
         rd = (0, -1)
         kd = slice(1, -1)
         Vfdm = np.eye(Ahat.shape[0])
@@ -620,7 +645,7 @@ class FDMPC(PCBase):
             b = B.diagonal().copy()
             B[kk, kk] = 0.0E0
             np.fill_diagonal(B, b)
-            return [csr_matrix(A), csr_matrix(B)]
+            return [FDMPC.fdm_numpy_to_petsc(A, False), FDMPC.fdm_numpy_to_petsc(B, True)]
 
         Afdm = []
         Ak = Vfdm.T @ Ahat @ Vfdm
@@ -636,7 +661,6 @@ class FDMPC(PCBase):
     @staticmethod
     def fdm_ipdg(Ahat, Bhat, N, eta, gll=False):
         from scipy.linalg import eigh
-        from scipy.sparse import csr_matrix
         from FIAT.reference_element import UFCInterval
         from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
         from FIAT.quadrature import GaussLegendreQuadratureLineRule
@@ -670,7 +694,7 @@ class FDMPC(PCBase):
                     Abc[j, :] -= Dfacet[:, j]
                     Abc[j, j] += eta
 
-            return [csr_matrix(Abc), csr_matrix(Bbc)]
+            return [FDMPC.fdm_numpy_to_petsc(A, False), FDMPC.fdm_numpy_to_petsc(B, True)]
 
         A = Vfdm.T @ Ahat @ Vfdm
         a = A.diagonal().copy()
