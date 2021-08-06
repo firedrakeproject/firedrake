@@ -301,8 +301,6 @@ class FDMPC(PCBase):
         return Pmat
 
     def assemble_kron(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
-        from scipy.sparse import kron, csr_matrix
-
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
@@ -656,7 +654,7 @@ class FDMPC(PCBase):
             b = B.diagonal().copy()
             B[kk, kk] = 0.0E0
             np.fill_diagonal(B, b)
-            return [FDMPC.fdm_numpy_to_petsc(A, [0, A.shape[0]-1]), 
+            return [FDMPC.fdm_numpy_to_petsc(A, [0, A.shape[0]-1]),
                     FDMPC.fdm_numpy_to_petsc(B, [])]
 
         Afdm = []
@@ -705,7 +703,7 @@ class FDMPC(PCBase):
                     Abc[j, :] -= Dfacet[:, j]
                     Abc[j, j] += eta
 
-            return [FDMPC.fdm_numpy_to_petsc(Abc, [0, Abc.shape[0]-1]), 
+            return [FDMPC.fdm_numpy_to_petsc(Abc, [0, Abc.shape[0]-1]),
                     FDMPC.fdm_numpy_to_petsc(Bhat, [])]
 
         A = Vfdm.T @ Ahat @ Vfdm
