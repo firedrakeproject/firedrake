@@ -338,13 +338,16 @@ class FDMPC(PCBase):
         use_separate_reaction = False if Bq is None else (not needs_hdiv and len(Bq.ufl_shape) == 2)
 
         if use_separate_reaction:
+            be = Afdm[0][0][1]
+            for k in range(1, ndim):
+                be = be.kron(Afdm[k][0][1])
             aptr = np.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
             aidx = np.tile(np.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
+
             for e in range(nel):
                 adata = np.sum(Bq.dat.data_ro[bid(e)], axis=0)
-                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata))
-                for k in range(ndim):
-                    ae = Afdm[ndim-k][0][1].kron(ae)
+                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                ae = be.kron(ae)
 
                 ie = lexico_cell(e)
                 ie = np.repeat(ie*bsize, bsize) + np.tile(np.arange(bsize, dtype=PETSc.IntType), len(ie))
@@ -442,10 +445,12 @@ class FDMPC(PCBase):
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
                     adense = np.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
+                    dense_indices = []
                     for j, jface in enumerate(facet_data[f]):
                         j0 = j * offset
                         j1 = j0 + offset
                         jj = j0 + (offset-1) * (jface % 2)
+                        dense_indices.append(jj)
                         for i, iface in enumerate(facet_data[f]):
                             i0 = i * offset
                             i1 = i0 + offset
@@ -462,12 +467,12 @@ class FDMPC(PCBase):
                             adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
                             adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
 
-                    ae = csr_matrix(adense)
+                    ae = FDMPC.fdm_numpy_to_petsc(adense, dense_indices, diag=False)
                     if ndim > 1:
                         # Here we are assuming that the mesh is oriented
-                        ae = kron(ae, Afdm[facet_perm[1]][0][1], format="csr")
+                        ae = ae.kron(Afdm[facet_perm[1]][0][1])
                         if ndim > 2:
-                            ae = kron(ae, Afdm[facet_perm[2]][0][1], format="csr")
+                            ae = ae.kron(Afdm[facet_perm[2]][0][1])
 
                     if needs_hdiv:
                         assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
@@ -478,11 +483,13 @@ class FDMPC(PCBase):
                         rows[:sdim] = self.pull_facet(icell[0], pshape, idir[0])
                         rows[sdim:] = self.pull_facet(icell[1], pshape, idir[1])
 
-                    cols = rows[ae.indices]
+                    indptr, indices, data = ae.getValuesCSR()
+                    cols = rows[indices]
                     for i, row in enumerate(rows):
-                        i0 = ae.indptr[i]
-                        i1 = ae.indptr[i+1]
-                        A.setValues(row, cols[i0:i1], ae.data[i0:i1], imode)
+                        i0 = indptr[i]
+                        i1 = indptr[i+1]
+                        A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                    ae.destroy()
 
         A.assemble()
 
@@ -599,25 +606,29 @@ class FDMPC(PCBase):
         return Ahat, Bhat, Jhat, Dhat, what
 
     @staticmethod
-    def fdm_numpy_to_petsc(A_numpy, ismass):
+    def fdm_numpy_to_petsc(A_numpy, dense_indices, diag=True):
         n = A_numpy.shape[0]
-        nnz = np.full((n,), 1 if ismass else 3, dtype=PETSc.IntType)
-        nnz[[0, -1]] = 2 if ismass else n
+        nbase = int(diag) + len(dense_indices)
+        nnz = np.full((n,), nbase, dtype=PETSc.IntType)
+        if dense_indices:
+            nnz[dense_indices] = n
+        else:
+            nnz[[0, -1]] = 2
 
         imode = PETSc.InsertMode.INSERT
-        A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz)
-        for j, ajj in enumerate(A_numpy.diagonal()):
-            A_petsc.setValue(j, j, ajj, imode)
+        A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
+        if diag:
+            for j, ajj in enumerate(A_numpy.diagonal()):
+                A_petsc.setValue(j, j, ajj, imode)
 
-        if ismass:
+        if dense_indices:
+            idx = np.arange(n, dtype=PETSc.IntType)
+            for j in dense_indices:
+                A_petsc.setValues(j, idx, A_numpy[j], imode)
+                A_petsc.setValues(idx, j, A_numpy[:][j], imode)
+        else:
             A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
             A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
-        else:
-            idx = np.arange(n, dtype=PETSc.IntType)
-            A_petsc.setValues(0, idx, A_numpy[0], imode)
-            A_petsc.setValues(n-1, idx, A_numpy[-1], imode)
-            A_petsc.setValues(idx, 0, A_numpy[:][0], imode)
-            A_petsc.setValues(idx, n-1, A_numpy[:][-1], imode)
 
         A_petsc.assemble()
         return A_petsc
@@ -645,7 +656,8 @@ class FDMPC(PCBase):
             b = B.diagonal().copy()
             B[kk, kk] = 0.0E0
             np.fill_diagonal(B, b)
-            return [FDMPC.fdm_numpy_to_petsc(A, False), FDMPC.fdm_numpy_to_petsc(B, True)]
+            return [FDMPC.fdm_numpy_to_petsc(A, [0, A.shape[0]-1]), 
+                    FDMPC.fdm_numpy_to_petsc(B, [])]
 
         Afdm = []
         Ak = Vfdm.T @ Ahat @ Vfdm
@@ -687,14 +699,14 @@ class FDMPC(PCBase):
 
         def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
-            Bbc = Bhat.copy()
             for j in (0, -1):
                 if bcs[j] == 1:
                     Abc[:, j] -= Dfacet[:, j]
                     Abc[j, :] -= Dfacet[:, j]
                     Abc[j, j] += eta
 
-            return [FDMPC.fdm_numpy_to_petsc(A, False), FDMPC.fdm_numpy_to_petsc(B, True)]
+            return [FDMPC.fdm_numpy_to_petsc(Abc, [0, Abc.shape[0]-1]), 
+                    FDMPC.fdm_numpy_to_petsc(Bhat, [])]
 
         A = Vfdm.T @ Ahat @ Vfdm
         a = A.diagonal().copy()
