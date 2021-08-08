@@ -540,7 +540,61 @@ class CheckpointFile(object):
         # Handle extruded mesh
         tmesh = mesh.topology
         if isinstance(tmesh, ExtrudedMeshTopology):
-            raise NotImplementedError("Not yet implemented")
+            # -- Save mesh topology --
+            base_tmesh = mesh._base_mesh.topology
+            self._save_mesh_topology(base_tmesh)
+            if tmesh.name not in self.h5pyfile.require_group(self._path_to_topologies()):
+                # The tmesh (an ExtrudedMeshTopology) is treated as if it was a first class topology object. It
+                # shares the plex data with the base_tmesh, but those data are stored under base_tmesh's path,
+                # so we here create a symbolic link:
+                # topologies/{tmesh.name}/topology <- topologies/{base_tmesh.name}/topology
+                # This is merely to make this group (topologies/{tmesh.name}) behave exactly like standard topology
+                # groups (topologies/{some_non_extruded_topology_name}), and not necessary at the moment.
+                path = self._path_to_topology(tmesh.name)
+                self.h5pyfile.require_group(path)
+                self.h5pyfile[os.path.join(path, "topology")] = self.h5pyfile[os.path.join(self._path_to_topology(base_tmesh.name), "topology")]
+                path = self._path_to_topology_extruded(tmesh.name)
+                self.h5pyfile.require_group(path)
+                self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
+                self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
+                if tmesh.variable_layers:
+                    # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
+                    # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
+                    topology_dm = tmesh.topology_dm
+                    cell = base_tmesh.ufl_cell()
+                    element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                    layers_tV = impl.FunctionSpace(base_tmesh, element)
+                    self._save_function_space_topology(layers_tV)
+                    # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
+                    layers_iset = PETSc.IS().createGeneral(tmesh.layers[:tmesh.cell_set.size, :], comm=topology_dm.comm)
+                    layers_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
+                    self.viewer.pushGroup(path)
+                    layers_iset.view(self.viewer)
+                    self.viewer.popGroup()
+                else:
+                    self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
+            # -- Save mesh --
+            path = self._path_to_meshes(tmesh.name)
+            if mesh.name not in self.h5pyfile.require_group(path):
+                path = self._path_to_mesh(tmesh.name, mesh.name)
+                self.h5pyfile.require_group(path)
+                self.set_attr(path, PREFIX + "_coordinate_element", self._pickle(mesh._coordinates.function_space().ufl_element()))
+                self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
+                self._save_function_topology(mesh._coordinates)
+                if hasattr(mesh, PREFIX + "_radial_coordinates"):
+                    # Cannot do: self.save_function(mesh.radial_coordinates)
+                    # This will cause infinite recursion.
+                    self.set_attr(path, PREFIX + "_radial_coordinate_function", mesh.radial_coordinates.name())
+                    radial_coordinates = mesh.radial_coordinates.topological
+                    self.set_attr(path, PREFIX + "_radial_coordinate_element", self._pickle(radial_coordinates.function_space().ufl_element()))
+                    self.set_attr(path, PREFIX + "_radial_coordinates", radial_coordinates.name())
+                    self._save_function_topology(radial_coordinates)
+                self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
+                # The followings are conceptually redundant, but needed.
+                path = os.path.join(self._path_to_mesh(tmesh.name, mesh.name), PREFIX_EXTRUDED)
+                self.h5pyfile.require_group(path)
+                self.save_mesh(mesh._base_mesh)
+                self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
         else:
             # -- Save mesh topology --
             self._save_mesh_topology(tmesh)
@@ -735,7 +789,50 @@ class CheckpointFile(object):
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
         path = self._path_to_topology_extruded(tmesh_name)
         if path in self.h5pyfile:
-            raise NotImplementedError("Not yet implemented")
+            # -- Load mesh topology --
+            base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
+            base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
+            variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
+            if variable_layers:
+                cell = base_tmesh.ufl_cell()
+                element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                _ = self._load_function_space_topology(base_tmesh, element)
+                base_tmesh_key = self._generate_mesh_key(base_tmesh.name, base_tmesh._did_reordering, base_tmesh._distribution_parameters)
+                sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
+                _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
+                nroots, _, _ = lsf.getGraph()
+                layers_a = np.empty(nroots, dtype=utils.IntType)
+                layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self.viewer.comm)
+                layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
+                self.viewer.pushGroup(path)
+                layers_a_iset.load(self.viewer)
+                self.viewer.popGroup()
+                layers_a = layers_a_iset.getIndices()
+                layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
+                unit = MPI._typedict[np.dtype(utils.IntType).char]
+                lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
+                lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
+            else:
+                layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
+            tmesh = ExtrudedMeshTopology(base_tmesh, layers, name=tmesh_name)
+            # -- Load mesh --
+            path = self._path_to_mesh(tmesh_name, name)
+            coord_element = self._unpickle(self.get_attr(path, PREFIX + "_coordinate_element"))
+            coord_name = self.get_attr(path, PREFIX + "_coordinates")
+            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
+            mesh = make_mesh_from_coordinates(coordinates, name)
+            if self.has_attr(path, PREFIX + "_radial_coordinates"):
+                radial_coord_element = self._unpickle(self.get_attr(path, PREFIX + "_radial_coordinate_element"))
+                radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
+                radial_coordinates = self._load_function_topology(tmesh, radial_coord_element, radial_coord_name)
+                tV_radial_coord = impl.FunctionSpace(tmesh, radial_coord_element)
+                V_radial_coord = impl.WithGeometry.create(tV_radial_coord, mesh)
+                radial_coord_function_name = self.get_attr(path, PREFIX + "_radial_coordinate_function")
+                mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
+            # The followings are conceptually redundant, but needed.
+            path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
+            base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
+            mesh._base_mesh = self.load_mesh(base_mesh_name)
         else:
             utils._init()
             # -- Load mesh topology --

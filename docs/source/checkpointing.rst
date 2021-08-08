@@ -150,6 +150,27 @@ Note that one needs to load the mesh before loading the :class:`~.Function` s
 that are defined on it. If the default mesh name, :data:`~.DEFAULT_MESH_NAME`,
 was used when saving, the mesh name can be ommitted when loading.
 
+Extrusion
+---------
+
+Extruded meshes can be saved and loaded seamlessly as the following:
+
+.. code-block:: python3
+
+    mesh = UnitSquareMesh(10, 10, name="meshA")
+    extm = ExtrudedMesh(mesh, layers=4)
+    V = FunctionSpace(extm, "CG", 2)
+    f = Function(V, name="f")
+    with CheckpointFile("example_extrusion.h5", 'w') as afile:
+        afile.save_mesh(mesh)  # optional
+        afile.save_function(f)
+    with CheckpointFile("example_extrusion.h5", 'r') as afile:
+        extm = afile.load_mesh("meshA_extruded")
+        f = afile.load_function(extm, "f")
+
+Note that if the name was not directly provided by the user, the base mesh's
+name postfixed by "_extruded" is given to the extruded mesh.
+
 Checkpointing with DumbCheckpoint
 =================================
 

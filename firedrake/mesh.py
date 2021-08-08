@@ -1049,12 +1049,13 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers):
+    def __init__(self, mesh, layers, name=None):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
+        :arg name:           optional name of the extruded mesh topology.
         """
 
         # TODO: refactor to call super().__init__
@@ -1071,6 +1072,9 @@ class ExtrudedMeshTopology(MeshTopology):
         mesh.init()
         self._base_mesh = mesh
         self._comm = mesh.comm
+        if name is not None and name == mesh.name:
+            raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
+        self.name = name if name is not None else mesh.name + "_extruded"
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -1079,6 +1083,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
+        self._did_reordering = mesh._did_reordering
+        self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
@@ -1184,10 +1190,14 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def layers(self):
-        """Return the number of layers of the extruded mesh
-        represented by the number of occurences of the base mesh."""
+        """Return the layers parameter used to construct the mesh topology,
+        which is the number of layers represented by the number of occurences
+        of the base mesh for non-variable layer mesh and an array of size
+        (num_cells, 2), each row representing the
+        (first layer index, last layer index + 1) pair for the associated cell,
+        for variable layer mesh."""
         if self.variable_layers:
-            raise ValueError("Can't ask for mesh layers with variable layers")
+            return self.cell_set.layers_array
         else:
             return self.cell_set.layers
 
@@ -1484,7 +1494,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
                                                          (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
-                                                          name="Coordinates")
+                                                          name=self.name + "_coordinates")
             self.__init__(coordinates)
         self._callback = callback
 
@@ -1942,7 +1952,7 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -1969,6 +1979,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a
                          custom kernel is provided)
+    :arg name:           optional name for the extruded mesh.
 
     The various values of ``extrusion_type`` have the following meanings:
 
@@ -1998,6 +2009,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
+    if name is not None and name == mesh.name:
+        raise ValueError("Extruded mesh and base mesh can not have the same name")
+    name = name if name is not None else mesh.name + "_extruded"
     mesh.init()
     layers = np.asarray(layers, dtype=IntType)
     if layers.shape:
@@ -2057,19 +2071,19 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
     coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
-    coordinates = function.CoordinatelessFunction(coordinates_fs, name="Coordinates")
+    coordinates = function.CoordinatelessFunction(coordinates_fs, name=name + "_coordinates")
 
     eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
                                 layer_height, extrusion_type=extrusion_type, kernel=kernel)
 
-    self = make_mesh_from_coordinates(coordinates)
+    self = make_mesh_from_coordinates(coordinates, name)
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
         helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
         element = ufl.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
-        self.radial_coordinates = function.Function(fs)
+        self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)
 
