@@ -6,6 +6,7 @@ from ufl import replace
 
 import firedrake
 import firedrake.utils as utils
+from firedrake.petsc import PETSc
 
 
 class Backend:
@@ -147,10 +148,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
-    from firedrake import petsc
-    with petsc.PETSc.Log.Stage("prepare_evaluate_adj"): 
-        with petsc.PETSc.Log.Event("prepare_evaluate_adj"):    
-            def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        with PETSc.Log.Stage("prepare_evaluate_adj"):
+            with PETSc.Log.Event("prepare_evaluate_adj"):
                 dJdu = adj_inputs[0]
 
                 F_form = self._create_F_form()
@@ -175,10 +175,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 r["adj_sol_bdy"] = adj_sol_bdy
                 return r
 
-    from firedrake import petsc
-    with petsc.PETSc.Log.Stage("prepare_evaluate_adj"): 
-        with petsc.PETSc.Log.Event("prepare_evaluate_adj"): 
-            def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        with PETSc.Log.Stage("evaluate_adj_component"):
+            with PETSc.Log.Event("evaluate_adj_component"):
                 if not self.linear and self.func == block_variable.output:
                     # We are not able to calculate derivatives wrt initial guess.
                     return None
