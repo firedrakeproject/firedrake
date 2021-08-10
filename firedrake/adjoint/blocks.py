@@ -148,75 +148,84 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
+    def _ad_get_adjoint(self, form, m_rep, trial_function):
+        dFdm = -firedrake.derivative(form, m_rep, trial_function)
+        dFdm = firedrake.adjoint(dFdm)
+        return dFdm
+
+    def _ad_cache_map(self, form, m, m_rep, trial_function):
+        dFdm = self._ad_get_adjoint(form, m_rep, trial_function)
+        cache_map = {}
+        for block_variable in self.get_dependencies():
+            cache_map[m] = dFdm
+        return cache_map
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        with PETSc.Log.Stage("prepare_evaluate_adj"):
-            with PETSc.Log.Event("prepare_evaluate_adj"):
-                dJdu = adj_inputs[0]
+        dJdu = adj_inputs[0]
 
-                F_form = self._create_F_form()
+        F_form = self._create_F_form()
 
-                dFdu_form = self.adj_F
-                dJdu = dJdu.copy()
+        dFdu_form = self.adj_F
+        dJdu = dJdu.copy()
 
-                # Replace the form coefficients with checkpointed values.
-                dFdu_form = self._replace_form(dFdu_form)
+        # Replace the form coefficients with checkpointed values.
+        dFdu_form = self._replace_form(dFdu_form)
 
-                compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
-                adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
-                self.adj_sol = adj_sol
-                if self.adj_cb is not None:
-                    self.adj_cb(adj_sol)
-                if self.adj_bdy_cb is not None and compute_bdy:
-                    self.adj_bdy_cb(adj_sol_bdy)
+        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
+        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
+        self.adj_sol = adj_sol
+        if self.adj_cb is not None:
+            self.adj_cb(adj_sol)
+        if self.adj_bdy_cb is not None and compute_bdy:
+            self.adj_bdy_cb(adj_sol_bdy)
 
-                r = {}
-                r["form"] = F_form
-                r["adj_sol"] = adj_sol
-                r["adj_sol_bdy"] = adj_sol_bdy
-                return r
+        r = {}
+        r["form"] = F_form
+        r["adj_sol"] = adj_sol
+        r["adj_sol_bdy"] = adj_sol_bdy
+        return r
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        with PETSc.Log.Stage("evaluate_adj_component"):
-            with PETSc.Log.Event("evaluate_adj_component"):
-                if not self.linear and self.func == block_variable.output:
-                    # We are not able to calculate derivatives wrt initial guess.
-                    return None
-                F_form = prepared["form"]
-                adj_sol = prepared["adj_sol"]
-                adj_sol_bdy = prepared["adj_sol_bdy"]
-                c = block_variable.output
-                c_rep = block_variable.saved_output
+        if not self.linear and self.func == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            return None
+        F_form = prepared["form"]
+        adj_sol = prepared["adj_sol"]
+        adj_sol_bdy = prepared["adj_sol_bdy"]
+        c = block_variable.output
+        c_rep = block_variable.saved_output
 
-                if isinstance(c, firedrake.Function):
-                    trial_function = firedrake.TrialFunction(c.function_space())
-                elif isinstance(c, firedrake.Constant):
-                    mesh = self.compat.extract_mesh_from_form(F_form)
-                    trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
-                elif isinstance(c, self.compat.ExpressionType):
-                    mesh = F_form.ufl_domain().ufl_cargo()
-                    c_fs = c._ad_function_space(mesh)
-                    trial_function = firedrake.TrialFunction(c_fs)
-                elif isinstance(c, firedrake.DirichletBC):
-                    tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
-                    return [tmp_bc]
-                elif isinstance(c, self.compat.MeshType):
-                    # Using CoordianteDerivative requires us to do action before
-                    # differentiating, might change in the future.
-                    F_form_tmp = firedrake.action(F_form, adj_sol)
-                    X = firedrake.SpatialCoordinate(c_rep)
-                    dFdm = firedrake.derivative(-F_form_tmp, X, firedrake.TestFunction(c._ad_function_space()))
+        if isinstance(c, firedrake.Function):
+            trial_function = firedrake.TrialFunction(c.function_space())
+        elif isinstance(c, firedrake.Constant):
+            mesh = self.compat.extract_mesh_from_form(F_form)
+            trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
+        elif isinstance(c, self.compat.ExpressionType):
+            mesh = F_form.ufl_domain().ufl_cargo()
+            c_fs = c._ad_function_space(mesh)
+            trial_function = firedrake.TrialFunction(c_fs)
+        elif isinstance(c, firedrake.DirichletBC):
+            tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
+            return [tmp_bc]
+        elif isinstance(c, self.compat.MeshType):
+            # Using CoordianteDerivative requires us to do action before
+            # differentiating, might change in the future.
+            F_form_tmp = firedrake.action(F_form, adj_sol)
+            X = firedrake.SpatialCoordinate(c_rep)
+            dFdm = firedrake.derivative(-F_form_tmp, X, firedrake.TestFunction(c._ad_function_space()))
 
-                    dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
-                    return dFdm
+            dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+            return dFdm
+        
+        cache_map = self._ad_cache_map(F_form, c, c_rep, trial_function)
+        dFdm = cache_map[c]
+        dFdm = dFdm * adj_sol
+        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
 
-                dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-                dFdm = firedrake.adjoint(dFdm)
-                dFdm = dFdm * adj_sol
-                dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
-                if isinstance(c, self.compat.ExpressionType):
-                    return [[dFdm, c_fs]]
-                else:
-                    return dFdm
+        if isinstance(c, self.compat.ExpressionType):
+            return [[dFdm, c_fs]]
+        else:
+            return dFdm
 
 
 class ProjectBlock(SolveVarFormBlock):
