@@ -6,7 +6,6 @@ from ufl import replace
 
 import firedrake
 import firedrake.utils as utils
-from firedrake.petsc import PETSc
 
 
 class Backend:
@@ -216,7 +215,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
             dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
             return dFdm
-        
+
         cache_map = self._ad_cache_map(F_form, c, c_rep, trial_function)
         dFdm = cache_map[c]
         dFdm = dFdm * adj_sol

@@ -207,6 +207,7 @@ def action(form, coefficient):
     else:
         return ufl.action(form, coefficient)
 
+
 @PETSc.Log.EventDecorator()
 def adjoint(form, reordered_arguments=None):
     """Compute the adjoint of a form.
@@ -226,7 +227,7 @@ def adjoint(form, reordered_arguments=None):
     """
     if isinstance(form, firedrake.slate.TensorBase):
         if reordered_arguments is not None:
-           firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
+            firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
         if form.rank != 2:
             raise ValueError("Expecting rank-2 tensor")
         return form.T
