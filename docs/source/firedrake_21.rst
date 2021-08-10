@@ -49,7 +49,7 @@ The full programme will be made available on `EasyChair <https://easychair.org/c
 Registration
 ------------
 
-Registration costs £10. More information about where to register will be provided shortly.
+Registration costs £10. Please register via `this link <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake>`_.
 
 Location
 --------
