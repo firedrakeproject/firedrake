@@ -171,6 +171,34 @@ Extruded meshes can be saved and loaded seamlessly as the following:
 Note that if the name was not directly provided by the user, the base mesh's
 name postfixed by "_extruded" is given to the extruded mesh.
 
+Timestepping
+------------
+
+The following demonstrates how a :class:`~.Function` can be saved and loaded
+at each timestep in a time-series simulation by setting the `idx` parameter:
+
+.. code-block:: python3
+
+    mesh = UnitSquareMesh(2, 2, name="meshA")
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V, name="f")
+    x, y = SpatialCoordinate(mesh)
+    with CheckpointFile("example_timestepping.h5", 'w') as afile:
+        afile.save_mesh(mesh)  # optional
+        for i in range(4):
+            f.interpolate(x * i)
+            afile.save_function(f, idx=i)
+    with CheckpointFile("example_timestepping.h5", 'r') as afile:
+        mesh = afile.load_mesh("meshA")
+        for i in range(4):
+            f = afile.load_function(mesh, "f", idx=i)
+
+Note that each :class:`~.Function` can either be saved in the timestepping mode
+with `idx` parameter always set or in the normal mode (non-timestepping mode)
+with `idx` parameter always unset, and the same :class:`~.Function` can only be
+loaded using the same mode.
+
+
 Checkpointing with DumbCheckpoint
 =================================
 

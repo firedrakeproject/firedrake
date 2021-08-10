@@ -699,10 +699,15 @@ class CheckpointFile(object):
                 topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f):
+    def save_function(self, f, idx=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
+        :arg idx: optional timestepping index. A function can
+            either be saved in timestepping mode or in normal
+            mode (non-timestepping); for each function of interest,
+            this method must always be called with the idx parameter
+            set or never be called with the idx parameter set.
         """
         # -- Save function space --
         V = f.function_space()
@@ -717,7 +722,7 @@ class CheckpointFile(object):
                 path = os.path.join(base_path, str(i))
                 self.h5pyfile.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())
-                self.save_function(fsub)
+                self.save_function(fsub, idx=idx)
             self._update_mixed_function_name_mixed_function_space_name_map(mesh.name, {f.name(): V_name})
         else:
             tf = f.topological
@@ -735,21 +740,24 @@ class CheckpointFile(object):
                 _name = "_".join([PREFIX_EMBEDDED, f.name()])
                 _f = Function(_V, name=_name)
                 self._project_function_for_checkpointing(_f, f, method)
-                self.save_function(_f)
+                self.save_function(_f, idx=idx)
                 self.set_attr(path, PREFIX_EMBEDDED + "_function", _name)
             else:
                 # -- Save function topology --
                 path = self._path_to_function(tmesh.name, mesh.name, V_name, f.name())
                 self.h5pyfile.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
-                self._save_function_topology(tf)
+                self._save_function_topology(tf, idx=idx)
 
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
-    def _save_function_topology(self, tf):
+    def _save_function_topology(self, tf, idx=None):
         # -- Save function space topology --
         tV = tf.function_space()
         self._save_function_space_topology(tV)
         # -- Save function topology --
+        if idx is not None:
+            self.viewer.pushTimestepping()
+            self.viewer.setTimestep(idx)
         tmesh = tV.mesh()
         element = tV.ufl_element()
         if element.family() == "Real":
@@ -757,10 +765,17 @@ class CheckpointFile(object):
             dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             self.h5pyfile.require_group(path)
-            self.set_attr(path, PREFIX + "_value", tf.dat.data.item())
+            self.set_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]), tf.dat.data.item())
         else:
             topology_dm = tmesh.topology_dm
             dm = self._get_dm_for_checkpointing(tV)
+            path = self._path_to_vec(tmesh.name, dm.name, tf.name())
+            if path in self.h5pyfile:
+                timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
+                if timestepping:
+                    assert idx is not None, "In timestepping mode: idx parameter must be set"
+                else:
+                    assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
             with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
@@ -768,6 +783,8 @@ class CheckpointFile(object):
                 with self.opts.inserted_options():
                     topology_dm.globalVectorView(self.viewer, dm, vec)
                 topology_dm.setName(base_tmesh_name)
+        if idx is not None:
+            self.viewer.popTimestepping()
 
     @PETSc.Log.EventDecorator("LoadMesh")
     def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
@@ -957,11 +974,13 @@ class CheckpointFile(object):
         return impl.FunctionSpace(tmesh, element)
 
     @PETSc.Log.EventDecorator("LoadFunction")
-    def load_function(self, mesh, name):
+    def load_function(self, mesh, name, idx=None):
         r"""Load a :class:`~.Function` defined on `mesh`.
 
         :arg mesh: the mesh on which the function is defined.
         :arg name: the name of the :class:`~.Function` to load.
+        :arg idx: optional timestepping index. A function can
+            be loaded with idx only when it was saved with idx.
         :returns: the loaded :class:`~.Function`.
         """
         tmesh = mesh.topology
@@ -973,7 +992,7 @@ class CheckpointFile(object):
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 fsub_name = self.get_attr(path, PREFIX + "_function")
-                fsub = self.load_function(mesh, fsub_name)
+                fsub = self.load_function(mesh, fsub_name, idx=idx)
                 fsub_list.append(fsub)
             dat = op2.MixedDat(fsub.dat for fsub in fsub_list)
             return Function(V, val=dat, name=name)
@@ -989,7 +1008,7 @@ class CheckpointFile(object):
             if PREFIX_EMBEDDED in self.h5pyfile[path]:
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
-                _f = self.load_function(mesh, _name)
+                _f = self.load_function(mesh, _name, idx=idx)
                 element = V.ufl_element()
                 _element = get_embedding_element_for_checkpointing(element)
                 method = get_embedding_method_for_checkpointing(element)
@@ -999,7 +1018,7 @@ class CheckpointFile(object):
                 return f
             else:
                 tf_name = self.get_attr(path, PREFIX + "_vec")
-                tf = self._load_function_topology(tV.mesh(), tV.ufl_element(), tf_name)
+                tf = self._load_function_topology(tV.mesh(), tV.ufl_element(), tf_name, idx=idx)
                 return Function(V, val=tf, name=name)
         else:
             raise RuntimeError(f"""
@@ -1010,17 +1029,28 @@ class CheckpointFile(object):
             """)
 
     @PETSc.Log.EventDecorator("LoadFunctionTopology")
-    def _load_function_topology(self, tmesh, element, tf_name):
+    def _load_function_topology(self, tmesh, element, tf_name, idx=None):
         tV = self._load_function_space_topology(tmesh, element)
         topology_dm = tmesh.topology_dm
+        dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
         tf = CoordinatelessFunction(tV, name=tf_name)
+        path = self._path_to_vec(tmesh.name, dm_name, tf_name)
+        if idx is not None:
+            self.viewer.pushTimestepping()
+            self.viewer.setTimestep(idx)
         if element.family() == "Real":
             assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
-            dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
-            path = self._path_to_vec(tmesh.name, dm_name, tf_name)
-            value = self.get_attr(path, PREFIX + "_value")
+            value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
             tf.dat.data.itemset(value)
         else:
+            if path in self.h5pyfile:
+                timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")
+                if timestepping:
+                    assert idx is not None, "In timestepping mode: idx parameter must be set"
+                else:
+                    assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
+            else:
+                raise RuntimeError(f"Function {path} not found in {self.filename}")
             with tf.dat.vec_wo as vec:
                 vec.setName(tf_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
@@ -1030,6 +1060,8 @@ class CheckpointFile(object):
                 topology_dm.setName(tmesh.name)
                 topology_dm.globalVectorLoad(self.viewer, dm, sf, vec)
                 topology_dm.setName(base_tmesh_name)
+        if idx is not None:
+            self.viewer.popTimestepping()
         return tf
 
     def _generate_mesh_key(self, mesh_name, reorder, distribution_parameters):
