@@ -517,7 +517,7 @@ class FDMPC(PCBase):
                 G = mu * dot(Finv, Finv.T)
             elif mu.ufl_shape == gshape:
                 G = dot(dot(Finv, mu), Finv.T)
-            elif mu.ufl_shape == gshape + gshape:
+            elif len(mu.ufl_shape) == 4:
                 if piola:
                     PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
