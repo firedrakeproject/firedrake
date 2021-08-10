@@ -25,7 +25,7 @@ Key Dates
 ---------
 
 * Abstract submission deadline: 31 August 2021
-* Registration deadline: 31 August 2021
+* Early registration deadline: 31 August 2021
 * Workshop: 15-17 September 2021
 
 Programme
@@ -49,7 +49,8 @@ The full programme will be made available on `EasyChair <https://easychair.org/c
 Registration
 ------------
 
-Registration costs £10. Please register via `this link <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake>`_.
+You can register for the event using `this link <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake>`_.
+Registration before 31st August costs £10 after which it will increase to £20.
 
 Location
 --------
