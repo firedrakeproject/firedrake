@@ -16,7 +16,6 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-import itertools
 
 
 class RemoveRestrictions(MultiFunction):
