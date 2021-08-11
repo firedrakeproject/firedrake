@@ -356,13 +356,9 @@ def generate_kernel_ast(builder, statements, declared_temps):
                        oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-<<<<<<< HEAD
-                       coefficient_map=tuple(range(len(expr_coeffs))),
+                       coefficient_map=slate_expr.coeff_map,
                        subspace_map = (),
                        subspace_parts = (),
-=======
-                       coefficient_map=slate_expr.coeff_map,
->>>>>>> origin/master
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers,
                        needs_cell_sizes=builder.needs_cell_sizes)

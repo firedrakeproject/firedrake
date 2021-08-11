@@ -354,7 +354,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         f = _real_mangle(f)
         # Map local function/subspace numbers (as seen inside the
         # compiler) to the global function/subspace numbers
-        function_number_map = dict((n, (function_numbers[c], tuple(range(len(c.split()))))
+        function_number_map = dict((n, (function_numbers[c], tuple(range(len(c.split())))))
                                    if isinstance(c, Function) or isinstance(c, Constant)
                                    else (n, (function_numbers[c], (0,)))
                                    for (n, c) in enumerate(f.coefficients()))
