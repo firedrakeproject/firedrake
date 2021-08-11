@@ -19,6 +19,8 @@ import collections
 import ufl
 from ufl import Form, MixedElement, conj
 from ufl.log import GREEN
+from firedrake.constant import Constant
+from firedrake.function import Function
 from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
@@ -138,7 +140,7 @@ class TSFCKernel(Cached):
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg function_number_map: a map from local function numbers to global ones (useful for split forms).
+        :arg function_number_map: a map from local function numbers to global function numbers and components (useful for split forms).
         :arg subspace_number_map: a map from local subspace numbers to global ones (useful for split forms).
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
@@ -352,7 +354,9 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         f = _real_mangle(f)
         # Map local function/subspace numbers (as seen inside the
         # compiler) to the global function/subspace numbers
-        function_number_map = dict((n, function_numbers[c])
+        function_number_map = dict((n, (function_numbers[c], tuple(range(len(c.split()))))
+                                   if isinstance(c, Function) or isinstance(c, Constant)
+                                   else (n, (function_numbers[c], (0,)))
                                    for (n, c) in enumerate(f.coefficients()))
         subspace_number_map = dict((n, subspace_numbers[s])
                                    for (n, s) in enumerate(extract_subspaces(f)))

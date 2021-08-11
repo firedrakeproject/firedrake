@@ -8,6 +8,13 @@
 Firedrake events
 ----------------
 
+Firedrake '21
+~~~~~~~~~~~~~
+
+The fifth Firedrake user and developer workshop is going to be held
+online between 15-17 September 2021. For more information see
+:doc:`the workshop page <firedrake_21>`.
+
 Firedrake USA '20
 ~~~~~~~~~~~~~~~~~
 

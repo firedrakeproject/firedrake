@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.formmanipulation import ExtractSubBlock
 import numpy as np
 
 
@@ -88,3 +89,39 @@ def test_assemble_split_mixed_derivative():
     expect = assemble(inner(grad(u_trial), grad(v))*dx, mat_type="aij")
 
     assert np.allclose(actual.M.values, expect.M.values)
+
+
+def test_split_coordinate_derivative():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "P", 1)
+    Q = FunctionSpace(mesh, "DP", 0)
+    W = V*Q
+    v = TestFunction(W)
+    w = Function(W)
+    x = SpatialCoordinate(mesh)
+    J = derivative(inner(v, w)*dx, x)
+    splitter = ExtractSubBlock()
+
+    J00 = splitter.split(J, (0, 0))
+    expect = derivative(inner(as_vector([TestFunction(V), 0]), w)*dx, x)
+
+    assert J00.signature() == expect.signature()
+
+
+def test_split_coefficient_not_argument():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "P", 1)
+    Q = FunctionSpace(mesh, "DP", 0)
+    W = V*Q
+    w = Function(W)
+    wr = Function(W)
+    J = derivative(derivative(inner(grad(w), grad(w))*dx, w), w, wr)
+    splitter = ExtractSubBlock()
+
+    J00 = splitter.split(J, (0, 0))
+
+    expect = derivative(derivative(inner(grad(w), grad(w))*dx,
+                                   w,
+                                   as_vector([TestFunction(V), 0])),
+                        w, wr)
+    assert J00.signature() == expect.signature()
