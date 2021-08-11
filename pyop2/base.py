@@ -816,6 +816,13 @@ class Subset(ExtrudedSet):
         return self._indices
 
     @cached_property
+    def owned_indices(self):
+        """Return the indices that correspond to the owned entities of the
+        superset.
+        """
+        return self.indices[self.indices < self.superset.size]
+
+    @cached_property
     def layers_array(self):
         if self._superset.constant_layers:
             return self._superset.layers_array
@@ -1620,38 +1627,14 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Zero the data associated with this :class:`Dat`
 
         :arg subset: A :class:`Subset` of entries to zero (optional)."""
-        if hasattr(self, "_zero_parloops"):
-            loops = self._zero_parloops
+        # If there is no subset we can safely zero the halo values.
+        if subset is None:
+            self._data[:] = 0
+            self.halo_valid = True
+        elif subset.superset != self.dataset.set:
+            raise MapValueError("The subset and dataset are incompatible")
         else:
-            loops = {}
-            self._zero_parloops = loops
-
-        iterset = subset or self.dataset.set
-
-        loop = loops.get(iterset, None)
-
-        if loop is None:
-            try:
-                knl = self._zero_kernels[(self.dtype, self.cdim)]
-            except KeyError:
-                import islpy as isl
-                import pymbolic.primitives as p
-
-                inames = isl.make_zero_and_vars(["i"])
-                domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-                x = p.Variable("dat")
-                i = p.Variable("i")
-                insn = loopy.Assignment(x.index(i), 0, within_inames=frozenset(["i"]))
-                data = loopy.GlobalArg("dat", dtype=self.dtype, shape=(self.cdim,))
-                knl = loopy.make_function([domain], [insn], [data], name="zero", target=loopy.CTarget(), lang_version=(2018, 2))
-
-                knl = _make_object('Kernel', knl, 'zero')
-                self._zero_kernels[(self.dtype, self.cdim)] = knl
-            loop = _make_object('ParLoop', knl,
-                                iterset,
-                                self(WRITE))
-            loops[iterset] = loop
-        loop.compute()
+            self.data[subset.owned_indices] = 0
 
     @collective
     def copy(self, other, subset=None):
@@ -1661,28 +1644,17 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
         if other is self:
             return
-        self._copy_parloop(other, subset=subset).compute()
-
-    @collective
-    def _copy_parloop(self, other, subset=None):
-        """Create the :class:`ParLoop` implementing copy."""
-        if not hasattr(self, '_copy_kernel'):
-            import islpy as isl
-            import pymbolic.primitives as p
-            inames = isl.make_zero_and_vars(["i"])
-            domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-            _other = p.Variable("other")
-            _self = p.Variable("self")
-            i = p.Variable("i")
-            insn = loopy.Assignment(_other.index(i), _self.index(i), within_inames=frozenset(["i"]))
-            data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                    loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,))]
-            knl = loopy.make_function([domain], [insn], data, name="copy", target=loopy.CTarget(), lang_version=(2018, 2))
-
-            self._copy_kernel = _make_object('Kernel', knl, 'copy')
-        return _make_object('ParLoop', self._copy_kernel,
-                            subset or self.dataset.set,
-                            self(READ), other(WRITE))
+        if subset is None:
+            # If the current halo is valid we can also copy these values across.
+            if self.halo_valid:
+                other._data[:] = self._data
+                other.halo_valid = True
+            else:
+                other.data[:] = self.data_ro
+        elif subset.superset != self.dataset.set:
+            raise MapValueError("The subset and dataset are incompatible")
+        else:
+            other.data[subset.owned_indices] = self.data_ro[subset.owned_indices]
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -1920,8 +1892,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
     def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.itruediv)
-
-    __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
     def global_to_local_begin(self, access_mode):
