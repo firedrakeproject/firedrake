@@ -27,6 +27,7 @@ def annotate_solve(solve):
             The boundary values are zero.
         adj2_bdy_cb (function, optional): callback function supplying the second-order adjoint solution on
             the boundary. The interior values are not guaranteed to be zero.
+        ad_block_tag (string, options): tag for the resulting block on the Pyadjoint tape
 
     """
 

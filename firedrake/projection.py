@@ -79,13 +79,14 @@ def project(v, V, bcs=None,
     :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
          :class:`.Function` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
-    :arg bcs: boundary conditions to apply in the projection
-    :arg solver_parameters: parameters to pass to the solver used when
+    :kwarg bcs: boundary conditions to apply in the projection
+    :kwarg solver_parameters: parameters to pass to the solver used when
          projecting.
-    :arg form_compiler_parameters: parameters to the form compiler
-    :arg use_slate_for_inverse: compute mass inverse cell-wise using
+    :kwarg form_compiler_parameters: parameters to the form compiler
+    :kwarg use_slate_for_inverse: compute mass inverse cell-wise using
          SLATE (ignored for non-DG function spaces).
-    :arg name: name of the resulting :class:`.Function`
+    :kwarg name: name of the resulting :class:`.Function`
+    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`

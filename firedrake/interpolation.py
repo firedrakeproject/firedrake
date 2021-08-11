@@ -31,6 +31,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
+    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 

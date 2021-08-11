@@ -361,6 +361,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
