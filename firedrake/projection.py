@@ -72,7 +72,8 @@ def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
             use_slate_for_inverse=True,
-            name=None):
+            name=None,
+            ad_block_tag=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
     :arg v: the :class:`.Expression`, :class:`ufl.Expr` or

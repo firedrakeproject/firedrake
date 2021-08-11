@@ -357,13 +357,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, subset=None):
+    def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset)
+        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign

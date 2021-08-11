@@ -22,7 +22,7 @@ __all__ = ("interpolate", "Interpolator")
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE):
+def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: an :class:`.Expression`.
@@ -53,7 +53,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
        performance by using an :class:`Interpolator` instead.
 
     """
-    return Interpolator(expr, V, subset=subset, access=access).interpolate()
+    return Interpolator(expr, V, subset=subset, access=access).interpolate(ad_block_tag=ad_block_tag)
 
 
 class Interpolator(object):
