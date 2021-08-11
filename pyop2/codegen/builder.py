@@ -16,7 +16,7 @@ from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
                                           When, Zero)
 from pyop2.datatypes import IntType
 from pyop2.op2 import (ALL, INC, MAX, MIN, ON_BOTTOM, ON_INTERIOR_FACETS,
-                       ON_TOP, READ, RW, WRITE, Subset)
+                       ON_TOP, READ, RW, WRITE, Subset, PermutedMap)
 from pyop2.utils import cached_property
 
 
@@ -30,7 +30,7 @@ class Map(object):
 
     __slots__ = ("values", "offset", "interior_horizontal",
                  "variable", "unroll", "layer_bounds",
-                 "prefetch")
+                 "prefetch", "permutation")
 
     def __init__(self, map_, interior_horizontal, layer_bounds,
                  values=None, offset=None, unroll=False):
@@ -50,11 +50,17 @@ class Map(object):
         offset = map_.offset
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
+        if isinstance(map_, PermutedMap):
+            self.permutation = NamedLiteral(map_.permutation, parent=values, suffix="permutation")
+            if offset is not None:
+                offset = offset[map_.permutation]
+        else:
+            self.permutation = None
         if offset is not None:
             if len(set(map_.offset)) == 1:
                 offset = Literal(offset[0], casting=True)
             else:
-                offset = NamedLiteral(offset, name=values.name + "_offset")
+                offset = NamedLiteral(offset, parent=values, suffix="offset")
 
         self.values = values
         self.offset = offset
@@ -76,7 +82,10 @@ class Map(object):
             base_key = None
             if base_key not in self.prefetch:
                 j = Index()
-                base = Indexed(self.values, (n, j))
+                if self.permutation is None:
+                    base = Indexed(self.values, (n, j))
+                else:
+                    base = Indexed(self.values, (n, Indexed(self.permutation, (j,))))
                 self.prefetch[base_key] = Materialise(PackInst(), base, MultiIndex(j))
 
             base = self.prefetch[base_key]
@@ -103,7 +112,10 @@ class Map(object):
             return Indexed(self.prefetch[key], (f, i)), (f, i)
         else:
             assert f.extent == 1 or f.extent is None
-            base = Indexed(self.values, (n, i))
+            if self.permutation is None:
+                base = Indexed(self.values, (n, i))
+            else:
+                base = Indexed(self.values, (n, Indexed(self.permutation, (i,))))
             return base, (f, i)
 
     def indexed_vector(self, n, shape, layer=None):
