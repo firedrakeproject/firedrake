@@ -152,12 +152,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dFdm = firedrake.adjoint(dFdm)
         return dFdm
 
-    def _ad_cache_map(self, form, m, m_rep, trial_function):
+    def _ad_cache(self, form, m, m_rep, trial_function):
         dFdm = self._ad_get_adjoint(form, m_rep, trial_function)
-        cache_map = {}
+        cache = {}
         for block_variable in self.get_dependencies():
-            cache_map[m] = dFdm
-        return cache_map
+            cache[m] = dFdm
+        return cache
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
@@ -216,8 +216,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
             return dFdm
 
-        cache_map = self._ad_cache_map(F_form, c, c_rep, trial_function)
-        dFdm = cache_map[c]
+        cache = self._ad_cache(F_form, c, c_rep, trial_function)
+        dFdm = cache[c]
         dFdm = dFdm * adj_sol
         dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
 
