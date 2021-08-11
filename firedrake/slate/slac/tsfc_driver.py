@@ -2,7 +2,6 @@ import collections
 
 from functools import partial
 
-from firedrake.slate.slate import Tensor
 from firedrake.slate.slac.utils import RemoveRestrictions
 from firedrake.tsfc_interface import compile_form as tsfc_compile
 
@@ -44,7 +43,7 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
     Returns: A `ContextKernel` containing all relevant information.
     """
 
-    assert isinstance(tensor, Tensor), (
+    assert tensor.terminal, (
         "Only terminal tensors have forms associated with them!"
     )
     # Sets a default name for the subkernel prefix.

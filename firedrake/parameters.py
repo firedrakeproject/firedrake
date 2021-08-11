@@ -26,7 +26,7 @@ class Parameters(dict):
 
     def __setitem__(self, key, value):
         super(Parameters, self).__setitem__(key, value)
-        if self._update_function:
+        if hasattr(self, "_update_function") and self._update_function:
             self._update_function(key, value)
 
     def name(self):
@@ -86,6 +86,9 @@ parameters["default_matrix_type"] = "aij"
 parameters["default_sub_matrix_type"] = "baij"
 
 parameters["type_check_safe_par_loops"] = False
+
+parameters.add(Parameters("slate_compiler"))
+parameters["slate_compiler"]["optimise"] = True
 
 
 def disable_performance_optimisations():
