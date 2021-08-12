@@ -214,7 +214,7 @@ def adjoint(form, reordered_arguments=None):
 
     :arg form: A UFL form, or a Slate tensor.
     :arg reordered_arguments: arguments to use when creating the
-       adjoint.  Ignored if form is a Slate tensor.
+    adjoint.  Ignored if form is a Slate tensor.
 
     If the form is a slate tensor, this just returns its transpose.
     Otherwise, given a bilinear form, compute the adjoint form by
@@ -225,7 +225,6 @@ def adjoint(form, reordered_arguments=None):
     forms later, their arguments must match.  In that case, the user
     must provide a tuple reordered_arguments=(u2,v2).
     """
-
     if isinstance(form, firedrake.slate.TensorBase):
         if reordered_arguments is not None:
             firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
