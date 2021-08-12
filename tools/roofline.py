@@ -1,6 +1,6 @@
 """
-The generation of a roofline plot given the flop count
-and arithmetic intensity for a given script.
+The generation of a roofline plot for a given script, given the 
+Maximum Memory Bandwidth and Memory Streaming Bandwidth of the CPU.
 """
 
 import firedrake
@@ -12,14 +12,22 @@ from functools import partial
 from contextlib import contextmanager
 
 class Roofline:
-    def __init__(self, streaming_limit, flop_limit):
-        """ """
+    def __init__(self, streaming_limit, flop_limit, event_type=None):
+        """The generation of a roofline performance model, for given code.
+
+        :arg self: self
+        :arg streaming_limit: Memory Streaming Bandwidth (GB/s)
+        :arg flop_limit: CPU's Maximum Memory Bandwidth (GB/s)
+        :arg event_type: Only examine data for the specified PETSc event
+        """
         self.data = defaultdict(partial(defaultdict, partial(defaultdict, float)))
         self.streaming_limit = streaming_limit
         self.flop_limit = flop_limit
+        self.event_type = event_type
     
-    def start_collection(self, event_type=None):
-        """ """
+    def start_collection(self):
+        """The start point of data collection for the Roofline model."""
+        event_type = self.event_type
         start = PETSc.Log.getPerfInfoAllStages()['Main Stage']
         data = self.data[event_type]
         for event, info in start.items():
@@ -27,46 +35,53 @@ class Roofline:
             for n in ('flops', 'bytes', 'time', 'count'):
                 event_data[n] -= info[n]
 
-    def stop_collection(self, event_type=None):
-        """ """
+    def stop_collection(self):
+        """The end point of data collection for the Roofline model."""
+        event_type = self.event_type
         stop = PETSc.Log.getPerfInfoAllStages()['Main Stage']
         data = self.data[event_type]
         for event, info in stop.items():
             event_data = data[event]
             for n in ('flops', 'bytes', 'time', 'count'):
                 event_data[n] += info[n]
-                if event_data['count'] == 0:
-                    print(data[event][0])
         
         if len(data) == 0:
-            firedrake.logging.warn("Requested event has 0 occurrences.")
+            firedrake.logging.warn("Requested event(s) occurs 0 times.")
 
     @contextmanager
-    def collecting(self, event_type=None):
-        """ """
+    def collecting(self):
+        """Automated inclusion of stop_collection at the end of a script if not called."""
+        event_type = self.event_type
         self.start_collection(event_type)
         try: 
             yield
         finally:
             self.stop_collection(event_type)
 
-    def roofline(self, event_type=None, event_name=None, axes=None):
-        """ """
+    def roofline(self, data_type=None, axes=None):
+        """The generation of a roofline plot.
+
+        :arg self: Self
+        :arg data_type: Choice between 'flops', 'bytes', and 'time'
+        :arg axes: Existing axes to add roofline plot to
+        :returns: Roofline plot axes
+        """
+        event_type = self.event_type
         if axes is None:
             figure = plt.figure()
             axes = figure.add_subplot(111)
         
-        if event_name is not None:
-            data = self.data[event_type][event_name]
+        if data_type is not None:
+            data = self.data[event_type][data_type]
         else: 
             data = defaultdict(float)
             for event in self.data[event_type].values():
                 data['flops'] += event['flops']
                 data['bytes'] += event['bytes'] 
                 data['time'] += event['time']
-        
+
         intensity = data['flops']/data['bytes']
-        flop_rate = data['flops']/data['time'] * 1e-9
+        flop_rate = (data['flops']/data['time']) * 1e-9
         
         x_range = [-6, 10] 
         x = numpy.logspace(x_range[0], x_range[1], base=2, num=100)
@@ -76,8 +91,8 @@ class Roofline:
             y.append(min(points * self.streaming_limit, self.flop_limit))
 
         axes.loglog(x, y, c='black', label='Roofline')
-        axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=event_name or 'Total')
+        axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=data_type or 'Total')
         axes.legend(loc='best')
         axes.set_xlabel("Arithmetic Intensity [FLOPs/byte]")
-        axes.set_ylabel("Performance [GFLOPs/s]")
+        axes.set_ylabel("Double Precision [GFLOPs/s]")
         return axes 
