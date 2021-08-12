@@ -114,3 +114,15 @@ Solving adjoint problems
 In some cases, it can be useful to extract adjoint solution data
 which is written to tape by `dolfin-adjoint`. This notebook shows
 how to do that: `solving adjoint equations using firedrake-adjoint <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/11-extract-adjoint-solutions.ipynb>`__.
+
+Running on HPC
+==============
+
+When it comes to running Firedrake on a high performance computer
+there are a range of different techniques to get the best performance
+from your code. The `HPC demonstration
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/12-HPC_demo.ipynb>`__
+notebook explores some of the different solver options that can make a
+big difference to the overall runtime of your code when solving very
+large problems.
+
