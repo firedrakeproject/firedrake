@@ -27,12 +27,14 @@ def annotate_solve(solve):
             The boundary values are zero.
         adj2_bdy_cb (function, optional): callback function supplying the second-order adjoint solution on
             the boundary. The interior values are not guaranteed to be zero.
-        ad_block_tag (string, options): tag for the resulting block on the Pyadjoint tape
+        ad_block_tag (string, options): tag used to label the resulting block on the Pyadjoint tape. This
+            is useful for identifying which block is associated with which equation in the forward model.
 
     """
 
     @wraps(solve)
     def wrapper(*args, **kwargs):
+
         ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
 
