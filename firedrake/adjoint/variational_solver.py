@@ -41,6 +41,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
+            self._ad_dFdm_cache = {}
 
         return wrapper
 
@@ -65,6 +66,7 @@ class NonlinearVariationalSolverMixin:
                                                        problem._ad_bcs,
                                                        problem._ad_adj_F,
                                                        problem_J=problem._ad_J,
+                                                       dFdm_cache=self._ad_dFdm_cache,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
                                                        **sb_kwargs)

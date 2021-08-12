@@ -99,12 +99,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, adj_F, problem_J, solver_params, solver_kwargs, **kwargs):
+    def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J, solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
-        self.problem_J = problem_J
         self.adj_F = adj_F
+        self._dFdm_cache = dFdm_cache
+        self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
@@ -146,18 +147,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
-
-    def _ad_get_adjoint(self, form, m_rep, trial_function):
-        dFdm = -firedrake.derivative(form, m_rep, trial_function)
-        dFdm = firedrake.adjoint(dFdm)
-        return dFdm
-
-    def _ad_cache(self, form, m, m_rep, trial_function):
-        dFdm = self._ad_get_adjoint(form, m_rep, trial_function)
-        cache = {}
-        for block_variable in self.get_dependencies():
-            cache[m] = dFdm
-        return cache
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
@@ -216,8 +205,17 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
             return dFdm
 
-        cache = self._ad_cache(F_form, c, c_rep, trial_function)
-        dFdm = cache[c]
+        # dFdm_cache works with original variables, not block saved outputs.
+        if c in self._dFdm_cache:
+            dFdm = self._dFdm_cache[c]
+        else:
+            dFdm = -firedrake.derivative(self.lhs, c, trial_function)
+            dFdm = firedrake.adjoint(dFdm)
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdm)
+        dFdm = replace(dFdm, replace_map)
+
         dFdm = dFdm * adj_sol
         dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
 
