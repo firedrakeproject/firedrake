@@ -29,7 +29,6 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-<<<<<<< HEAD
 
     def _compute_replace_map(self):
         if self.expr is None:
@@ -53,9 +52,6 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         # prepared is a map from the dats in the expression to the dats on the Block.
         self.backend.Function.assign(output, expr, dat_map=prepared)
         return output
-=======
-    pass
->>>>>>> Melina97/adjoint
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
