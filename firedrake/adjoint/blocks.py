@@ -211,6 +211,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         else:
             dFdm = -firedrake.derivative(self.lhs, c, trial_function)
             dFdm = firedrake.adjoint(dFdm)
+            self._dFdm_cache[c] = dFdm
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdm)
