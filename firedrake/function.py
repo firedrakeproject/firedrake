@@ -368,7 +368,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=None, dat_map=None):
         r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
         :class:`.FunctionSpace` as the :class:`Function` being assigned to.
@@ -396,7 +396,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr), subset)
+            assemble_expressions.Assign(self, expr), subset=subset, dat_map=dat_map)
         return self
 
     @FunctionMixin._ad_annotate_iadd
