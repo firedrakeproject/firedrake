@@ -5,6 +5,7 @@ Maximum Memory Bandwidth and Memory Streaming Bandwidth of the CPU.
 
 import firedrake
 import numpy
+import pickle
 import matplotlib.pyplot as plt 
 from firedrake.petsc import PETSc
 from collections import defaultdict
@@ -58,19 +59,24 @@ class Roofline:
         finally:
             self.stop_collection(event_type)
 
-    def roofline(self, data_type=None, axes=None):
+    def roofline(self, data_type=None, axes=None, saved_data=None):
         """The generation of a roofline plot.
 
         :arg self: Self
         :arg data_type: Choice between 'flops', 'bytes', and 'time'
         :arg axes: Existing axes to add roofline plot to
+        :arg data: Load previously saved data stored as a pickle file
         :returns: Roofline plot axes
         """
+        
         event_type = self.event_type
         if axes is None:
             figure = plt.figure()
             axes = figure.add_subplot(111)
         
+        if saved_data is not None:
+            self.data = saved_data
+
         if data_type is not None:
             data = self.data[event_type][data_type]
         else: 
@@ -95,4 +101,24 @@ class Roofline:
         axes.legend(loc='best')
         axes.set_xlabel("Arithmetic Intensity [FLOPs/byte]")
         axes.set_ylabel("Double Precision [GFLOPs/s]")
+        self.axes = axes
         return axes 
+
+    def save_data(self, name):
+        """Save PETSc performance data as a .txt file.
+        
+        :arg name: Name assigned to .txt file containing the data
+        """
+        data = self.data
+        f_name = '{}.p'.format(name)
+        pickle.dump(data, open(f_name, "wb"))
+
+
+    def save_axes(self, name):
+        """Save roofline plot axes as a pickle file
+        
+        :arg name: Name assigned to pickle file containing the axes
+        """
+        axes = self.axes
+        f_name = '{}.p'.format(name)
+        pickle.dump(axes, open(f_name, "wb"))
