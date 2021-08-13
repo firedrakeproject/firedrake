@@ -95,12 +95,28 @@ class Roofline:
         for points in x: 
             # The minimum of the memory streaming bandwidth and compute limit
             y.append(min(points * self.streaming_limit, self.flop_limit))
+        
+        mem_lim = self.flop_limit/self.streaming_limit
+        x_mem, y1_mem, y2_mem = [], [], []
+        x_comp, y1_comp, y2_comp = [], [], []
+        for i in range(1, len(x)):
+            if x[i-1] <= (mem_lim):
+                x_mem.append(x[i])
+                y1_mem.append(y[i])
+                y2_mem.append(y[0])
+            if x[i] >= mem_lim:
+                x_comp.append(x[i])
+                y1_comp.append(y[i])
+                y2_comp.append(y[0])
 
         axes.loglog(x, y, c='black', label='Roofline')
         axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=data_type or 'Total')
+        axes.fill_between(x=x_mem, y1=y1_mem, y2=y2_mem, color='mediumspringgreen', alpha=0.1, label='Memory-bound region')
+        axes.fill_between(x=x_comp, y1=y1_comp, y2=y2_comp, color='darkorange', alpha=0.1, label='Compute-bound region')
         axes.legend(loc='best')
         axes.set_xlabel("Arithmetic Intensity [FLOPs/byte]")
-        axes.set_ylabel("Double Precision [GFLOPs/s]")
+        axes.set_ylabel("Performance [GFLOPs/s]")
+        plt.show()
         self.axes = axes
         return axes 
 
@@ -112,7 +128,6 @@ class Roofline:
         data = self.data
         f_name = '{}.p'.format(name)
         pickle.dump(data, open(f_name, "wb"))
-
 
     def save_axes(self, name):
         """Save roofline plot axes as a pickle file
