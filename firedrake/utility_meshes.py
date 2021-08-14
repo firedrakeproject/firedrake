@@ -194,48 +194,46 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     for e in range(*cell_range):
 
-        closure, orient = plex.getTransitiveClosure(e)
+        closure, _ = plex.getTransitiveClosure(e)
 
         # get the row for this cell
         row = cell_numbering.getOffset(e)
 
         # run some checks
         assert(closure[0] == e)
-        assert len(closure) == 7, closure
+        assert len(closure) == 6, closure
         edge_range = plex.getHeightStratum(1)
-        assert(all(closure[1:5] >= edge_range[0]))
-        assert(all(closure[1:5] < edge_range[1]))
+        assert(all(closure[1:4] >= edge_range[0]))
+        assert(all(closure[1:4] < edge_range[1]))
         vertex_range = plex.getHeightStratum(2)
-        assert(all(closure[5:] >= vertex_range[0]))
-        assert(all(closure[5:] < vertex_range[1]))
+        assert(all(closure[4:] >= vertex_range[0]))
+        assert(all(closure[4:] < vertex_range[1]))
 
         # enter the cell number
         cell_closure[row][8] = e
 
         # Get a list of unique edges
-        edge_set = list(set(closure[1:5]))
+        edge_set = list(closure[1:4])
 
         # there are two vertices in the cell
-        cell_vertices = closure[5:]
+        cell_vertices = closure[4:]
         cell_X = np.array([0., 0.], dtype=ScalarType)
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
         # Add in the edges
         for i in range(3):
-            # count up how many times each edge is repeated
-            repeats = list(closure[1:5]).count(edge_set[i])
-            if repeats == 2:
+            edge_vertex, edge_vertex_ = plex.getCone(edge_set[i])
+            if edge_vertex_ != edge_vertex:
                 # we have a y-periodic edge
                 cell_closure[row][6] = edge_set[i]
                 cell_closure[row][7] = edge_set[i]
-            elif repeats == 1:
+            else:
                 # in this code we check if it is a right edge, or a left edge
                 # by inspecting the x coordinates of the edge vertex (1)
                 # and comparing with the x coordinates of the cell vertices (2)
 
                 # there is only one vertex on the edge in this case
-                edge_vertex = plex.getCone(edge_set[i])[0]
 
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
@@ -266,7 +264,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                         cell_closure[row][5] = edge_set[i]
 
         # Add in the vertices
-        vertices = closure[5:]
+        vertices = closure[4:]
         v1 = vertices[0]
         v2 = vertices[1]
         x1 = coords[coords_sec.getOffset(v1)]
