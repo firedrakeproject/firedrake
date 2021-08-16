@@ -114,7 +114,7 @@ class FDMPC(PCBase):
             self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N)
         else:
             raise ValueError("Unknown fdm_type")
-       
+
         prealloc.destroy()
         self.Pmat.setBlockSize(V.value_size)
         self.Pmat.setLGMap(lgmap, lgmap)
@@ -195,11 +195,10 @@ class FDMPC(PCBase):
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
     def assemble_stencil(self, A, V, mu, helm, Nq, N):
+        # TODO implement stencil for IPDG
         assert V.value_size == 1
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
-        # TODO implement stencil for IPDG
-        strong = 1
 
         lexico_cg, nel = self.glonum_fun(V.cell_node_map())
         lexico_dg, _ = self.glonum_fun(self.stencil.cell_node_map())
