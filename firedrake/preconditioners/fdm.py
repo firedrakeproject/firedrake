@@ -14,7 +14,6 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_permuted_map
 from firedrake.utils import IntType_c
-import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 
@@ -120,29 +119,20 @@ class FDMPC(PCBase):
             raise ValueError("Unknown fdm_type")
 
         opc = pc
-
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
         pc = PETSc.PC().create(comm=opc.comm)
         pc.incrementTabLevel(1, parent=opc)
 
-        # We set a DM and an appropriate SNESContext on the constructed PC so one
-        # can do e.g. multigrid or patch solves.
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
+        # We set a DM on the constructed PC so one
+        # can do patch solves with ASMPC.
         dm = opc.getDM()
-        octx = get_appctx(dm)
-        oproblem = octx._problem
-        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
-        self._ctx_ref = _SNESContext(oproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
-
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.Pmat, self.Pmat)
         self.pc = pc
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
-            pc.setFromOptions()
+        pc.setFromOptions()
         self.update(pc)
 
     def update(self, pc):
@@ -167,8 +157,7 @@ class FDMPC(PCBase):
         for bc in self.bcs:
             bc.zero(self.uc)
 
-        dm = pc.getDM()
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref), self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
             self.pc.apply(x_, y_)
 
         for bc in self.bcs:

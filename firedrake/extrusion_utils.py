@@ -8,6 +8,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 @PETSc.Log.EventDecorator()
@@ -116,9 +117,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    base_coord_dim=base_coord_dim,
                    hv=height_var)
         name = "pyop2_kernel_uniform_extrusion"
+<<<<<<< HEAD
         ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
                                seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
                                lang_version=(2018, 2))
+=======
+>>>>>>> dd139d71 (fix warning from loopy about language version (#2168))
     elif extrusion_type == 'radial':
         domains = []
         dd = _get_arity_axis_inames('d')
@@ -141,8 +145,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    dd=', '.join(dd),
                    hv=height_var)
         name = "pyop2_kernel_radial_extrusion"
-        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
@@ -217,11 +219,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    ninst=n_dict[tdim][adim],
                    hv=height_var)
         name = "pyop2_kernel_radial_hedgehog_extrusion"
-        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
+    ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
                 ext_coords.cell_set,

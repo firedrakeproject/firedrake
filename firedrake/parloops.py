@@ -9,6 +9,7 @@ from ufl.domain import join_domains
 from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 import loopy
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 import coffee.base as ast
 
 from firedrake.logging import warning
@@ -127,9 +128,14 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             raise KeyError("No cache")
     except KeyError:
         kargs.append(...)
+<<<<<<< HEAD
         knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
                                   name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"],
                                   target=loopy.CTarget(), lang_version=(2018, 2))
+=======
+        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=loopy.CTarget(),
+                                  seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+>>>>>>> dd139d71 (fix warning from loopy about language version (#2168))
         knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
         if kernel_cache is not None:
             return kernel_cache.setdefault(key, knl)
