@@ -1,3 +1,4 @@
+import enum
 import numpy
 from collections import namedtuple
 from itertools import chain, product
@@ -23,6 +24,40 @@ ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cel
 
 def make_builder(*args, **kwargs):
     return partial(KernelBuilder, *args, **kwargs)
+
+
+class Intent(enum.IntEnum):
+    IN = enum.auto()
+    OUT = enum.auto()
+
+
+# QUERY
+# The idea here is that we pass these back as kernel metadata and they can be used to
+# generate PyOP2 GlobalKernelArgs.
+# We likely need to have multiple classes defined (e.g. ReturnKernelArg, TwoFormKernelArg, ...)
+class KernelArg:
+    """Class encapsulating information about kernel arguments."""
+
+    intent = NotImplemented
+
+    def __init__(self, loopy_arg):
+        """Initialise a kernel argument.
+
+        :arg loopy_arg: The corresponding loopy argument.
+        """
+        self.loopy_arg = loopy_arg
+
+    @property
+    def dtype(self):
+        return self.loopy_arg.dtype
+
+    @property
+    def shape(self):
+        self.loopy_arg.shape
+
+
+class CoefficientKernelArg(KernelArg):
+    intent = Intent.IN
 
 
 class Kernel(object):
@@ -54,6 +89,8 @@ class Kernel(object):
                  flop_count=0):
         # Defaults
         self.ast = ast
+        # QUERY
+        # self.arguments = arguments
         self.integral_type = integral_type
         self.oriented = oriented
         self.domain_number = domain_number

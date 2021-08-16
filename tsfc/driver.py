@@ -471,7 +471,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Build kernel body
     return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
-    return_shape = tuple(i.extent for i in return_indices)
+    return_shape = tuple(i.extent for i in return_indices)  # QUERY
     return_var = gem.Variable('A', return_shape)
     if coffee:
         return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
