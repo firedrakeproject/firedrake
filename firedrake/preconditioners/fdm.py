@@ -107,11 +107,11 @@ class FDMPC(PCBase):
             # Vertex-vertex couplings are ignored here,
             # so this should work as direct solver only on star patches
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
-            self.stencil = firedrake.Function(W)
-            self.assemble_stencil(prealloc, V, mu, helm, Nq, N)
+            stencil = firedrake.Function(W)
+            self.assemble_stencil(prealloc, V, mu, helm, Nq, N, stencil)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N)
+            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N, stencil)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -194,30 +194,30 @@ class FDMPC(PCBase):
                          diag.dat(op2.INC, diag.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
-    def assemble_stencil(self, A, V, mu, helm, Nq, N):
+    def assemble_stencil(self, A, V, mu, helm, Nq, N, stencil):
         # TODO implement stencil for IPDG
         assert V.value_size == 1
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
         lexico_cg, nel = self.glonum_fun(V.cell_node_map())
-        lexico_dg, _ = self.glonum_fun(self.stencil.cell_node_map())
+        lexico_dg, _ = self.glonum_fun(stencil.cell_node_map())
 
         ndim = V.mesh().topological_dimension()
         ndof_cell = V.cell_node_list.shape[1]
         nx1 = N + 1
 
         Gq, Bq = self.assemble_coef(mu, helm, Nq)
-        self.stencil.assign(firedrake.zero())
+        stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here, maybe a MixedFunctionSpace
         if Bq is not None:
             op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
-                         self.stencil.dat(op2.WRITE, self.stencil.cell_node_map()),
+                         stencil.dat(op2.WRITE, stencil.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()),
                          Bq.dat(op2.READ, Bq.cell_node_map()))
         else:
             op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
-                         self.stencil.dat(op2.WRITE, self.stencil.cell_node_map()),
+                         stencil.dat(op2.WRITE, stencil.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
         # Connectivity graph between the nodes within a cell
@@ -238,7 +238,7 @@ class FDMPC(PCBase):
             ie = lgmap.apply(lexico_cg(e))
             je = ie[graph]
             je[ondiag] = -1
-            vals = self.stencil.dat.data_ro[lexico_dg(e)]
+            vals = stencil.dat.data_ro[lexico_dg(e)]
             for row, cols, aij in zip(ie, je, vals):
                 A.setValue(row, row, aij[0], imode)
                 A.setValues(row, cols, aij[1:], imode)
