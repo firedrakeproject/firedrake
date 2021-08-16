@@ -86,37 +86,38 @@ class FDMPC(PCBase):
 
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag)
 
-        self.stencil = None
-        if fdm_type == "stencil":
+        # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
+        prealloc = PETSc.Mat().create(comm=A.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(A.getSizes())
+        prealloc.setUp()
+        lgmap = V.dof_dset.lgmap
+        ndof = V.value_size * V.dof_dset.set.size
+
+        if fdm_type == "affine":
+            # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
+            self.assemble_kron(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            nnz = get_preallocation(prealloc, ndof)
+            self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
+            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, mu, helm, Nq,
+                                          Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+        elif fdm_type == "stencil":
             # Compute high-order PDE coefficients and only extract
             # nonzeros from the diagonal and interface neighbors
             # Vertex-vertex couplings are ignored here,
             # so this should work as direct solver only on star patches
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             self.stencil = firedrake.Function(W)
-            Gq, Bq = self.assemble_coef(mu, helm, Nq)
-            self.Pmat = self.assemble_stencil(A, V, Gq, Bq, N, bcflags)
-        elif fdm_type == "affine":
-            # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
-
-            # preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
-            prealloc = PETSc.Mat().create(comm=A.comm)
-            prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-            prealloc.setSizes(A.getSizes())
-            prealloc.setUp()
-            self.assemble_kron(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
-
-            lgmap = V.dof_dset.lgmap
-            ndof = V.value_size * V.dof_dset.set.size
+            self.assemble_stencil(prealloc, V, mu, helm, Nq, N)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self.Pmat.setBlockSize(V.value_size)
-            self.Pmat.setLGMap(lgmap, lgmap)
-
-            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, mu, helm, Nq,
-                                          Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N)
         else:
             raise ValueError("Unknown fdm_type")
+       
+        prealloc.destroy()
+        self.Pmat.setBlockSize(V.value_size)
+        self.Pmat.setLGMap(lgmap, lgmap)
 
         opc = pc
         # Internally, we just set up a PC object that the user can configure
@@ -182,27 +183,6 @@ class FDMPC(PCBase):
     def pull_facet(x, pshape, idir):
         return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    @staticmethod
-    def index_bcs(x, pshape, bc, val):
-        xshape = x.shape
-        x.shape = pshape
-        if bc[0]:
-            x[0, ...] = val
-        if bc[1]:
-            x[-1, ...] = val
-        if len(pshape) >= 2:
-            if bc[2]:
-                x[:, 0, ...] = val
-            if bc[3]:
-                x[:, -1, ...] = val
-        if len(pshape) >= 3:
-            if bc[4]:
-                x[:, :, 0, ...] = val
-            if bc[5]:
-                x[:, :, -1, ...] = val
-        x.shape = xshape
-        return
-
     def assemble_diagonal(self, Gq, Bq, diag):
         if Bq is not None:
             op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
@@ -214,11 +194,10 @@ class FDMPC(PCBase):
                          diag.dat(op2.INC, diag.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
-    def assemble_stencil(self, A, V, Gq, Bq, N, bcflags):
+    def assemble_stencil(self, A, V, mu, helm, Nq, N):
         assert V.value_size == 1
-
         imode = PETSc.InsertMode.ADD_VALUES
-        lgmap = V.local_to_global_map([])
+        lgmap = V.local_to_global_map(self.bcs)
         # TODO implement stencil for IPDG
         strong = 1
 
@@ -228,8 +207,8 @@ class FDMPC(PCBase):
         ndim = V.mesh().topological_dimension()
         ndof_cell = V.cell_node_list.shape[1]
         nx1 = N + 1
-        pshape = (nx1,)*ndim
 
+        Gq, Bq = self.assemble_coef(mu, helm, Nq)
         self.stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here, maybe a MixedFunctionSpace
         if Bq is not None:
@@ -256,51 +235,19 @@ class FDMPC(PCBase):
 
         ondiag = (graph == i).T
         graph = graph.T
-
-        prealloc = PETSc.Mat().create(comm=A.comm)
-        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-        prealloc.setSizes(A.getSizes())
-        prealloc.setUp()
-
-        aones = np.ones(graph.shape[1], dtype=PETSc.RealType)
         for e in range(nel):
             ie = lgmap.apply(lexico_cg(e))
-
-            # Preallocate diagonal
-            for row in ie:
-                prealloc.setValue(row, row, 1.0E0)
-
-            # Preallocate off-diagonal
-            self.index_bcs(ie, pshape, bcflags[e] == strong, -1)
             je = ie[graph]
             je[ondiag] = -1
-            for row, cols in zip(ie, je):
-                prealloc.setValues(row, cols, aones)
-                prealloc.setValues(cols, row, aones)
-
-        prealloc.assemble()
-        nnz = get_preallocation(prealloc, V.dof_dset.set.size)
-        Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-        Pmat.setLGMap(lgmap, lgmap)
-        Pmat.zeroEntries()
-        for e in range(nel):
-            ie = lgmap.apply(lexico_cg(e))
             vals = self.stencil.dat.data_ro[lexico_dg(e)]
-
-            # Assemble diagonal
-            for row, aij in zip(ie, vals):
-                Pmat.setValue(row, row, aij[0], imode)
-
-            # Assemble off-diagonal
-            self.index_bcs(ie, pshape, bcflags[e] == strong, -1)
-            je = ie[graph]
-            je[ondiag] = -1
             for row, cols, aij in zip(ie, je, vals):
-                Pmat.setValues(row, cols, aij[1:], imode)
-                Pmat.setValues(cols, row, aij[1:], imode)
+                A.setValue(row, row, aij[0], imode)
+                A.setValues(row, cols, aij[1:], imode)
+                A.setValues(cols, row, aij[1:], imode)
 
-        Pmat.assemble()
-        return Pmat
+        for row in V.dof_dset.lgmap.indices:
+            A.setValue(row, row, 0.0E0, imode)
+        A.assemble()
 
     def assemble_kron(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
         imode = PETSc.InsertMode.ADD_VALUES
@@ -922,7 +869,7 @@ class FDMPC(PCBase):
                 if(dom)
                     for({IntType_c} j=0; j<2; j++)
                         for({IntType_c} i=0; i<2; i++)
-                            mult_diag({nxq}, {nx}, basis[i]+{nxq*(nx-1)}*(dom-1), basis[j], B+(i+2*j)*{nb});
+                            mult_diag({nxq}, {nx}, basis[i]+{nxq*(nx-1)}*(dom-1), basis[j], B+(i+2*j)*ldb);
                 else
                     for({IntType_c} j=0; j<2; j++)
                         for({IntType_c} i=0; i<2; i++)
