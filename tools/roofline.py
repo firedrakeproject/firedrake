@@ -59,7 +59,7 @@ class Roofline:
         finally:
             self.stop_collection(event_type)
 
-    def roofline(self, data_type=None, axes=None, saved_data=None):
+    def roofline(self, data_type=None, axes=None, load_data=None):
         """The generation of a roofline plot.
 
         :arg self: Self
@@ -74,8 +74,8 @@ class Roofline:
             figure = plt.figure()
             axes = figure.add_subplot(111)
         
-        if saved_data is not None:
-            self.data = saved_data
+        if load_data is not None:
+            self.data = pickle.load(open(load_data, "rb"))
 
         if data_type is not None:
             data = self.data[event_type][data_type]
