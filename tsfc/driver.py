@@ -476,7 +476,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     if coffee:
         return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
     else:
-        return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
+        from tsfc.kernel_interface.firedrake_loopy import LocalTensorKernelArg
+        return_arg = LocalTensorKernelArg(dtype=parameters["scalar_type"], shape=return_shape)
 
     return_expr = gem.Indexed(return_var, return_indices)
 
