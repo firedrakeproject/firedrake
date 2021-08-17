@@ -211,9 +211,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         pass
 
     kernels = []
-    # A map from all form coefficients to their number.
-    coefficient_numbers = dict((c, n)
-                               for (n, c) in enumerate(form.coefficients()))
+    coefficient_numbers = form.coefficient_numbering()
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
