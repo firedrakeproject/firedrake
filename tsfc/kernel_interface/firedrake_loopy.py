@@ -114,7 +114,7 @@ class LocalTensorKernelArg(KernelArg):
         self.shape = shape
 
 
-class Kernel(object):
+class Kernel:
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
                  "coefficient_numbers", "name", "flop_count",
