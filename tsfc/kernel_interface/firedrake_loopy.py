@@ -94,9 +94,9 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
+        expression, shape = prepare_coefficient(coefficient, name, self.interior_facet)
         self.coefficient_map[coefficient] = expression
-        return funarg
+        return lp.GlobalArg(name, self.scalar_type, shape=(shape,))
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -116,8 +116,9 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-            self.cell_sizes_arg = funarg
+            name = "cell_sizes"
+            expression, shape = prepare_coefficient(f, name, interior_facet=self.interior_facet)
+            self.cell_sizes_arg = lp.GlobalArg(name, self.scalar_type, shape=(shape,))
             self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
@@ -323,28 +324,25 @@ class KernelBuilder(KernelBuilderBase):
         return None
 
 
-def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
+def prepare_coefficient(coefficient, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
     :arg coefficient: UFL Coefficient
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg interior_facet: interior facet integral?
-    :returns: (funarg, expression)
-         funarg     - :class:`loopy.GlobalArg` function argument
-         expression - GEM expression referring to the Coefficient
-                      values
+    :returns: (expression, shape)
+         expression - GEM expression referring to the Coefficient values
+         shape - TODO
     """
     assert isinstance(interior_facet, bool)
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
         value_size = coefficient.ufl_element().value_size()
-        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(value_size,))
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
-
-        return funarg, expression
+        return expression, value_size
 
     finat_element = create_element(coefficient.ufl_element())
 
@@ -359,8 +357,7 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
         minus = gem.view(varexp, slice(size, 2*size))
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
-    funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(size,))
-    return funarg, expression
+    return expression, size
 
 
 def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
@@ -377,7 +374,6 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
          expressions - GEM expressions referring to the argument
                        tensor
     """
-
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
