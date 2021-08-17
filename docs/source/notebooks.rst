@@ -122,7 +122,7 @@ When it comes to running Firedrake on a high performance computer
 there are a range of different techniques to get the best performance
 from your code. The `HPC demonstration
 <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/12-HPC_demo.ipynb>`__
-notebook explores some of the different solver options that can make a
-big difference to the overall runtime of your code when solving very
-large problems.
+notebook builds up a multigrid solver for an elliptic problem
+specifically designed for solving very large problems using Firedrake on
+HPC.
 
