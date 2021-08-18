@@ -282,8 +282,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg parameters: parameters object
     :returns: Loopy-based ExpressionKernel object.
     """
-    import loopy as lp
-
     # Just convert FInAT element to FIAT for now.
     # Dual evaluation in FInAT will bring a thorough revision.
     finat_to_element = to_element
@@ -465,8 +463,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
-    return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
-
     return_expr = gem.Indexed(return_var, return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
@@ -476,8 +472,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([ir])
+    builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, index_names, first_coefficient_fake_coords)
+    return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
 
 
 def lower_integral_type(fiat_cell, integral_type):

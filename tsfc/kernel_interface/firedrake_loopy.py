@@ -161,7 +161,12 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, index_names, first_coefficient_fake_coords):
+    def set_output(self, o):
+        """Produce the kernel return argument"""
+        self.return_arg = lp.GlobalArg(o.name, dtype=self.scalar_type,
+                                       shape=o.shape)
+
+    def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg return_arg: loopy.GlobalArg for the return value
@@ -171,7 +176,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             coefficient is a constructed UFL coordinate field
         :returns: :class:`ExpressionKernel` object
         """
-        args = [return_arg]
+        args = [self.return_arg]
         if self.oriented:
             args.append(self.cell_orientations_loopy_arg)
         if self.cell_sizes:
