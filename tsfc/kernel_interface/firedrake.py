@@ -1,5 +1,4 @@
 import numpy
-from collections import namedtuple
 from itertools import chain, product
 from functools import partial
 
@@ -15,10 +14,6 @@ from gem.optimise import remove_componenttensors as prune
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.coffee import generate as generate_coffee
-
-
-# Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients', 'tabulations'])
 
 
 def make_builder(*args, **kwargs):
@@ -120,63 +115,6 @@ class KernelBuilderBase(_KernelBuilderBase):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
         return create_element(element, **kwargs)
-
-
-class ExpressionKernelBuilder(KernelBuilderBase):
-    """Builds expression kernels for UFL interpolation in Firedrake."""
-
-    def __init__(self, scalar_type):
-        super(ExpressionKernelBuilder, self).__init__(scalar_type)
-        self.oriented = False
-        self.cell_sizes = False
-
-    def set_coefficients(self, coefficients):
-        """Prepare the coefficients of the expression.
-
-        :arg coefficients: UFL coefficients from Firedrake
-        """
-        self.coefficients = []  # Firedrake coefficients for calling the kernel
-        self.coefficient_split = {}
-        self.kernel_args = []
-
-        for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl_MixedElement:
-                subcoeffs = coefficient.split()  # Firedrake-specific
-                self.coefficients.extend(subcoeffs)
-                self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j))
-                                     for j, subcoeff in enumerate(subcoeffs)]
-            else:
-                self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,)))
-
-    def register_requirements(self, ir):
-        """Inspect what is referenced by the IR that needs to be
-        provided by the kernel interface."""
-        self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
-
-    def construct_kernel(self, return_arg, impero_c, index_names):
-        """Constructs an :class:`ExpressionKernel`.
-
-        :arg return_arg: COFFEE argument for the return value
-        :arg body: function body (:class:`coffee.Block` node)
-        :returns: :class:`ExpressionKernel` object
-        """
-        args = [return_arg]
-        if self.oriented:
-            args.append(cell_orientations_coffee_arg)
-        if self.cell_sizes:
-            args.append(self.cell_sizes_arg)
-        args.extend(self.kernel_args)
-
-        body = generate_coffee(impero_c, index_names, self.scalar_type)
-
-        for name_, shape in self.tabulations:
-            args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
-                name_, rank=shape), qualifiers=["const"]))
-
-        kernel_code = super(ExpressionKernelBuilder, self).construct_kernel("expression_kernel", args, body)
-        return ExpressionKernel(kernel_code, self.oriented, self.cell_sizes, self.coefficients, self.tabulations)
 
 
 class KernelBuilder(KernelBuilderBase):
