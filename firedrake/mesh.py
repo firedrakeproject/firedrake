@@ -1964,6 +1964,14 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
 
         Meshes created from a coordinates `firedrake.Function` and immersed
         manifold meshes are not yet supported.
+
+    .. note::
+
+        This should also only be used for meshes which have not had their
+        coordinates field modified as, at present, this does not update the
+        coordinates field of the underlying DMPlex. Such meshes may cause
+        unexpected behavioir or hangs when running in parallel.
+
     """
 
     import firedrake.functionspace as functionspace
