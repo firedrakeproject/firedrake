@@ -13,53 +13,45 @@ from functools import partial
 from contextlib import contextmanager
 
 class Roofline:
-    def __init__(self, streaming_limit, flop_limit, event_type=None):
+    def __init__(self, streaming_limit, flop_limit):
         """The generation of a roofline performance model, for given code.
 
         :arg self: self
         :arg streaming_limit: Memory Streaming Bandwidth (GB/s)
         :arg flop_limit: CPU's Maximum Memory Bandwidth (GB/s)
-        :arg event_type: Only examine data for the specified PETSc event
         """
         self.data = defaultdict(partial(defaultdict, partial(defaultdict, float)))
         self.streaming_limit = streaming_limit
         self.flop_limit = flop_limit
-        self.event_type = event_type
     
-    def start_collection(self):
+    def start_collection(self, region_name=None):
         """The start point of data collection for the Roofline model."""
-        event_type = self.event_type
         start = PETSc.Log.getPerfInfoAllStages()['Main Stage']
-        data = self.data[event_type]
+        data = self.data[region_name]
         for event, info in start.items():
             event_data = data[event]
             for n in ('flops', 'bytes', 'time', 'count'):
                 event_data[n] -= info[n]
 
-    def stop_collection(self):
+    def stop_collection(self, region_name=None):
         """The end point of data collection for the Roofline model."""
-        event_type = self.event_type
         stop = PETSc.Log.getPerfInfoAllStages()['Main Stage']
-        data = self.data[event_type]
+        data = self.data[region_name]
         for event, info in stop.items():
             event_data = data[event]
             for n in ('flops', 'bytes', 'time', 'count'):
                 event_data[n] += info[n]
-        
-        if len(data) == 0:
-            firedrake.logging.warn("Requested event(s) occurs 0 times.")
 
     @contextmanager
-    def collecting(self):
+    def collecting(self, region_name=None):
         """Automated inclusion of stop_collection at the end of a script if not called."""
-        event_type = self.event_type
-        self.start_collection(event_type)
+        self.start_collection(region_name)
         try: 
             yield
         finally:
-            self.stop_collection(event_type)
+            self.stop_collection(region_name)
 
-    def roofline(self, data_type=None, axes=None, load_data=None):
+    def roofline(self, region_name=None, event_name=None, axes=None):
         """The generation of a roofline plot.
 
         :arg self: Self
@@ -68,20 +60,16 @@ class Roofline:
         :arg data: Load previously saved data stored as a pickle file
         :returns: Roofline plot axes
         """
-        
-        event_type = self.event_type
+
         if axes is None:
             figure = plt.figure()
             axes = figure.add_subplot(111)
-        
-        if load_data is not None:
-            self.data = pickle.load(open(load_data, "rb"))
 
-        if data_type is not None:
-            data = self.data[event_type][data_type]
+        if event_name is not None:
+            data = self.data[region_name][event_name]
         else: 
             data = defaultdict(float)
-            for event in self.data[event_type].values():
+            for event in self.data[region_name].values():
                 data['flops'] += event['flops']
                 data['bytes'] += event['bytes'] 
                 data['time'] += event['time']
@@ -110,30 +98,29 @@ class Roofline:
                 y2_comp.append(y[0])
 
         axes.loglog(x, y, c='black', label='Roofline')
-        axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=data_type or 'Total')
+        axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=region_name or 'Total')
         axes.fill_between(x=x_mem, y1=y1_mem, y2=y2_mem, color='mediumspringgreen', alpha=0.1, label='Memory-bound region')
         axes.fill_between(x=x_comp, y1=y1_comp, y2=y2_comp, color='darkorange', alpha=0.1, label='Compute-bound region')
         axes.legend(loc='best')
         axes.set_xlabel("Arithmetic Intensity [FLOPs/byte]")
         axes.set_ylabel("Performance [GFLOPs/s]")
-        plt.show()
-        self.axes = axes
         return axes 
 
-    def save_data(self, name):
-        """Save PETSc performance data as a .txt file.
+    def save(self, name):
+        """Save Roofline object as a pickle file.
         
-        :arg name: Name assigned to .txt file containing the data
+        :arg name: Name assigned to pickle file containing the data
         """
-        data = self.data
         f_name = '{}.p'.format(name)
-        pickle.dump(data, open(f_name, "wb"))
-
-    def save_axes(self, name):
-        """Save roofline plot axes as a pickle file
+        with open(f_name, "wb") as f:
+            pickle.dump(self, f)
+    
+    @classmethod
+    def load(cls, name):
+        """Load roofline data from a pickle file
         
-        :arg name: Name assigned to pickle file containing the axes
+        :arg name: Name assigned to pickle file containing the data
         """
-        axes = self.axes
         f_name = '{}.p'.format(name)
-        pickle.dump(axes, open(f_name, "wb"))
+        with open(f_name, "rb") as f:
+            return pickle.load(f)
