@@ -460,6 +460,9 @@ def composed_map(map1, map2):
     Requires that `map1.toset == map2.iterset`.
     Only currently implemented for `map1.arity == 1`
     """
+    if map2 is None:
+        # Real function space case
+        return None
     if map1.toset != map2.iterset:
         raise ValueError("Cannot compose a map where the intermediate sets do not match!")
     if map1.arity != 1:
