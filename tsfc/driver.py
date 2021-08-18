@@ -272,7 +272,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
 
 def compile_expression_dual_evaluation(expression, to_element, *,
                                        domain=None, interface=None,
-                                       parameters=None, coffee=False):
+                                       parameters=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -282,9 +282,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
-    :arg coffee: compile coffee kernel instead of loopy kernel
+    :returns: Loopy-based ExpressionKernel object.
     """
-    import coffee.base as ast
     import loopy as lp
 
     # Just convert FInAT element to FIAT for now.
@@ -318,13 +317,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Initialise kernel builder
     if interface is None:
-        if coffee:
-            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-            interface = firedrake_interface_coffee.ExpressionKernelBuilder
-        else:
-            # Delayed import, loopy is a runtime dependency
-            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-            interface = firedrake_interface_loopy.ExpressionKernelBuilder
+        # Delayed import, loopy is a runtime dependency
+        from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
     arguments = extract_arguments(expression)
@@ -473,10 +467,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
-    if coffee:
-        return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
-    else:
-        return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
+    return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
 
     return_expr = gem.Indexed(return_var, return_indices)
 
