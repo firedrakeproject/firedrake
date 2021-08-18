@@ -102,23 +102,28 @@ class CellSizesKernelArg(KernelArg):
         super().__init__(shape=shape, dtype=dtype, interior_facet=interior_facet)
 
 
-class FacetKernelArg(KernelArg):
+class ExteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (1,)
     intent = Intent.IN
     dtype = numpy.uint32
 
-    def __init__(self, interior_facet):
-        super().__init__(interior_facet=interior_facet)
+    @property
+    def loopy_shape(self):
+        return self.shape
 
 
-def ExteriorFacetKernelArg():
-    return FacetKernelArg(interior_facet=False)
+class InteriorFacetKernelArg(KernelArg):
 
+    name = "facet"
+    shape = (2,)
+    intent = Intent.IN
+    dtype = numpy.uint32
 
-def InteriorFacetKernelArg():
-    return FacetKernelArg(interior_facet=True)
+    @property
+    def loopy_shape(self):
+        return self.shape
 
 
 class TabulationKernelArg(KernelArg):
