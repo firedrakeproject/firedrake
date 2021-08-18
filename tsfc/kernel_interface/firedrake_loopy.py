@@ -49,6 +49,16 @@ class KernelArg(abc.ABC):
         return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
 
 
+class CoordinatesKernelArg(KernelArg):
+    
+    intent = Intent.IN
+    name = "coords"
+
+    def __init__(self, dtype, shape):
+        self.dtype = dtype
+        self.shape = shape
+
+
 class CoefficientKernelArg(KernelArg):
     intent = Intent.IN
 
@@ -328,7 +338,11 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self.coordinates_arg = self._coefficient(f, "coords")
+        # TODO Copy-pasted from _coefficient - needs refactor
+        # self.coordinates_arg = self._coefficient(f, "coords")
+        expression, shape = prepare_coefficient(f, "coords", self.interior_facet)
+        self.coefficient_map[f] = expression
+        self.coordinates_arg = CoordinatesKernelArg(self.scalar_type, shape)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
