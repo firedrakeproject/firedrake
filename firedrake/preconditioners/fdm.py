@@ -30,6 +30,7 @@ class FDMPC(PCBase):
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         fdm_type = opts.getString("type", default="affine")
+        true_diagonal = opts.getBool("true_diagonal", default=False)
 
         dm = pc.getDM()
         V = get_function_space(dm)
@@ -44,6 +45,9 @@ class FDMPC(PCBase):
             family = {ele.family()}
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
+        if true_diagonal and needs_interior_facet:
+            raise ValueError("Option true_diagonal not supported for discontinuous spaces")
+        self.true_diagonal = true_diagonal
 
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
@@ -192,7 +196,6 @@ class FDMPC(PCBase):
         except TypeError:
             pass
 
-        # TODO assert Q elements
         W = firedrake.TensorFunctionSpace(self.mesh, "Lagrange", degree, shape=(ncomp, ncomp))
         diag = firedrake.Function(W)
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, transpose=True)
@@ -457,8 +460,7 @@ class FDMPC(PCBase):
                     ae.destroy()
 
         A.assemble()
-        # FIXME better interface, need an option for this
-        if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
+        if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal:
             self.assemble_diagonal(A, V, mu, helm, Nq)
 
     def assemble_coef(self, mu, helm, Nq=0, diagonal=False, transpose=False, piola=False):
