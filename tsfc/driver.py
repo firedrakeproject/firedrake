@@ -17,7 +17,6 @@ from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
-from gem.flop_count import count_flops
 
 import FIAT
 from FIAT.reference_element import TensorProductCell
@@ -241,7 +240,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     index_ordering = tuple(quadrature_indices) + split_argument_indices
     try:
         impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-        flop_count = count_flops(impero_c)
     except impero_utils.NoopError:
         # No operations, construct empty kernel
         return builder.construct_empty_kernel(kernel_name)
@@ -267,7 +265,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
 
-    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule, flop_count=flop_count)
+    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
 
 def compile_expression_dual_evaluation(expression, to_element, *,
