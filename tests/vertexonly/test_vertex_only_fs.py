@@ -6,7 +6,7 @@ from mpi4py import MPI
 
 # Utility Functions
 
-@pytest.fixture(params=[pytest.param("interval", marks=pytest.mark.xfail(reason="swarm not implemented in 1d")),
+@pytest.fixture(params=["interval",
                         "square",
                         pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
                         "cube",
@@ -76,7 +76,10 @@ def functionspace_tests(vm):
     assert np.allclose(g.dat.data_ro, g.dat.data_ro_with_halos)
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
-    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro, axis=1))
+    # Reshaping because for all meshes, we want (-1, gdim) but
+    # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
+    # () and shape (1,).
+    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro.reshape(-1, vm.geometric_dimension()), axis=1))
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)
