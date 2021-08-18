@@ -1941,7 +1941,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords):
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices
     defined by a list of coordinates.
@@ -1949,6 +1949,12 @@ def VertexOnlyMesh(mesh, vertexcoords):
     :arg mesh: The unstructured mesh in which to immerse the vertex only
         mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+    :kwarg missing_points_behaviour: optional string argument for what to do
+        when vertices which are outside of the mesh are discarded. If 'warn',
+        will print a warning. If 'error' will raise a ValueError. Note that
+        setting this will cause all MPI ranks to check that they have the same
+        list of vertices (else the test is not possible): this operation scales
+        with number of vertices and number of ranks.
 
     .. note::
 
@@ -1998,6 +2004,42 @@ def VertexOnlyMesh(mesh, vertexcoords):
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
     swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+
+    if missing_points_behaviour:
+
+        def compare_arrays(x, y, datatype):
+            x, eqx = x
+            y, eqy = y
+            if not (eqx and eqy):
+                return (None, False)
+            elif x.shape != y.shape:
+                return (None, False)
+            else:
+                return (x, np.allclose(x, y))
+
+        op = MPI.Op.Create(compare_arrays, commute=True)
+
+        # check all ranks have the same vertexcoords so that check is valid
+        # NOTE this operation scales with number of vertices and ranks
+        _, allequal = mesh.comm.allreduce((vertexcoords, True), op=op)
+        op.Free()
+        if not allequal:
+            raise ValueError("Cannot check for missing points if different vertices on each MPI rank!")
+
+        # Check for missing points
+        nlocal = len(swarm.getField("parentcellnum"))
+        swarm.restoreField("parentcellnum")
+        nglobal = mesh.comm.allreduce(nlocal, op=MPI.SUM)
+        ninput = len(vertexcoords)
+        if nglobal < ninput:
+            msg = f"{ninput - nglobal} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
+            if missing_points_behaviour == 'error':
+                raise ValueError(msg)
+            elif missing_points_behaviour == 'warn':
+                from warnings import warn
+                warn(msg)
+            else:
+                raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
