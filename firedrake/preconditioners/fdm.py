@@ -91,7 +91,6 @@ class FDMPC(PCBase):
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
-        lgmap = V.dof_dset.lgmap
         ndof = V.value_size * V.dof_dset.set.size
 
         if fdm_type == "affine":
@@ -116,6 +115,7 @@ class FDMPC(PCBase):
             raise ValueError("Unknown fdm_type")
 
         prealloc.destroy()
+        lgmap = V.dof_dset.lgmap
         self.Pmat.setBlockSize(V.value_size)
         self.Pmat.setLGMap(lgmap, lgmap)
 
@@ -183,7 +183,19 @@ class FDMPC(PCBase):
     def pull_facet(x, pshape, idir):
         return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    def assemble_diagonal(self, Gq, Bq, diag):
+    def assemble_diagonal(self, A, V, mu, helm, Nq):
+        ele = V.ufl_element()
+        ncomp = ele.value_size()
+        degree = ele.degree()
+        try:
+            degree, = set(degree)
+        except TypeError:
+            pass
+
+        # TODO assert Q elements
+        W = firedrake.TensorFunctionSpace(self.mesh, "Lagrange", degree, shape=(ncomp, ncomp))
+        diag = firedrake.Function(W)
+        Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, transpose=True)
         if Bq is not None:
             op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
                          diag.dat(op2.INC, diag.cell_node_map()),
@@ -193,6 +205,13 @@ class FDMPC(PCBase):
             op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
                          diag.dat(op2.INC, diag.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
+
+        imode = PETSc.InsertMode.INSERT
+        lgmap = V.local_to_global_map(self.bcs)
+        idx = np.reshape(lgmap.apply(V.dof_dset.lgmap.indices), (-1, ncomp))
+        for rows, block in zip(idx, diag.dat.data_ro):
+            A.setValues(rows, rows, block, imode)
+        A.assemble()
 
     def assemble_stencil(self, A, V, mu, helm, Nq, N, stencil):
         # TODO implement stencil for IPDG
@@ -438,8 +457,11 @@ class FDMPC(PCBase):
                     ae.destroy()
 
         A.assemble()
+        # FIXME better interface, need an option for this
+        if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
+            self.assemble_diagonal(A, V, mu, helm, Nq)
 
-    def assemble_coef(self, mu, helm, Nq=0, diagonal=False, piola=False):
+    def assemble_coef(self, mu, helm, Nq=0, diagonal=False, transpose=False, piola=False):
         ndim = self.mesh.topological_dimension()
         gdim = self.mesh.geometric_dimension()
         gshape = (ndim, ndim)
@@ -475,7 +497,10 @@ class FDMPC(PCBase):
                 Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", dim=np.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
-                G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
+                if transpose:
+                    G = as_tensor([[G[i, j, i, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[1])])
+                else:
+                    G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
                 Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
@@ -831,6 +856,9 @@ class FDMPC(PCBase):
             nyb = ny*nyq
             nzb = nz*nzq
 
+            bsize = nscal**2
+            gsize = ndim*nscal
+
             JX = "J"
             JY = f"J+{nxb}" if ndim > 1 else "&one"
             JZ = f"J+{nxb+nyb}" if ndim > 2 else "&one"
@@ -848,6 +876,20 @@ class FDMPC(PCBase):
 
             stencil_code = f"""
             {kronmxv_code}
+
+            void transpose(PetscBLASInt m, PetscBLASInt n, PetscScalar *x, PetscScalar *y){{
+                for({IntType_c} j=0; j<n; j++)
+                    for({IntType_c} i=0; i<m; i++)
+                        y[j + n*i] = x[i + m*j];
+                return;
+            }}
+
+            void transpose_add(PetscBLASInt m, PetscBLASInt n, PetscScalar *x, PetscScalar *y){{
+                for({IntType_c} j=0; j<n; j++)
+                    for({IntType_c} i=0; i<m; i++)
+                        y[j + n*i] += x[i + m*j];
+                return;
+            }}
 
             void mult3(PetscBLASInt n, PetscScalar *A, PetscScalar *B, PetscScalar *C){{
                 for({IntType_c} i=0; i<n; i++)
@@ -928,10 +970,7 @@ class FDMPC(PCBase):
                 PetscScalar tcoef[{nquad * nsym}];
                 PetscScalar one = 1.0E0;
 
-                for({IntType_c} j=0; j<{nquad}; j++)
-                    for({IntType_c} i=0; i<{nsym}; i++)
-                        tcoef[j + {nquad}*i] = gcoef[i + {nsym}*j];
-
+                transpose({nsym}, {nquad}, gcoef, tcoef);
                 get_band(1, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
                 return;
             }}
@@ -944,10 +983,7 @@ class FDMPC(PCBase):
                 {IntType_c} i1, i2, i3;
                 PetscBLASInt nstencil = {2*ndim+1};
 
-                for({IntType_c} j=0; j<{nquad}; j++)
-                    for({IntType_c} i=0; i<{nsym}; i++)
-                        tcoef[j + {nquad}*i] = gcoef[i + {nsym}*j];
-
+                transpose({nsym}, {nquad}, gcoef, tcoef);
                 get_band(nstencil, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
 
                 for({IntType_c} j=0; j<{2*ndim}; j++){{
@@ -958,9 +994,52 @@ class FDMPC(PCBase):
                 }}
                 return;
             }}
+
+            void pbjacobi({cargs}){{
+                PetscScalar J[{nb}] = {{ {Jhex} }};
+                PetscScalar D[{nb}] = {{ {Dhex} }};
+                PetscScalar t0[{nquad * max(gsize, bsize)}];
+                PetscScalar t1[{sdim * max(gsize, bsize)}];
+                PetscScalar one = 1.0E0;
+
+                PetscScalar BX[{4 * nxb}];
+                PetscScalar BY[{4 * nyb}];
+                PetscScalar BZ[{4 * nzb}];
+
+                {IntType_c} k, ix, iy, iz;
+                {IntType_c} ndiag = {sdim}, nquad = {nquad}, bsize = {bsize}, inc = 1;
+
+                get_basis(0, {JX}, {DX}, BX, {nxb});
+                get_basis(0, {JY}, {DY}, BY, {nyb});
+                if({ndim}==3)
+                    get_basis(0, {JZ}, {DZ}, BZ, {nzb});
+                else
+                    BZ[0] = 1.0E0;
+
+                if({bcoef}){{
+                    transpose({bsize}, nquad, {bcoef}, t0);
+                    kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, {bsize}, BX, BY, BZ, t0, t1);
+                    transpose_add(ndiag, {bsize}, t1, diag);
+                }}
+
+                transpose({gsize}, nquad, gcoef, t0);
+                {IntType_c} j;
+                for({IntType_c} i=0; i<{ndim}; i++){{
+                    j = i;
+                    k = i;
+                    ix = (i == {ndim-1}) + 2 * (j == {ndim-1});
+                    iy = (i == {ndim-2}) + 2 * (j == {ndim-2});
+                    iz = (i == {ndim-3}) + 2 * (j == {ndim-3});
+                    kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, {nscal}, BX+ix*{nxb}, BY+iy*{nyb}, BZ+iz*{nzb}, t0+k*{nscal*nquad}, t1);
+
+                    for({IntType_c} l=0; l<{nscal}; l++)
+                        BLASaxpy_(&ndiag, &one, t1+l*ndiag, &inc, diag+l*{nscal+1}, &bsize);
+                }}
+                return;
+            }}
             """
 
-            diagonal_kernel = op2.Kernel(stencil_code, "diagonal", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+            diagonal_kernel = op2.Kernel(stencil_code, "pbjacobi", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
             stencil_kernel = op2.Kernel(stencil_code, "stencil", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         return Afdm, Dfdm, restrict_kernel, prolong_kernel, diagonal_kernel, stencil_kernel
 
