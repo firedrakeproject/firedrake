@@ -90,7 +90,7 @@ class FDMPC(PCBase):
 
         eta = float(eta)
 
-        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag, self.true_diagonal)
+        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.reaction_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag, self.true_diagonal)
 
         # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
         prealloc = PETSc.Mat().create(comm=A.comm)
@@ -198,13 +198,10 @@ class FDMPC(PCBase):
         except TypeError:
             pass
 
-        if self.true_diagonal == 1:
-            W = firedrake.VectorFunctionSpace(self.mesh, "Lagrange", degree, dim=ncomp)
-            if helm is not None:
-                if len(helm.ufl_shape) > 1:
-                    helm = diag_vector(helm)
-        else:
-            W = firedrake.TensorFunctionSpace(self.mesh, "Lagrange", degree, shape=(ncomp, ncomp))
+        W = firedrake.VectorFunctionSpace(self.mesh, "Lagrange", degree, dim=ncomp)
+        if helm is not None:
+            if len(helm.ufl_shape) > 1:
+                helm = diag_vector(helm)
 
         diag = firedrake.Function(W)
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, transpose=True)
@@ -218,18 +215,10 @@ class FDMPC(PCBase):
                          diag.dat(op2.INC, diag.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
-        if self.true_diagonal == 1:
-            with diag.dat.vec as scale:
-                scale.pointwiseDivide(scale, A.getDiagonal())
-                scale.sqrtabs()
-                A.diagonalScale(L=scale, R=scale)
-        else:
-            imode = PETSc.InsertMode.INSERT
-            lgmap = V.local_to_global_map(self.bcs)
-            idx = np.reshape(lgmap.apply(V.dof_dset.lgmap.indices), (-1, ncomp))
-            for rows, block in zip(idx, diag.dat.data_ro):
-                A.setValues(rows, rows, block, imode)
-            A.assemble()
+        with diag.dat.vec as scale:
+            scale.pointwiseDivide(scale, A.getDiagonal())
+            scale.sqrtabs()
+            A.diagonalScale(L=scale, R=scale)
 
     def assemble_stencil(self, A, V, mu, helm, Nq, N, stencil):
         # TODO implement stencil for IPDG
@@ -324,24 +313,51 @@ class FDMPC(PCBase):
             be = Afdm[0][0][1]
             for k in range(1, ndim):
                 be = be.kron(Afdm[k][0][1])
-            aptr = np.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
-            aidx = np.tile(np.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
 
-            for e in range(nel):
-                adata = np.sum(Bq.dat.data_ro[bid(e)], axis=0)
-                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
-                ae = be.kron(ae)
+            if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 2:
+                degree = Afdm[0][0][0].size[0]-1
+                W = firedrake.TensorFunctionSpace(self.mesh, "DQ", degree, shape=Bq.ufl_shape)
+                diag = firedrake.Function(W)
+                op2.par_loop(self.reaction_kernel, self.mesh.cell_set,
+                             diag.dat(op2.INC, diag.cell_node_map()),
+                             Bq.dat(op2.READ, Bq.cell_node_map()))
 
-                ie = lexico_cell(e)
-                ie = np.repeat(ie*bsize, bsize) + np.tile(np.arange(bsize, dtype=PETSc.IntType), len(ie))
-                indptr, indices, data = ae.getValuesCSR()
-                rows = lgmap.apply(ie)
-                cols = rows[indices]
-                for i, row in enumerate(rows):
-                    i0 = indptr[i]
-                    i1 = indptr[i+1]
-                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
-                ae.destroy()
+                lexico_diag, _ = self.glonum_fun(diag.cell_node_map())
+                indptr, indices, data = be.getValuesCSR()
+                be_diag = be.getDiagonal()
+                for e in range(nel):
+                    ie = lexico_cell(e)
+                    ie = np.repeat(ie*bsize, bsize) + np.tile(np.arange(bsize, dtype=PETSc.IntType), len(ie))
+                    rows = np.reshape(lgmap.apply(ie), (-1, ncomp))
+                    cols = rows[indices]
+                    vals = diag.dat.data_ro[lexico_diag(e)]
+                    for i, row in enumerate(rows):
+                        i0 = indptr[i]
+                        i1 = indptr[i+1]
+                        col = cols[i0:i1]
+                        block = np.kron(data[i0:i1]*(0.5E0/be_diag[i]), vals[i])
+                        A.setValues(row, col, block, imode)
+                        block = np.ascontiguousarray(block.T)
+                        A.setValues(col, row, block, imode)
+
+            else:
+                aptr = np.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
+                aidx = np.tile(np.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
+                for e in range(nel):
+                    adata = np.sum(Bq.dat.data_ro[bid(e)], axis=0)
+                    ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                    ae = be.kron(ae)
+
+                    ie = lexico_cell(e)
+                    ie = np.repeat(ie*bsize, bsize) + np.tile(np.arange(bsize, dtype=PETSc.IntType), len(ie))
+                    indptr, indices, data = ae.getValuesCSR()
+                    rows = lgmap.apply(ie)
+                    cols = rows[indices]
+                    for i, row in enumerate(rows):
+                        i0 = indptr[i]
+                        i1 = indptr[i+1]
+                        A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                    ae.destroy()
             Bq = None
 
         for e in range(nel):
@@ -475,7 +491,7 @@ class FDMPC(PCBase):
                     ae.destroy()
 
         A.assemble()
-        if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal:
+        if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 1:
             self.assemble_diagonal(A, V, mu, helm, Nq)
 
     def assemble_coef(self, mu, helm, Nq=0, diagonal=False, transpose=False, piola=False):
@@ -873,6 +889,7 @@ class FDMPC(PCBase):
         restrict_kernel = op2.Kernel(transfer_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         diagonal_kernel = None
+        reaction_kernel = None
         stencil_kernel = None
 
         if true_diagonal:
@@ -880,6 +897,8 @@ class FDMPC(PCBase):
             VD = [Vk.T @ Dhat for Vk in Vfdm]
             Jhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in VJ])))
             Dhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in VD])))
+            Jsquared_hex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk**2).flatten() for Vk in VJ])))
+
             nb = sum([Vk.size for Vk in VJ])
             nxb = nx*nxq
             nyb = ny*nyq
@@ -1067,11 +1086,24 @@ class FDMPC(PCBase):
                 }}
                 return;
             }}
+
+            void reaction(PetscScalar *diag, PetscScalar *bcoef){{
+                PetscScalar J[{nb}] = {{ {Jsquared_hex} }};
+                PetscScalar t0[{nquad * bsize}];
+                PetscScalar t1[{sdim * bsize}];
+                PetscScalar one = 1.0E0;
+                PetscBLASInt ndiag = {sdim}, nquad = {nquad}, bsize = {bsize};
+                transpose(bsize, nquad, bcoef, t0);
+                kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, bsize, {JX}, {JY}, {JZ}, t0, t1);
+                transpose_add(ndiag, bsize, t1, diag);
+                return;
+            }}
             """
 
             diagonal_kernel = op2.Kernel(stencil_code, "pbjacobi", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
+            reaction_kernel = op2.Kernel(stencil_code, "reaction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
             stencil_kernel = op2.Kernel(stencil_code, "stencil", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        return Afdm, Dfdm, restrict_kernel, prolong_kernel, diagonal_kernel, stencil_kernel
+        return Afdm, Dfdm, restrict_kernel, prolong_kernel, diagonal_kernel, reaction_kernel, stencil_kernel
 
     @staticmethod
     def multiplicity(V):
