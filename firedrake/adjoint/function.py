@@ -18,8 +18,7 @@ class FunctionMixin(FloatingType):
                                   _ad_args=kwargs.pop("_ad_args", None),
                                   output_block_class=kwargs.pop("output_block_class", None),
                                   _ad_output_args=kwargs.pop("_ad_output_args", None),
-                                  _ad_outputs=kwargs.pop("_ad_outputs", None),
-                                  ad_block_tag=kwargs.pop("ad_block_tag", None), **kwargs)
+                                  _ad_outputs=kwargs.pop("_ad_outputs", None), **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
@@ -27,15 +26,15 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_project(project):
         @wraps(project)
         def wrapper(self, b, *args, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
+
             annotate = annotate_tape(kwargs)
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
                 if isinstance(b, firedrake.Function) and b.ufl_domain() != self.function_space().mesh():
-                    block = SupermeshProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
+                    block = SupermeshProjectBlock(b, self.function_space(), self, bcs)
                 else:
-                    block = ProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
+                    block = ProjectBlock(b, self.function_space(), self, bcs)
 
                 tape = get_working_tape()
                 tape.add_block(block)
@@ -53,7 +52,6 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_split(split):
         @wraps(split)
         def wrapper(self, *args, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             with stop_annotating():
                 output = split(self, *args, **kwargs)
@@ -66,8 +64,7 @@ class FunctionMixin(FloatingType):
                                                   _ad_args=[self, i],
                                                   _ad_output_args=[i],
                                                   output_block_class=FunctionMergeBlock,
-                                                  _ad_outputs=[self],
-                                                  ad_block_tag=ad_block_tag)
+                                                  _ad_outputs=[self])
                                for i in range(len(output)))
             return output
         return wrapper
@@ -76,13 +73,12 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_copy(copy):
         @wraps(copy)
         def wrapper(self, *args, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             func = copy(self, *args, **kwargs)
 
             if annotate:
                 if kwargs.pop("deepcopy", False):
-                    block = FunctionAssignBlock(func, self, ad_block_tag=ad_block_tag)
+                    block = FunctionAssignBlock(func, self)
                     tape = get_working_tape()
                     tape.add_block(block)
                     block.add_output(func.create_block_variable())
@@ -100,7 +96,6 @@ class FunctionMixin(FloatingType):
         def wrapper(self, other, *args, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
 
             # do not annotate in case of self assignment
             annotate = annotate_tape(kwargs) and self != other
@@ -108,7 +103,7 @@ class FunctionMixin(FloatingType):
             if annotate:
                 if not isinstance(other, ufl.core.operator.Operator):
                     other = create_overloaded_object(other)
-                block = FunctionAssignBlock(self, other, ad_block_tag=ad_block_tag)
+                block = FunctionAssignBlock(self, other)
                 tape = get_working_tape()
                 tape.add_block(block)
 
@@ -126,12 +121,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_iadd(__iadd__):
         @wraps(__iadd__)
         def wrapper(self, other, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             func = __iadd__(self, other, **kwargs)
 
             if annotate:
-                block = FunctionAssignBlock(func, self + other, ad_block_tag=ad_block_tag)
+                block = FunctionAssignBlock(func, self + other)
                 tape = get_working_tape()
                 tape.add_block(block)
                 block.add_output(func.create_block_variable())
@@ -144,12 +138,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_isub(__isub__):
         @wraps(__isub__)
         def wrapper(self, other, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             func = __isub__(self, other, **kwargs)
 
             if annotate:
-                block = FunctionAssignBlock(func, self - other, ad_block_tag=ad_block_tag)
+                block = FunctionAssignBlock(func, self - other)
                 tape = get_working_tape()
                 tape.add_block(block)
                 block.add_output(func.create_block_variable())
@@ -162,12 +155,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_imul(__imul__):
         @wraps(__imul__)
         def wrapper(self, other, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             func = __imul__(self, other, **kwargs)
 
             if annotate:
-                block = FunctionAssignBlock(func, self*other, ad_block_tag=ad_block_tag)
+                block = FunctionAssignBlock(func, self*other)
                 tape = get_working_tape()
                 tape.add_block(block)
                 block.add_output(func.create_block_variable())
@@ -180,12 +172,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_idiv(__idiv__):
         @wraps(__idiv__)
         def wrapper(self, other, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             func = __idiv__(self, other, **kwargs)
 
             if annotate:
-                block = FunctionAssignBlock(func, self/other, ad_block_tag=ad_block_tag)
+                block = FunctionAssignBlock(func, self/other)
                 tape = get_working_tape()
                 tape.add_block(block)
                 block.add_output(func.create_block_variable())

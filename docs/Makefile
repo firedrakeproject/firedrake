@@ -48,12 +48,12 @@ GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos sourc
 publish: html
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+	rsync --rsh=ssh -rv -r build/html/* 'o3ce6600@146.255.44.1:html/'
 
 scp:
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+	rsync --rsh=ssh -rv build/html/* 'o3ce6600@146.255.44.1:html/'
 
 livehtml: html
 	python server.py

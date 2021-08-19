@@ -36,14 +36,13 @@ class ConstantMixin(OverloadedType):
     def _ad_annotate_assign(assign):
         @wraps(assign)
         def wrapper(self, *args, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             if annotate:
                 other = args[0]
                 if not isinstance(other, OverloadedType):
                     other = create_overloaded_object(other)
 
-                block = ConstantAssignBlock(other, ad_block_tag=ad_block_tag)
+                block = ConstantAssignBlock(other)
                 tape = get_working_tape()
                 tape.add_block(block)
 
