@@ -237,6 +237,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
         if not isinstance(expr, firedrake.Expression):
             to_element = create_element(V.ufl_element())
+            if V.ufl_element().mapping() == "symmetries":
+                raise NotImplementedError("Cannot interpolate into tensor spaces with symmetry yet")
         else:
             # compile_python_kernel code pathway expects base element
             to_element = create_base_element(V.ufl_element())
