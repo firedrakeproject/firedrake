@@ -3,7 +3,6 @@ from itertools import chain
 import numpy as np
 
 from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
-from ufl import FiniteElement, EnrichedElement, HDivElement, HCurlElement, hexahedron
 from ufl.classes import Expr
 
 from pyop2 import op2
@@ -44,10 +43,6 @@ class PMGBase(PCSNESBase):
     It is expected that many (most?) applications of this preconditioner
     will subclass :class:`PMGBase` to override `coarsen_element`.
     """
-
-    _prefix = "pmg_"
-    _type = "mg"
-
     def coarsen_element(self, ele):
         """
         Coarsen a given element to form the next problem down in the p-hierarchy.
@@ -99,14 +94,6 @@ class PMGBase(PCSNESBase):
             return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
         elif isinstance(ele, TensorProductElement):
             return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
-        elif isinstance(ele, EnrichedElement):
-            # NCF and NCF get decomposed eagerly
-            if all([isinstance(sub, HDivElement) for sub in ele._elements]):
-                return FiniteElement("NCF", hexahedron, N)
-            elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
-                return FiniteElement("NCE", hexahedron, N)
-            else:
-                raise NotImplementedError("I don't know how to coarsen a ", ele)
         else:
             return ele.reconstruct(degree=N)
 
@@ -124,12 +111,12 @@ class PMGBase(PCSNESBase):
             raise NotImplementedError("test and trial spaces must be the same")
 
         prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + self._prefix
+        options_prefix = prefix + "pmg_"
         pdm = PETSc.DMShell().create(comm=pc.comm)
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
-        self.coarse_degree = PETSc.Options(options_prefix).getInt(self._type+"_coarse_degree", default=1)
+        self.coarse_degree = PETSc.Options(options_prefix).getInt("mg_coarse_degree", default=1)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -175,14 +162,14 @@ class PMGBase(PCSNESBase):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
         fctx = get_appctx(fdm)
-        parent = get_parent(fdm)
-        assert parent is not None
 
         # Have we already done this?
-        # FIXME this is triggering weird gmg erros
         cctx = fctx._coarse
         if cctx is not None:
             return cctx.J.arguments()[0].function_space().dm
+
+        parent = get_parent(fdm)
+        assert parent is not None
 
         test, trial = fctx.J.arguments()
         fV = test.function_space()
@@ -275,11 +262,6 @@ class PMGBase(PCSNESBase):
                           options_prefix=fctx.options_prefix,
                           transfer_manager=fctx.transfer_manager)
 
-        # TODO coarsen nullspace
-        # cctx.set_nullspace(fctx._nullspace)
-        # cctx.set_nullspace(fctx._nullspace_T, transpose=True)
-        # cctx.set_nullspace(fctx._near_nullspace, near=True)
-
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
         fctx._coarse = cctx
@@ -347,9 +329,6 @@ class PMGBase(PCSNESBase):
 
 
 class PMGPC(PCBase, PMGBase):
-    _prefix = "pmg_"
-    _type = "mg"
-
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
@@ -384,9 +363,6 @@ class PMGPC(PCBase, PMGBase):
 
 
 class PMGSNES(SNESBase, PMGBase):
-    _prefix = "pfas_"
-    _type = "fas"
-
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
@@ -493,54 +469,23 @@ def tensor_product_space_query(V):
             # Multiple variants
             variant = "unsupported"
             use_tensorproduct = False
-    elif isinstance(ele, firedrake.EnrichedElement):
-        if all([isinstance(sub, HDivElement) for sub in ele._elements]):
-            family = {"NCF"}
-        elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
-            family = {"NCE"}
-        else:
-            family = {"unknown"}
-        variant = None
     else:
         family = {ele.family()}
         variant = ele.variant()
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    isHdiv = family <= {"RTCF", "NCF"}
-    isHcurl = family <= {"RTCE", "NCE"}
     isspectral = variant is None or variant == "spectral"
-    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv or isHcurl)
+    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG)
 
-    return use_tensorproduct, N, ndim, family, variant
-
-
-def get_permuted_map(V):
-    use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
-    if use_tensorproduct and family <= {"RTCF", "NCF"}:
-        pshape = [N]*ndim
-        pshape[0] = -1
-    elif use_tensorproduct and family <= {"RTCE", "NCE"}:
-        pshape = [N+1]*ndim
-        pshape[0] = -1
-    else:
-        return V.cell_node_map()
-
-    # FIXME this import comes from pyop2/wence-feature-permuted-map
-    from pyop2 import PermutedMap
-    ncomp, = V.finat_element.value_shape
-    permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
-    for k in range(ncomp):
-        permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
-    permutation = np.reshape(permutation, (-1,))
-    return PermutedMap(V.cell_node_map(), permutation)
+    return use_tensorproduct, N, family, variant
 
 
 def get_line_element(V):
     # Return the corresponding Line element for CG / DG
     from FIAT.reference_element import UFCInterval
     from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-    use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
     assert use_tensorproduct
     cell = UFCInterval()
     if family <= {"Q", "Lagrange"}:
@@ -548,25 +493,11 @@ def get_line_element(V):
             element = lagrange.Lagrange(cell, N)
         else:
             element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        element = [element]*ndim
     elif family <= {"DQ", "Discontinuous Lagrange"}:
         if variant == "equispaced":
             element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
         else:
             element = gauss_legendre.GaussLegendre(cell, N)
-        element = [element]*ndim
-    elif family <= {"RTCF", "NCF"}:
-        cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [cg]
-        for j in range(1, ndim):
-            element.append(dg)
-    elif family <= {"RTCE", "NCE"}:
-        cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [dg]
-        for j in range(1, ndim):
-            element.append(cg)
     else:
         raise ValueError("Don't know how to get line element for %r" % family)
 
@@ -577,32 +508,17 @@ def get_line_nodes(V):
     # Return the corresponding nodes in the Line for CG / DG
     from FIAT.reference_element import UFCInterval
     from FIAT import quadrature
-    use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
+    use_tensorproduct, N, family, variant = tensor_product_space_query(V)
     assert use_tensorproduct
     cell = UFCInterval()
-    if variant == "equispaced" and family <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
-        return [cell.make_points(1, 0, N+1)]*ndim
+    if variant == "equispaced":
+        return cell.make_points(1, 0, N+1)
     elif family <= {"Q", "Lagrange"}:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        return [rule.get_points()]*ndim
+        return rule.get_points()
     elif family <= {"DQ", "Discontinuous Lagrange"}:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-        return [rule.get_points()]*ndim
-    elif family <= {"RTCF", "NCF"}:
-        cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        points = [cg.get_points()]
-        for j in range(1, ndim):
-            points.append(dg.get_points())
-        return points
-    elif family <= {"RTCE", "NCE"}:
-        cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        points = [dg.get_points()]
-        for j in range(1, ndim):
-            points.append(cg.get_points())
-        return points
-
+        return rule.get_points()
     else:
         raise ValueError("Don't know how to get line nodes for %r" % family)
 
@@ -625,16 +541,12 @@ class StandaloneInterpolationMatrix(object):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        tf, _, _, _, _ = tensor_product_space_query(Vf)
-        tc, _, _, _, _ = tensor_product_space_query(Vc)
+        tf, _, _, _ = tensor_product_space_query(Vf)
+        tc, _, _, _ = tensor_product_space_query(Vc)
 
         if tf and tc:
-            self.Vf_map = get_permuted_map(Vf)
-            self.Vc_map = get_permuted_map(Vc)
             self.prolong_kernel, self.restrict_kernel = self.make_blas_kernels(Vf, Vc)
         else:
-            self.Vf_map = Vf.cell_node_map()
-            self.Vc_map = Vc.cell_node_map()
             self.prolong_kernel, self.restrict_kernel = self.make_kernels(Vf, Vc)
         return
 
@@ -688,35 +600,26 @@ class StandaloneInterpolationMatrix(object):
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
         ndim = Vf.ufl_domain().topological_dimension()
-        nscal = Vf.ufl_element().value_size()
-
-        Vf_bsize = Vf.value_size
-        Vc_bsize = Vc.value_size
-        Vf_sdim = Vf.finat_element.space_dimension()
-        Vc_sdim = Vc.finat_element.space_dimension()
-
         celem = get_line_element(Vc)
         nodes = get_line_nodes(Vf)
-
-        Jhat = []
-        for e, z in zip(celem, nodes):
-            basis = e.tabulate(0, z)
-            Jhat.append(basis[(0,)])
+        basis = celem.tabulate(0, nodes)
+        Jhat = basis[(0,)]
 
         # Declare array shapes to be used as literals inside the kernels
         # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
-        nx, mx = Jhat[0].shape
-        ny, my = Jhat[1].shape if ndim >= 2 else (1, 1)
-        nz, mz = Jhat[2].shape if ndim >= 3 else (1, 1)
+        nx, mx = Jhat.shape
+        ny, my = (nx, mx) if ndim >= 2 else (1, 1)
+        nz, mz = (nx, mx) if ndim >= 3 else (1, 1)
+        nscal = Vf.value_size  # number of components
+        mxyz = mx*my*mz  # dim of Vf scalar element
+        nxyz = nx*ny*nz  # dim of Vc scalar element
         lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
         # Pass the 1D tabulation as hexadecimal string
-        JX = ', '.join(map(float.hex, np.concatenate([np.asarray(Jk).flatten() for Jk in Jhat])))
-
+        JX = ', '.join(map(float.hex, np.asarray(Jhat).flatten()))
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
-        JY = f"JX+{mx*nx}" if ndim >= 2 else "&one"
-        JZ = f"JX+{mx*nx+my*ny}" if ndim >= 3 else "&one"
-        Jlen = mx*nx + (ndim >= 2)*my*ny + (ndim >= 3)*mz*nz
+        JY = "JX" if ndim >= 2 else "&one"
+        JZ = "JX" if ndim >= 3 else "&one"
 
         # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
         # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
@@ -799,19 +702,19 @@ class StandaloneInterpolationMatrix(object):
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
+            PetscScalar JX[{mx}*{nx}] = {{ {JX} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one=1.0E0;
 
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+            for({IntType_c} j=0; j<{nxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
+                    t0[j + {nxyz}*i] = x[i + {nscal}*j];
 
             kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+            for({IntType_c} j=0; j<{mxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
+                   y[i + {nscal}*j] = t1[j + {mxyz}*i];
             return;
         }}
         """
@@ -821,19 +724,19 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
         const PetscScalar *restrict w){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
+            PetscScalar JX[{mx}*{nx}] = {{ {JX} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one=1.0E0;
 
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                    t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+            for({IntType_c} j=0; j<{mxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
+                    t0[j + {mxyz}*i] = x[i + {nscal}*j] * w[i + {nscal}*j];
 
             kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
+            for({IntType_c} j=0; j<{nxyz}; j++)
+                for({IntType_c} i=0; i<{nscal}; i++)
+                    y[i + {nscal}*j] += t1[j + {nxyz}*i];
             return;
         }}
         """
@@ -875,9 +778,9 @@ class StandaloneInterpolationMatrix(object):
         [bc.zero(self.uf) for bc in self.Vf_bcs]
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.Vc_map),
-                     self.uf.dat(op2.READ, self.Vf_map),
-                     self.weight.dat(op2.READ, self.Vf_map))
+                     self.uc.dat(op2.INC, self.uc.cell_node_map()),
+                     self.uf.dat(op2.READ, self.uf.cell_node_map()),
+                     self.weight.dat(op2.READ, self.weight.cell_node_map()))
 
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
@@ -895,8 +798,8 @@ class StandaloneInterpolationMatrix(object):
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uf.dat(op2.WRITE, self.Vf_map),
-                     self.uc.dat(op2.READ, self.Vc_map))
+                     self.uf.dat(op2.WRITE, self.Vf.cell_node_map()),
+                     self.uc.dat(op2.READ, self.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
 
@@ -947,9 +850,9 @@ class MixedInterpolationMatrix(object):
 
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
-                         self.uc.split()[i].dat(op2.INC, standalone.Vc_map),
-                         self.uf.split()[i].dat(op2.READ, standalone.Vf_map),
-                         standalone.weight.dat(op2.READ, standalone.Vf_map))
+                         self.uc.split()[i].dat(op2.INC, standalone.Vc.cell_node_map()),
+                         self.uf.split()[i].dat(op2.READ, standalone.Vf.cell_node_map()),
+                         standalone.weight.dat(op2.READ, standalone.weight.cell_node_map()))
 
         [bc.zero(self.uc) for bc in self.Vc_bcs]
 
@@ -965,8 +868,8 @@ class MixedInterpolationMatrix(object):
 
         for (i, standalone) in enumerate(self.standalones):
             op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
-                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf_map),
-                         self.uc.split()[i].dat(op2.READ, standalone.Vc_map))
+                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf.cell_node_map()),
+                         self.uc.split()[i].dat(op2.READ, standalone.Vc.cell_node_map()))
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
 

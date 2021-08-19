@@ -72,19 +72,21 @@ def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
             use_slate_for_inverse=True,
-            name=None):
+            name=None,
+            ad_block_tag=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
     :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
          :class:`.Function` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
-    :arg bcs: boundary conditions to apply in the projection
-    :arg solver_parameters: parameters to pass to the solver used when
+    :kwarg bcs: boundary conditions to apply in the projection
+    :kwarg solver_parameters: parameters to pass to the solver used when
          projecting.
-    :arg form_compiler_parameters: parameters to the form compiler
-    :arg use_slate_for_inverse: compute mass inverse cell-wise using
+    :kwarg form_compiler_parameters: parameters to the form compiler
+    :kwarg use_slate_for_inverse: compute mass inverse cell-wise using
          SLATE (ignored for non-DG function spaces).
-    :arg name: name of the resulting :class:`.Function`
+    :kwarg name: name of the resulting :class:`.Function`
+    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
@@ -119,6 +121,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
         solver_parameters.setdefault("pc_type", "bjacobi")
+        solver_parameters.setdefault("sub_pc_type", "icc")
         self.source = source
         self.target = target
         self.solver_parameters = solver_parameters
