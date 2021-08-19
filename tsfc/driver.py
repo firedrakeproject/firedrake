@@ -380,10 +380,6 @@ class DualEvaluationCallable(object):
     def __init__(self, expression, kernel_cfg):
         self.expression = expression
         self.kernel_cfg = kernel_cfg
-        # TODO: Deal with case when expression can be split into subexpressions
-        # for dual evaluation on FInAT tensor product elements. If so add a
-        # ``self.factors`` property which can be tested for existence of in
-        # FInAT's tensor product element dual basis method.
 
     def __call__(self, ps):
         """The function to dual evaluate.
