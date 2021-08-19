@@ -335,18 +335,20 @@ All entities in a DMPlex are given a unique number. The range
 of these numbers may be deduced using the method
 ``plex.getDepthStratum``, whose only argument is the entity
 dimension sought. For example, 0 for vertices, 1 for edges, etc.
+Similarly, the method ``plex.getHeightStratum`` can be used for
+codimension access. For example, height 0 corresponds to cells.
 The hierarchical DMPlex structure may be traversed using other
 methods, such as ``plex.getCone``, ``plex.getSupport`` and
 ``plex.getTransitiveClosure``. See the `Firedrake DMPlex paper`_
-for details.
+and the `PETSc manual`_ for details.
 
 If vertex coordinate information is to be accessed from the
-DMPlex then we must first establish a mapping between its
-numbering and the coordinates in the Firedrake mesh. This is done
-by establishing a 'section'. A section can be thought of as a field
-defined upon the mesh - in this case, the coordinate field.
+DMPlex then we must first establish a mapping between
+`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+by establishing a 'section'. A section provides a way of associating
+data with the mesh - in this case, coordinate field data.
 For a $d$-dimensional mesh, we seek to establish offsets to recover
-the a $d$-tuple of coordinates. That is, we seek $d$ vertex-wise
+a $d$-tuple of coordinates. That is, we seek $d$ vertex-wise
 values and no values for entities of higher dimension.
 
 In 2D, for example, this corresponds to the array
@@ -388,4 +390,6 @@ DMPlex numbering) by
     print(f"Vertex {i} has coordinates {coord}")
 
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
-.. _Firedrake DMPlex paper: https://epubs.siam.org/doi/pdf/10.1137/15M1026092
+.. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
+.. _PETSc manual: https://petsc.org/release/docs/manual/dmplex/
+.. _its numbering: https://petsc.org/release/docs/manual/dmplex/#data-layout
