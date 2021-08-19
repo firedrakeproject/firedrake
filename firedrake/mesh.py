@@ -1972,6 +1972,24 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
         coordinates field of the underlying DMPlex. Such meshes may cause
         unexpected behavioir or hangs when running in parallel.
 
+    .. note::
+        When running in parallel, ``vertexcoords`` are strictly confined
+        to the local ``mesh`` cells of that rank. This means that if rank
+        A has ``vertexcoords`` {X} that are not found in the mesh cells
+        owned by rank A but are found in the mesh cells owned by rank B,
+        **and rank B has not been supplied with those** ``vertexcoords``,
+        then the ``vertexcoords`` {X} will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same
+           ``vertexcoords`` or by
+        #. ensuring that ``vertexcoords`` are already found in cells
+           owned by the ``mesh`` partition of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
+
     """
 
     import firedrake.functionspace as functionspace
@@ -2122,6 +2140,24 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         In complex mode the "DMSwarmPIC_coor" field is still saved as a
         real number unlike the coordinates of a DMPlex which become
         complex (though usually with zeroed imaginary parts).
+
+    .. note::
+        When running in parallel, ``coords`` are strictly confined to
+        the local DMPlex cells of that rank. This means that if rank A
+        has `coords` {X} that are not found in the DMPlex cells of rank
+        A but are found in the DMPlex cells of rank B, **and rank B has
+        not been supplied with those** ``coords`` then the ``coords`` {X}
+        will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same list of
+          ``coords`` or by
+        #. ensuring that ``coords`` are already localised for to the
+           DMPlex cells of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
     """
 
     # Check coords
