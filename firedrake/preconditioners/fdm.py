@@ -607,13 +607,26 @@ class FDMPC(PCBase):
         return A_petsc
 
     @staticmethod
+    def sym_eig(A, B):
+        try:
+            from scipy.linalg import eigh
+            return eigh(A, B)
+        except ImportError:
+            from numpy.linalg import eigh, cholesky, inv
+            L = cholesky(B)
+            Linv = inv(L)
+            C = np.dot(Linv, np.dot(A, Linv.T))
+            Z, W = eigh(C)
+            V = np.dot(Linv.T, W)
+            return Z, V
+
+    @staticmethod
     def fdm_cg(Ahat, Bhat):
-        from scipy.linalg import eigh
         rd = (0, -1)
         kd = slice(1, -1)
         Vfdm = np.eye(Ahat.shape[0])
         if Vfdm.shape[0] > 2:
-            _, Vfdm[kd, kd] = eigh(Ahat[kd, kd], Bhat[kd, kd])
+            _, Vfdm[kd, kd] = FDMPC.sym_eig(Ahat[kd, kd], Bhat[kd, kd])
             Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[np.ix_(rd, rd)])
 
         def apply_strong_bcs(Ahat, Bhat, bc0, bc1):
@@ -645,7 +658,6 @@ class FDMPC(PCBase):
 
     @staticmethod
     def fdm_ipdg(Ahat, Bhat, N, eta, gll=False):
-        from scipy.linalg import eigh
         from FIAT.reference_element import UFCInterval
         from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
         from FIAT.quadrature import GaussLegendreQuadratureLineRule
@@ -667,7 +679,7 @@ class FDMPC(PCBase):
         kd = slice(1, -1)
         Vfdm = np.eye(Ahat.shape[0])
         if Vfdm.shape[0] > 2:
-            _, Vfdm[kd, kd] = eigh(Ahat[kd, kd], Bhat[kd, kd])
+            _, Vfdm[kd, kd] = FDMPC.sym_eig(Ahat[kd, kd], Bhat[kd, kd])
             Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[np.ix_(rd, rd)])
 
         def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
