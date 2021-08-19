@@ -29,7 +29,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
-           'TorusMesh', 'CylinderMesh', 'TensorProductMesh2D']
+           'TorusMesh', 'CylinderMesh']
 
 
 @PETSc.Log.EventDecorator()
@@ -1688,99 +1688,3 @@ cells in each direction are not currently supported")
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
     return mesh.Mesh(new_coordinates)
-
-
-@PETSc.Log.EventDecorator()
-def TensorProductMesh2D(xcoords, ycoords, quadrilateral=False, reorder=None,
-                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
-    """Generate a rectangular mesh
-
-    :arg xcoords: mesh points for the x direction
-    :arg ycoords: mesh points for the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
-    :kwarg diagonal: For triangular meshes, should the diagonal got
-        from bottom left to top right (``"right"``), or top left to
-        bottom right (``"left"``), or put in both diagonals (``"crossed"``).
-
-    The boundary edges in this mesh are numbered as follows:
-
-    * 1: plane x == xcoords[0]
-    * 2: plane x == xcoords[-1]
-    * 3: plane y == ycoords[0]
-    * 4: plane y == ycoords[-1]
-    """
-    xcoords = np.unique(xcoords)
-    ycoords = np.unique(ycoords)
-    nx = len(xcoords)-1
-    ny = len(ycoords)-1
-
-    for n in (nx, ny):
-        if n <= 0 or n % 1:
-            raise ValueError("Number of cells must be a postive integer")
-
-    coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
-    # cell vertices
-    i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
-    if not quadrilateral and diagonal == "crossed":
-        xs = 0.5*(xcoords[1:] + xcoords[:,-1])
-        ys = 0.5*(ycoords[1:] + ycoords[:,-1])
-        extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
-        coords = np.vstack([coords, extra])
-        #
-        # 2-----3
-        # | \ / |
-        # |  4  |
-        # | / \ |
-        # 0-----1
-        cells = [i*(ny+1) + j,
-                 i*(ny+1) + j+1,
-                 (i+1)*(ny+1) + j,
-                 (i+1)*(ny+1) + j+1,
-                 (nx+1)*(ny+1) + i*ny + j]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 5)
-        idx = [0, 1, 4, 0, 2, 4, 2, 3, 4, 3, 1, 4]
-        cells = cells[:, idx].reshape(-1, 3)
-    else:
-        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
-        if not quadrilateral:
-            if diagonal == "left":
-                idx = [0, 1, 3, 1, 2, 3]
-            elif diagonal == "right":
-                idx = [0, 1, 2, 0, 2, 3]
-            else:
-                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-            # two cells per cell above...
-            cells = cells[:, idx].reshape(-1, 3)
-
-    plex = mesh._from_cell_list(2, cells, coords, comm)
-
-    # mark boundary facets
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
-    plex.markBoundaryFaces("boundary_faces")
-    coords = plex.getCoordinates()
-    coord_sec = plex.getCoordinateSection()
-    if plex.getStratumSize("boundary_faces", 1) > 0:
-        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = 0.5*min(xcoords[1]-xcoords[0],xcoords[-1]-xcoords[-2])
-        ytol = 0.5*min(xcoords[1]-xcoords[0],xcoords[-1]-xcoords[-2])
-        x0 = xcoords[0]
-        x1 = xcoords[-1]
-        y0 = ycoords[0]
-        y1 = ycoords[-1]
-        for face in boundary_faces:
-            face_coords = plex.vecGetClosure(coord_sec, coords, face)
-            if abs(face_coords[0]-x0) < xtol and abs(face_coords[2]-x0) < xtol:
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-            if abs(face_coords[0] - x1) < xtol and abs(face_coords[2] - x1) < xtol:
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
-            if abs(face_coords[1]-y0) < ytol and abs(face_coords[3]-y0) < ytol:
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
-            if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
-

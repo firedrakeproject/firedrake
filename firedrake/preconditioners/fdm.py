@@ -30,7 +30,9 @@ class FDMPC(PCBase):
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         fdm_type = opts.getString("type", default="affine")
-        true_diagonal = opts.getBool("true_diagonal", default=False)
+        true_diagonal = opts.getInt("true_diagonal", default=0)
+        # true_diagonal == 1 to use diagonal scaling
+        # true_diagonal == 2 to insert the correct block-diagonal entries
 
         dm = pc.getDM()
         V = get_function_space(dm)
@@ -88,7 +90,7 @@ class FDMPC(PCBase):
 
         eta = float(eta)
 
-        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag)
+        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag, self.true_diagonal)
 
         # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
         prealloc = PETSc.Mat().create(comm=A.comm)
@@ -196,7 +198,14 @@ class FDMPC(PCBase):
         except TypeError:
             pass
 
-        W = firedrake.TensorFunctionSpace(self.mesh, "Lagrange", degree, shape=(ncomp, ncomp))
+        if self.true_diagonal == 1:
+            W = firedrake.VectorFunctionSpace(self.mesh, "Lagrange", degree, dim=ncomp)
+            if helm is not None:
+                if len(helm.ufl_shape) > 1:
+                    helm = diag_vector(helm)
+        else:
+            W = firedrake.TensorFunctionSpace(self.mesh, "Lagrange", degree, shape=(ncomp, ncomp))
+
         diag = firedrake.Function(W)
         Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, transpose=True)
         if Bq is not None:
@@ -209,12 +218,18 @@ class FDMPC(PCBase):
                          diag.dat(op2.INC, diag.cell_node_map()),
                          Gq.dat(op2.READ, Gq.cell_node_map()))
 
-        imode = PETSc.InsertMode.INSERT
-        lgmap = V.local_to_global_map(self.bcs)
-        idx = np.reshape(lgmap.apply(V.dof_dset.lgmap.indices), (-1, ncomp))
-        for rows, block in zip(idx, diag.dat.data_ro):
-            A.setValues(rows, rows, block, imode)
-        A.assemble()
+        if self.true_diagonal == 1:
+            with diag.dat.vec as scale:
+                scale.pointwiseDivide(scale, A.getDiagonal())
+                scale.sqrtabs()
+                A.diagonalScale(L=scale, R=scale)
+        else:
+            imode = PETSc.InsertMode.INSERT
+            lgmap = V.local_to_global_map(self.bcs)
+            idx = np.reshape(lgmap.apply(V.dof_dset.lgmap.indices), (-1, ncomp))
+            for rows, block in zip(idx, diag.dat.data_ro):
+                A.setValues(rows, rows, block, imode)
+            A.assemble()
 
     def assemble_stencil(self, A, V, mu, helm, Nq, N, stencil):
         # TODO implement stencil for IPDG
@@ -720,7 +735,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def assemble_matfree(V, N, Nq, eta, needs_interior_facet, helm=False):
+    def assemble_matfree(V, N, Nq, eta, needs_interior_facet, helm=False, true_diagonal=0):
         # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
@@ -860,7 +875,7 @@ class FDMPC(PCBase):
         diagonal_kernel = None
         stencil_kernel = None
 
-        if not needs_hdiv:
+        if true_diagonal:
             VJ = [Vk.T @ Jhat for Vk in Vfdm]
             VD = [Vk.T @ Dhat for Vk in Vfdm]
             Jhex = ', '.join(map(float.hex, np.concatenate([np.asarray(Vk).flatten() for Vk in VJ])))
@@ -870,8 +885,9 @@ class FDMPC(PCBase):
             nyb = ny*nyq
             nzb = nz*nzq
 
-            bsize = nscal**2
             gsize = ndim*nscal
+            bsize = nscal if true_diagonal == 1 else nscal**2
+            stride = 1 if ndim*bsize == gsize else ((ndim*bsize)//gsize)+1
 
             JX = "J"
             JY = f"J+{nxb}" if ndim > 1 else "&one"
@@ -1047,7 +1063,7 @@ class FDMPC(PCBase):
                     kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, {nscal}, BX+ix*{nxb}, BY+iy*{nyb}, BZ+iz*{nzb}, t0+k*{nscal*nquad}, t1);
 
                     for({IntType_c} l=0; l<{nscal}; l++)
-                        BLASaxpy_(&ndiag, &one, t1+l*ndiag, &inc, diag+l*{nscal+1}, &bsize);
+                        BLASaxpy_(&ndiag, &one, t1+l*ndiag, &inc, diag+l*{stride}, &bsize);
                 }}
                 return;
             }}
