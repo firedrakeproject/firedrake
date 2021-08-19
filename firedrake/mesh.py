@@ -1950,19 +1950,19 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
         mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
     :kwarg missing_points_behaviour: optional string argument for what to do
-        when vertices which are outside of the mesh are discarded. If 'warn',
-        will print a warning. If 'error' will raise a ValueError. Note that
+        when vertices which are outside of the mesh are discarded. If ``'warn'``,
+        will print a warning. If ``'error'`` will raise a ValueError. Note that
         setting this will cause all MPI ranks to check that they have the same
         list of vertices (else the test is not possible): this operation scales
         with number of vertices and number of ranks.
 
     .. note::
 
-        The vertex only mesh uses the same communicator as the input `mesh`.
+        The vertex only mesh uses the same communicator as the input ``mesh``.
 
     .. note::
 
-        Meshes created from a coordinates `firedrake.Function` and immersed
+        Meshes created from a coordinates :py:class:`~.Function` and immersed
         manifold meshes are not yet supported.
 
     .. note::
@@ -2115,7 +2115,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     :arg plex: the DMPlex within with the DMSwarm should be
         immersed.
-    :arg coords: an `ndarray` of (npoints, coordsdim) shape.
+    :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
     :kwarg fields: An optional list of named data which can be stored
         for each point in the DMSwarm. The format should be::
 
@@ -2124,11 +2124,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
          (fieldnameN, blocksizeN, dtypeN)]
 
         For example, the swarm coordinates themselves are stored in a
-        field named `DMSwarmPIC_coor` which, were it not created
+        field named ``DMSwarmPIC_coor`` which, were it not created
         automatically, would be initialised with
         ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
-        information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
+        information see `the DMSWARM API reference
+        <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2144,7 +2145,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     .. note::
         When running in parallel, ``coords`` are strictly confined to
         the local DMPlex cells of that rank. This means that if rank A
-        has `coords` {X} that are not found in the DMPlex cells of rank
+        has ``coords`` {X} that are not found in the DMPlex cells of rank
         A but are found in the DMPlex cells of rank B, **and rank B has
         not been supplied with those** ``coords`` then the ``coords`` {X}
         will be lost.
