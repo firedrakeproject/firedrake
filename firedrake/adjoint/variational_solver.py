@@ -31,6 +31,7 @@ class NonlinearVariationalSolverMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, problem, *args, **kwargs):
+            self.ad_block_tag = kwargs.pop("ad_block_tag", None)
             init(self, problem, *args, **kwargs)
             self._ad_problem = problem
             self._ad_args = args
@@ -61,6 +62,7 @@ class NonlinearVariationalSolverMixin:
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
+                                                       ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
                     self._ad_nlvs = type(self)(
