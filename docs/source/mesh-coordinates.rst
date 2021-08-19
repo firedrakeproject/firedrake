@@ -26,6 +26,15 @@ streches the mesh in the *y*-direction. Another possibility is to use
 
 This can also be used if `f` is a solution to a PDE.
 
+.. warning::
+
+   Features which rely on the coordinates field of a mesh's PETSc ``DM``
+   (usually a ``DMPlex``) such as :func:`~.mesh.VertexOnlyMesh` and
+   :func:`~.mg.mesh.MeshHierarchy` will not work as expected if the
+   ``mesh.coordinates`` field has been modified: at present, the this
+   does not correspondingly update the coordinates field of the ``DM``.
+   This will be fixed in a future Firedrake update.
+
 
 Changing the coordinate function space
 --------------------------------------
