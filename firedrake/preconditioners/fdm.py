@@ -87,8 +87,8 @@ class FDMPC(PCBase):
         mu = appctx.get("viscosity", None)  # sets the viscosity
         helm = appctx.get("reaction", None)  # sets the reaction
         hflag = helm is not None
-
         eta = float(eta)
+        self.appctx = appctx
 
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.reaction_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag, self.true_diagonal)
 
@@ -101,19 +101,33 @@ class FDMPC(PCBase):
 
         if fdm_type == "affine":
             # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
-            self.assemble_kron(prealloc, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            ele = V.ufl_element()
+            ncomp = ele.value_size()
+            bsize = V.value_size
+            needs_hdiv = bsize != ncomp
+            Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
+            Gq.dat.data[:] = 1.0E0
+            diag = None
+            if Bq is not None:
+                Bq.dat.data[:] = 1.0E0
+                if self.true_diagonal == 2:
+                    W = firedrake.TensorFunctionSpace(self.mesh, "DQ", N, shape=Bq.ufl_shape)
+                    diag = firedrake.Function(W)
+
+            self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, diag, eta, bcflags, needs_interior_facet)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, mu, helm, Nq,
-                                          Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
+                                          Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet)
         elif fdm_type == "stencil":
             # Compute high-order PDE coefficients and only extract
             # nonzeros from the diagonal and interface neighbors
             # Vertex-vertex couplings are ignored here,
             # so this should work as direct solver only on star patches
+            Gq, Bq, self.assemble_Gq, self.assemble_Bq = self.assemble_coef(mu, helm, Nq)
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             stencil = firedrake.Function(W)
-            self.assemble_stencil(prealloc, V, mu, helm, Nq, N, stencil)
+            self.assemble_stencil(prealloc, V, Gq, Bq, N, stencil)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
             self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N, stencil)
@@ -143,6 +157,8 @@ class FDMPC(PCBase):
         self.update(pc)
 
     def update(self, pc):
+        self._assemble_Gq()
+        self._assemble_Bq()
         self.Pmat.zeroEntries()
         self._assemble_Pmat()
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
@@ -189,7 +205,7 @@ class FDMPC(PCBase):
     def pull_facet(x, pshape, idir):
         return np.reshape(np.moveaxis(np.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    def assemble_diagonal(self, A, V, mu, helm, Nq):
+    def assemble_diagonal(self, A, V, Gq, Bq):
         ele = V.ufl_element()
         ncomp = ele.value_size()
         degree = ele.degree()
@@ -199,12 +215,11 @@ class FDMPC(PCBase):
             pass
 
         W = firedrake.VectorFunctionSpace(self.mesh, "Lagrange", degree, dim=ncomp)
-        if helm is not None:
-            if len(helm.ufl_shape) > 1:
-                helm = diag_vector(helm)
+        if Bq is not None:
+            if len(Bq.ufl_shape) > 1:
+                Bq = diag_vector(Bq)  # FIXME, this breaks
 
         diag = firedrake.Function(W)
-        Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, transpose=True)
         if Bq is not None:
             op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
                          diag.dat(op2.INC, diag.cell_node_map()),
@@ -274,7 +289,7 @@ class FDMPC(PCBase):
             A.setValue(row, row, 0.0E0, imode)
         A.assemble()
 
-    def assemble_kron(self, A, V, mu, helm, Nq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
+    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet):
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
@@ -288,8 +303,9 @@ class FDMPC(PCBase):
         if needs_hdiv:
             sdim = sdim // ncomp
 
-        Gq, Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
         if needs_hdiv:
+            # FIXME still need to pass mu
+            mu = self.appctx.get("viscosity", None)
             Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(mu)
             jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
 
@@ -314,12 +330,9 @@ class FDMPC(PCBase):
             for k in range(1, ndim):
                 be = be.kron(Afdm[k][0][1])
 
-            if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 2:
-                degree = Afdm[0][0][0].size[0]-1
-                W = firedrake.TensorFunctionSpace(self.mesh, "DQ", degree, shape=Bq.ufl_shape)
-                diag = firedrake.Function(W)
+            if A.getType() != PETSc.Mat.Type.PREALLOCATOR and diag is not None:
                 op2.par_loop(self.reaction_kernel, self.mesh.cell_set,
-                             diag.dat(op2.INC, diag.cell_node_map()),
+                             diag.dat(op2.WRITE, diag.cell_node_map()),
                              Bq.dat(op2.READ, Bq.cell_node_map()))
 
                 lexico_diag, _ = self.glonum_fun(diag.cell_node_map())
@@ -492,7 +505,7 @@ class FDMPC(PCBase):
 
         A.assemble()
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 1:
-            self.assemble_diagonal(A, V, mu, helm, Nq)
+            self.assemble_diagonal(A, V, Gq, Bq)
 
     def assemble_coef(self, mu, helm, Nq=0, diagonal=False, transpose=False, piola=False):
         ndim = self.mesh.topological_dimension()
@@ -544,10 +557,12 @@ class FDMPC(PCBase):
 
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
-        Gq = firedrake.assemble(inner(G, q)*dx(degree=Nq))
+        Gq = firedrake.Function(Q)
+        assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=Nq), Gq)
 
         if helm is None:
             Bq = None
+            assemble_Bq = lambda: None
         else:
             shape = helm.ufl_shape
             if len(shape) == 2:
@@ -562,9 +577,10 @@ class FDMPC(PCBase):
 
             Q = firedrake.FunctionSpace(self.mesh, Qe)
             q = firedrake.TestFunction(Q)
-            Bq = firedrake.assemble(inner(helm, q)*dx(degree=Nq))
+            Bq = firedrake.Function(Q)
+            assemble_Bq = partial(firedrake.assemble, inner(helm, q)*dx(degree=Nq), Bq)
 
-        return Gq, Bq
+        return Gq, Bq, assemble_Gq, assemble_Bq
 
     def assemble_piola_facet(self, mu):
         extruded = self.mesh.cell_set._extruded
@@ -1095,7 +1111,7 @@ class FDMPC(PCBase):
                 PetscBLASInt ndiag = {sdim}, nquad = {nquad}, bsize = {bsize};
                 transpose(bsize, nquad, bcoef, t0);
                 kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, bsize, {JX}, {JY}, {JZ}, t0, t1);
-                transpose_add(ndiag, bsize, t1, diag);
+                transpose(ndiag, bsize, t1, diag);
                 return;
             }}
             """
