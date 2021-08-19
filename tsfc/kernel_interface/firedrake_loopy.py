@@ -37,16 +37,19 @@ class KernelArg(abc.ABC):
 
     name: str
     shape: tuple
+    rank: int
     dtype: numpy.dtype
     intent: Intent
     interior_facet: bool
 
-    def __init__(self, name=None, shape=None, dtype=None,
+    def __init__(self, name=None, shape=None, rank=None, dtype=None,
                  intent=None, interior_facet=None):
         if name is not None:
             self.name = name
         if shape is not None:
             self.shape = shape
+        if rank is not None:
+            self.rank = rank
         if dtype is not None:
             self.dtype = dtype
         if intent is not None:
@@ -67,14 +70,29 @@ class KernelArg(abc.ABC):
 class CoordinatesKernelArg(KernelArg):
     
     name = "coords"
+    rank = 1
     intent = Intent.IN
 
     def __init__(self, shape, dtype, interior_facet=False):
         super().__init__(shape=shape, dtype=dtype, interior_facet=interior_facet)
 
 
+class ConstantKernelArg(KernelArg):
+
+    rank = 0
+    intent = Intent.IN
+
+    def __init__(self, name, shape, dtype):
+        super().__init__(name=name, shape=shape, dtype=dtype)
+
+    @property
+    def loopy_shape(self):
+        return self.shape
+
+
 class CoefficientKernelArg(KernelArg):
 
+    rank = 1
     intent = Intent.IN
 
     def __init__(self, name, shape, dtype, interior_facet=False):
@@ -85,6 +103,7 @@ class CoefficientKernelArg(KernelArg):
 class CellOrientationsKernelArg(KernelArg):
 
     name = "cell_orientations"
+    rank = 0
     shape = (1,)
     intent = Intent.IN
     dtype = numpy.int32
@@ -96,6 +115,7 @@ class CellOrientationsKernelArg(KernelArg):
 class CellSizesKernelArg(KernelArg):
 
     name = "cell_sizes"
+    rank = 1
     intent = Intent.IN
 
     def __init__(self, shape, dtype, interior_facet=False):
@@ -106,6 +126,7 @@ class ExteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (1,)
+    rank = 0
     intent = Intent.IN
     dtype = numpy.uint32
 
@@ -118,6 +139,7 @@ class InteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (2,)
+    rank = 0
     intent = Intent.IN
     dtype = numpy.uint32
 
@@ -128,6 +150,7 @@ class InteriorFacetKernelArg(KernelArg):
 
 class TabulationKernelArg(KernelArg):
 
+    rank = 1
     intent = Intent.IN
 
     def __init__(self, name, shape, dtype, interior_facet=False):
@@ -144,9 +167,10 @@ class LocalTensorKernelArg(KernelArg):
     name = "A"
     intent = Intent.OUT
 
-    def __init__(self, shape, dtype, interior_facet=False):
+    def __init__(self, shape, rank, dtype, interior_facet=False):
         super().__init__(
             shape=shape,
+            rank=rank,
             dtype=dtype,
             interior_facet=interior_facet
         )
@@ -231,9 +255,12 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        expression, shape = prepare_coefficient(coefficient, name, self.interior_facet)
+        expression, shape, is_constant = prepare_coefficient(coefficient, name, self.interior_facet)
         self.coefficient_map[coefficient] = expression
-        return CoefficientKernelArg(name, shape, self.scalar_type, self.interior_facet)
+        if is_constant:
+            return ConstantKernelArg(name, shape, self.scalar_type)
+        else:
+            return CoefficientKernelArg(name, shape, self.scalar_type, self.interior_facet)
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -253,7 +280,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            expression, shape = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
+            expression, shape, _ = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
             self.cell_sizes_arg = CellSizesKernelArg(self.scalar_type, shape, self.interior_facet)
             self._cell_sizes = expression
 
@@ -377,7 +404,7 @@ class KernelBuilder(KernelBuilderBase):
         self.domain_coordinate[domain] = f
         # TODO Copy-pasted from _coefficient - needs refactor
         # self.coordinates_arg = self._coefficient(f, "coords")
-        expression, shape = prepare_coefficient(f, "coords", self.interior_facet)
+        expression, shape, _ = prepare_coefficient(f, "coords", self.interior_facet)
         self.coefficient_map[f] = expression
         self.coordinates_arg = CoordinatesKernelArg(
             shape, self.scalar_type, interior_facet=self.interior_facet
@@ -471,6 +498,7 @@ class KernelBuilder(KernelBuilderBase):
         return None
 
 
+# TODO Returning is_constant is nasty. Refactor.
 def prepare_coefficient(coefficient, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
@@ -489,7 +517,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         value_size = coefficient.ufl_element().value_size()
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
-        return expression, value_size
+        return expression, (value_size,), True
 
     finat_element = create_element(coefficient.ufl_element())
 
@@ -504,7 +532,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         minus = gem.view(varexp, slice(size, 2*size))
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
-    return expression, shape
+    return expression, shape, False
 
 
 def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
@@ -525,7 +553,7 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
 
     if len(arguments) == 0:
         # No arguments
-        funarg = LocalTensorKernelArg((1,), scalar_type)
+        funarg = LocalTensorKernelArg((1,), 0, scalar_type)
         expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
 
         return funarg, [expression]
@@ -559,7 +587,7 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
         c_shape = tuple(u_shape)
         slicez = [[slice(s) for s in u_shape]]
 
-    funarg = LocalTensorKernelArg(shapes, scalar_type, interior_facet=interior_facet)
+    funarg = LocalTensorKernelArg(shapes, len(shapes), scalar_type, interior_facet=interior_facet)
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
     return funarg, prune(expressions)
