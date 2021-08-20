@@ -1364,11 +1364,11 @@ if mode == "install" or not args.update_script:
         if args.with_blas is None and mode == "install":
             required_packages.append("libopenblas-dev")
 
-        if args.documentation_dependencies:
-            required_packages.append("graphviz")
-
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+
+    if args.documentation_dependencies:
+        required_packages.append("graphviz")
 
     if args.show_dependencies:
         log.info("\n************************************************")
