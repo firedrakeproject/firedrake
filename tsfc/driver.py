@@ -341,8 +341,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       scalar_type=parameters["scalar_type"])
     fn = DualEvaluationCallable(expression, kernel_cfg)
 
-    # Get gem.Indexed tensor and basis indices
-    ir, basis_indices = to_element.dual_evaluation(fn)
+    # Get the gem expression for dual evaluation and corresponding basis
+    # indices needed for compilation of the expression
+    evaluation, basis_indices = to_element.dual_evaluation(fn)
 
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
@@ -352,11 +353,11 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
-    ir, = impero_utils.preprocess_gem([ir])
-    impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
+    evaluation, = impero_utils.preprocess_gem([evaluation])
+    impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
     index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
-    builder.register_requirements([ir])
+    builder.register_requirements([evaluation])
     builder.set_output(return_var)
     # Build kernel tuple
     return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
