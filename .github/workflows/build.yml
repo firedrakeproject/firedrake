@@ -44,7 +44,7 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
-          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch tsfc ReubenHill/finat-dual-eval --package-branch FInAT ReubenHill/finat-dual-eval || (cat firedrake-install.log && /bin/false)
+          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch tsfc wence/dual-eval --package-branch FInAT wence/dual-eval || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../build/bin/activate
@@ -69,7 +69,7 @@ jobs:
           cd ..
           rm -rf build
   docker_env:
-    name: "Build Docker environment container"  
+    name: "Build Docker environment container"
     # The type of runner that the job will run on
     needs: build
     if: ${{ github.ref == 'refs/heads/master' }}
