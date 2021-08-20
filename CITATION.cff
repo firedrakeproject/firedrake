@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: |
+    "If you publish results using Firedrake, we would be grateful if you would cite it using the following metadata.
+    Please visit https://www.firedrakeproject.org/citing.html for extended instructions."
+title: "Firedrake"
+url: "https://github.com/firedrakeproject/firedrake"
+preferred-citation:
+  type: article
+  reference: Rathgeber2016
+  authors:
+    family-names: "Rathgeber"
+    given-names: "Florian"
+    family-names: "Ham"
+    given-names: "David A."
+    family-names: "Lawrence"
+    given-names: "Mitchell"
+    family-names: "Lange"
+    given-names: "Michael"
+    family-names: "Luporini"
+    given-names: "Fabio"
+    family-names: "Mcrae"
+    given-names: "Andrew T. T."
+    family-names: "Bercea"
+    given-names: "Gheorghe-Teodor"
+    family-names: "Markall"
+    given-names: "Graham R."
+    family-names: "Kelly"
+    given-names: "Paul H. J."
+  doi: "10.1145/2998441"
+  url: "http://arxiv.org/abs/1501.01809"
+  journal: "ACM Trans. Math. Softw."
+  start: 1 # First page number
+  end: 27 # Last page number
+  title: "Firedrake: Automating the Finite Element Method by Composing Abstractions"
+  volume: 43
+  issue: 3
+  year: 2016
+
