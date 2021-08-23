@@ -42,7 +42,7 @@ class KernelArg(abc.ABC):
     intent: Intent
     interior_facet: bool
 
-    def __init__(self, name=None, shape=None, rank=None, dtype=None,
+    def __init__(self, *, name=None, shape=None, rank=None, dtype=None,
                  intent=None, interior_facet=None):
         if name is not None:
             self.name = name
@@ -109,7 +109,7 @@ class CellOrientationsKernelArg(KernelArg):
     dtype = numpy.int32
 
     def __init__(self, interior_facet=False):
-        super().__init__(self, interior_facet=interior_facet)
+        super().__init__(interior_facet=interior_facet)
 
 
 class CellSizesKernelArg(KernelArg):
