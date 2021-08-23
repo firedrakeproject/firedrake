@@ -477,7 +477,10 @@ def compile_expression_dual_evaluation(expression, to_element, *,
         return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
     else:
         from tsfc.kernel_interface.firedrake_loopy import LocalTensorKernelArg
-        return_arg = LocalTensorKernelArg(return_shape, len(return_shape),
+        # TODO Explain/understand more
+        # If arguments has length 1 then we assemble into a matrix, else to a function
+        assert len(arguments) in {0, 1}
+        return_arg = LocalTensorKernelArg((return_shape,), len(arguments)+1,
                                           parameters["scalar_type"])
 
     return_expr = gem.Indexed(return_var, return_indices)
