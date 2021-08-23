@@ -330,7 +330,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
-    # Create callable for translation to GEM
+    # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
                       # FIXME: change if we ever implement
@@ -339,6 +339,13 @@ def compile_expression_dual_evaluation(expression, to_element, *,
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
+
+    # Allow interpolation onto QuadratureElements to refer to the quadrature
+    # rule they represent
+    if isinstance(to_element, finat.QuadratureElement):
+        kernel_cfg["quadrature_rule"] = to_element._rule
+
+    # Create callable for translation of UFL expression to gem
     fn = DualEvaluationCallable(expression, kernel_cfg)
 
     # Get the gem expression for dual evaluation and corresponding basis
@@ -407,6 +414,8 @@ class DualEvaluationCallable(object):
         if isinstance(ps, finat.point_set.UnknownPointSet):
             # Run time known points
             kernel_cfg.update(point_indices=ps.indices, point_expr=ps.expression)
+            # GemPointContext's aren't allowed to have quadrature rules
+            kernel_cfg.pop("quadrature_rule", None)
             translation_context = fem.GemPointContext(**kernel_cfg)
         else:
             # Compile time known points
