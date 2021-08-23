@@ -8,9 +8,7 @@ import pickle
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
-import gzip
 import os
-import zlib
 import tempfile
 import collections
 
@@ -72,24 +70,17 @@ class TSFCKernel(Cached):
     @classmethod
     def _read_from_disk(cls, key, comm):
         if comm.rank == 0:
-            cache = cls._cachedir
-            shard, disk_key = key[:2], key[2:]
-            filepath = os.path.join(cache, shard, disk_key)
-            val = None
-            if os.path.exists(filepath):
-                try:
-                    with gzip.open(filepath, 'rb') as f:
-                        val = f.read()
-                except zlib.error:
-                    pass
-
+            filepath = os.path.join(cls._cachedir, key[:2], key[2:])
+            try:
+                with open(filepath, "rb") as f:
+                    val = pickle.load(f)
+            except FileNotFoundError:
+                raise KeyError(f"Object with key {key} not found")
             comm.bcast(val, root=0)
         else:
             val = comm.bcast(None, root=0)
 
-        if val is None:
-            raise KeyError("Object with key %s not found" % key)
-        return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
+        return cls._cache.setdefault((key, comm.py2f()), val)
 
     @classmethod
     def _cache_store(cls, key, val):
@@ -104,8 +95,8 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
-            with gzip.open(tempfile, 'wb') as f:
-                pickle.dump(val, f, 0)
+            with open(tempfile, "wb") as f:
+                pickle.dump(val, f)
             os.rename(tempfile, filepath)
         comm.barrier()
 
