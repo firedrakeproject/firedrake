@@ -481,7 +481,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
         # If arguments has length 1 then we assemble into a matrix, else to a function
         assert len(arguments) in {0, 1}
         return_arg = LocalTensorKernelArg((return_shape,), len(arguments)+1,
-                                          parameters["scalar_type"])
+                                          parameters["scalar_type"], shape_fixed=True)
 
     return_expr = gem.Indexed(return_var, return_indices)
 

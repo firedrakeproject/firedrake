@@ -167,19 +167,23 @@ class LocalTensorKernelArg(KernelArg):
     name = "A"
     intent = Intent.OUT
 
-    def __init__(self, shape, rank, dtype, interior_facet=False):
+    def __init__(self, shape, rank, dtype, interior_facet=False, shape_fixed=False):
         super().__init__(
             shape=shape,
             rank=rank,
             dtype=dtype,
             interior_facet=interior_facet
         )
+        self.shape_fixed = shape_fixed  # debug param because interpolating doesn't work
 
     @property
     def loopy_shape(self):
-        # The outer dimension of self.shape corresponds to the form arguments.
-        lp_shape = numpy.array([numpy.prod(s, dtype=int) for s in self.shape])
-        return tuple(lp_shape) if not self.interior_facet else tuple(2*lp_shape)
+        if self.shape_fixed:
+            return self.shape[0]
+        else:
+            # The outer dimension of self.shape corresponds to the form arguments.
+            lp_shape = numpy.array([numpy.prod(s, dtype=int) for s in self.shape])
+            return tuple(lp_shape) if not self.interior_facet else tuple(2*lp_shape)
 
 
 
