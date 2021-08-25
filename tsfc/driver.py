@@ -17,7 +17,6 @@ from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
-from gem.flop_count import count_flops
 
 import FIAT
 from FIAT.reference_element import TensorProductCell
@@ -241,7 +240,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     index_ordering = tuple(quadrature_indices) + split_argument_indices
     try:
         impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-        flop_count = count_flops(impero_c)
     except impero_utils.NoopError:
         # No operations, construct empty kernel
         return builder.construct_empty_kernel(kernel_name)
@@ -267,12 +265,12 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
 
-    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule, flop_count=flop_count)
+    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
 
 def compile_expression_dual_evaluation(expression, to_element, *,
                                        domain=None, interface=None,
-                                       parameters=None, coffee=False):
+                                       parameters=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -282,11 +280,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
-    :arg coffee: compile coffee kernel instead of loopy kernel
+    :returns: Loopy-based ExpressionKernel object.
     """
-    import coffee.base as ast
-    import loopy as lp
-
     # Just convert FInAT element to FIAT for now.
     # Dual evaluation in FInAT will bring a thorough revision.
     finat_to_element = to_element
@@ -318,13 +313,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     # Initialise kernel builder
     if interface is None:
-        if coffee:
-            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-            interface = firedrake_interface_coffee.ExpressionKernelBuilder
-        else:
-            # Delayed import, loopy is a runtime dependency
-            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-            interface = firedrake_interface_loopy.ExpressionKernelBuilder
+        # Delayed import, loopy is a runtime dependency
+        from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
     arguments = extract_arguments(expression)
@@ -473,11 +463,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     return_indices = basis_indices + shape_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
-    if coffee:
-        return_arg = ast.Decl(parameters["scalar_type"], ast.Symbol('A', rank=return_shape))
-    else:
-        return_arg = lp.GlobalArg("A", dtype=parameters["scalar_type"], shape=return_shape)
-
     return_expr = gem.Indexed(return_var, return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
@@ -487,8 +472,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([ir])
+    builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(return_arg, impero_c, index_names, first_coefficient_fake_coords)
+    return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
 
 
 def lower_integral_type(fiat_cell, integral_type):

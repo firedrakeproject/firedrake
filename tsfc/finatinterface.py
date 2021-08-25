@@ -117,6 +117,9 @@ def convert_finiteelement(element, **kwargs):
 
         return finat.make_quadrature_element(cell, degree, scheme), set()
     lmbda = supported_elements[element.family()]
+    if element.family() == "Real" and element.cell().cellname() in {"quadrilateral", "hexahedron"}:
+        lmbda = None
+        element = ufl.FiniteElement("DQ", element.cell(), 0)
     if lmbda is None:
         if element.cell().cellname() == "quadrilateral":
             # Handle quadrilateral short names like RTCF and RTCE.
