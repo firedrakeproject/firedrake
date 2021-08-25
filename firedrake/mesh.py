@@ -2076,9 +2076,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
-    npoints, coordsdim = coords.shape
-    if coordsdim == 1:
-        raise NotImplementedError("You can't yet use a 1D DMPlex as DMSwarm cellDM.")
+    _, coordsdim = coords.shape
 
     # Create a DMSWARM
     swarm = PETSc.DMSwarm().create(comm=plex.comm)

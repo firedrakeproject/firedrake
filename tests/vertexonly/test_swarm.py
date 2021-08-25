@@ -36,7 +36,7 @@ def cell_midpoints(m):
     return midpoints, local_midpoints
 
 
-@pytest.fixture(params=[pytest.param("interval", marks=pytest.mark.xfail(reason="swarm not implemented in 1d")),
+@pytest.fixture(params=["interval",
                         "square",
                         pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
                         "cube",

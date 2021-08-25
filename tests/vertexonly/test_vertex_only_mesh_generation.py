@@ -36,7 +36,7 @@ def cell_midpoints(m):
     return midpoints, local_midpoints
 
 
-@pytest.fixture(params=[pytest.param("interval", marks=pytest.mark.xfail(reason="swarm not implemented in 1d")),
+@pytest.fixture(params=["interval",
                         "square",
                         pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
                         "cube",
@@ -148,7 +148,7 @@ def test_generate_cell_midpoints(parentmesh):
         else:
             cell_num = parentmesh.locate_cell(out_of_mesh_point)  # should return None
         if cell_num is not None:
-            assert all(f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i])
+            assert (f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i]).all()
 
 
 @pytest.mark.parallel

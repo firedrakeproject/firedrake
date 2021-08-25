@@ -286,15 +286,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if not isinstance(expr, firedrake.Expression):
         kernel = compile_expression_dual_evaluation(expr, to_element,
                                                     domain=source_mesh,
-                                                    parameters=parameters,
-                                                    coffee=False)
+                                                    parameters=parameters)
         ast = kernel.ast
         oriented = kernel.oriented
         needs_cell_sizes = kernel.needs_cell_sizes
         coefficients = kernel.coefficients
         first_coeff_fake_coords = kernel.first_coefficient_fake_coords
         name = kernel.name
-        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
+        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+                            flop_count=kernel.flop_count)
     elif hasattr(expr, "eval"):
         to_pts = []
         for dual in to_element.fiat_equivalent.dual_basis():
@@ -461,6 +461,9 @@ def composed_map(map1, map2):
     Requires that `map1.toset == map2.iterset`.
     Only currently implemented for `map1.arity == 1`
     """
+    if map2 is None:
+        # Real function space case
+        return None
     if map1.toset != map2.iterset:
         raise ValueError("Cannot compose a map where the intermediate sets do not match!")
     if map1.arity != 1:
