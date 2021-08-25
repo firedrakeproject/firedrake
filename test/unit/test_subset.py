@@ -276,7 +276,7 @@ class TestSetOperations:
     def test_set_subset_operations(self):
         """Test standard set operations between a set and a subset"""
         a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int))
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
         u = a.union(b)
         i = a.intersection(b)
         d = a.difference(b)
@@ -289,7 +289,7 @@ class TestSetOperations:
     def test_subset_set_operations(self):
         """Test standard set operations between a subset and a set"""
         a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int))
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
         u = b.union(a)
         i = b.intersection(a)
         d = b.difference(a)
@@ -302,8 +302,8 @@ class TestSetOperations:
     def test_subset_subset_operations(self):
         """Test standard set operations between two subsets"""
         a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int))
-        c = op2.Subset(a, np.array([2, 4, 6, 8], dtype=np.int))
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
+        c = op2.Subset(a, np.array([2, 4, 6, 8], dtype=np.int32))
         u = b.union(c)
         i = b.intersection(c)
         d = b.difference(c)
