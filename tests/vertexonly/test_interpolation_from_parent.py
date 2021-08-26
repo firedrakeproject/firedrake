@@ -66,11 +66,11 @@ def fs(request):
                         ("N1div", 2, FunctionSpace),
                         ("N2div", 2, FunctionSpace),
                         pytest.param(("RTCE", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, AttributeError),
-                                                             reason="FIAT duals don't have a point_dict")),
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict")),
                         pytest.param(("RTCF", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, AttributeError),
-                                                             reason="FIAT duals don't have a point_dict"))],
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict"))],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def vfs(request, parentmesh):
     family = request.param[0]
