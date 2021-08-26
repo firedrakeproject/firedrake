@@ -20,7 +20,9 @@ import subprocess
                                                              reason="immersed parent meshes not supported")),
                         pytest.param("periodicrectangle",
                                      marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="meshes made from coordinate fields are not supported"))],
+                                                             reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("shiftedmesh",
+                                     marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))],
                 ids=lambda x: f"{x}-mesh")
 def parentmesh(request):
     if request.param == "interval":
@@ -39,6 +41,10 @@ def parentmesh(request):
         return UnitIcosahedralSphereMesh()
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
+    elif request.param == "shiftedmesh":
+        m = UnitSquareMesh(1, 1)
+        m.coordinates.dat.data[:] -= 0.5
+        return m
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")

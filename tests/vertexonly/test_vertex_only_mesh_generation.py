@@ -42,7 +42,8 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle", marks=pytest.mark.xfail(reason="meshes made from coordinate fields are not supported"))])
+                        pytest.param("periodicrectangle", marks=pytest.mark.xfail(reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
@@ -58,6 +59,10 @@ def parentmesh(request):
         return UnitIcosahedralSphereMesh()
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
+    elif request.param == "shiftedmesh":
+        m = UnitSquareMesh(1, 1)
+        m.coordinates.dat.data[:] -= 0.5
+        return m
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
