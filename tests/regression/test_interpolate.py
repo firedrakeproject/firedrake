@@ -443,3 +443,22 @@ def test_basic_dual_eval_bdm():
     # Can't do nodal evaluation of the FIAT dual basis yet so just check the
     # dat is the correct length
     assert len(f.dat.data_ro) == len(dual_basis)
+
+
+def test_quadrature():
+    from ufl.geometry import QuadratureWeight
+    mesh = UnitIntervalMesh(1)
+    Qse = FiniteElement("Quadrature", mesh.ufl_cell(), degree=2, quad_scheme="default")
+    Qs = FunctionSpace(mesh, Qse)
+    fiat_rule = Qs.finat_element.fiat_equivalent
+    # For spatial coordinate we should get 2 points per cell
+    x, = SpatialCoordinate(mesh)
+    # Account for cell and corresponding expression being flipped onto
+    # reference cell before reaching FIAT
+    expr_fiat = 1-x
+    xq = interpolate(expr_fiat, Qs)
+    assert np.allclose(xq.dat.data_ro[xq.cell_node_map().values].T, fiat_rule._points)
+    # For quadrature weight we should 2 equal weights for each cell
+    w = QuadratureWeight(mesh)
+    wq = interpolate(w, Qs)
+    assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
