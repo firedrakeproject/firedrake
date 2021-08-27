@@ -1,5 +1,6 @@
 # Utility module that imports and initialises petsc4py
 import os
+import subprocess
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
@@ -93,6 +94,22 @@ def get_petsc_variables():
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
+
+
+def get_blas_library():
+    """Get the path to the BLAS library that PETSc links to"""
+    try:
+        cmd = subprocess.run(["ldd", PETSc.__file__], stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        cmd = subprocess.run(["otool", "-L", PETSc.__file__], stdout=subprocess.PIPE)
+
+    entries = cmd.stdout.decode("utf-8").split("\n")
+    entry = next((entry for entry in entries if "blas" in entry), None)
+    if entry is None:
+        return None
+
+    # TODO: Find the right way to parse `otool` output
+    return entry.split()[2]
 
 
 class OptionsManager(object):
