@@ -346,10 +346,7 @@ def simplify_abs(expression, complex_mode):
 
 
 def apply_mapping(expression, element, domain):
-    """Apply the appropriate transformation to the
-    given expression for interpolation to a specific
-    element, according to the manner in which it maps
-    from the reference cell.
+    """Apply the inverse of the pullback for element to an expression.
 
     :arg expression: An expression in physical space
     :arg element: The element we're going to interpolate into, whose
@@ -374,7 +371,7 @@ def apply_mapping(expression, element, domain):
     inverse of the Jacobian K = J^{-1}. Then we (currently) have the
     following four types of mappings:
 
-    'affine' mapping for g:
+    'identity' mapping for g:
 
       G(X) = g(x)
 
@@ -399,45 +396,73 @@ def apply_mapping(expression, element, domain):
     If 'contravariant piola' or 'covariant piola' (or their double
     variants) are applied to a matrix-valued function, the appropriate
     mappings are applied row-by-row.
-
-    :arg expression: UFL expression
-    :arg mapping: a string indicating the mapping to apply
-    :returns: an appropriately mapped UFL expression
-    :raises NotImplementedError: For unhandled mappings
     """
     mesh = expression.ufl_domain()
     if mesh is None:
         mesh = domain
     if domain is not None and mesh != domain:
         raise NotImplementedError("Multiple domains not supported")
-    rank = len(expression.ufl_shape)
+    if expression.ufl_shape != element.value_shape():
+        raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {element.value_shape()}")
     mapping = element.mapping().lower()
     if mapping == "identity":
-        return expression
+        rexpression = expression
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)
         kj = (*k, j)
-        return as_tensor(J[j, i] * expression[kj], (*k, i))
+        rexpression = as_tensor(J[j, i] * expression[kj], (*k, i))
     elif mapping == "l2 piola":
         detJ = JacobianDeterminant(mesh)
-        return expression * detJ
+        rexpression = expression * detJ
     elif mapping == "contravariant piola":
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)
         kj = (*k, j)
-        return as_tensor(detJ * K[i, j] * expression[kj], (*k, i))
+        rexpression = as_tensor(detJ * K[i, j] * expression[kj], (*k, i))
     elif mapping == "double covariant piola":
         J = Jacobian(mesh)
         *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
         kmn = (*k, m, n)
-        return as_tensor(J[m, i] * expression[kmn] * J[n, j], (*k, i, j))
+        rexpression = as_tensor(J[m, i] * expression[kmn] * J[n, j], (*k, i, j))
     elif mapping == "double contravariant piola":
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
         *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
         kmn = (*k, m, n)
-        return as_tensor(detJ**2 * K[i, m] * expression[kmn] * K[j, n], (*k, i, j))
+        rexpression = as_tensor(detJ**2 * K[i, m] * expression[kmn] * K[j, n], (*k, i, j))
+    elif mapping == "symmetries":
+        # This tells us how to get from the pieces of the reference
+        # space expression to the physical space one.
+        # We're going to apply the inverse of the physical to
+        # reference space mapping.
+        fcm = element.flattened_sub_element_mapping()
+        sub_elem = element.sub_elements()[0]
+        shape = expression.ufl_shape
+        flat = ufl.as_vector([expression[i] for i in numpy.ndindex(shape)])
+        vs = sub_elem.value_shape()
+        rvs = sub_elem.reference_value_shape()
+        seen = set()
+        rpieces = []
+        gm = int(numpy.prod(vs, dtype=int))
+        for gi, ri in enumerate(fcm):
+            # For each unique piece in reference space
+            if ri in seen:
+                continue
+            seen.add(ri)
+            # Get the physical space piece
+            piece = [flat[gm*gi + j] for j in range(gm)]
+            piece = as_tensor(numpy.asarray(piece).reshape(vs))
+            # get into reference space
+            piece = apply_mapping(piece, sub_elem, mesh)
+            assert piece.ufl_shape == rvs
+            # Concatenate with the other pieces
+            rpieces.extend([piece[idx] for idx in numpy.ndindex(rvs)])
+        # And reshape
+        rexpression = as_tensor(numpy.asarray(rpieces).reshape(element.reference_value_shape()))
     else:
-        raise NotImplementedError("Don't know how to handle mapping type %s for expression of rank %d" % (mapping, rank))
+        raise NotImplementedError(f"Don't know how to handle mapping type {mapping} for expression of rank {element.value_shape()}")
+    if rexpression.ufl_shape != element.reference_value_shape():
+        raise ValueError(f"Mismatching reference shapes, got {rexpression.ufl_shape} expected {element.reference_value_shape()}")
+    return rexpression
