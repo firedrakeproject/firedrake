@@ -229,8 +229,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         raise ValueError("Expecting to interpolate a UFL expression")
     try:
         to_element = create_element(V.ufl_element())
-        if V.ufl_element().mapping() == "symmetries":
-            raise NotImplementedError("Cannot interpolate into tensor spaces with symmetry yet")
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -275,7 +273,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
+    # We need to pass both the ufl element and the finat element
+    # because the finat elements might not have the right mapping
+    # (e.g. L2 Piola, or tensor element with symmetries)
+    # FIXME: for the runtime unknown point set (for cross-mesh
+    # interpolation) we have to pass the finat element we construct
+    # here. Ideally we would only pass the UFL element through.
     kernel = compile_expression_dual_evaluation(expr, to_element,
+                                                V.ufl_element(),
                                                 domain=source_mesh,
                                                 parameters=parameters)
     ast = kernel.ast
@@ -301,10 +306,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # kernels if they are deemed not-necessary.
         # FIXME: Checking for argument name in the inner kernel to decide
         # whether to add an extra coefficient is a stopgap until
-        # compile_expression_dual_evaluation and compile_python_kernel
-        #   (a) output a coefficient map to indicate argument ordering in
+        # compile_expression_dual_evaluation
+        #   (a) outputs a coefficient map to indicate argument ordering in
         #       parloops as `compile_form` does and
-        #   (b) allow the dual evaluation related coefficients to be suplied to
+        #   (b) allows the dual evaluation related coefficients to be supplied to
         #       them rather than having to be added post-hoc (likely by
         #       replacing `to_element` with a CoFunction/CoArgument as the
         #       target `dual` which would contain `dual` related
