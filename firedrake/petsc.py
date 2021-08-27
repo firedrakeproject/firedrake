@@ -104,7 +104,7 @@ def get_blas_library():
         cmd = subprocess.run(["otool", "-L", PETSc.__file__], stdout=subprocess.PIPE)
 
     entries = cmd.stdout.decode("utf-8").split("\n")
-    entry = next((entry for entry in entries if "blas" in entry), None)
+    entry = next((entry for entry in entries if "blas" in entry or "libmkl" in entry), None)
     if entry is None:
         return None
 
