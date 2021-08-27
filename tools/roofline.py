@@ -16,7 +16,6 @@ class Roofline:
     def __init__(self, streaming_limit, flop_limit):
         """The generation of a roofline performance model, for given code.
 
-        :arg self: self
         :arg streaming_limit: Memory Streaming Bandwidth (GB/s)
         :arg flop_limit: CPU's Maximum Memory Bandwidth (GB/s)
         """
@@ -54,7 +53,6 @@ class Roofline:
     def roofline(self, region_name=None, event_name=None, axes=None):
         """The generation of a roofline plot.
 
-        :arg self: Self
         :arg data_type: Choice between 'flops', 'bytes', and 'time'
         :arg axes: Existing axes to add roofline plot to
         :arg data: Load previously saved data stored as a pickle file
@@ -84,6 +82,7 @@ class Roofline:
             # The minimum of the memory streaming bandwidth and compute limit
             y.append(min(points * self.streaming_limit, self.flop_limit))
         
+        # Shading of compute-limited and memory-limited regions
         mem_lim = self.flop_limit/self.streaming_limit
         x_mem, y1_mem, y2_mem = [], [], []
         x_comp, y1_comp, y2_comp = [], [], []
