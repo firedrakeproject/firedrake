@@ -345,12 +345,15 @@ def simplify_abs(expression, complex_mode):
     return mapper(expression, False)
 
 
-def apply_mapping(expression, mapping, domain):
-    """
-    This applies the appropriate transformation to the
+def apply_mapping(expression, element, domain):
+    """Apply the appropriate transformation to the
     given expression for interpolation to a specific
     element, according to the manner in which it maps
     from the reference cell.
+
+    :arg expression: The expression to map
+    :arg element: The UFL element of the target space
+    :arg domain: domain to consider.
 
     The following is borrowed from the UFC documentation:
 
@@ -392,14 +395,14 @@ def apply_mapping(expression, mapping, domain):
     :arg expression: UFL expression
     :arg mapping: a string indicating the mapping to apply
     """
-
     mesh = expression.ufl_domain()
     if mesh is None:
         mesh = domain
     if domain is not None and mesh != domain:
         raise NotImplementedError("Multiple domains not supported")
     rank = len(expression.ufl_shape)
-    if mapping == "affine":
+    mapping = element.mapping().lower()
+    if mapping == "identity":
         return expression
     elif mapping == "covariant piola":
         J = Jacobian(mesh)

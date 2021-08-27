@@ -6,7 +6,7 @@ from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
                  TensorElement, Coefficient,
                  interval, quadrilateral, hexahedron)
 
-from tsfc.driver import compile_expression_dual_evaluation
+from tsfc import compile_expression_dual_evaluation
 from tsfc.finatinterface import create_element
 
 
@@ -31,7 +31,7 @@ def flop_count(mesh, source, target):
     Vsource = FunctionSpace(mesh, source)
     to_element = create_element(Vtarget.ufl_element())
     expr = Coefficient(Vsource)
-    kernel = compile_expression_dual_evaluation(expr, to_element)
+    kernel = compile_expression_dual_evaluation(expr, to_element, Vtarget.ufl_element())
     return kernel.flop_count
 
 
