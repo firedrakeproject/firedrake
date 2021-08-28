@@ -101,7 +101,7 @@ class Roofline:
         axes.fill_between(x=x_mem, y1=y1_mem, y2=y2_mem, color='mediumspringgreen', alpha=0.1, label='Memory-bound region')
         axes.fill_between(x=x_comp, y1=y1_comp, y2=y2_comp, color='darkorange', alpha=0.1, label='Compute-bound region')
         axes.legend(loc='best')
-        axes.set_xlabel("Arithmetic Intensity [FLOPs/byte]")
+        axes.set_xlabel("Operational Intensity [FLOPs/byte]")
         axes.set_ylabel("Performance [GFLOPs/s]")
         return axes 
 
