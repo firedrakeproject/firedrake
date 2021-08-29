@@ -16,8 +16,8 @@ class Roofline:
     def __init__(self, streaming_limit, flop_limit):
         """The generation of a roofline performance model, for given code.
 
-        :arg streaming_limit: Memory Streaming Bandwidth (GB/s)
-        :arg flop_limit: CPU's Maximum Memory Bandwidth (GB/s)
+        :arg streaming_limit: Peak Memory Streaming Bandwidth (GB/s)
+        :arg flop_limit: Peak Floating Point Performance (GFLOPS/s)
         """
         self.data = defaultdict(partial(defaultdict, partial(defaultdict, float)))
         self.streaming_limit = streaming_limit
