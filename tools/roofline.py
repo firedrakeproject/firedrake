@@ -60,21 +60,29 @@ class Roofline:
         """
 
         if axes is None:
-            figure = plt.figure()
+            figure = plt.figure(figsize=(8, 5))
             axes = figure.add_subplot(111)
 
+        intensity, flop_rate = [], []
         if event_name is not None:
-            data = self.data[region_name][event_name]
+            if type(event_name) is str: 
+                data = self.data[region_name][event_name]
+                intensity.append(data['flops']/data['bytes'])
+                flop_rate.append((data['flops']/data['time']) * 1e-9)
+            else:
+                for event_name_ in event_name:
+                    data = self.data[region_name][event_name_]
+                    intensity.append(data['flops']/data['bytes'])
+                    flop_rate.append((data['flops']/data['time']) * 1e-9)
         else: 
             data = defaultdict(float)
             for event in self.data[region_name].values():
                 data['flops'] += event['flops']
                 data['bytes'] += event['bytes'] 
                 data['time'] += event['time']
+            intensity.append(data['flops']/data['bytes'])
+            flop_rate.append((data['flops']/data['time']) * 1e-9)
 
-        intensity = data['flops']/data['bytes']
-        flop_rate = (data['flops']/data['time']) * 1e-9
-        
         x_range = [-6, 10] 
         x = numpy.logspace(x_range[0], x_range[1], base=2, num=100)
         y = []
@@ -95,9 +103,24 @@ class Roofline:
                 x_comp.append(x[i])
                 y1_comp.append(y[i])
                 y2_comp.append(y[0])
+        
+        # Roofline data label
+        if region_name is None and event_name is None:
+            lbl = "All regions and events"
+        elif region_name is not None and event_name is None:
+            lbl = region_name
+        elif region_name is None and event_name is not None:
+            lbl = event_name
+        elif region_name is not None and event_name is not None:
+            lbl = str(region_name, event_name)
 
         axes.loglog(x, y, c='black', label='Roofline')
-        axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=region_name or 'Total')
+        if len(event_name) > 1:
+            # Treat each event as a different point on the roofline model
+            for i in range(len(event_name)):
+                axes.loglog(intensity[i], flop_rate[i], 'o', linewidth=0, label=event_name[i])
+        else:
+            axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=lbl)
         axes.fill_between(x=x_mem, y1=y1_mem, y2=y2_mem, color='mediumspringgreen', alpha=0.1, label='Memory-bound region')
         axes.fill_between(x=x_comp, y1=y1_comp, y2=y2_comp, color='darkorange', alpha=0.1, label='Compute-bound region')
         axes.legend(loc='best')
