@@ -143,7 +143,8 @@ class TSFCKernel(Cached):
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
-                                                    requires_zeroed_output_arguments=True),
+                                                    requires_zeroed_output_arguments=True,
+                                                    flop_count=kernel.flop_count),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -211,9 +212,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         pass
 
     kernels = []
-    # A map from all form coefficients to their number.
-    coefficient_numbers = dict((c, n)
-                               for (n, c) in enumerate(form.coefficients()))
+    coefficient_numbers = form.coefficient_numbering()
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:

@@ -443,15 +443,18 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     # P1 to remind you that P1 is of lower degree
     # than Pk
     from tsfc import compile_expression_dual_evaluation
-    from tsfc.finatinterface import create_base_element
+    from tsfc.finatinterface import create_element
     from firedrake import TestFunction
 
     expr = TestFunction(P1)
-    to_element = create_base_element(Pk.ufl_element())
+    to_element = create_element(Pk.ufl_element())
 
-    ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
-    return kernel
+    kernel = compile_expression_dual_evaluation(expr, to_element)
+    ast = kernel.ast
+    name = kernel.name
+    flop_count = kernel.flop_count
+    return op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+                      flop_count=flop_count)
 
 
 def tensor_product_space_query(V):
@@ -670,10 +673,14 @@ class StandaloneInterpolationMatrix(object):
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
         from tsfc import compile_expression_dual_evaluation
-        from tsfc.finatinterface import create_base_element
-        to_element = create_base_element(Vf.ufl_element())
-        ast, oriented, needs_cell_sizes, coefficients, first_coeff_fake_coords, _, name = compile_expression_dual_evaluation(expr, to_element, coffee=False)
-        return op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
+        from tsfc.finatinterface import create_element
+        to_element = create_element(Vf.ufl_element())
+        kernel = compile_expression_dual_evaluation(expr, to_element)
+        ast = kernel.ast
+        name = kernel.name
+        flop_count = kernel.flop_count
+        return op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+                          flop_count=flop_count)
 
     @staticmethod
     @lru_cache(maxsize=20)

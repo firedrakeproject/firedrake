@@ -3,20 +3,26 @@ import pytest
 import numpy as np
 from functools import reduce
 from operator import add
+import subprocess
 
 
 # Utility Functions and Fixtures
 
-# NOTE we don't include interval mesh since many of the function spaces
-# here are not defined on it.
-@pytest.fixture(params=[pytest.param("interval", marks=pytest.mark.xfail(reason="swarm not implemented in 1d")),
+@pytest.fixture(params=["interval",
                         "square",
                         "squarequads",
                         pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle", marks=pytest.mark.xfail(reason="meshes made from coordinate fields are not supported"))],
+                        pytest.param("immersedsphere",
+                                     # CalledProcessError is so the parallel tests correctly xfail
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="immersed parent meshes not supported")),
+                        pytest.param("periodicrectangle",
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("shiftedmesh",
+                                     marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))],
                 ids=lambda x: f"{x}-mesh")
 def parentmesh(request):
     if request.param == "interval":
@@ -35,6 +41,10 @@ def parentmesh(request):
         return UnitIcosahedralSphereMesh()
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
+    elif request.param == "shiftedmesh":
+        m = UnitSquareMesh(1, 1)
+        m.coordinates.dat.data[:] -= 0.5
+        return m
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
@@ -55,10 +65,26 @@ def fs(request):
                         ("N2curl", 2, FunctionSpace),
                         ("N1div", 2, FunctionSpace),
                         ("N2div", 2, FunctionSpace),
-                        pytest.param(("RTCE", 2, FunctionSpace), marks=pytest.mark.xfail(raises=AttributeError)),  # fiat equivalent missing point_dict
-                        pytest.param(("RTCF", 2, FunctionSpace), marks=pytest.mark.xfail(raises=AttributeError))],  # fiat equivalent missing point_dict
+                        pytest.param(("RTCE", 2, FunctionSpace),
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict")),
+                        pytest.param(("RTCF", 2, FunctionSpace),
+                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
+                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict"))],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
-def vfs(request):
+def vfs(request, parentmesh):
+    family = request.param[0]
+    # skip where the element doesn't support the cell type
+    if family != "CG":
+        if parentmesh.ufl_cell().cellname() == "quadrilateral":
+            if not (family == "RTCE" or family == "RTCF"):
+                pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
+        elif parentmesh.ufl_cell().cellname() == "triangle" or parentmesh.ufl_cell().cellname() == "tetrahedron":
+            if (not (family == "N1curl" or family == "N2curl"
+                     or family == "N1div" or family == "N2div")):
+                pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
+        else:
+            pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
     return request.param
 
 
@@ -66,7 +92,12 @@ def vfs(request):
                         ("BDM", 2, VectorFunctionSpace),
                         ("Regge", 2, FunctionSpace)],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
-def tfs(request):
+def tfs(request, parentmesh):
+    family = request.param[0]
+    # skip where the element doesn't support the cell type
+    if (family != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
+            and parentmesh.ufl_cell().cellname() != "tetrahedron"):
+        pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
     return request.param
 
 
@@ -88,7 +119,10 @@ def pseudo_random_coords(size):
 # interpolation from a CG1 VectorFunctionSpace (I think)
 def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
-    vertexcoords = vm.coordinates.dat.data_ro
+    # Reshaping because for all meshes, we want (-1, gdim) but
+    # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
+    # () and shape (1,).
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
     w_expr = interpolate(expr, W)
@@ -97,7 +131,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
-    vertexcoords = vm.coordinates.dat.data_ro
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
     V = fs_typ(parentmesh, fs_fam, fs_deg)
     W = FunctionSpace(vm, "DG", 0)
@@ -127,24 +161,6 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     vfs_fam, vfs_deg, vfs_typ = vfs
-    # skip where the element doesn't support the cell type
-    if vfs_fam != "CG":
-        if parentmesh.ufl_cell().cellname() == "quadrilateral":
-            if not (vfs_fam == "RTCE" or vfs_fam == "RTCF"):
-                pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
-            # TODO: Remove this else when fixed
-            else:
-                pytest.skip(f"Some complex merge related problem for {vfs_fam}, get this from loopy: TypeError: unsupported type for persistent hash keying: <class 'complex'>")
-        elif parentmesh.ufl_cell().cellname() == "triangle" or parentmesh.ufl_cell().cellname() == "tetrahedron":
-            if (not (vfs_fam == "N1curl" or vfs_fam == "N2curl"
-                     or vfs_fam == "N1div" or vfs_fam == "N2div")):
-                pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
-            # TODO: Remove this else when fixed
-            else:
-                if parentmesh.ufl_cell().cellname() == "tetrahedron" and vfs_fam == "N2div":
-                    pytest.skip("N2div on tetrahedron cells is broken upstream - causes hanging (try tests/regression/test_interpolation_nodes.py and see!)")
-        else:
-            pytest.skip(f"{vfs_fam} does not support {parentmesh.ufl_cell()} cells")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     V = vfs_typ(parentmesh, vfs_fam, vfs_deg)
@@ -177,15 +193,11 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     result = 2 * np.asarray([[vertexcoords[i]]*gdim for i in range(len(vertexcoords))])
     if len(result) == 0:
         result = result.reshape(vertexcoords.shape + (gdim,))
-    assert np.allclose(w_expr.dat.data_ro, result)
+    assert np.allclose(w_expr.dat.data_ro.reshape(result.shape), result)
 
 
 def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    # skip where the element doesn't support the cell type
-    if (tfs_fam != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
-            and parentmesh.ufl_cell().cellname() != "tetrahedron"):
-        pytest.skip(f"{tfs_fam} does not support {parentmesh.ufl_cell()} cells")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     V = tfs_typ(parentmesh, tfs_fam, tfs_deg)
@@ -199,29 +211,24 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     if len(result) == 0:
         result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     w_v = interpolate(v, W)
-    assert np.allclose(w_v.dat.data_ro, result)
+    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)
-    assert np.allclose(w_v.dat.data_ro, result)
+    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
     # use it again for a different Function in V
     expr = 2*outer(x, x)
     v = Function(V).interpolate(expr)
     A_w.interpolate(v, output=w_v)
-    assert np.allclose(w_v.dat.data_ro, 2*result)
+    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), 2*result)
 
 
-# "UFL expressions for mixed functions are not yet supported."
-@pytest.mark.xfail(raises=NotImplementedError)
+@pytest.mark.xfail(raises=NotImplementedError, reason="Interpolation of UFL expressions into mixed functions not supported")
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    # skip where the element doesn't support the cell type
-    if (tfs_fam != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
-            and parentmesh.ufl_cell().cellname() != "tetrahedron"):
-        pytest.skip(f"{tfs_fam} does not support {parentmesh.ufl_cell()} cells")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
-    vertexcoords = vm.coordinates.dat.data_ro
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     V1 = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     V2 = FunctionSpace(parentmesh, "CG", 1)
     V = V1 * V2
@@ -261,10 +268,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
 
 
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
-    if parentmesh.ufl_cell().cellname() == "quadrilateral":
-        pytest.skip("Interpolation onto real spaces on quadrilaterals is broken")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
-    vertexcoords = vm.coordinates.dat.data_ro
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
     v = interpolate(Constant(1.0), V)
@@ -272,14 +276,9 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
-# TODO: Remove this skip when fixed
-@pytest.mark.skip("Some complex merge related problem, get this from loopy: TypeError: unsupported type for persistent hash keying: <class 'complex'>")
 def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # try and make reusable Interpolator from V to W
-    if parentmesh.ufl_cell().cellname() == "quadrilateral":
-        pytest.skip("Interpolation onto real spaces on quadrilaterals is broken")
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
-    vertexcoords = vm.coordinates.dat.data_ro
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
     v = interpolate(Constant(1.0), V)
@@ -299,7 +298,6 @@ def test_vector_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoord
     test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords)
 
 
-@pytest.mark.skip(reason="Skipping parallel tests using in-test logic is buggy")
 @pytest.mark.parallel
 def test_vector_function_interpolation_parallel(parentmesh, vertexcoords, vfs):
     test_vector_function_interpolation(parentmesh, vertexcoords, vfs)
@@ -310,13 +308,12 @@ def test_tensor_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoord
     test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords)
 
 
-@pytest.mark.skip(reason="Skipping parallel tests using in-test logic is buggy")
 @pytest.mark.parallel
 def test_tensor_function_interpolation_parallel(parentmesh, vertexcoords, tfs):
     test_tensor_function_interpolation(parentmesh, vertexcoords, tfs)
 
 
-@pytest.mark.skip(reason="Skipping parallel tests using in-test logic is buggy")
+@pytest.mark.xfail(reason="Interpolation of UFL expressions into mixed functions not supported")
 @pytest.mark.parallel
 def test_mixed_function_interpolation_parallel(parentmesh, vertexcoords, tfs):
     test_mixed_function_interpolation(parentmesh, vertexcoords, tfs)

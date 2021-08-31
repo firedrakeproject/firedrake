@@ -30,7 +30,7 @@ def test_feec(extmesh, horiz_complex, vert_complex):
         # make bubble space for BDFM
         U0_a = FiniteElement(U0[0], "triangle", U0[1])
         U0_b = FiniteElement(U0[2], "triangle", U0[3])
-        U0 = U0_a + U0_b
+        U0 = NodalEnrichedElement(U0_a, U0_b)
     U1 = FiniteElement(U1[0], "triangle", U1[1])
     U2 = FiniteElement(U2[0], "triangle", U2[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])

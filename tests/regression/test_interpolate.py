@@ -80,6 +80,23 @@ def test_vector():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_tensor():
+    mesh = UnitSquareMesh(2, 2)
+    x = SpatialCoordinate(mesh)
+    U = TensorFunctionSpace(mesh, 'P', 1)
+    V = TensorFunctionSpace(mesh, 'CG', 2)
+
+    c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
 def test_constant_expression():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)
@@ -103,6 +120,47 @@ def test_compound_expression():
 
     # g shall be equivalent to:
     h = interpolate(3.0 + sin(pi * x[0]), V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+# Requires the relevant FInAT or FIAT duals to be defined
+@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
+def test_hdiv_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCF', 1)
+    V = FunctionSpace(mesh, 'RTCF', 2)
+    c = as_vector([x[1], -x[0], 0.0])
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
+
+@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
+def test_hcurl_2d():
+    mesh = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    x = mesh.coordinates
+
+    U = FunctionSpace(mesh, 'RTCE', 1)
+    V = FunctionSpace(mesh, 'RTCE', 2)
+    c = as_vector([-x[1], x[0], 0.0])
+
+    f = project(c, U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = project(f, V)
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -358,3 +416,49 @@ def test_interpolate_periodic_coords_max():
     # All nodes on the "seam" end up being 1, not 0.
     assert np.allclose(np.unique(continuous.dat.data_ro),
                        [0.25, 0.5, 0.75, 1])
+
+
+def test_basic_dual_eval_cg3():
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 3)
+    x = SpatialCoordinate(mesh)
+    expr = Constant(1.)
+    f = interpolate(expr, V)
+    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    expr = x[0]**3
+    # Account for cell and corresponding expression being flipped onto
+    # reference cell before reaching FIAT
+    expr_fiat = (1-x[0])**3
+    f = interpolate(expr, V)
+    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+
+
+def test_basic_dual_eval_bdm():
+    mesh = UnitTriangleMesh()
+    V = FunctionSpace(mesh, "BDM", 2)
+    x = SpatialCoordinate(mesh)
+    expr = as_vector([x[0], x[1]])
+    f = interpolate(expr, V)
+    dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
+    # Can't do nodal evaluation of the FIAT dual basis yet so just check the
+    # dat is the correct length
+    assert len(f.dat.data_ro) == len(dual_basis)
+
+
+def test_quadrature():
+    from ufl.geometry import QuadratureWeight
+    mesh = UnitIntervalMesh(1)
+    Qse = FiniteElement("Quadrature", mesh.ufl_cell(), degree=2, quad_scheme="default")
+    Qs = FunctionSpace(mesh, Qse)
+    fiat_rule = Qs.finat_element.fiat_equivalent
+    # For spatial coordinate we should get 2 points per cell
+    x, = SpatialCoordinate(mesh)
+    # Account for cell and corresponding expression being flipped onto
+    # reference cell before reaching FIAT
+    expr_fiat = 1-x
+    xq = interpolate(expr_fiat, Qs)
+    assert np.allclose(xq.dat.data_ro[xq.cell_node_map().values].T, fiat_rule._points)
+    # For quadrature weight we should 2 equal weights for each cell
+    w = QuadratureWeight(mesh)
+    wq = interpolate(w, Qs)
+    assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
