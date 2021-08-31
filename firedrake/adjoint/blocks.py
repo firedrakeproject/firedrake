@@ -73,8 +73,8 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 class SolveLinearSystemBlock(GenericSolveBlock):
     def __init__(self, A, u, b, *args, **kwargs):
         lhs = A.form
-        func = u.function
-        rhs = b.form
+        func = u if isinstance(u, self.backend.Function) else u.function
+        rhs = b.form if hasattr(b, 'form') else b
         bcs = A.bcs if hasattr(A, "bcs") else []
         super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
 
