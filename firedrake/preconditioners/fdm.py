@@ -104,7 +104,7 @@ class FDMPC(PCBase):
                     W = firedrake.TensorFunctionSpace(self.mesh, "DQ", N, shape=Bq.ufl_shape)
                     diag = firedrake.Function(W)
 
-            self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, diag, eta, bcflags, needs_interior_facet)
+            self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
             self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,

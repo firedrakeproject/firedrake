@@ -54,7 +54,6 @@ def test_p_independence(mesh, expected):
             "pmg_mg_levels_pc_type": "python",
             "pmg_mg_levels_pc_python_type": "firedrake.FDMPC",
             "pmg_mg_levels_fdm": {
-                "type": "affine",
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.ASMStarPC",
