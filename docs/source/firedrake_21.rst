@@ -78,7 +78,7 @@ Prizes will be awarded for the best presentations and posters given by students 
 
 Each winner will be awarded with a copy of `PETSc for Partial Differential Equations:
 Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
-by Ed Beuler, which contains an excellent chapter on using Firedrake.
+by Ed Bueler, which contains an excellent chapter on using Firedrake.
 
 Further details
 ---------------
