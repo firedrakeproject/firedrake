@@ -1,9 +1,6 @@
-import copy
-from firedrake.constant import Constant
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint.blocks import SolveLinearSystemBlock
-from ufl import replace
 
 
 class LinearSolverMixin:
@@ -37,7 +34,7 @@ class LinearSolverMixin:
                 sb_kwargs = SolveLinearSystemBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
 
-                block = SolveLinearSystemBlock(self._ad_A, x, b,
+                block = SolveLinearSystemBlock(A, x, b,
                                                solver_params=self.parameters,
                                                solver_kwargs=self._ad_kwargs,
                                                ad_block_tag=self.ad_block_tag,
