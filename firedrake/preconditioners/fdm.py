@@ -12,9 +12,10 @@ from ufl.algorithms.ad import expand_derivatives
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_permuted_map
+from firedrake.preconditioners.pmg import get_permuted_map, tensor_product_space_query
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
+import firedrake.dmhooks as dmhooks
 import firedrake
 
 
@@ -29,40 +30,29 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
-        fdm_type = opts.getString("type", default="affine")
+        fdm_type = opts.getString("type", default="kron")
         true_diagonal = opts.getInt("true_diagonal", default=0)
         # true_diagonal == 1 to use diagonal scaling
-        # true_diagonal == 2 to insert the correct block-diagonal entries
+        # true_diagonal == 2 to use reaction with correct block-diagonal entries
 
         dm = pc.getDM()
         V = get_function_space(dm)
+        use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
 
-        ele = V.ufl_element()
-        if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
-            subel = ele.sub_elements()
-            ele = subel[0]
-        if isinstance(ele, firedrake.TensorProductElement):
-            family = set(e.family() for e in ele.sub_elements())
-        else:
-            family = {ele.family()}
+        if not use_tensorproduct or (family <= {"RTCE", "NCE"}):
+            raise ValueError("FDMPC does not support %s" % (V.ufl_element(), ))
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
         if true_diagonal and needs_interior_facet:
             raise ValueError("Option true_diagonal not supported for discontinuous spaces")
         self.true_diagonal = true_diagonal
 
+        Nq = 2 * N + 1
+
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
         self.uc = firedrake.Function(V)
         self.cell_node_map = get_permuted_map(V)
-
-        ndim = self.mesh.topological_dimension()
-        N = V.ufl_element().degree()
-        try:
-            N, = set(N)
-        except TypeError:
-            pass
-        Nq = 2 * N + 1
 
         # Get problem solution and bcs
         solverctx = get_appctx(dm)
@@ -85,12 +75,12 @@ class FDMPC(PCBase):
         appctx = self.get_appctx(pc)
         eta = appctx.get("eta", (N+1)*(N+ndim))
         mu = appctx.get("viscosity", None)  # sets the viscosity
-        helm = appctx.get("reaction", None)  # sets the reaction
-        hflag = helm is not None
+        beta = appctx.get("reaction", None)  # sets the reaction
+        bflag = beta is not None
         eta = float(eta)
         self.appctx = appctx
 
-        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.reaction_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, hflag, self.true_diagonal)
+        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.reaction_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, bflag, self.true_diagonal)
 
         # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
         prealloc = PETSc.Mat().create(comm=A.comm)
@@ -99,13 +89,13 @@ class FDMPC(PCBase):
         prealloc.setUp()
         ndof = V.value_size * V.dof_dset.set.size
 
-        if fdm_type == "affine":
+        if fdm_type == "kron":
             # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
             ele = V.ufl_element()
             ncomp = ele.value_size()
             bsize = V.value_size
             needs_hdiv = bsize != ncomp
-            Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, helm, Nq, diagonal=True, piola=needs_hdiv)
+            Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, beta, Nq, diagonal=True, piola=needs_hdiv)
             Gq.dat.data[:] = 1.0E0
             diag = None
             if Bq is not None:
@@ -124,13 +114,13 @@ class FDMPC(PCBase):
             # nonzeros from the diagonal and interface neighbors
             # Vertex-vertex couplings are ignored here,
             # so this should work as direct solver only on star patches
-            Gq, Bq, self.assemble_Gq, self.assemble_Bq = self.assemble_coef(mu, helm, Nq)
+            Gq, Bq, self.assemble_Gq, self.assemble_Bq = self.assemble_coef(mu, beta, Nq)
             W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
             stencil = firedrake.Function(W)
             self.assemble_stencil(prealloc, V, Gq, Bq, N, stencil)
             nnz = get_preallocation(prealloc, ndof)
             self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, mu, helm, Nq, N, stencil)
+            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, Gq, Bq, N, stencil)
         else:
             raise ValueError("Unknown fdm_type")
 
@@ -148,12 +138,19 @@ class FDMPC(PCBase):
 
         # We set a DM on the constructed PC so one
         # can do patch solves with ASMPC.
+        from firedrake.solving_utils import _SNESContext
+        mat_type = "aij"
         dm = opc.getDM()
+        octx = get_appctx(dm)
+        oproblem = octx._problem
+        self._ctx_ref = _SNESContext(oproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
+
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.Pmat, self.Pmat)
         self.pc = pc
-        pc.setFromOptions()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
+            pc.setFromOptions()
         self.update(pc)
 
     def update(self, pc):
@@ -180,7 +177,8 @@ class FDMPC(PCBase):
         for bc in self.bcs:
             bc.zero(self.uc)
 
-        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+        dm = pc.getDM()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref), self.uc.dat.vec as x_, self.uf.dat.vec as y_:
             self.pc.apply(x_, y_)
 
         for bc in self.bcs:
@@ -235,7 +233,7 @@ class FDMPC(PCBase):
             scale.sqrtabs()
             A.diagonalScale(L=scale, R=scale)
 
-    def assemble_stencil(self, A, V, mu, helm, Nq, N, stencil):
+    def assemble_stencil(self, A, V, Gq, Bq, N, stencil):
         # TODO implement stencil for IPDG
         assert V.value_size == 1
         imode = PETSc.InsertMode.ADD_VALUES
@@ -248,7 +246,6 @@ class FDMPC(PCBase):
         ndof_cell = V.cell_node_list.shape[1]
         nx1 = N + 1
 
-        Gq, Bq = self.assemble_coef(mu, helm, Nq)
         stencil.assign(firedrake.zero())
         # FIXME I don't know how to use optional arguments here, maybe a MixedFunctionSpace
         if Bq is not None:
@@ -507,7 +504,7 @@ class FDMPC(PCBase):
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 1:
             self.assemble_diagonal(A, V, Gq, Bq)
 
-    def assemble_coef(self, mu, helm, Nq=0, diagonal=False, transpose=False, piola=False):
+    def assemble_coef(self, mu, beta, Nq=0, diagonal=False, transpose=False, piola=False):
         ndim = self.mesh.topological_dimension()
         gdim = self.mesh.geometric_dimension()
         gshape = (ndim, ndim)
@@ -560,11 +557,11 @@ class FDMPC(PCBase):
         Gq = firedrake.Function(Q)
         assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=Nq), Gq)
 
-        if helm is None:
+        if beta is None:
             Bq = None
             assemble_Bq = lambda: None
         else:
-            shape = helm.ufl_shape
+            shape = beta.ufl_shape
             if len(shape) == 2:
                 Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", shape=shape)
@@ -578,7 +575,7 @@ class FDMPC(PCBase):
             Q = firedrake.FunctionSpace(self.mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
-            assemble_Bq = partial(firedrake.assemble, inner(helm, q)*dx(degree=Nq), Bq)
+            assemble_Bq = partial(firedrake.assemble, inner(beta, q)*dx(degree=Nq), Bq)
 
         return Gq, Bq, assemble_Gq, assemble_Bq
 
@@ -767,7 +764,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def assemble_matfree(V, N, Nq, eta, needs_interior_facet, helm=False, true_diagonal=0):
+    def assemble_matfree(V, N, Nq, eta, needs_interior_facet, beta=False, true_diagonal=0):
         # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
@@ -933,10 +930,10 @@ class FDMPC(PCBase):
             DZ = f"D+{nxb+nyb}" if ndim > 2 else "&one"
 
             # FIXME I don't know how to use optional arguments here
-            bcoef = "bcoef" if helm else "NULL"
+            bcoef = "bcoef" if beta else "NULL"
             cargs = "PetscScalar *diag"
             cargs += ", PetscScalar *gcoef"
-            if helm:
+            if beta:
                 cargs += ", PetscScalar *bcoef"
 
             stencil_code = f"""
