@@ -150,42 +150,15 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-        if params.get("quadrature_rule") == "default":
-            del params["quadrature_rule"]
 
         mode = pick_mode(params["mode"])
         mode_irs.setdefault(mode, collections.OrderedDict())
 
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
-
-        # Check if the integral has a quad degree attached, otherwise use
-        # the estimated polynomial degree attached by compute_form_data
-        quadrature_degree = params.get("quadrature_degree",
-                                       params["estimated_polynomial_degree"])
-        try:
-            quadrature_degree = params["quadrature_degree"]
-        except KeyError:
-            quadrature_degree = params["estimated_polynomial_degree"]
-            functions = list(arguments) + [builder.coordinate(mesh)] + list(integral_data.integral_coefficients)
-            function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
-            if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
-                   for degree in function_degrees):
-                logger.warning("Estimated quadrature degree %s more "
-                               "than tenfold greater than any "
-                               "argument/coefficient degree (max %s)",
-                               quadrature_degree, max_degree(function_degrees))
-
-        try:
-            quad_rule = params["quadrature_rule"]
-        except KeyError:
-            integration_cell = fiat_cell.construct_subelement(integration_dim)
-            quad_rule = make_quadrature(integration_cell, quadrature_degree)
-
-        if not isinstance(quad_rule, AbstractQuadratureRule):
-            raise ValueError("Expected to find a QuadratureRule object, not a %s" %
-                             type(quad_rule))
-
+        functions = list(arguments) + [builder.coordinate(mesh)] + list(integral_data.integral_coefficients)
+        set_quad_rule(params, cell, integral_type, functions)
+        quad_rule = params["quadrature_rule"]
         quadrature_multiindex = quad_rule.point_set.indices
         quadrature_indices.extend(quadrature_multiindex)
 
@@ -434,6 +407,36 @@ class DualEvaluationCallable(object):
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
+
+
+def set_quad_rule(params, cell, integral_type, functions):
+    # Check if the integral has a quad degree attached, otherwise use
+    # the estimated polynomial degree attached by compute_form_data
+    try:
+        quadrature_degree = params["quadrature_degree"]
+    except KeyError:
+        quadrature_degree = params["estimated_polynomial_degree"]
+        function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
+        if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
+               for degree in function_degrees):
+            logger.warning("Estimated quadrature degree %s more "
+                           "than tenfold greater than any "
+                           "argument/coefficient degree (max %s)",
+                           quadrature_degree, max_degree(function_degrees))
+    if params.get("quadrature_rule") == "default":
+        del params["quadrature_rule"]
+    try:
+        quad_rule = params["quadrature_rule"]
+    except KeyError:
+        fiat_cell = as_fiat_cell(cell)
+        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
+        integration_cell = fiat_cell.construct_subelement(integration_dim)
+        quad_rule = make_quadrature(integration_cell, quadrature_degree)
+        params["quadrature_rule"] = quad_rule
+
+    if not isinstance(quad_rule, AbstractQuadratureRule):
+        raise ValueError("Expected to find a QuadratureRule object, not a %s" %
+                         type(quad_rule))
 
 
 def lower_integral_type(fiat_cell, integral_type):
