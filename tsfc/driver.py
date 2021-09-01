@@ -76,12 +76,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
+    parameters = preprocess_parameters(parameters)
+
     if interface is None:
         if coffee:
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
@@ -94,12 +90,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         scalar_type = parameters["scalar_type_c"]
     else:
         scalar_type = parameters["scalar_type"]
-
-    # Remove these here, they're handled below.
-    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
-        del parameters["quadrature_degree"]
-    if parameters.get("quadrature_rule") in ["auto", "default", None]:
-        del parameters["quadrature_rule"]
 
     integral_type = integral_data.integral_type
     interior_facet = integral_type.startswith("interior_facet")
@@ -264,6 +254,21 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         name_multiindex(multiindex, name)
 
     return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
+
+
+def preprocess_parameters(parameters):
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+    # Remove these here, they're handled later on.
+    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
+        del parameters["quadrature_degree"]
+    if parameters.get("quadrature_rule") in ["auto", "default", None]:
+        del parameters["quadrature_rule"]
+    return parameters
 
 
 def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
