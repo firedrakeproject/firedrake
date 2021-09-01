@@ -80,18 +80,21 @@ class Roofline:
 
         if region_name is not None:
             # Allow multiple region names
-            if type(region_name) is str: 
+            if type(region_name) is str:             
                 data = self.data[region_name][event_name]
                 for event in self.data[region_name].values():
                     data['flops'] += event['flops']
                     data['bytes'] += event['bytes'] 
                     data['time'] += event['time']
-                print("self.data[region_name] = ", self.data[region_name])
                 intensity.append(data['flops']/data['bytes'])
                 flop_rate.append((data['flops']/data['time']) * 1e-9)
             else:
                 for region_name_ in region_name:
                     data = self.data[region_name_][event_name]
+                    for event in self.data[region_name_].values():
+                        data['flops'] += event['flops']
+                        data['bytes'] += event['bytes'] 
+                        data['time'] += event['time']
                     intensity.append(data['flops']/data['bytes'])
                     flop_rate.append((data['flops']/data['time']) * 1e-9)
 
