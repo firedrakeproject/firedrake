@@ -12,6 +12,8 @@ from collections import defaultdict
 from functools import partial
 from contextlib import contextmanager
 
+plt.rcParams["font.family"] = 'Times New Roman'
+
 class Roofline:
     def __init__(self, streaming_limit, flop_limit):
         """The generation of a roofline performance model, for given code.
@@ -59,22 +61,42 @@ class Roofline:
         finally:
             self.stop_collection(region_name)
 
-    def roofline(self, region_name=None, event_name=None, axes=None):
+    def roofline(self, region_name=None, event_name=None, comm=None, axes=None):
         """The generation of a roofline plot.
 
         :arg data_type: Choice between 'flops', 'bytes', and 'time'
         :arg region_name: Region of code to be analysed 
         :arg event_name: Firedrake or PETSc event to be analysed 
+        :arg comm: Communicator for parallelized code
         :arg axes: Existing axes to add roofline plot to
         :returns: Roofline plot axes
         """
 
         if axes is None:
-            figure = plt.figure(figsize=(8, 5))
+            figure = plt.figure(figsize=(14, 7))
             axes = figure.add_subplot(111)
 
         intensity, flop_rate = [], []
-        if event_name is not None:
+
+        if region_name is not None:
+            # Allow multiple region names
+            if type(region_name) is str: 
+                data = self.data[region_name][event_name]
+                for event in self.data[region_name].values():
+                    data['flops'] += event['flops']
+                    data['bytes'] += event['bytes'] 
+                    data['time'] += event['time']
+                print("self.data[region_name] = ", self.data[region_name])
+                intensity.append(data['flops']/data['bytes'])
+                flop_rate.append((data['flops']/data['time']) * 1e-9)
+            else:
+                for region_name_ in region_name:
+                    data = self.data[region_name_][event_name]
+                    intensity.append(data['flops']/data['bytes'])
+                    flop_rate.append((data['flops']/data['time']) * 1e-9)
+
+        elif event_name is not None:
+            # Allow mutliple event names
             if type(event_name) is str: 
                 data = self.data[region_name][event_name]
                 intensity.append(data['flops']/data['bytes'])
@@ -125,17 +147,28 @@ class Roofline:
             lbl = str(region_name, event_name)
 
         axes.loglog(x, y, c='black', label='Roofline')
-        if len(event_name) > 1:
-            # Treat each event as a different point on the roofline model
-            for i in range(len(event_name)):
-                axes.loglog(intensity[i], flop_rate[i], 'o', linewidth=0, label=event_name[i])
+        if event_name is not None:
+            if type(event_name) is not str and len(event_name) > 1:
+                # Treat each event as a different point on the roofline model
+                for i in range(len(event_name)):
+                    axes.loglog(intensity[i], flop_rate[i], 'o', linewidth=0, label=event_name[i])
+            else:
+                axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=lbl)
+        elif region_name is not None:
+            if type(region_name) is not str and len(region_name) > 1:
+                # Treat each regoin as a different point on the roofline model
+                for i in range(len(region_name)):
+                    axes.loglog(intensity[i], flop_rate[i], 'o', linewidth=0, label=region_name[i])
+            else:
+                axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=lbl)
         else:
             axes.loglog(intensity, flop_rate, 'o', linewidth=0, label=lbl)
         axes.fill_between(x=x_mem, y1=y1_mem, y2=y2_mem, color='mediumspringgreen', alpha=0.1, label='Memory-bound region')
         axes.fill_between(x=x_comp, y1=y1_comp, y2=y2_comp, color='darkorange', alpha=0.1, label='Compute-bound region')
-        axes.legend(loc='best')
-        axes.set_xlabel("Operational Intensity [FLOPs/byte]")
-        axes.set_ylabel("Performance [GFLOPs/s]")
+        axes.legend(loc='upper left', fontsize=12)
+        axes.set_xlabel("Operational Intensity [FLOPs/byte]", fontsize=16)
+        axes.set_ylabel("Performance [GFLOPs/s]", fontsize=16)
+        plt.show()
         return axes 
 
     def save(self, name):
