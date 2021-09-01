@@ -158,7 +158,8 @@ class TSFCKernel(Cached):
             subspace_numbers = tuple(subspace_number_map[c] for c in kernel.external_data_numbers)
             subspace_parts = kernel.external_data_parts
             kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
-                                                    requires_zeroed_output_arguments=True),
+                                                    requires_zeroed_output_arguments=True,
+                                                    flop_count=kernel.flop_count),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -340,7 +341,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
 
     kernels = []
     # A map from all form coefficients/subspaces to their number.
-    function_numbers = dict((c, n) for (n, c) in enumerate(form.coefficients()))
+    function_numbers = form.coefficient_numbering()  # dict((c, n) for (n, c) in enumerate(form.coefficients()))
     subspace_numbers = dict((s, n) for (n, s) in enumerate(extract_subspaces(form)))
     if split:
         iterable = split_form(form, diagonal=diagonal)

@@ -1943,7 +1943,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords):
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices
     defined by a list of coordinates.
@@ -1951,15 +1951,47 @@ def VertexOnlyMesh(mesh, vertexcoords):
     :arg mesh: The unstructured mesh in which to immerse the vertex only
         mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+    :kwarg missing_points_behaviour: optional string argument for what to do
+        when vertices which are outside of the mesh are discarded. If ``'warn'``,
+        will print a warning. If ``'error'`` will raise a ValueError. Note that
+        setting this will cause all MPI ranks to check that they have the same
+        list of vertices (else the test is not possible): this operation scales
+        with number of vertices and number of ranks.
 
     .. note::
 
-        The vertex only mesh uses the same communicator as the input `mesh`.
+        The vertex only mesh uses the same communicator as the input ``mesh``.
 
     .. note::
 
-        Meshes created from a coordinates `firedrake.Function` and immersed
+        Meshes created from a coordinates :py:class:`~.Function` and immersed
         manifold meshes are not yet supported.
+
+    .. note::
+
+        This should also only be used for meshes which have not had their
+        coordinates field modified as, at present, this does not update the
+        coordinates field of the underlying DMPlex. Such meshes may cause
+        unexpected behavioir or hangs when running in parallel.
+
+    .. note::
+        When running in parallel, ``vertexcoords`` are strictly confined
+        to the local ``mesh`` cells of that rank. This means that if rank
+        A has ``vertexcoords`` {X} that are not found in the mesh cells
+        owned by rank A but are found in the mesh cells owned by rank B,
+        **and rank B has not been supplied with those** ``vertexcoords``,
+        then the ``vertexcoords`` {X} will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same
+           ``vertexcoords`` or by
+        #. ensuring that ``vertexcoords`` are already found in cells
+           owned by the ``mesh`` partition of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
+
     """
 
     import firedrake.functionspace as functionspace
@@ -2000,6 +2032,42 @@ def VertexOnlyMesh(mesh, vertexcoords):
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
     swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+
+    if missing_points_behaviour:
+
+        def compare_arrays(x, y, datatype):
+            x, eqx = x
+            y, eqy = y
+            if not (eqx and eqy):
+                return (None, False)
+            elif x.shape != y.shape:
+                return (None, False)
+            else:
+                return (x, np.allclose(x, y))
+
+        op = MPI.Op.Create(compare_arrays, commute=True)
+
+        # check all ranks have the same vertexcoords so that check is valid
+        # NOTE this operation scales with number of vertices and ranks
+        _, allequal = mesh.comm.allreduce((vertexcoords, True), op=op)
+        op.Free()
+        if not allequal:
+            raise ValueError("Cannot check for missing points if different vertices on each MPI rank!")
+
+        # Check for missing points
+        nlocal = len(swarm.getField("parentcellnum"))
+        swarm.restoreField("parentcellnum")
+        nglobal = mesh.comm.allreduce(nlocal, op=MPI.SUM)
+        ninput = len(vertexcoords)
+        if nglobal < ninput:
+            msg = f"{ninput - nglobal} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
+            if missing_points_behaviour == 'error':
+                raise ValueError(msg)
+            elif missing_points_behaviour == 'warn':
+                from warnings import warn
+                warn(msg)
+            else:
+                raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
@@ -2049,7 +2117,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     :arg plex: the DMPlex within with the DMSwarm should be
         immersed.
-    :arg coords: an `ndarray` of (npoints, coordsdim) shape.
+    :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
     :kwarg fields: An optional list of named data which can be stored
         for each point in the DMSwarm. The format should be::
 
@@ -2058,11 +2126,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
          (fieldnameN, blocksizeN, dtypeN)]
 
         For example, the swarm coordinates themselves are stored in a
-        field named `DMSwarmPIC_coor` which, were it not created
+        field named ``DMSwarmPIC_coor`` which, were it not created
         automatically, would be initialised with
         ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
-        information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
+        information see `the DMSWARM API reference
+        <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2074,13 +2143,29 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         In complex mode the "DMSwarmPIC_coor" field is still saved as a
         real number unlike the coordinates of a DMPlex which become
         complex (though usually with zeroed imaginary parts).
+
+    .. note::
+        When running in parallel, ``coords`` are strictly confined to
+        the local DMPlex cells of that rank. This means that if rank A
+        has ``coords`` {X} that are not found in the DMPlex cells of rank
+        A but are found in the DMPlex cells of rank B, **and rank B has
+        not been supplied with those** ``coords`` then the ``coords`` {X}
+        will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same list of
+          ``coords`` or by
+        #. ensuring that ``coords`` are already localised for to the
+           DMPlex cells of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
     """
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
-    npoints, coordsdim = coords.shape
-    if coordsdim == 1:
-        raise NotImplementedError("You can't yet use a 1D DMPlex as DMSwarm cellDM.")
+    _, coordsdim = coords.shape
 
     # Create a DMSWARM
     swarm = PETSc.DMSwarm().create(comm=plex.comm)
