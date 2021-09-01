@@ -45,25 +45,17 @@ class FDMPC(PCBase):
         # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        opts = PETSc.Options(options_prefix)
-        fdm_type = opts.getString("type", default="kron")
-        true_diagonal = opts.getInt("true_diagonal", default=0)
-        # true_diagonal == 1 to use diagonal scaling
-        # true_diagonal == 2 to use reaction with correct block-diagonal entries
+        # opts = PETSc.Options(options_prefix)
 
         dm = pc.getDM()
         V = get_function_space(dm)
         use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
 
         if not use_tensorproduct or (family <= {"RTCE", "NCE"}):
-            raise ValueError("FDMPC does not support %s" % (V.ufl_element(), ))
+            raise ValueError("The element %s is not supported by FDMPC." % (V.ufl_element(), ))
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
-        if true_diagonal and needs_interior_facet:
-            raise ValueError("Option true_diagonal not supported for discontinuous spaces")
-        self.true_diagonal = true_diagonal
-
-        Nq = 2 * N + 1
+        Nq = 2*N+1  # quadrature degree
 
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
@@ -92,11 +84,13 @@ class FDMPC(PCBase):
         eta = appctx.get("eta", (N+1)*(N+ndim))  # interior penalty parameter
         mu = appctx.get("viscosity", None)  # second order coefficient
         beta = appctx.get("reaction", None)  # zeroth order coefficient
-        bflag = beta is not None
         eta = float(eta)
         self.appctx = appctx
 
-        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel, self.diagonal_kernel, self.reaction_kernel, self.stencil_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, bflag, self.true_diagonal)
+        # Obtain the FDM basis and transfer kernels (restriction and prolongation)
+        # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each BC type
+        # Dfdm = normal derivate matrices in the FDM basis
+        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet)
 
         # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
         prealloc = PETSc.Mat().create(comm=A.comm)
@@ -105,41 +99,23 @@ class FDMPC(PCBase):
         prealloc.setUp()
         ndof = V.value_size * V.dof_dset.set.size
 
-        if fdm_type == "kron":
-            # Compute low-order PDE coefficients, so that the FDM sparsifies the assembled matrix
-            ele = V.ufl_element()
-            ncomp = ele.value_size()
-            bsize = V.value_size
-            needs_hdiv = bsize != ncomp
-            Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, beta, Nq, diagonal=True, piola=needs_hdiv)
-            Gq.dat.data[:] = 1.0E0
-            diag = None
-            if Bq is not None:
-                Bq.dat.data[:] = 1.0E0
-                if self.true_diagonal == 2:
-                    W = firedrake.TensorFunctionSpace(self.mesh, "DQ", N, shape=Bq.ufl_shape)
-                    diag = firedrake.Function(W)
+        # PDE coefficients interpolated on the quadrature nodes
+        ele = V.ufl_element()
+        ncomp = ele.value_size()
+        bsize = V.value_size
+        needs_hdiv = bsize != ncomp
+        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, beta, Nq, diagonal=True, piola=needs_hdiv)
 
-            self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet)
-            nnz = get_preallocation(prealloc, ndof)
-            self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
-                                          Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet)
-        elif fdm_type == "stencil":
-            # Compute high-order PDE coefficients and only extract
-            # nonzeros from the diagonal and interface neighbors
-            # Vertex-vertex couplings are ignored here,
-            # so this should work as direct solver only on star patches on Cartesian meshes
-            assert not needs_interior_facet
-            Gq, Bq, self.assemble_Gq, self.assemble_Bq = self.assemble_coef(mu, beta, Nq)
-            W = firedrake.VectorFunctionSpace(self.mesh, "DG" if ndim == 1 else "DQ", N, dim=2*ndim+1)
-            stencil = firedrake.Function(W)
-            self.assemble_stencil(prealloc, V, Gq, Bq, N, stencil)
-            nnz = get_preallocation(prealloc, ndof)
-            self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-            self._assemble_Pmat = partial(self.assemble_stencil, self.Pmat, V, Gq, Bq, N, stencil)
-        else:
-            raise ValueError("Unknown fdm_type")
+        # Assign arbitrary non-zero coefficients for preallocation
+        Gq.dat.data[:] = 1.0E0
+        if Bq is not None:
+            Bq.dat.data[:] = 1.0E0
+
+        self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+        nnz = get_preallocation(prealloc, ndof)
+        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
+        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
+                                      Afdm, Dfdm, eta, bcflags, needs_interior_facet)
 
         prealloc.destroy()
         lgmap = V.dof_dset.lgmap
@@ -221,90 +197,7 @@ class FDMPC(PCBase):
     def pull_axis(x, pshape, idir):
         return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    def assemble_diagonal(self, A, V, Gq, Bq):
-        ele = V.ufl_element()
-        ncomp = ele.value_size()
-        degree = ele.degree()
-        try:
-            degree, = set(degree)
-        except TypeError:
-            pass
-
-        W = firedrake.VectorFunctionSpace(self.mesh, "Lagrange", degree, dim=ncomp)
-        if Bq is not None and ncomp > 1:
-            if len(Bq.ufl_shape) == 0:
-                Bq = firedrake.as_vector([Bq]*ncomp)
-            elif len(Bq.ufl_shape) == 2:
-                Bq = diag_vector(Bq)
-
-        diag = firedrake.Function(W)
-        if Bq is not None:
-            op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
-                         diag.dat(op2.INC, diag.cell_node_map()),
-                         Gq.dat(op2.READ, Gq.cell_node_map()),
-                         Bq.dat(op2.READ, Bq.cell_node_map()))
-        else:
-            op2.par_loop(self.diagonal_kernel, self.mesh.cell_set,
-                         diag.dat(op2.INC, diag.cell_node_map()),
-                         Gq.dat(op2.READ, Gq.cell_node_map()))
-
-        with diag.dat.vec as scale:
-            scale.pointwiseDivide(scale, A.getDiagonal())
-            scale.sqrtabs()
-            A.diagonalScale(L=scale, R=scale)
-
-    def assemble_stencil(self, A, V, Gq, Bq, N, stencil):
-        assert V.value_size == 1
-        imode = PETSc.InsertMode.ADD_VALUES
-        lgmap = V.local_to_global_map(self.bcs)
-
-        lexico_cg, nel = self.glonum_fun(V.cell_node_map())
-        lexico_dg, _ = self.glonum_fun(stencil.cell_node_map())
-
-        ndim = V.mesh().topological_dimension()
-        ndof_cell = V.cell_node_list.shape[1]
-        nx1 = N + 1
-
-        stencil.assign(firedrake.zero())
-        if Bq is not None:
-            op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
-                         stencil.dat(op2.WRITE, stencil.cell_node_map()),
-                         Gq.dat(op2.READ, Gq.cell_node_map()),
-                         Bq.dat(op2.READ, Bq.cell_node_map()))
-        else:
-            op2.par_loop(self.stencil_kernel, self.mesh.cell_set,
-                         stencil.dat(op2.WRITE, stencil.cell_node_map()),
-                         Gq.dat(op2.READ, Gq.cell_node_map()))
-
-        # Connectivity graph between the nodes within a cell
-        i = numpy.arange(ndof_cell, dtype=PETSc.IntType)
-        sx = i - (i % nx1)
-        sy = i - ((i // nx1) % nx1) * nx1
-        if ndim == 1:
-            graph = numpy.array([sx, sx+(nx1-1)])
-        elif ndim == 2:
-            graph = numpy.array([sy, sy+(nx1-1)*nx1, sx, sx+(nx1-1)])
-        else:
-            sz = i - (((i // nx1) // nx1) % nx1) * nx1 * nx1
-            graph = numpy.array([sz, sz+(nx1-1)*nx1*nx1, sy, sy+(nx1-1)*nx1, sx, sx+(nx1-1)])
-
-        ondiag = (graph == i).T
-        graph = graph.T
-        for e in range(nel):
-            ie = lgmap.apply(lexico_cg(e))
-            je = ie[graph]
-            je[ondiag] = -1
-            vals = stencil.dat.data_ro[lexico_dg(e)]
-            for row, cols, aij in zip(ie, je, vals):
-                A.setValue(row, row, aij[0], imode)
-                A.setValues(row, cols, aij[1:], imode)
-                A.setValues(cols, row, aij[1:], imode)
-
-        for row in V.dof_dset.lgmap.indices:
-            A.setValue(row, row, 0.0E0, imode)
-        A.assemble()
-
-    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, diag, bcflags, needs_interior_facet):
+    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
@@ -338,6 +231,7 @@ class FDMPC(PCBase):
         for row in V.dof_dset.lgmap.indices:
             A.setValue(row, row, 0.0E0, imode)
 
+        # We first deal with the reaction term if Bq is a tensor
         use_separate_reaction = False if Bq is None else (not needs_hdiv and len(Bq.ufl_shape) == 2)
 
         if use_separate_reaction:
@@ -345,49 +239,26 @@ class FDMPC(PCBase):
             for k in range(1, ndim):
                 be = be.kron(Afdm[k][0][1])
 
-            if A.getType() != PETSc.Mat.Type.PREALLOCATOR and diag is not None:
-                op2.par_loop(self.reaction_kernel, self.mesh.cell_set,
-                             diag.dat(op2.WRITE, diag.cell_node_map()),
-                             Bq.dat(op2.READ, Bq.cell_node_map()))
+            aptr = numpy.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
+            aidx = numpy.tile(numpy.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
+            for e in range(nel):
+                adata = numpy.sum(Bq.dat.data_ro[bid(e)], axis=0)
+                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                ae = be.kron(ae)
 
-                lexico_diag, _ = self.glonum_fun(diag.cell_node_map())
-                indptr, indices, data = be.getValuesCSR()
-                be_diag = be.getDiagonal()
-                for e in range(nel):
-                    ie = lexico_cell(e)
-                    ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=PETSc.IntType), len(ie))
-                    rows = numpy.reshape(lgmap.apply(ie), (-1, ncomp))
-                    cols = rows[indices]
-                    vals = diag.dat.data_ro[lexico_diag(e)]
-                    for i, row in enumerate(rows):
-                        i0 = indptr[i]
-                        i1 = indptr[i+1]
-                        col = cols[i0:i1]
-                        block = numpy.kron(data[i0:i1]*(0.5E0/be_diag[i]), vals[i])
-                        A.setValues(row, col, block, imode)
-                        block = numpy.ascontiguousarray(block.T)
-                        A.setValues(col, row, block, imode)
-
-            else:
-                aptr = numpy.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
-                aidx = numpy.tile(numpy.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
-                for e in range(nel):
-                    adata = numpy.sum(Bq.dat.data_ro[bid(e)], axis=0)
-                    ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
-                    ae = be.kron(ae)
-
-                    ie = lexico_cell(e)
-                    ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=PETSc.IntType), len(ie))
-                    indptr, indices, data = ae.getValuesCSR()
-                    rows = lgmap.apply(ie)
-                    cols = rows[indices]
-                    for i, row in enumerate(rows):
-                        i0 = indptr[i]
-                        i1 = indptr[i+1]
-                        A.setValues(row, cols[i0:i1], data[i0:i1], imode)
-                    ae.destroy()
+                ie = lexico_cell(e)
+                ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=PETSc.IntType), len(ie))
+                indptr, indices, data = ae.getValuesCSR()
+                rows = lgmap.apply(ie)
+                cols = rows[indices]
+                for i, row in enumerate(rows):
+                    i0 = indptr[i]
+                    i1 = indptr[i+1]
+                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                ae.destroy()
             Bq = None
 
+        # Assemble the viscouos term and the reaction term if any
         for e in range(nel):
             ie = lexico_cell(e)
             if needs_hdiv:
@@ -520,8 +391,6 @@ class FDMPC(PCBase):
                     ae.destroy()
 
         A.assemble()
-        if A.getType() != PETSc.Mat.Type.PREALLOCATOR and self.true_diagonal == 1:
-            self.assemble_diagonal(A, V, Gq, Bq)
 
     def assemble_coef(self, mu, beta, Nq=0, diagonal=False, transpose=False, piola=False):
         ndim = self.mesh.topological_dimension()
@@ -627,6 +496,11 @@ class FDMPC(PCBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def semhat(N, Nq):
+        # Ahat = GLL stiffness matrix
+        # Bhat = GLL mass matrix
+        # Jhat = GLL(N) basis tabulated on the quadrature nodes
+        # Dhat = first derivative of GLL(N) basis tabulated on the quadrature nodes
+        # what = quadrature weights
         from FIAT.reference_element import UFCInterval
         from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
         from FIAT.quadrature import GaussLegendreQuadratureLineRule
@@ -771,15 +645,14 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def assemble_matfree(V, N, Nq, eta, needs_interior_facet, beta=False, true_diagonal=0):
-        # Assemble sparse 1D matrices and matrix-free kernels for basis transformation and stencil computation
+    def assemble_matfree(V, N, Nq, eta, needs_interior_facet):
+        # Assemble sparse 1D matrices and matrix-free kernels for basis transformation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
         bsize = V.value_size
         nscal = V.ufl_element().value_size()
         sdim = V.finat_element.space_dimension()
         ndim = V.ufl_domain().topological_dimension()
-        nsym = (ndim * (ndim+1)) // 2
         lwork = bsize * sdim
 
         needs_hdiv = nscal != bsize
@@ -805,11 +678,6 @@ class FDMPC(PCBase):
         nx = Vfdm[0].shape[0]
         ny = Vfdm[1].shape[0] if ndim >= 2 else 1
         nz = Vfdm[2].shape[0] if ndim >= 3 else 1
-
-        nxq = Jhat.shape[1]
-        nyq = nxq if ndim >= 2 else 1
-        nzq = nxq if ndim >= 3 else 1
-        nquad = nxq * nyq * nzq
 
         Vsize = sum([Vk.size for Vk in Vfdm])
         Vhex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Vk).flatten() for Vk in Vfdm])))
@@ -908,222 +776,8 @@ class FDMPC(PCBase):
 
         restrict_kernel = op2.Kernel(transfer_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        diagonal_kernel = None
-        reaction_kernel = None
-        stencil_kernel = None
 
-        if true_diagonal:
-            VJ = [Vk.T @ Jhat for Vk in Vfdm]
-            VD = [Vk.T @ Dhat for Vk in Vfdm]
-            Jhex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Vk).flatten() for Vk in VJ])))
-            Dhex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Vk).flatten() for Vk in VD])))
-            Jsquared_hex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Vk**2).flatten() for Vk in VJ])))
-
-            nb = sum([Vk.size for Vk in VJ])
-            nxb = nx*nxq
-            nyb = ny*nyq
-            nzb = nz*nzq
-
-            gsize = ndim*nscal
-            bsize = nscal if true_diagonal == 1 else nscal**2
-            stride = 1 if ndim*bsize == gsize else ((ndim*bsize)//gsize)+1
-
-            JX = "J"
-            JY = f"J+{nxb}" if ndim > 1 else "&one"
-            JZ = f"J+{nxb+nyb}" if ndim > 2 else "&one"
-
-            DX = "D"
-            DY = f"D+{nxb}" if ndim > 1 else "&one"
-            DZ = f"D+{nxb+nyb}" if ndim > 2 else "&one"
-
-            # FIXME I don't know how to use optional arguments here
-            bcoef = "bcoef" if beta else "NULL"
-            cargs = "PetscScalar *diag"
-            cargs += ", PetscScalar *gcoef"
-            if beta:
-                cargs += ", PetscScalar *bcoef"
-
-            stencil_code = f"""
-            {kronmxv_code}
-
-            void transpose(PetscBLASInt m, PetscBLASInt n, PetscScalar *x, PetscScalar *y){{
-                for({IntType_c} j=0; j<n; j++)
-                    for({IntType_c} i=0; i<m; i++)
-                        y[j + n*i] = x[i + m*j];
-                return;
-            }}
-
-            void transpose_add(PetscBLASInt m, PetscBLASInt n, PetscScalar *x, PetscScalar *y){{
-                for({IntType_c} j=0; j<n; j++)
-                    for({IntType_c} i=0; i<m; i++)
-                        y[j + n*i] += x[i + m*j];
-                return;
-            }}
-
-            void mult3(PetscBLASInt n, PetscScalar *A, PetscScalar *B, PetscScalar *C){{
-                for({IntType_c} i=0; i<n; i++)
-                    C[i] = A[i] * B[i];
-                return;
-            }}
-
-            void mult_diag(PetscBLASInt m, PetscBLASInt n,
-                           PetscScalar *A, PetscScalar *B, PetscScalar *C){{
-                for({IntType_c} j=0; j<n; j++)
-                    for({IntType_c} i=0; i<m; i++)
-                        C[i+m*j] = A[i] * B[i+m*j];
-                return;
-            }}
-
-            void get_basis(PetscBLASInt dom, PetscScalar *J, PetscScalar *D, PetscScalar *B, PetscBLASInt ldb){{
-                PetscScalar *basis[2] = {{J, D}};
-                if(dom)
-                    for({IntType_c} j=0; j<2; j++)
-                        for({IntType_c} i=0; i<2; i++)
-                            mult_diag({nxq}, {nx}, basis[i]+{nxq*(nx-1)}*(dom-1), basis[j], B+(i+2*j)*ldb);
-                else
-                    for({IntType_c} j=0; j<2; j++)
-                        for({IntType_c} i=0; i<2; i++)
-                            mult3(ldb, basis[i], basis[j], B+(i+2*j)*ldb);
-                return;
-            }}
-
-            void get_band(PetscBLASInt nstencil,
-                          PetscBLASInt dom1, PetscBLASInt dom2, PetscBLASInt dom3,
-                          PetscScalar *JX, PetscScalar *DX,
-                          PetscScalar *JY, PetscScalar *DY,
-                          PetscScalar *JZ, PetscScalar *DZ,
-                          PetscScalar *gcoef,
-                          PetscScalar *bcoef,
-                          PetscScalar *band){{
-
-                PetscScalar BX[{4 * nxb}];
-                PetscScalar BY[{4 * nyb}];
-                PetscScalar BZ[{4 * nzb}];
-                PetscScalar t0[{nquad}], t1[{nquad}], t2[{sdim}] = {{0.0E0}};
-                PetscScalar scal;
-                {IntType_c} k, ix, iy, iz;
-                {IntType_c} ndiag = {sdim}, nquad = {nquad}, inc = 1;
-
-                get_basis(dom1, JX, DX, BX, {nxb});
-                get_basis(dom2, JY, DY, BY, {nyb});
-                if({ndim}==3)
-                    get_basis(dom3, JZ, DZ, BZ, {nzb});
-                else
-                    BZ[0] = 1.0E0;
-
-                if(bcoef){{
-                    BLAScopy_(&nquad, bcoef, &inc, t0, &inc);
-                    kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, 1, BX, BY, BZ, t0, t2);
-                }}
-
-                for({IntType_c} j=0; j<{ndim}; j++)
-                    for({IntType_c} i=0; i<{ndim}; i++){{
-                        k = i + j + (i>0 && j>0 && {ndim}==3);
-                        ix = (i == {ndim-1}) + 2 * (j == {ndim-1});
-                        iy = (i == {ndim-2}) + 2 * (j == {ndim-2});
-                        iz = (i == {ndim-3}) + 2 * (j == {ndim-3});
-                        scal = (i == j) ? 1.0E0 : 0.5E0;
-                        BLAScopy_(&nquad, gcoef+k*nquad, &inc, t0, &inc);
-                        kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, 1, BX+ix*{nxb}, BY+iy*{nyb}, BZ+iz*{nzb}, t0, t1);
-                        BLASaxpy_(&ndiag, &scal, t1, &inc, t2, &inc);
-                    }}
-
-                scal = 1.0E0;
-                BLASaxpy_(&ndiag, &scal, t2, &inc, band, &nstencil);
-                return;
-            }}
-
-            void diagonal({cargs}){{
-                PetscScalar J[{nb}] = {{ {Jhex} }};
-                PetscScalar D[{nb}] = {{ {Dhex} }};
-                PetscScalar tcoef[{nquad * nsym}];
-                PetscScalar one = 1.0E0;
-
-                transpose({nsym}, {nquad}, gcoef, tcoef);
-                get_band(1, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
-                return;
-            }}
-
-            void stencil({cargs}){{
-                PetscScalar J[{nb}] = {{ {Jhex} }};
-                PetscScalar D[{nb}] = {{ {Dhex} }};
-                PetscScalar tcoef[{nquad * nsym}];
-                PetscScalar one = 1.0E0;
-                {IntType_c} i1, i2, i3;
-                PetscBLASInt nstencil = {2*ndim+1};
-
-                transpose({nsym}, {nquad}, gcoef, tcoef);
-                get_band(nstencil, 0, 0, 0, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag);
-
-                for({IntType_c} j=0; j<{2*ndim}; j++){{
-                    i1 = (j/2 == {ndim-1}) * (1 + (j%2));
-                    i2 = (j/2 == {ndim-2}) * (1 + (j%2));
-                    i3 = (j/2 == {ndim-3}) * (1 + (j%2));
-                    get_band(nstencil, i1, i2, i3, {JX}, {DX}, {JY}, {DY}, {JZ}, {DZ}, tcoef, {bcoef}, diag + (j+1));
-                }}
-                return;
-            }}
-
-            void pbjacobi({cargs}){{
-                PetscScalar J[{nb}] = {{ {Jhex} }};
-                PetscScalar D[{nb}] = {{ {Dhex} }};
-                PetscScalar t0[{nquad * max(gsize, bsize)}];
-                PetscScalar t1[{sdim * max(gsize, bsize)}];
-                PetscScalar one = 1.0E0;
-
-                PetscScalar BX[{4 * nxb}];
-                PetscScalar BY[{4 * nyb}];
-                PetscScalar BZ[{4 * nzb}];
-
-                {IntType_c} k, ix, iy, iz;
-                {IntType_c} ndiag = {sdim}, nquad = {nquad}, bsize = {bsize}, inc = 1;
-
-                get_basis(0, {JX}, {DX}, BX, {nxb});
-                get_basis(0, {JY}, {DY}, BY, {nyb});
-                if({ndim}==3)
-                    get_basis(0, {JZ}, {DZ}, BZ, {nzb});
-                else
-                    BZ[0] = 1.0E0;
-
-                if({bcoef}){{
-                    transpose({bsize}, nquad, {bcoef}, t0);
-                    kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, {bsize}, BX, BY, BZ, t0, t1);
-                    transpose_add(ndiag, {bsize}, t1, diag);
-                }}
-
-                transpose({gsize}, nquad, gcoef, t0);
-                {IntType_c} j;
-                for({IntType_c} i=0; i<{ndim}; i++){{
-                    j = i;
-                    k = i;
-                    ix = (i == {ndim-1}) + 2 * (j == {ndim-1});
-                    iy = (i == {ndim-2}) + 2 * (j == {ndim-2});
-                    iz = (i == {ndim-3}) + 2 * (j == {ndim-3});
-                    kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, {nscal}, BX+ix*{nxb}, BY+iy*{nyb}, BZ+iz*{nzb}, t0+k*{nscal*nquad}, t1);
-
-                    for({IntType_c} l=0; l<{nscal}; l++)
-                        BLASaxpy_(&ndiag, &one, t1+l*ndiag, &inc, diag+l*{stride}, &bsize);
-                }}
-                return;
-            }}
-
-            void reaction(PetscScalar *diag, PetscScalar *bcoef){{
-                PetscScalar J[{nb}] = {{ {Jsquared_hex} }};
-                PetscScalar t0[{nquad * bsize}];
-                PetscScalar t1[{sdim * bsize}];
-                PetscScalar one = 1.0E0;
-                PetscBLASInt ndiag = {sdim}, nquad = {nquad}, bsize = {bsize};
-                transpose(bsize, nquad, bcoef, t0);
-                kronmxv(1, {nx}, {ny}, {nz}, {nxq}, {nyq}, {nzq}, bsize, {JX}, {JY}, {JZ}, t0, t1);
-                transpose(ndiag, bsize, t1, diag);
-                return;
-            }}
-            """
-
-            diagonal_kernel = op2.Kernel(stencil_code, "pbjacobi", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-            reaction_kernel = op2.Kernel(stencil_code, "reaction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-            stencil_kernel = op2.Kernel(stencil_code, "stencil", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-        return Afdm, Dfdm, restrict_kernel, prolong_kernel, diagonal_kernel, reaction_kernel, stencil_kernel
+        return Afdm, Dfdm, restrict_kernel, prolong_kernel
 
     @staticmethod
     def multiplicity(V):
@@ -1251,7 +905,7 @@ class FDMPC(PCBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def get_bc_flags(V, mesh, bcs, J):
-        # Returns an numpy.array with boundary condition flags on each cell facet
+        # Returns boundary condition flags on each cell facet
         # 0 => Natural, do nothing
         # 1 => Strong / Weak Dirichlet
         # 2 => Interior facet
