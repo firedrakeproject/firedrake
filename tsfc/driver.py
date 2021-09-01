@@ -34,6 +34,28 @@ from tsfc.ufl_utils import apply_mapping
 sys.setrecursionlimit(3000)
 
 
+TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
+                                              ["domain", "integral_type", "subdomain_id", "domain_number",
+                                               "arguments",
+                                               "coefficients", "coefficient_numbers"])
+TSFCIntegralDataInfo.__doc__ = """
+    Minimal set of objects for kernel builders.
+
+    domain - The mesh.
+    integral_type - The type of integral.
+    subdomain_id - What is the subdomain id for this kernel.
+    domain_number - Which domain number in the original form
+        does this kernel correspond to (can be used to index into
+        original_form.ufl_domains() to get the correct domain).
+    coefficients - A list of coefficients.
+    coefficient_numbers - A list of which coefficients from the
+        form the kernel needs.
+
+    This is a minimal set of objects that kernel builders need to
+    construct a kernel from :attr:`integrals` of :class:`~ufl.IntegralData`.
+    """
+
+
 def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True, diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
@@ -107,8 +129,23 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = interface(integral_type, integral_data.subdomain_id,
-                        domain_numbering[integral_data.domain],
+    domain_number = domain_numbering[integral_data.domain]
+    coefficients = [form_data.function_replace_map[c] for c in integral_data.integral_coefficients]
+    # This is which coefficient in the original form the
+    # current coefficient is.
+    # Consider f*v*dx + g*v*ds, the full form contains two
+    # coefficients, but each integral only requires one.
+    coefficient_numbers = tuple(form_data.original_coefficient_positions[i]
+                                for i, (_, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients))
+                                if enabled)
+    integral_data_info = TSFCIntegralDataInfo(domain=integral_data.domain,
+                                              integral_type=integral_data.integral_type,
+                                              subdomain_id=integral_data.subdomain_id,
+                                              domain_number=domain_number,
+                                              arguments=arguments,
+                                              coefficients=coefficients,
+                                              coefficient_numbers=coefficient_numbers)
+    builder = interface(integral_data_info,
                         scalar_type,
                         diagonal=diagonal)
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()

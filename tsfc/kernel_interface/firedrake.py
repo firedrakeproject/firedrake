@@ -126,9 +126,12 @@ class KernelBuilderBase(_KernelBuilderBase):
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type,
+    def __init__(self, integral_data_info, scalar_type,
                  dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
+        integral_type = integral_data_info.integral_type
+        subdomain_id = integral_data_info.subdomain_id
+        domain_number = integral_data_info.domain_number
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
@@ -152,6 +155,8 @@ class KernelBuilder(KernelBuilderBase):
             }
         elif integral_type == 'interior_facet_horiz':
             self._entity_number = {'+': 1, '-': 0}
+
+        self.integral_data_info = integral_data_info
 
     def set_arguments(self, arguments, multiindices):
         """Process arguments.
@@ -185,7 +190,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg form_data: UFL form data
         """
         coefficients = []
-        coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
@@ -203,15 +207,10 @@ class KernelBuilder(KernelBuilderBase):
                         self.coefficient_split[coefficient] = split
                 else:
                     coefficients.append(coefficient)
-                # This is which coefficient in the original form the
-                # current coefficient is.
-                # Consider f*v*dx + g*v*ds, the full form contains two
-                # coefficients, but each integral only requires one.
-                coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
             coeff_coffee_arg = self._coefficient(coefficient, f"w_{i}")
             self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_coffee_arg))
-        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
+        self.kernel.coefficient_numbers = tuple(self.integral_data_info.coefficient_numbers)
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be

@@ -22,8 +22,9 @@ create_element = functools.partial(_create_element, shape_innermost=False)
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None, diagonal=False):
+    def __init__(self, integral_data_info, scalar_type, diagonal=False):
         """Initialise a kernel builder."""
+        integral_type = integral_data_info.integral_type
         if diagonal:
             raise NotImplementedError("Assembly of diagonal not implemented yet, sorry")
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
@@ -49,6 +50,8 @@ class KernelBuilder(KernelBuilderBase):
             }
         elif integral_type == "vertex":
             self._entity_number = {None: gem.VariableIndex(gem.Variable("vertex", ()))}
+
+        self.integral_data_info = integral_data_info
 
     def set_arguments(self, arguments, multiindices):
         """Process arguments.
