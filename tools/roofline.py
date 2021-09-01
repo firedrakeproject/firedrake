@@ -24,7 +24,10 @@ class Roofline:
         self.flop_limit = flop_limit
     
     def start_collection(self, region_name=None):
-        """The start point of data collection for the Roofline model."""
+        """The start point of data collection for the Roofline model.
+        
+        :arg region_name: Region of code to be analysed 
+        """
         start = PETSc.Log.getPerfInfoAllStages()['Main Stage']
         data = self.data[region_name]
         for event, info in start.items():
@@ -33,7 +36,10 @@ class Roofline:
                 event_data[n] -= info[n]
 
     def stop_collection(self, region_name=None):
-        """The end point of data collection for the Roofline model."""
+        """The end point of data collection for the Roofline model.
+        
+        :arg region_name: Region of code to be analysed 
+        """
         stop = PETSc.Log.getPerfInfoAllStages()['Main Stage']
         data = self.data[region_name]
         for event, info in stop.items():
@@ -43,7 +49,10 @@ class Roofline:
 
     @contextmanager
     def collecting(self, region_name=None):
-        """Automated inclusion of stop_collection at the end of a script if not called."""
+        """Automated inclusion of stop_collection at the end of a script if not called.
+        
+        :arg region_name: Region of code to be analysed 
+        """
         self.start_collection(region_name)
         try: 
             yield
@@ -54,8 +63,9 @@ class Roofline:
         """The generation of a roofline plot.
 
         :arg data_type: Choice between 'flops', 'bytes', and 'time'
+        :arg region_name: Region of code to be analysed 
+        :arg event_name: Firedrake or PETSc event to be analysed 
         :arg axes: Existing axes to add roofline plot to
-        :arg data: Load previously saved data stored as a pickle file
         :returns: Roofline plot axes
         """
 
