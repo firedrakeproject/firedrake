@@ -98,18 +98,24 @@ def get_petsc_variables():
 
 def get_blas_library():
     """Get the path to the BLAS library that PETSc links to"""
+    # Linux uses `ldd` to look at shared library linkage, MacOS uses `otool`
     try:
-        cmd = subprocess.run(["ldd", PETSc.__file__], stdout=subprocess.PIPE)
+        program = ["ldd"]
+        cmd = subprocess.run([*program, PETSc.__file__], stdout=subprocess.PIPE)
     except FileNotFoundError:
-        cmd = subprocess.run(["otool", "-L", PETSc.__file__], stdout=subprocess.PIPE)
+        program = ["otool", "-L"]
+        cmd = subprocess.run([*program, PETSc.__file__], stdout=subprocess.PIPE)
 
     entries = cmd.stdout.decode("utf-8").split("\n")
-    entry = next((entry for entry in entries if "blas" in entry or "libmkl" in entry), None)
+    entry = next((e for e in entries if "blas" in e or "libmkl" in e), None)
     if entry is None:
         return None
 
-    # TODO: Find the right way to parse `otool` output
-    return entry.split()[2]
+    # `ldd` puts a bunch of garbage before the library name in the output, so
+    # we have to split the result on whitespace and get the 3rd word, whereas
+    # `otool` puts it right at the beginning.
+    index = 2 if program[0] == "ldd" else 0
+    return entry.split()[index]
 
 
 class OptionsManager(object):
