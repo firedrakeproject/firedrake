@@ -107,3 +107,8 @@ class KernelBuilderBase(KernelInterface):
         """
         # Nothing is required by default
         pass
+
+
+class KernelBuilderMixin(object):
+    """Mixin for KernelBuilder classes."""
+    pass

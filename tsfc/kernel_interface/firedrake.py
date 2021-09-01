@@ -14,7 +14,7 @@ from gem.optimise import remove_componenttensors as prune
 from tsfc import kernel_args
 from tsfc.coffee import generate as generate_coffee
 from tsfc.finatinterface import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin
 
 
 def make_builder(*args, **kwargs):
@@ -123,7 +123,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         return create_element(element, **kwargs)
 
 
-class KernelBuilder(KernelBuilderBase):
+class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
     def __init__(self, integral_data_info, scalar_type,

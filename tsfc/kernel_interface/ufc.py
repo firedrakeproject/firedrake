@@ -11,7 +11,7 @@ from finat import TensorFiniteElement
 
 import ufl
 
-from tsfc.kernel_interface.common import KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase, KernelBuilderMixin
 from tsfc.finatinterface import create_element as _create_element
 
 
@@ -19,7 +19,7 @@ from tsfc.finatinterface import create_element as _create_element
 create_element = functools.partial(_create_element, shape_innermost=False)
 
 
-class KernelBuilder(KernelBuilderBase):
+class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
     def __init__(self, integral_data_info, scalar_type, diagonal=False):
