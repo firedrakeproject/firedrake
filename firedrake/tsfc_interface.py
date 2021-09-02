@@ -239,6 +239,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
         subspace_expr_map = {s: e for s, e in zip(subspaces, subspace_exprs)}
         # Compile integrals.
+        ctx = builder.create_context()
         for integral_index, integral in enumerate(tsfc_integral_data.integrals):
             form_data_idx = tsfc_integral_data.integral_index_to_form_data_index(integral_index)
             subspace_tuple = split_subspaces[form_data_idx]
@@ -252,7 +253,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             # Prepare dummy indices for projected `Function`s.
             _extra_multiindices = tuple(builder.create_element(subspace.ufl_element()).get_indices() for subspace in subspace_tuple[nargs:])
             # Compile ufl -> gem.
-            expressions = builder.compile_ufl(integral.integrand(), params, argument_multiindices=_argument_multiindices+_extra_multiindices)
+            expressions = builder.compile_ufl(integral.integrand(), params, ctx, argument_multiindices=_argument_multiindices+_extra_multiindices)
             # Apply subspace transformations for projected `Argument`s.
             for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]):
                 if subspace is None:
@@ -277,11 +278,11 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
                                     for expression in expressions)
             reps = builder.construct_integrals(expressions, params)
-            builder.stash_integrals(reps, params)
+            builder.stash_integrals(reps, params, ctx)
         # Construct kernel
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel = builder.construct_kernel(kernel_name, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts)
+        kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
