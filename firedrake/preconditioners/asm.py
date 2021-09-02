@@ -155,7 +155,7 @@ class ASMStarPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype=IntType)
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
             ises.append(iset)
@@ -219,7 +219,7 @@ class ASMVankaPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype=IntType)
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
             ises.append(iset)
@@ -268,7 +268,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype='int32')
+                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype=IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
 
@@ -311,7 +311,8 @@ def get_basemesh_nodes(W):
 class ASMHexStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
-    ASMStarPC is an additive Schwarz preconditioner where each patch
+
+    ASMHexStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
     specified by `pc_hexstar_construct_dim`.
     '''
@@ -350,7 +351,7 @@ class ASMHexStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            points -= pstart        # offset by chart start
+            points -= pstart  # offset by chart start
             for k in range(nlayers):
                 indices = []
                 # Get DoF indices for patch

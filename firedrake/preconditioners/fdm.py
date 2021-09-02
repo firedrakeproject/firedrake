@@ -399,22 +399,30 @@ class FDMPC(PCBase):
 
         if gdim == ndim:
             Finv = JacobianInverse(self.mesh)
-            if mu is None:
-                G = dot(Finv, Finv.T)
-            elif mu.ufl_shape == ():
-                G = mu * dot(Finv, Finv.T)
-            elif mu.ufl_shape == gshape:
-                G = dot(dot(Finv, mu), Finv.T)
-            elif len(mu.ufl_shape) == 4:
-                if piola:
-                    PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
+
+            if piola:
+                PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
+                if mu is None:
+                    i1, i2, i3, i4, j1, j2 = indices(6)
+                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j1, i3] * Finv[i4, j2], (i1, i2, i3, i4))
+                elif mu.ufl_shape == ():
+                    i1, i2, i3, i4, j1, j2 = indices(6)
+                    G = mu * as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j1, i3] * Finv[i4, j2], (i1, i2, i3, i4))
+                elif len(mu.ufl_shape) == 4:
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
                     G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j3, i3] * Finv[i4, j4] * mu[j1, j2, j3, j4], (i1, i2, i3, i4))
-                else:
+            else:
+                if mu is None:
+                    G = dot(Finv, Finv.T)
+                elif mu.ufl_shape == ():
+                    G = mu * dot(Finv, Finv.T)
+                elif mu.ufl_shape == gshape:
+                    G = dot(dot(Finv, mu), Finv.T)
+                elif len(mu.ufl_shape) == 4:
                     i1, i2, i3, i4, j2, j4 = indices(6)
                     G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
-            else:
-                raise ValueError("I don't know what to do with the homogeneity tensor")
+                else:
+                    raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
             F = Jacobian(self.mesh)
             G = inv(dot(F.T, F))
@@ -475,7 +483,11 @@ class FDMPC(PCBase):
         Finv = JacobianInverse(self.mesh)
         vol = abs(JacobianDeterminant(self.mesh))
         i1, i2, i3, i4, j2, j4 = indices(6)
-        G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
+        if mu is None:
+            I = firedrake.Identity(self.mesh.topological_dimension())
+            G = vol * as_tensor(I[i1, i3] * Finv[i2, j2] * Finv[i4, j2], (i1, i2, i3, i4))
+        else:
+            G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
         G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
         hinv = area / vol
