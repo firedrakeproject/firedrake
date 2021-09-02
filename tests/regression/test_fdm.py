@@ -5,20 +5,23 @@ from firedrake import *
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def mesh(request):
+    nx = 4
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    if request.param == 2:
-        return RectangleMesh(10, 20, 2, 3, quadrilateral=True, distribution_parameters=distribution)
+    m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
-        base = RectangleMesh(5, 3, 1, 2, quadrilateral=True, distribution_parameters=distribution)
-        return ExtrudedMesh(base, 5, layer_height=3/5)
+        m = ExtrudedMesh(m, nx)
+    x = SpatialCoordinate(m)
+    xnew = as_vector([acos(1-2*xj)/pi for xj in x])
+    m.coordinates.interpolate(xnew)
+    return m
 
 
 @pytest.fixture
 def expected(mesh):
     if mesh.topological_dimension() == 2:
-        return [5, 5, 5]
+        return [4, 4, 4]
     elif mesh.topological_dimension() == 3:
-        return [6, 6, 6]
+        return [7, 7, 7]
 
 
 @pytest.mark.skipcomplex
@@ -47,21 +50,30 @@ def test_p_independence(mesh, expected):
         solver = LinearVariationalSolver(problem, solver_parameters={
             "mat_type": "matfree",
             "ksp_type": "cg",
+            "ksp_atol": 0.0E0,
+            "ksp_rtol": 1.0E-8,
             "ksp_converged_reason": None,
             "pc_type": "python",
             "pc_python_type": "firedrake.P1PC",
-            "pmg_mg_levels_ksp_type": "chebyshev",
-            "pmg_mg_levels_ksp_norm_type": "unpreconditioned",
-            "pmg_mg_levels_ksp_monitor_true_residual": None,
-            "pmg_mg_levels_pc_type": "python",
-            "pmg_mg_levels_pc_python_type": "firedrake.FDMPC",
-            "pmg_mg_levels_fdm": {
-                "ksp_type": "preonly",
+            "pmg_mg_levels": {
+                "ksp_type": "chebyshev",
+                "esteig_ksp_type": "cg",
+                "esteig_ksp_norm_type": "unpreconditioned",
+                "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+                "ksp_chebyshev_esteig_noisy": True,
+                "ksp_chebyshev_esteig_steps": 7,
+                "ksp_norm_type": "unpreconditioned",
+                "ksp_monitor_true_residual": None,
                 "pc_type": "python",
-                "pc_python_type": asm,
-                "pc_star_backend": "petscasm",
-                "pc_star_sub_sub_ksp_type": "preonly",
-                "pc_star_sub_sub_pc_type": "cholesky",
+                "pc_python_type": "firedrake.FDMPC",
+                "fdm": {
+                    "ksp_type": "preonly",
+                    "pc_type": "python",
+                    "pc_python_type": asm,
+                    "pc_star_backend": "petscasm",
+                    "pc_star_sub_sub_ksp_type": "preonly",
+                    "pc_star_sub_sub_pc_type": "cholesky",
+                }
             },
             "pmg_mg_coarse": {
                 "mat_type": "aij",
@@ -107,12 +119,13 @@ def test_direct_solver(fs):
     if ncomp > 1:
         uex = as_vector([uex + Constant(k) for k in range(ncomp)])
 
-    rhs = -div(grad(uex))
+    n = FacetNormal(mesh)
+    Fex = grad(uex)
+    B = -div(Fex)
+    T = dot(Fex, n)
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    L = inner(v, rhs)*dx
-    a = inner(grad(v), grad(u))*dx
 
     subs = (1, 3)
     if mesh.layers:
@@ -121,16 +134,27 @@ def test_direct_solver(fs):
     bcs = [DirichletBC(fs, uex, sub) for sub in subs]
 
     sub_Dir = "everywhere" if "on_boundary" in subs else tuple(s for s in subs if type(s) == int)
+    if sub_Dir == "everywhere":
+        sub_Neu = ()
+    else:
+        sub_Neu = tuple(set(mesh.exterior_facets.unique_markers) - set(s for s in subs if type(s) == int))
+
     if mesh.layers:
         dS_int = dS_v + dS_h
         ds_Dir = ds_v(sub_Dir)
+        ds_Neu = ds_v(sub_Neu)
         if "bottom" in subs:
             ds_Dir += ds_b
+        else:
+            ds_Neu += ds_b
         if "top" in subs:
             ds_Dir += ds_t
+        else:
+            ds_Neu += ds_t
     else:
         dS_int = dS
         ds_Dir = ds(sub_Dir)
+        ds_Neu = ds(sub_Neu)
 
     N = fs.ufl_element().degree()
     try:
@@ -139,19 +163,21 @@ def test_direct_solver(fs):
         pass
 
     eta = Constant((N+1)**2)
-    n = FacetNormal(mesh)
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = eta/h
 
-    a += (inner(outer_jump(v, n), avg(penalty) * outer_jump(u, n)) * dS_int
-          - inner(avg(grad(v)), outer_jump(u, n)) * dS_int
-          - inner(avg(grad(u)), outer_jump(v, n)) * dS_int
-          + inner(v, penalty * u) * ds_Dir
-          - inner(grad(v), outer(u, n)) * ds_Dir
-          - inner(grad(u), outer(v, n)) * ds_Dir)
+    a = (inner(grad(v), grad(u))*dx
+         + inner(outer_jump(v, n), avg(penalty) * outer_jump(u, n)) * dS_int
+         - inner(avg(grad(v)), outer_jump(u, n)) * dS_int
+         - inner(avg(grad(u)), outer_jump(v, n)) * dS_int
+         + inner(v, penalty * u) * ds_Dir
+         - inner(grad(v), outer(u, n)) * ds_Dir
+         - inner(grad(u), outer(v, n)) * ds_Dir)
 
-    L += (inner(v, penalty * uex) * ds_Dir
-          - inner(grad(v), outer(uex, n)) * ds_Dir)
+    L = (inner(v, B)*dx
+         + inner(v, T)*ds_Neu
+         + inner(v, penalty * uex) * ds_Dir
+         - inner(grad(v), outer(uex, n)) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
@@ -169,4 +195,5 @@ def test_direct_solver(fs):
         "fdm_pc_factor_mat_ordering_type": "nd",
     }, appctx={"eta": eta, })
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() == 1
+
+    assert solver.snes.ksp.getIterationNumber() == 1 and norm(uex-uh, "H1") < 1.0E-8
