@@ -140,6 +140,8 @@ try:
             warning("Cannot set number of threads in BLAS library!")
 except OSError:
     warning("Could not load BLAS library!")
+except TypeError:
+    warning("Could not find BLAS library!")
 
 # OMP_NUM_THREADS can be set to a comma-separated list of positive integers
 try:
