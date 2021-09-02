@@ -125,8 +125,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
-    quadrature_indices = []
-
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
@@ -164,15 +162,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
 
     builder.set_coefficients(integral_data, form_data)
 
-    # Map from UFL FiniteElement objects to multiindices.  This is
-    # so we reuse Index instances when evaluating the same coefficient
-    # multiple times with the same table.
-    #
-    # We also use the same dict for the unconcatenate index cache,
-    # which maps index objects to tuples of multiindices.  These two
-    # caches shall never conflict as their keys have different types
-    # (UFL finite elements vs. GEM index objects).
-    index_cache = {}
+    ctx = builder.create_context()
+    index_cache = ctx['index_cache']
+    quadrature_indices = ctx['quadrature_indices']
+    mode_irs = ctx['mode_irs']
 
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
@@ -183,7 +176,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
                       index_cache=index_cache,
                       scalar_type=parameters["scalar_type"])
 
-    mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides

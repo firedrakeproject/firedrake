@@ -1,3 +1,5 @@
+import collections
+
 import numpy
 
 import coffee.base as coffee
@@ -111,4 +113,49 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
-    pass
+
+    def create_context(self):
+        """Create builder context.
+
+        *index_cache*
+
+        Map from UFL FiniteElement objects to multiindices.
+        This is so we reuse Index instances when evaluating the same
+        coefficient multiple times with the same table.
+
+        We also use the same dict for the unconcatenate index cache,
+        which maps index objects to tuples of multiindices. These two
+        caches shall never conflict as their keys have different types
+        (UFL finite elements vs. GEM index objects).
+
+        *quadrature_indices*
+
+        List of quadrature indices used.
+
+        *mode_irs*
+
+        Dict for mode representations.
+
+        For each set of integrals to make a kernel for (i,e.,
+        `integral_data.integrals`), one must first create a ctx object by
+        calling :meth:`create_context` method.
+        This ctx object collects objects associated with the integrals that
+        are eventually used to construct the kernel.
+        The following is a typical calling sequence:
+
+        .. code-block:: python3
+
+            builder = KernelBuilder(...)
+            params = {"mode": "spectral"}
+            ctx = builder.create_context()
+            for integral in integral_data.integrals:
+                integrand = integral.integrand()
+                integrand_exprs = builder.compile_integrand(integrand, params, ctx)
+                integral_exprs = builder.construct_integrals(integrand_exprs, params)
+                builder.stash_integrals(integral_exprs, params, ctx)
+            kernel = builder.construct_kernel(kernel_name, ctx)
+
+        """
+        return {'index_cache': {},
+                'quadrature_indices': [],
+                'mode_irs': collections.OrderedDict()}
