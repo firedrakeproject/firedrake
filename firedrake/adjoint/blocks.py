@@ -71,12 +71,14 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
-    def __init__(self, A, u, b, *args, **kwargs):
+    def __init__(self, A, x, b, *args, **kwargs):
         lhs = A.form
-        func = u.function if hasattr(u, "function") else u
+        func = x.function if hasattr(x, "function") else x
+        self.function_space = func.function_space()
         rhs = b.form if hasattr(b, "form") else b
         bcs = A.bcs if hasattr(A, "bcs") else []
         super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
+        self.add_dependency(b)
 
         # Set up parameters initialization
         self.ident_zeros_tol = A.ident_zeros_tol if hasattr(A, "ident_zeros_tol") else None
@@ -85,6 +87,19 @@ class SolveLinearSystemBlock(GenericSolveBlock):
     def _init_solver_parameters(self, args, kwargs):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=False)
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        b = inputs[-1]
+        if isinstance(b, self.backend.Function):
+            b = b.vector()
+        elif not isinstance(b, self.backend.Vector):
+            raise NotImplementedError(f"Source function must be a Vector or Function, not {type(b)}.")
+        x = self.backend.Function(self.function_space).vector()
+        self._ad_ls.solve(x, b)
+        return x.function
 
 
 class SolveVarFormBlock(GenericSolveBlock):

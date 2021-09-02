@@ -19,11 +19,15 @@ class LinearSolver(OptionsManager):
 
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
 
-    @PETSc.Log.EventDecorator()
     @LinearSolverMixin._ad_annotate_init
+    def init_annotated(self, *args, **kwargs):
+        self.__init__(*args, **kwargs)
+
+    @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
-                 near_nullspace=None, options_prefix=None):
+                 near_nullspace=None, options_prefix=None,
+                 annotate=True):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.MatrixBase` (the operator).
@@ -43,12 +47,18 @@ class LinearSolver(OptionsManager):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg annotate: toggle Pyadjoint annotation.
 
         .. note::
 
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
+        if annotate:
+            self.init_annotated(A, P=P, solver_parameters=solver_parameters, nullspace=nullspace,
+                                transpose_nullspace=transpose_nullspace, near_nullspace=near_nullspace,
+                                options_prefix=options_prefix, annotate=False)
+            return
         if not isinstance(A, matrix.MatrixBase):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
         if P is not None and not isinstance(P, matrix.MatrixBase):

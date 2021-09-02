@@ -673,3 +673,25 @@ def test_copy_function():
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
     assert np.isclose(rf(interpolate(-one, V)), -J)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_linear_solve():
+    from firedrake_adjoint import ReducedFunctional, Control
+
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    x = Function(V).vector()
+    b = Function(V).assign(1.0).vector()
+    control = Control(b)
+    A = assemble(inner(TestFunction(V), TrialFunction(V))*dx)
+    solver = LinearSolver(A)
+    solver.solve(x, b)
+    J = assemble(x.function*dx)
+    rf = ReducedFunctional(J, control)
+    assert np.isclose(rf(b), J)
+
+
+if __name__ == "__main__":
+    PETSc.Sys.popErrorHandler()
+    test_linear_solve()

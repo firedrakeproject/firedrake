@@ -9,12 +9,15 @@ class LinearSolverMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, A, *args, **kwargs):
+            from firedrake import LinearSolver
             self.ad_block_tag = kwargs.pop("ad_block_tag", None)
             init(self, A, *args, **kwargs)
             self._ad_A = A
             self._ad_args = args
             self._ad_kwargs = kwargs
-            self._ad_ls = None
+            kwargs["annotate"] = False
+            self._ad_ls = LinearSolver(A, **kwargs)
+            self._ad_kwargs.pop('P')
 
         return wrapper
 
@@ -35,11 +38,12 @@ class LinearSolverMixin:
                 sb_kwargs.update(kwargs)
 
                 block = SolveLinearSystemBlock(A, x, b,
-                                               solver_params=self.parameters,
-                                               solver_kwargs=self._ad_kwargs,
+                                               forward_args=self._ad_args,
+                                               forward_kwargs=self._ad_kwargs,
                                                ad_block_tag=self.ad_block_tag,
                                                **sb_kwargs)
                 tape.add_block(block)
+                block._ad_ls = self._ad_ls
 
             with stop_annotating():
                 out = solve(self, x, b, **kwargs)
