@@ -1,6 +1,7 @@
 import abc
 
 from pyop2.mpi import COMM_SELF
+from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
@@ -13,7 +14,7 @@ except ImportError:
     have_tinyasm = False
 
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC")
+__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMHexStarPC")
 
 
 class ASMPatchPC(PCBase):
@@ -271,4 +272,117 @@ class ASMLinesmoothPC(ASMPatchPC):
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
 
+        return ises
+
+
+def get_basemesh_nodes(W):
+    pstart, pend = W.mesh().topology_dm.getChart()
+    section = W.dm.getDefaultSection()
+    # location of first dof on an entity
+    basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
+    # number of dofs on this entity
+    basemeshdof = numpy.empty(pend - pstart, dtype=IntType)
+    # number of dofs stacked on this entity in each cell
+    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=IntType)
+
+    # For every base mesh entity, what's the layer offset?
+    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
+    layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
+    nlayers = W.mesh().layers
+
+    for p in range(pstart, pend):
+        dof = section.getDof(p)
+        off = section.getOffset(p)
+        if dof == 0:
+            dof_per_layer = 0
+            layer_offset = 0
+        else:
+            layer_offset = layer_offsets[off]
+            assert layer_offset >= 0
+            dof_per_layer = dof - (nlayers - 1) * layer_offset
+
+        basemeshoff[p - pstart] = off
+        basemeshdof[p - pstart] = dof_per_layer
+        basemeshlayeroffset[p - pstart] = layer_offset
+
+    return basemeshoff, basemeshdof, basemeshlayeroffset
+
+
+class ASMHexStarPC(ASMPatchPC):
+    '''Patch-based PC using Star of mesh entities implmented as an
+    :class:`ASMPatchPC`.
+    ASMStarPC is an additive Schwarz preconditioner where each patch
+    consists of all DoFs on the topological star of the mesh entity
+    specified by `pc_hexstar_construct_dim`.
+    '''
+
+    _prefix = 'pc_star_'
+
+    def get_patches(self, V):
+        mesh = V.mesh()
+        nlayers = mesh.layers
+        mesh_dm = mesh.topology_dm
+
+        # Obtain the topological entities to use to construct the stars
+        depth = PETSc.Options().getInt(self.prefix+"construct_dim",
+                                       default=0)
+
+        # Accessing .indices causes the allocation of a global array,
+        # so we need to cache these for efficiency
+        V_ises = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        basemeshoff = []
+        basemeshdof = []
+        basemeshlayeroffsets = []
+        for (i, W) in enumerate(V):
+            boff, bdof, blayer_offsets = get_basemesh_nodes(W)
+            basemeshoff.append(boff)
+            basemeshdof.append(bdof)
+            basemeshlayeroffsets.append(blayer_offsets)
+
+        # Build index sets for the patches
+        ises = []
+        start, end = mesh_dm.getDepthStratum(depth)
+        pstart, _ = mesh_dm.getChart()
+        for seed in range(start, end):
+            # Only build patches over owned DoFs
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+
+            # Create point list from mesh DM
+            points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            points -= pstart        # offset by chart start
+            for k in range(nlayers):
+                indices = []
+                # Get DoF indices for patch
+                for i, W in enumerate(V):
+                    iset = V_ises[i]
+                    for p in points:
+                        # How to walk up one layer
+                        blayer_offset = basemeshlayeroffsets[i][p]
+                        if blayer_offset <= 0:
+                            # In this case we don't have any dofs on
+                            # this entity.
+                            continue
+                        # Offset in the global array for the bottom of
+                        # the column
+                        off = basemeshoff[i][p]
+                        # Number of dofs in the interior of the
+                        # vertical interval cell on top of this base
+                        # entity
+                        dof = basemeshdof[i][p]
+                        # Hard-code taking the star
+                        if k == 0:
+                            begin = off
+                            end = off + blayer_offset
+                        elif k < nlayers - 1:
+                            begin = off + (k-1) * blayer_offset + dof
+                            end = off + (k+1) * blayer_offset
+                        else:  # k == nlayers - 1:
+                            begin = off + (k-1) * blayer_offset + dof
+                            end = off + k * blayer_offset + dof
+                        zlice = slice(W.value_size * begin,
+                                      W.value_size * end)
+                        indices.extend(iset[zlice])
+                iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                ises.append(iset)
         return ises

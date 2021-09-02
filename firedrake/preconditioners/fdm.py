@@ -88,7 +88,7 @@ class FDMPC(PCBase):
         self.appctx = appctx
 
         # Obtain the FDM basis and transfer kernels (restriction and prolongation)
-        # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each BC type
+        # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each direction and BC type
         # Dfdm = normal derivate matrices in the FDM basis
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet)
 
