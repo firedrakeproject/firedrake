@@ -123,7 +123,7 @@ del get_versions
 # - MKL_NUM_THREADS: mkl,
 # - VECLIB_MAXIMUM_THREADS: accelerate,
 # - NUMEXPR_NUM_THREADS: numexpr
-# We only handle the first two cases
+# We only handle the first three cases
 from ctypes import cdll
 try:
     _blas_lib = cdll.LoadLibrary(_blas_lib_path)
