@@ -106,16 +106,19 @@ def get_blas_library():
         program = ["otool", "-L"]
         cmd = subprocess.run([*program, PETSc.__file__], stdout=subprocess.PIPE)
 
-    entries = cmd.stdout.decode("utf-8").split("\n")
-    entry = next((e for e in entries if "blas" in e or "libmkl" in e), None)
-    if entry is None:
+    library_names = ["blas", "libmkl"]
+    entries = [
+        entry for entry in cmd.stdout.decode("utf-8").split("\n")
+        if any(name in entry for name in library_names)
+    ]
+    if not entries:
         return None
 
     # `ldd` puts a bunch of garbage before the library name in the output, so
     # we have to split the result on whitespace and get the 3rd word, whereas
     # `otool` puts it right at the beginning.
     index = 2 if program[0] == "ldd" else 0
-    return entry.split()[index]
+    return entries[0].split()[index]
 
 
 class OptionsManager(object):
