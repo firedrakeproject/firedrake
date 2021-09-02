@@ -215,7 +215,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     original_subspaces = extract_subspaces(form)
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
-        builder = interface(tsfc_integral_data,
+        builder = interface(tsfc_integral_data.info,
                             parameters["scalar_type_c"] if coffee else parameters["scalar_type"],
                             parameters["scalar_type"],
                             diagonal=diagonal)

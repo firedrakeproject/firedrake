@@ -19,13 +19,13 @@ import gem.impero_utils as impero_utils
 import ufl
 import tsfc
 
-from tsfc.kernel_interface.common import lower_integral_type
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
 from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
+from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.parameters import default_parameters
-from tsfc.finatinterface import create_element
+from tsfc.finatinterface import create_element, lower_integral_type
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
@@ -548,19 +548,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    class _IntegralData(object):
-        def __init__(self, Vc):
-            self.domain = Vc.mesh()
-            self.integral_type = "cell"
-            self.subdoamin_id = "otherwise"
-            self.domain_number = 0
-            self.coefficients = ()
-            self.coefficient_numbers = ()
-            self.integrals = ()
-            self._integral_to_form_data_map = {}
-            self.arguments = (ufl.TestFunction(Vc), )
-
-    coarse_builder = firedrake_interface.KernelBuilder(_IntegralData(Vc), ScalarType_c, parameters["scalar_type"])
+    info = TSFCIntegralDataInfo(Vc.mesh(), "cell", "otherwise", 0,
+                                (ufl.TestFunction(Vc), ),
+                                (), ())
+    coarse_builder = firedrake_interface.KernelBuilder(info, ScalarType_c, parameters["scalar_type"])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     (return_variable, ) = coarse_builder.return_variables
