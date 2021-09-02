@@ -111,6 +111,7 @@ def fs(request, mesh):
         return VectorFunctionSpace(mesh, family, degree)
 
 
+@pytest.mark.skipcomplex
 def test_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)

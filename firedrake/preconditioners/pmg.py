@@ -6,7 +6,7 @@ from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductE
 from ufl import FiniteElement, EnrichedElement, HDivElement, HCurlElement, hexahedron
 from ufl.classes import Expr
 
-from pyop2 import op2
+from pyop2 import op2, PermutedMap
 import loopy
 
 from firedrake.petsc import PETSc
@@ -529,8 +529,6 @@ def get_permuted_map(V):
     else:
         return V.cell_node_map()
 
-    # FIXME this import comes from pyop2/wence-feature-permuted-map
-    from pyop2 import PermutedMap
     ncomp, = V.finat_element.value_shape
     permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
     for k in range(ncomp):
