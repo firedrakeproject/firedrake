@@ -224,13 +224,13 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         nargs = len(argument_multiindices)
         # Gather all subspaces in this `TSFCIntegralData`.
         subspaces = set()
-        for integral_index, _ in enumerate(tsfc_integral_data.integrals):
+        for form_data_index, integrals in enumerate(tsfc_integral_data.integrals_tuple):
             # Each integral is associated with a `ufl.IntegralData`,
-            # which in turn is associated with a `ufl.FormData`, which
+            # which is in turn associated with a `ufl.FormData`, which
             # is associated with a tuple of `Subspace`s; see
             # `split_form_projected`.
-            form_data_index = tsfc_integral_data.integral_index_to_form_data_index(integral_index)
-            subspaces.update(split_subspaces[form_data_index])
+            if len(integrals) > 0:
+                subspaces.update(split_subspaces[form_data_index])
         subspaces = subspaces.difference(set((None, )))
         # Sort subspaces and prepare for use in assemble.py.
         subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
@@ -241,46 +241,46 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # Compile integrals.
         ctx = builder.create_context()
         functions = list(builder.arguments) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
-        for integral_index, integral in enumerate(tsfc_integral_data.integrals):
-            form_data_idx = tsfc_integral_data.integral_index_to_form_data_index(integral_index)
-            subspace_tuple = split_subspaces[form_data_idx]
-            coefficient_tuple = split_coefficients[form_data_idx]
-            # Update quadrature parameters.
-            params = parameters.copy()
-            params.update(integral.metadata())  # integral metadata overrides
-            set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
-            # Use dummy indices for projected `Argument`s.
-            _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
-                                           in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]))
-            # Prepare dummy indices for projected `Function`s.
-            _extra_multiindices = tuple(builder.create_element(subspace.ufl_element()).get_indices() for subspace in subspace_tuple[nargs:])
-            # Compile ufl -> gem.
-            expressions = builder.compile_ufl(integral.integrand(), params, ctx, argument_multiindices=_argument_multiindices+_extra_multiindices)
-            # Apply subspace transformations for projected `Argument`s.
-            for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]):
-                if subspace is None:
-                    # dummy index was not used.
-                    continue
-                subspace_expr = subspace_expr_map[subspace]
-                # Apply subspace transformation (i_dummy -> i).
-                expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
-                                                 builder.create_element(subspace.ufl_element()), builder.scalar_type)
-            # Apply subspace transformations for projected `Function`s.
-            for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
-                subspace_expr = subspace_expr_map[subspace]
-                if type(coeff.ufl_element()) == MixedElement:
-                    coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
-                else:
-                    coefficient_expr = builder.coefficient_map[coeff]
-                i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
-                # Apply subspace transformation (i_extra -> i_coeff).
-                expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff,
-                                                 builder.create_element(subspace.ufl_element()), builder.scalar_type)
-                # Finally contract with the true function.
-                expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
-                                    for expression in expressions)
-            reps = builder.construct_integrals(expressions, params)
-            builder.stash_integrals(reps, params, ctx)
+        for form_data_idx, integrals in enumerate(tsfc_integral_data.integrals_tuple):
+            for integral in integrals:
+                subspace_tuple = split_subspaces[form_data_idx]
+                coefficient_tuple = split_coefficients[form_data_idx]
+                # Update quadrature parameters.
+                params = parameters.copy()
+                params.update(integral.metadata())  # integral metadata overrides
+                set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
+                # Use dummy indices for projected `Argument`s.
+                _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
+                                               in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]))
+                # Prepare dummy indices for projected `Function`s.
+                _extra_multiindices = tuple(builder.create_element(subspace.ufl_element()).get_indices() for subspace in subspace_tuple[nargs:])
+                # Compile ufl -> gem.
+                expressions = builder.compile_ufl(integral.integrand(), params, ctx, argument_multiindices=_argument_multiindices+_extra_multiindices)
+                # Apply subspace transformations for projected `Argument`s.
+                for i, i_dummy, subspace in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]):
+                    if subspace is None:
+                        # dummy index was not used.
+                        continue
+                    subspace_expr = subspace_expr_map[subspace]
+                    # Apply subspace transformation (i_dummy -> i).
+                    expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
+                                                     builder.create_element(subspace.ufl_element()), builder.scalar_type)
+                # Apply subspace transformations for projected `Function`s.
+                for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
+                    subspace_expr = subspace_expr_map[subspace]
+                    if type(coeff.ufl_element()) == MixedElement:
+                        coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
+                    else:
+                        coefficient_expr = builder.coefficient_map[coeff]
+                    i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
+                    # Apply subspace transformation (i_extra -> i_coeff).
+                    expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff,
+                                                     builder.create_element(subspace.ufl_element()), builder.scalar_type)
+                    # Finally contract with the true function.
+                    expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
+                                        for expression in expressions)
+                reps = builder.construct_integrals(expressions, params)
+                builder.stash_integrals(reps, params, ctx)
         # Construct kernel
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
