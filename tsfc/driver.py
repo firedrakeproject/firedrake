@@ -146,16 +146,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     builder = interface(integral_data_info,
                         scalar_type,
                         diagonal=diagonal)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
-    if diagonal:
-        # Error checking occurs in the builder constructor.
-        # Diagonal assembly is obtained by using the test indices for
-        # the trial space as well.
-        a, _ = argument_multiindices
-        argument_multiindices = (a, a)
 
-    return_variables = builder.set_arguments(arguments, argument_multiindices)
+    return_variables = builder.return_variables
+    argument_multiindices = builder.argument_multiindices
 
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)

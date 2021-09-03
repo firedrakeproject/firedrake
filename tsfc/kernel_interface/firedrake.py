@@ -156,21 +156,31 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         elif integral_type == 'interior_facet_horiz':
             self._entity_number = {'+': 1, '-': 0}
 
+        self.set_arguments(integral_data_info.arguments)
         self.integral_data_info = integral_data_info
 
-    def set_arguments(self, arguments, multiindices):
+    def set_arguments(self, arguments):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
-        :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        funarg, exprs = prepare_arguments(arguments, multiindices,
-                                          self.scalar_type,
-                                          interior_facet=self.interior_facet,
-                                          diagonal=self.diagonal)
+        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                      for arg in arguments)
+        if self.diagonal:
+            # Error checking occurs in the builder constructor.
+            # Diagonal assembly is obtained by using the test indices for
+            # the trial space as well.
+            a, _ = argument_multiindices
+            argument_multiindices = (a, a)
+        funarg, return_variables = prepare_arguments(arguments,
+                                                     argument_multiindices,
+                                                     self.scalar_type,
+                                                     interior_facet=self.interior_facet,
+                                                     diagonal=self.diagonal)
         self.output_arg = kernel_args.OutputKernelArg(funarg)
-        return exprs
+        self.return_variables = return_variables
+        self.argument_multiindices = argument_multiindices
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.

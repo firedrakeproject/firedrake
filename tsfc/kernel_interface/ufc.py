@@ -51,19 +51,32 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         elif integral_type == "vertex":
             self._entity_number = {None: gem.VariableIndex(gem.Variable("vertex", ()))}
 
+        self.set_arguments(integral_data_info.arguments)
         self.integral_data_info = integral_data_info
 
-    def set_arguments(self, arguments, multiindices):
+    def set_arguments(self, arguments):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
         :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, prepare, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
+        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                      for arg in arguments)
+        if self.diagonal:
+            # Error checking occurs in the builder constructor.
+            # Diagonal assembly is obtained by using the test indices for
+            # the trial space as well.
+            a, _ = argument_multiindices
+            argument_multiindices = (a, a)
+        local_tensor, prepare, return_variables = prepare_arguments(arguments,
+                                                                    argument_multiindices,
+                                                                    self.scalar_type,
+                                                                    interior_facet=self.interior_facet)
         self.apply_glue(prepare)
-        return expressions
+        self.local_tensor = local_tensor
+        self.return_variables = return_variables
+        self.argument_multiindices = argument_multiindices
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
