@@ -558,9 +558,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_builder = firedrake_interface.KernelBuilder(info, ScalarType_c)
     coarse_builder.set_coordinates(Vc.mesh())
-    argument_multiindices = (Vce.get_indices(), )
+    argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
-    return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
+    return_variable, = coarse_builder.return_variables
 
     integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
