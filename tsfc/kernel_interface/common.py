@@ -8,7 +8,8 @@ import gem
 
 from gem.utils import cached_property
 
-from tsfc.driver import lower_integral_type
+from tsfc.driver import lower_integral_type, set_quad_rule
+from tsfc import fem, ufl_utils
 from tsfc.kernel_interface import KernelInterface
 from tsfc.finatinterface import as_fiat_cell
 
@@ -115,6 +116,33 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
+
+    def compile_integrand(self, integrand, params, ctx):
+        """Compile UFL integrand.
+
+        :arg integrand: UFL integrand.
+        :arg params: a dict containing "quadrature_rule".
+        :arg ctx: context created with :meth:`create_context` method.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        # Split Coefficients
+        if self.coefficient_split:
+            integrand = ufl_utils.split_coefficients(integrand, self.coefficient_split)
+        # Compile: ufl -> gem
+        info = self.integral_data_info
+        functions = list(info.arguments) + [self.coordinate(info.domain)] + list(info.coefficients)
+        set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions)
+        quad_rule = params["quadrature_rule"]
+        config = self.fem_config()
+        config['argument_multiindices'] = self.argument_multiindices
+        config['quadrature_rule'] = quad_rule
+        config['index_cache'] = ctx['index_cache']
+        expressions = fem.compile_ufl(integrand,
+                                      fem.PointSetContext(**config),
+                                      interior_facet=self.interior_facet)
+        ctx['quadrature_indices'].extend(quad_rule.point_set.indices)
+        return expressions
 
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.

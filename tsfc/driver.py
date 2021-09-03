@@ -110,7 +110,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
             interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
@@ -152,10 +151,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     quadrature_indices = ctx['quadrature_indices']
     mode_irs = ctx['mode_irs']
 
-    kernel_cfg = builder.fem_config.copy()
-    kernel_cfg['argument_multiindices'] = argument_multiindices
-    kernel_cfg['index_cache'] = ctx['index_cache']
-
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
@@ -164,19 +159,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         mode_irs.setdefault(mode, collections.OrderedDict())
 
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
-        functions = list(arguments) + [builder.coordinate(mesh)] + list(integral_data.integral_coefficients)
-        set_quad_rule(params, cell, integral_type, functions)
-        quad_rule = params["quadrature_rule"]
-        quadrature_multiindex = quad_rule.point_set.indices
-        quadrature_indices.extend(quadrature_multiindex)
+        integrand_exprs = builder.compile_integrand(integrand, params, ctx)
 
-        config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule)
-        expressions = fem.compile_ufl(integrand,
-                                      fem.PointSetContext(**config),
-                                      interior_facet=interior_facet)
-        reps = mode.Integrals(expressions, quadrature_multiindex,
+        quad_rule = params["quadrature_rule"]
+        reps = mode.Integrals(integrand_exprs, quad_rule.point_set.indices,
                               argument_multiindices, params)
         for var, rep in zip(return_variables, reps):
             mode_irs[mode].setdefault(var, []).append(rep)
