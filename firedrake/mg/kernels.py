@@ -556,7 +556,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 coefficients=(),
                                 coefficient_numbers=())
 
-    coarse_builder = firedrake_interface.KernelBuilder(info, ScalarType_c)
+    coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
     coarse_builder.set_coordinates(Vc.mesh())
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
