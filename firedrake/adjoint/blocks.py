@@ -249,8 +249,8 @@ class MeshInputBlock(Block):
     Block which links a MeshGeometry to its coordinates, which is a firedrake
     function.
     """
-    def __init__(self, mesh):
-        super().__init__()
+    def __init__(self, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(mesh)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -269,8 +269,8 @@ class MeshInputBlock(Block):
 
 
 class FunctionSplitBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
 
@@ -299,8 +299,8 @@ class FunctionSplitBlock(Block, Backend):
 
 
 class FunctionMergeBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
         for output in func._ad_outputs:
@@ -340,8 +340,8 @@ class MeshOutputBlock(Block):
     """
     Block which is called when the coordinates of a mesh are changed.
     """
-    def __init__(self, func, mesh):
-        super().__init__()
+    def __init__(self, func, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -402,7 +402,7 @@ class InterpolateBlock(Block, Backend):
     Arguments after a semicolon are linear (i.e. operation I is linear)
     """
     def __init__(self, interpolator, *functions, **kwargs):
-        super().__init__()
+        super().__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
 
         self.expr = interpolator.expr
         self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
@@ -692,7 +692,7 @@ class SupermeshProjectBlock(Block, Backend):
       Step 2. solve linear system.
     """
     def __init__(self, source, target_space, target, bcs=[], **kwargs):
-        super(SupermeshProjectBlock, self).__init__()
+        super(SupermeshProjectBlock, self).__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
         import firedrake.supermeshing as supermesh
 
         # Process args and kwargs

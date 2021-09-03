@@ -639,13 +639,15 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
 
 
 @PETSc.Log.EventDecorator()
-def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
+def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
          divided into (min 3)
     :kwarg radius: (optional) radius of the circle to approximate
            (defaults to 1).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: cells are straight line segments)
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
@@ -660,6 +662,12 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
 
     plex = mesh._from_cell_list(1, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
+        # "push out" to circle
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m = mesh.Mesh(new_coords)
     m._radius = radius
     return m
 

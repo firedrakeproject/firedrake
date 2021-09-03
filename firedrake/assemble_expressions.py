@@ -16,7 +16,7 @@ from tsfc import ufl2gem
 from tsfc.loopy import generate
 from tsfc.ufl_utils import ufl_reuse_if_untouched
 from ufl.algorithms.apply_algebra_lowering import LowerCompoundAlgebra
-from ufl.classes import (Coefficient, ComponentTensor, ConstantValue, Expr,
+from ufl.classes import (Coefficient, ComponentTensor, Expr,
                          Index, Indexed, MultiIndex, Terminal)
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
@@ -368,7 +368,7 @@ def compile_to_gem(expr, translator):
         raise ValueError("All coefficients must be defined on the same space")
     lvalue = expr.lvalue
     rvalue = expr.rvalue
-    broadcast = isinstance(rvalue, (firedrake.Constant, ConstantValue)) and rvalue.ufl_shape == ()
+    broadcast = all(isinstance(c, firedrake.Constant) for c in expr.rcoefficients) and rvalue.ufl_shape == ()
     if not broadcast and lvalue.ufl_shape != rvalue.ufl_shape:
         try:
             rvalue = reshape(rvalue, lvalue.ufl_shape)

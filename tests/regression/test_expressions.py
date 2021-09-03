@@ -488,3 +488,26 @@ def test_expression_cache():
     assert w.dat.norm < 1e-15
 
     assert len(u._expression_cache) == 5
+
+
+def test_augmented_assignment_broadcast():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "BDM", 1)
+    u = Function(V)
+    a = Constant(1)
+    b = Constant(2)
+    u.assign(a)
+
+    assert np.allclose(u.dat.data_ro, 1)
+
+    u *= -(a + b)
+    assert np.allclose(u.dat.data_ro, -3)
+
+    u += b*2
+    assert np.allclose(u.dat.data_ro, 1)
+
+    u /= -(b + a)
+    assert np.allclose(u.dat.data_ro, -1/3)
+
+    u -= 2 + a + b
+    assert np.allclose(u.dat.data_ro, -16/3)
