@@ -71,6 +71,8 @@ class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
+    _ad_ls_T = None
+
     def __init__(self, A, x, b, *args, **kwargs):
         lhs = A.form
         func = x.function if hasattr(x, "function") else x
@@ -90,9 +92,7 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=False)
 
-    def prepare_recompute_component(self, inputs, relevant_outputs):
-        return
-
+    # TODO: Account for the case where the form is not fixed
     def recompute_component(self, inputs, block_variable, idx, prepared):
         b = inputs[-1]
         if isinstance(b, self.backend.Function):
@@ -103,13 +103,14 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         self._ad_ls.solve(x, b)
         return x.function
 
+    # TODO: Account for the case where the form is not fixed
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_outputs):
-        kwargs = self.forward_kwargs.copy()
-        kwargs["nullspace"] = self.forward_kwargs.get("transpose_nullspace")
-        kwargs["transpose_nullspace"] = self.forward_kwargs.get("nullspace")
-        kwargs["annotate"] = False
-        self._ad_ls_T = firedrake.LinearSolver(self.backend.assemble(self.backend.adjoint(self.lhs)), **kwargs)
-        return
+        if self._ad_ls_T is None:
+            kwargs = self.forward_kwargs.copy()
+            kwargs["nullspace"] = self.forward_kwargs.get("transpose_nullspace")
+            kwargs["transpose_nullspace"] = self.forward_kwargs.get("nullspace")
+            kwargs["annotate"] = False
+            self._ad_ls_T = firedrake.LinearSolver(self.backend.assemble(self.backend.adjoint(self.lhs)), **kwargs)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
         xb = adj_inputs[0]
@@ -121,6 +122,7 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         self._ad_ls_T.solve(bb, xb)
         return bb
 
+    # TODO: Account for the case where the form is not fixed
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return
 
@@ -132,6 +134,7 @@ class SolveLinearSystemBlock(GenericSolveBlock):
             dJdm += self.recompute_component([tlm_input], block_variable, idx, prepared)
         return dJdm
 
+    # TODO: Account for the case where the form is not fixed
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_outputs):
         return
 
