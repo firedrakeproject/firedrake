@@ -608,7 +608,6 @@ def test_supermesh_project_tlm(vector):
     J = assemble(inner(target, target)*dx)
     rf = ReducedFunctional(J, control)
 
-    # Test replay with different input
     h = Function(source)
     h.assign(1.0)
     source.block_variable.tlm_value = h
@@ -675,18 +674,23 @@ def test_copy_function():
     assert np.isclose(rf(interpolate(-one, V)), -J)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_linear_solve():
-    from firedrake_adjoint import ReducedFunctional, Control
-
+def setup_linear_solve():
     mesh = UnitSquareMesh(3, 3)
     V = FunctionSpace(mesh, "DG", 0)
     x = Function(V).vector()
     b = Function(V).assign(1.0).vector()
-    control = Control(b)
     A = assemble(inner(TestFunction(V), TrialFunction(V))*dx)
     sp = {"ksp_type": "preonly", "pc_type": "jacobi"}
     solver = LinearSolver(A, solver_parameters=sp)
+    return solver, x, b
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_linear_solve():
+    from firedrake_adjoint import ReducedFunctional, Control
+
+    solver, x, b = setup_linear_solve()
+    control = Control(b)
     solver.solve(x, b)
     x = x.function
     J = assemble(x*x*dx)
@@ -695,24 +699,32 @@ def test_linear_solve():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_linear_solve_tlm():
+def test_linear_solve_gradient():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
 
-    mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "DG", 0)
-    x = Function(V).vector()
-    b = Function(V).assign(1.0).vector()
+    solver, x, b = setup_linear_solve()
     control = Control(b)
-    A = assemble(inner(TestFunction(V), TrialFunction(V))*dx)
-    sp = {"ksp_type": "preonly", "pc_type": "jacobi"}
-    solver = LinearSolver(A, solver_parameters=sp)
     solver.solve(x, b)
     x = x.function
     J = assemble(x*x*dx)
     rf = ReducedFunctional(J, control)
 
-    # Test replay with different input
-    h = Function(V).assign(0.1).vector()
+    h = Function(x).assign(0.1).vector()
+    assert taylor_test(rf, b, h) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_linear_solve_tlm():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+
+    solver, x, b = setup_linear_solve()
+    control = Control(b)
+    solver.solve(x, b)
+    x = x.function
+    J = assemble(x*x*dx)
+    rf = ReducedFunctional(J, control)
+
+    h = Function(x).assign(0.1).vector()
     b.block_variable.tlm_value = h
 
     tape = get_working_tape()

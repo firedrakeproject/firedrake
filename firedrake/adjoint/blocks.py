@@ -97,10 +97,26 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         if isinstance(b, self.backend.Function):
             b = b.vector()
         elif not isinstance(b, self.backend.Vector):
-            raise NotImplementedError(f"Source function must be a Vector or Function, not {type(b)}.")
+            raise NotImplementedError(f"Source must be a Vector or Function, not {type(b)}.")
         x = self.backend.Function(self.target_space).vector()
         self._ad_ls.solve(x, b)
         return x.function
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_outputs):
+        return
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        xb = adj_inputs[0]
+        if isinstance(xb, self.backend.Function):
+            xb = xb.vector()
+        elif not isinstance(xb, self.backend.Vector):
+            raise NotImplementedError(f"Adjoint input must be a Vector or Function, not {type(xb)}.")
+        bb = self.backend.Function(self.source_space).vector()
+        self._ad_ls_T.solve(bb, xb)
+        return bb.function
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        return
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
         dJdm = self.backend.Function(self.target_space)
