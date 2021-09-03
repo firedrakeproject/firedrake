@@ -24,7 +24,7 @@ from firedrake.function import Function
 from .ufl_expr import TestFunction
 
 from tsfc import ufl_utils
-from tsfc.driver import TSFCFormData, preprocess_parameters, set_quad_rule
+from tsfc.driver import TSFCFormData, preprocess_parameters
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters, is_complex
 from tsfc.logging import logger
 
@@ -240,7 +240,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         subspace_expr_map = {s: e for s, e in zip(subspaces, subspace_exprs)}
         # Compile integrals.
         ctx = builder.create_context()
-        functions = list(builder.arguments) + [builder.coordinate(tsfc_integral_data.domain)] + list(tsfc_integral_data.coefficients)
         for form_data_idx, integrals in enumerate(tsfc_integral_data.integrals_tuple):
             for integral in integrals:
                 subspace_tuple = split_subspaces[form_data_idx]
@@ -248,7 +247,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 # Update quadrature parameters.
                 params = parameters.copy()
                 params.update(integral.metadata())  # integral metadata overrides
-                set_quad_rule(params, tsfc_integral_data.domain.ufl_cell(), tsfc_integral_data.integral_type, functions)
                 # Use dummy indices for projected `Argument`s.
                 _argument_multiindices = tuple(i if subspace is None else i_dummy for i, i_dummy, subspace
                                                in zip(argument_multiindices, argument_multiindices_dummy, subspace_tuple[:nargs]))
