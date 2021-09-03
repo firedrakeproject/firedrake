@@ -2736,7 +2736,6 @@ def fill_reference_coordinates_function(reference_coordinates_f):
     cdef:
         PetscInt num_vertices, i, gdim, parent_tdim
         PETSc.DM swarm
-        np.ndarray[PetscReal, ndim=2, mode="c"] reference_coords
 
     from firedrake.mesh import VertexOnlyMeshTopology
     assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
@@ -2748,10 +2747,15 @@ def fill_reference_coordinates_function(reference_coordinates_f):
 
     num_vertices = swarm.getLocalSize()
 
-    assert reference_coordinates_f.dat.shape == (num_vertices, parent_tdim)
+    shape = reference_coordinates_f.dat.shape
+    if parent_tdim == 1:
+        # PyOP2 inconsistency, it removes the shape if it is (1,)
+        assert shape == (num_vertices, )
+    else:
+        assert shape == (num_vertices, parent_tdim)
 
     # get reference coord field - NOTE isn't copied so could have GC issues!
-    reference_coords = swarm.getField("refcoord").reshape((num_vertices, parent_tdim))
+    reference_coords = swarm.getField("refcoord").reshape(shape)
 
     # store reference coord field in Function Dat.
     reference_coordinates_f.dat.data[:] = reference_coords[:]

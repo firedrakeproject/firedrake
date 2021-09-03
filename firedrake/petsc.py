@@ -1,5 +1,6 @@
 # Utility module that imports and initialises petsc4py
 import os
+import subprocess
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
@@ -93,6 +94,31 @@ def get_petsc_variables():
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
+
+
+def get_blas_library():
+    """Get the path to the BLAS library that PETSc links to"""
+    # Linux uses `ldd` to look at shared library linkage, MacOS uses `otool`
+    try:
+        program = ["ldd"]
+        cmd = subprocess.run([*program, PETSc.__file__], stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        program = ["otool", "-L"]
+        cmd = subprocess.run([*program, PETSc.__file__], stdout=subprocess.PIPE)
+
+    library_names = ["blas", "libmkl"]
+    entries = [
+        entry for entry in cmd.stdout.decode("utf-8").split("\n")
+        if any(name in entry for name in library_names)
+    ]
+    if not entries:
+        return None
+
+    # `ldd` puts a bunch of garbage before the library name in the output, so
+    # we have to split the result on whitespace and get the 3rd word, whereas
+    # `otool` puts it right at the beginning.
+    index = 2 if program[0] == "ldd" else 0
+    return entries[0].split()[index]
 
 
 class OptionsManager(object):

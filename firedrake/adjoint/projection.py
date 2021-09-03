@@ -15,6 +15,7 @@ def annotate_project(project):
         computation (such as projecting fields to other function spaces for the purposes of
         visualisation)."""
 
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         if annotate:
             bcs = kwargs.get("bcs", [])
@@ -24,9 +25,9 @@ def annotate_project(project):
                 output = args[1]
                 V = output.function_space()
                 if isinstance(args[0], function.Function) and args[0].ufl_domain() != V.mesh():
-                    block = SupermeshProjectBlock(args[0], V, output, bcs, **sb_kwargs)
+                    block = SupermeshProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
                 else:
-                    block = ProjectBlock(args[0], V, output, bcs, **sb_kwargs)
+                    block = ProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
 
         with stop_annotating():
             output = project(*args, **kwargs)
@@ -35,9 +36,9 @@ def annotate_project(project):
             tape = get_working_tape()
             if not isinstance(args[1], function.Function):
                 if isinstance(args[0], function.Function) and args[0].ufl_domain() != args[1].mesh():
-                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
+                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
                 else:
-                    block = ProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
+                    block = ProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
             tape.add_block(block)
             block.add_output(output.create_block_variable())
 
