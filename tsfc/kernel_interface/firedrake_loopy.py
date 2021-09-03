@@ -207,7 +207,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         integral_type = integral_data_info.integral_type
         subdomain_id = integral_data_info.subdomain_id
         domain_number = integral_data_info.domain_number
-        super().__init__(scalar_type, integral_type.startswith("interior_facet"))
+        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        self.fem_scalar_type = scalar_type
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)

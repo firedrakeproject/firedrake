@@ -28,6 +28,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         if diagonal:
             raise NotImplementedError("Assembly of diagonal not implemented yet, sorry")
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        self.fem_scalar_type = scalar_type
         self.integral_type = integral_type
 
         self.local_tensor = None

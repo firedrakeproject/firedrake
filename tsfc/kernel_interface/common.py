@@ -8,7 +8,9 @@ import gem
 
 from gem.utils import cached_property
 
+from tsfc.driver import lower_integral_type
 from tsfc.kernel_interface import KernelInterface
+from tsfc.finatinterface import as_fiat_cell
 
 
 class KernelBuilderBase(KernelInterface):
@@ -113,6 +115,25 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
+
+    def fem_config(self):
+        """Return a dictionary used with fem.compile_ufl.
+
+        One needs to update this dictionary with "argument_multiindices",
+        "quadrature_rule", and "index_cache" before using this with
+        fem.compile_ufl.
+        """
+        info = self.integral_data_info
+        integral_type = info.integral_type
+        cell = info.domain.ufl_cell()
+        fiat_cell = as_fiat_cell(cell)
+        integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
+        return dict(interface=self,
+                    ufl_cell=cell,
+                    integral_type=integral_type,
+                    integration_dim=integration_dim,
+                    entity_ids=entity_ids,
+                    scalar_type=self.fem_scalar_type)
 
     def create_context(self):
         """Create builder context.

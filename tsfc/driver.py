@@ -108,22 +108,14 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
             # Delayed import, loopy is a runtime dependency
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
-    if coffee:
-        scalar_type = parameters["scalar_type_c"]
-    else:
-        scalar_type = parameters["scalar_type"]
-
+    scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
     interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
-    cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     # Handle negative subdomain_id
     kernel_name = kernel_name.replace("-", "_")
-
-    fiat_cell = as_fiat_cell(cell)
-    integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
@@ -160,14 +152,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     quadrature_indices = ctx['quadrature_indices']
     mode_irs = ctx['mode_irs']
 
-    kernel_cfg = dict(interface=builder,
-                      ufl_cell=cell,
-                      integral_type=integral_type,
-                      integration_dim=integration_dim,
-                      entity_ids=entity_ids,
-                      argument_multiindices=argument_multiindices,
-                      index_cache=index_cache,
-                      scalar_type=parameters["scalar_type"])
+    kernel_cfg = builder.fem_config.copy()
+    kernel_cfg['argument_multiindices'] = argument_multiindices
+    kernel_cfg['index_cache'] = ctx['index_cache']
 
     for integral in integral_data.integrals:
         params = parameters.copy()
