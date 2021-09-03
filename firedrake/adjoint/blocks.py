@@ -74,9 +74,10 @@ class SolveLinearSystemBlock(GenericSolveBlock):
     def __init__(self, A, x, b, *args, **kwargs):
         lhs = A.form
         func = x.function if hasattr(x, "function") else x
-        self.function_space = func.function_space()
         rhs = b.form if hasattr(b, "form") else b
         bcs = A.bcs if hasattr(A, "bcs") else []
+        self.source_space = rhs.function_space()
+        self.target_space = func.function_space()
         super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
         self.add_dependency(b)
 
@@ -97,9 +98,17 @@ class SolveLinearSystemBlock(GenericSolveBlock):
             b = b.vector()
         elif not isinstance(b, self.backend.Vector):
             raise NotImplementedError(f"Source function must be a Vector or Function, not {type(b)}.")
-        x = self.backend.Function(self.function_space).vector()
+        x = self.backend.Function(self.target_space).vector()
         self._ad_ls.solve(x, b)
         return x.function
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        dJdm = self.backend.Function(self.target_space)
+        for tlm_input in tlm_inputs:
+            if tlm_input is None:
+                continue
+            dJdm += self.recompute_component([tlm_input], block_variable, idx, prepared)
+        return dJdm
 
 
 class SolveVarFormBlock(GenericSolveBlock):

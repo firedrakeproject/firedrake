@@ -680,18 +680,49 @@ def test_linear_solve():
     from firedrake_adjoint import ReducedFunctional, Control
 
     mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "DG", 0)
     x = Function(V).vector()
     b = Function(V).assign(1.0).vector()
     control = Control(b)
     A = assemble(inner(TestFunction(V), TrialFunction(V))*dx)
-    solver = LinearSolver(A)
+    sp = {"ksp_type": "preonly", "pc_type": "jacobi"}
+    solver = LinearSolver(A, solver_parameters=sp)
     solver.solve(x, b)
-    J = assemble(x.function*dx)
+    x = x.function
+    J = assemble(x*x*dx)
     rf = ReducedFunctional(J, control)
     assert np.isclose(rf(b), J)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_linear_solve_tlm():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 0)
+    x = Function(V).vector()
+    b = Function(V).assign(1.0).vector()
+    control = Control(b)
+    A = assemble(inner(TestFunction(V), TrialFunction(V))*dx)
+    sp = {"ksp_type": "preonly", "pc_type": "jacobi"}
+    solver = LinearSolver(A, solver_parameters=sp)
+    solver.solve(x, b)
+    x = x.function
+    J = assemble(x*x*dx)
+    rf = ReducedFunctional(J, control)
+
+    # Test replay with different input
+    h = Function(V).assign(0.1).vector()
+    b.block_variable.tlm_value = h
+
+    tape = get_working_tape()
+    tape.evaluate_tlm()
+
+    assert J.block_variable.tlm_value is not None
+    assert taylor_test(rf, b, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
 if __name__ == "__main__":
     PETSc.Sys.popErrorHandler()
     test_linear_solve()
+    test_linear_solve_tlm()
