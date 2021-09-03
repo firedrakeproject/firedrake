@@ -80,6 +80,7 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         self.target_space = func.function_space()
         super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
         self.add_dependency(b)
+        self._dependencies.pop(0)  # FIXME: Mesh causes issues
 
         # Set up parameters initialization
         self.ident_zeros_tol = A.ident_zeros_tol if hasattr(A, "ident_zeros_tol") else None
@@ -103,6 +104,11 @@ class SolveLinearSystemBlock(GenericSolveBlock):
         return x.function
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_outputs):
+        kwargs = self.forward_kwargs.copy()
+        kwargs["nullspace"] = self.forward_kwargs.get("transpose_nullspace")
+        kwargs["transpose_nullspace"] = self.forward_kwargs.get("nullspace")
+        kwargs["annotate"] = False
+        self._ad_ls_T = firedrake.LinearSolver(self.backend.assemble(self.backend.adjoint(self.lhs)), **kwargs)
         return
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -113,7 +119,7 @@ class SolveLinearSystemBlock(GenericSolveBlock):
             raise NotImplementedError(f"Adjoint input must be a Vector or Function, not {type(xb)}.")
         bb = self.backend.Function(self.source_space).vector()
         self._ad_ls_T.solve(bb, xb)
-        return bb.function
+        return bb
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return
@@ -125,6 +131,16 @@ class SolveLinearSystemBlock(GenericSolveBlock):
                 continue
             dJdm += self.recompute_component([tlm_input], block_variable, idx, prepared)
         return dJdm
+
+    def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_outputs):
+        return
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        if len(hessian_inputs) != 1:
+            raise NotImplementedError("SolveLinearSystemBlock must have a single output")
+        return self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx)
 
 
 class SolveVarFormBlock(GenericSolveBlock):

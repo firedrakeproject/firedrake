@@ -675,7 +675,7 @@ def test_copy_function():
 
 
 def setup_linear_solve():
-    mesh = UnitSquareMesh(3, 3)
+    mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
     x = Function(V).vector()
     b = Function(V).assign(1.0).vector()
@@ -693,7 +693,7 @@ def test_linear_solve():
     control = Control(b)
     solver.solve(x, b)
     x = x.function
-    J = assemble(x*x*dx)
+    J = assemble(x*dx)
     rf = ReducedFunctional(J, control)
     assert np.isclose(rf(b), J)
 
@@ -706,7 +706,7 @@ def test_linear_solve_gradient():
     control = Control(b)
     solver.solve(x, b)
     x = x.function
-    J = assemble(x*x*dx)
+    J = assemble(x**2*dx)
     rf = ReducedFunctional(J, control)
 
     h = Function(x).assign(0.1).vector()
@@ -721,7 +721,7 @@ def test_linear_solve_tlm():
     control = Control(b)
     solver.solve(x, b)
     x = x.function
-    J = assemble(x*x*dx)
+    J = assemble(x**2*dx)
     rf = ReducedFunctional(J, control)
 
     h = Function(x).assign(0.1).vector()
@@ -734,7 +734,34 @@ def test_linear_solve_tlm():
     assert taylor_test(rf, b, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
-if __name__ == "__main__":
-    PETSc.Sys.popErrorHandler()
-    test_linear_solve()
-    test_linear_solve_tlm()
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_linear_solve_hessian():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+
+    solver, x, b = setup_linear_solve()
+    control = Control(b)
+    solver.solve(x, b)
+    x = x.function
+    b = b.function
+    J = assemble(x**3*dx)
+    rf = ReducedFunctional(J, control)
+
+    h = Function(b)
+    h.vector()[:] = 10*rand(b.function_space().dim())
+
+    J.block_variable.adj_value = 1.0
+    b.block_variable.tlm_value = h.vector()
+
+    tape = get_working_tape()
+    tape.evaluate_adj()
+    tape.evaluate_tlm()
+
+    J.block_variable.hessian_value = 0.0
+
+    tape.evaluate_hessian()
+
+    dJdm = J.block_variable.tlm_value
+    assert isinstance(b.block_variable.adj_value, Vector)
+    assert isinstance(b.block_variable.hessian_value, Vector)
+    Hm = b.block_variable.hessian_value.inner(h.vector())
+    assert taylor_test(rf, b, h.vector(), dJdm=dJdm, Hm=Hm) > 2.9
