@@ -188,10 +188,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         elif isinstance(c, firedrake.Constant):
             mesh = self.compat.extract_mesh_from_form(F_form)
             trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
-        elif isinstance(c, self.compat.ExpressionType):
-            mesh = F_form.ufl_domain().ufl_cargo()
-            c_fs = c._ad_function_space(mesh)
-            trial_function = firedrake.TrialFunction(c_fs)
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
             return [tmp_bc]
@@ -220,10 +216,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dFdm = dFdm * adj_sol
         dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
 
-        if isinstance(c, self.compat.ExpressionType):
-            return [[dFdm, c_fs]]
-        else:
-            return dFdm
+        return dFdm
 
 
 class ProjectBlock(SolveVarFormBlock):
