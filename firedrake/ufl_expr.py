@@ -214,7 +214,7 @@ def adjoint(form, reordered_arguments=None):
 
     :arg form: A UFL form, or a Slate tensor.
     :arg reordered_arguments: arguments to use when creating the
-    adjoint.  Ignored if form is a Slate tensor.
+       adjoint.  Ignored if form is a Slate tensor.
 
     If the form is a slate tensor, this just returns its transpose.
     Otherwise, given a bilinear form, compute the adjoint form by

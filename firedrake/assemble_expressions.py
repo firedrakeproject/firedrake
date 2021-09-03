@@ -463,7 +463,6 @@ def evaluate_expression(expr, subset=None):
     :arg expr: The expression to evaluate.
     :arg subset: An optional subset to apply the expression on.
     :returns: The lvalue in the provided expression."""
-
     lvalue = expr.lvalue
     cache = lvalue._expression_cache
     if cache is not None:
