@@ -457,7 +457,7 @@ class dereffed(object):
 
 @PETSc.Log.EventDecorator()
 @known_pyop2_safe
-def evaluate_expression(expr, subset=None, dat_map=None):
+def evaluate_expression(expr, subset=None):
     """Evaluate a pointwise expression.
 
     :arg expr: The expression to evaluate.
