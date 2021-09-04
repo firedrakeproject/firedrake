@@ -23,7 +23,7 @@ def make_builder(*args, **kwargs):
 
 class Kernel(object):
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
-                 "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
+                 "domain_number", "needs_cell_sizes", "tabulations",
                  "coefficient_numbers", "name", "__weakref__",
                  "flop_count")
     """A compiled Kernel object.
@@ -37,13 +37,12 @@ class Kernel(object):
         original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
-    :kwarg quadrature_rule: The finat quadrature rule used to generate this kernel
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
     :kwarg flop_count: Estimated total flops for this kernel.
     """
     def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
-                 subdomain_id=None, domain_number=None, quadrature_rule=None,
+                 subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
                  needs_cell_sizes=False,
                  flop_count=0):
@@ -228,7 +227,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx, quadrature_rule):
+    def construct_kernel(self, name, ctx):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -236,7 +235,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
-        :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
         """
         impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
@@ -279,7 +277,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, coffee_args, body)
         self.kernel.arguments = tuple(args)
-        self.kernel.quadrature_rule = quadrature_rule
         self.kernel.name = name
         self.kernel.flop_count = count_flops(impero_c)
         return self.kernel

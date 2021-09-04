@@ -135,19 +135,12 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
                         scalar_type,
                         diagonal=diagonal)
 
-    return_variables = builder.return_variables
-    argument_multiindices = builder.argument_multiindices
-
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
 
     builder.set_coefficients(integral_data, form_data)
 
     ctx = builder.create_context()
-    index_cache = ctx['index_cache']
-    quadrature_indices = ctx['quadrature_indices']
-    mode_irs = ctx['mode_irs']
-
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
@@ -156,9 +149,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         integrand_exprs = builder.compile_integrand(integrand, params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-        quad_rule = params["quadrature_rule"]
 
-    return builder.construct_kernel(kernel_name, ctx, quad_rule)
+    return builder.construct_kernel(kernel_name, ctx)
 
 
 def preprocess_parameters(parameters):

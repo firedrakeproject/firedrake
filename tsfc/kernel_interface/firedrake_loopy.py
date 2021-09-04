@@ -29,7 +29,7 @@ def make_builder(*args, **kwargs):
 
 class Kernel:
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
-                 "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
+                 "domain_number", "needs_cell_sizes", "tabulations",
                  "coefficient_numbers", "name", "flop_count",
                  "__weakref__")
     """A compiled Kernel object.
@@ -43,14 +43,13 @@ class Kernel:
         original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
-    :kwarg quadrature_rule: The finat quadrature rule used to generate this kernel
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
     :kwarg name: The name of this kernel.
     :kwarg flop_count: Estimated total flops for this kernel.
     """
     def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
-                 subdomain_id=None, domain_number=None, quadrature_rule=None,
+                 subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
                  needs_cell_sizes=False,
                  flop_count=0):
@@ -303,7 +302,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx, quadrature_rule):
+    def construct_kernel(self, name, ctx):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -311,7 +310,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
-        :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
         """
         impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)

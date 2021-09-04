@@ -126,7 +126,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return None, None, None
 
-    def construct_kernel(self, name, ctx, quadrature_rule=None):
+    def construct_kernel(self, name, ctx):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -146,7 +146,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         body = generate_coffee(impero_c, index_names, scalar_type=self.scalar_type)
         return self._construct_kernel_from_body(name, body)
 
-    def _construct_kernel_from_body(self, name, body, quadrature_rule):
+    def _construct_kernel_from_body(self, name, body):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
