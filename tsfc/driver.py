@@ -196,9 +196,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     builder.register_requirements(expressions)
 
     # Construct ImperoC
-    split_argument_indices = tuple(chain(*[var.index_ordering()
-                                           for var in return_variables]))
-    index_ordering = tuple(quadrature_indices) + split_argument_indices
+    index_ordering = get_index_ordering(quadrature_indices, return_variables)
     try:
         impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
     except impero_utils.NoopError:
@@ -206,25 +204,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         return builder.construct_empty_kernel(kernel_name)
 
     # Generate COFFEE
-    index_names = []
-
-    def name_index(index, name):
-        index_names.append((index, name))
-        if index in index_cache:
-            for multiindex, suffix in zip(index_cache[index],
-                                          string.ascii_lowercase):
-                name_multiindex(multiindex, name + suffix)
-
-    def name_multiindex(multiindex, name):
-        if len(multiindex) == 1:
-            name_index(multiindex[0], name)
-        else:
-            for i, index in enumerate(multiindex):
-                name_index(index, name + str(i))
-
-    name_multiindex(quadrature_indices, 'ip')
-    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
-        name_multiindex(multiindex, name)
+    index_names = get_index_names(quadrature_indices, argument_multiindices, index_cache)
 
     return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
 
@@ -437,6 +417,35 @@ def set_quad_rule(params, cell, integral_type, functions):
     if not isinstance(quad_rule, AbstractQuadratureRule):
         raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                          type(quad_rule))
+
+
+def get_index_ordering(quadrature_indices, return_variables):
+    split_argument_indices = tuple(chain(*[var.index_ordering()
+                                           for var in return_variables]))
+    return tuple(quadrature_indices) + split_argument_indices
+
+
+def get_index_names(quadrature_indices, argument_multiindices, index_cache):
+    index_names = []
+
+    def name_index(index, name):
+        index_names.append((index, name))
+        if index in index_cache:
+            for multiindex, suffix in zip(index_cache[index],
+                                          string.ascii_lowercase):
+                name_multiindex(multiindex, name + suffix)
+
+    def name_multiindex(multiindex, name):
+        if len(multiindex) == 1:
+            name_index(multiindex[0], name)
+        else:
+            for i, index in enumerate(multiindex):
+                name_index(index, name + str(i))
+
+    name_multiindex(quadrature_indices, 'ip')
+    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
+        name_multiindex(multiindex, name)
+    return index_names
 
 
 def lower_integral_type(fiat_cell, integral_type):
