@@ -11,7 +11,7 @@ from finat import TensorFiniteElement
 
 import ufl
 
-from tsfc.kernel_interface.common import KernelBuilderBase, KernelBuilderMixin
+from tsfc.kernel_interface.common import KernelBuilderBase, KernelBuilderMixin, get_index_names
 from tsfc.finatinterface import create_element as _create_element
 
 
@@ -126,7 +126,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return None, None, None
 
-    def construct_kernel(self, name, ctx, index_names, quadrature_rule=None):
+    def construct_kernel(self, name, ctx, quadrature_rule=None):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
@@ -134,7 +134,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
-        :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
         :returns: a COFFEE function definition object
         """
@@ -143,6 +142,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         impero_c, _, _, _ = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
+        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
         body = generate_coffee(impero_c, index_names, scalar_type=self.scalar_type)
         return self._construct_kernel_from_body(name, body)
 

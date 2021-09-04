@@ -1,4 +1,5 @@
 import collections
+import string
 import operator
 from functools import reduce
 
@@ -287,3 +288,26 @@ class KernelBuilderMixin(object):
         return {'index_cache': {},
                 'quadrature_indices': [],
                 'mode_irs': collections.OrderedDict()}
+
+
+def get_index_names(quadrature_indices, argument_multiindices, index_cache):
+    index_names = []
+
+    def name_index(index, name):
+        index_names.append((index, name))
+        if index in index_cache:
+            for multiindex, suffix in zip(index_cache[index],
+                                          string.ascii_lowercase):
+                name_multiindex(multiindex, name + suffix)
+
+    def name_multiindex(multiindex, name):
+        if len(multiindex) == 1:
+            name_index(multiindex[0], name)
+        else:
+            for i, index in enumerate(multiindex):
+                name_index(index, name + str(i))
+
+    name_multiindex(quadrature_indices, 'ip')
+    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
+        name_multiindex(multiindex, name)
+    return index_names

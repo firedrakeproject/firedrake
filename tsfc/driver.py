@@ -1,5 +1,4 @@
 import collections
-import string
 import time
 import sys
 from itertools import chain
@@ -159,9 +158,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         builder.stash_integrals(integral_exprs, params, ctx)
         quad_rule = params["quadrature_rule"]
 
-    index_names = get_index_names(quadrature_indices, argument_multiindices, index_cache)
-
-    return builder.construct_kernel(kernel_name, ctx, index_names, quad_rule)
+    return builder.construct_kernel(kernel_name, ctx, quad_rule)
 
 
 def preprocess_parameters(parameters):
@@ -378,29 +375,6 @@ def get_index_ordering(quadrature_indices, return_variables):
     split_argument_indices = tuple(chain(*[var.index_ordering()
                                            for var in return_variables]))
     return tuple(quadrature_indices) + split_argument_indices
-
-
-def get_index_names(quadrature_indices, argument_multiindices, index_cache):
-    index_names = []
-
-    def name_index(index, name):
-        index_names.append((index, name))
-        if index in index_cache:
-            for multiindex, suffix in zip(index_cache[index],
-                                          string.ascii_lowercase):
-                name_multiindex(multiindex, name + suffix)
-
-    def name_multiindex(multiindex, name):
-        if len(multiindex) == 1:
-            name_index(multiindex[0], name)
-        else:
-            for i, index in enumerate(multiindex):
-                name_index(index, name + str(i))
-
-    name_multiindex(quadrature_indices, 'ip')
-    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
-        name_multiindex(multiindex, name)
-    return index_names
 
 
 def lower_integral_type(fiat_cell, integral_type):
