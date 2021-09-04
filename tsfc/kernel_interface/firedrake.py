@@ -228,18 +228,27 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
+    def construct_kernel(self, name, ctx, index_names, quadrature_rule):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
         list for assembly kernels.
 
-        :arg name: function name
-        :arg impero_c: ImperoC tuple with Impero AST and other data
+        :arg name: kernel name
+        :arg ctx: kernel builder context to get impero_c from
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
         """
+        impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
+        if impero_c is None:
+            return self.construct_empty_kernel(name)
+        self.kernel.oriented = oriented
+        self.kernel.needs_cell_sizes = needs_cell_sizes
+        self.kernel.tabulations = tabulations
+
+        body = generate_coffee(impero_c, index_names, self.scalar_type)
+
         args = [self.output_arg, self.coordinates_arg]
         if self.kernel.oriented:
             ori_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),

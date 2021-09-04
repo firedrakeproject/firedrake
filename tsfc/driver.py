@@ -158,11 +158,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
         quad_rule = params["quadrature_rule"]
-    impero_c, oriented, needs_cell_sizes, tabulations = builder.compile_gem(ctx)  # Put this in builder.construct_kernel()
 
     index_names = get_index_names(quadrature_indices, argument_multiindices, index_cache)
 
-    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
+    return builder.construct_kernel(kernel_name, ctx, index_names, quad_rule)
 
 
 def preprocess_parameters(parameters):
