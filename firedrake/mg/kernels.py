@@ -23,7 +23,8 @@ import tsfc.kernel_interface.firedrake as firedrake_interface
 
 from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
-from tsfc.driver import TSFCIntegralDataInfo, lower_integral_type
+from tsfc.driver import TSFCIntegralDataInfo
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
