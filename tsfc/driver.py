@@ -4,25 +4,18 @@ import sys
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
-from numpy import asarray
-
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
-from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
 
-from FIAT.reference_element import TensorProductCell
-
 import finat
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
-from tsfc.finatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping
@@ -96,7 +89,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
-
     if interface is None:
         if coffee:
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
@@ -112,7 +104,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     # Handle negative subdomain_id
     kernel_name = kernel_name.replace("-", "_")
-
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
@@ -134,22 +125,17 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     builder = interface(integral_data_info,
                         scalar_type,
                         diagonal=diagonal)
-
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
-
     builder.set_coefficients(integral_data, form_data)
-
     ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand_exprs = builder.compile_integrand(integrand, params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-
     return builder.construct_kernel(kernel_name, ctx)
 
 
@@ -331,107 +317,3 @@ class DualEvaluationCallable(object):
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
-
-
-def set_quad_rule(params, cell, integral_type, functions):
-    # Check if the integral has a quad degree attached, otherwise use
-    # the estimated polynomial degree attached by compute_form_data
-    try:
-        quadrature_degree = params["quadrature_degree"]
-    except KeyError:
-        quadrature_degree = params["estimated_polynomial_degree"]
-        function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
-        if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
-               for degree in function_degrees):
-            logger.warning("Estimated quadrature degree %s more "
-                           "than tenfold greater than any "
-                           "argument/coefficient degree (max %s)",
-                           quadrature_degree, max_degree(function_degrees))
-    if params.get("quadrature_rule") == "default":
-        del params["quadrature_rule"]
-    try:
-        quad_rule = params["quadrature_rule"]
-    except KeyError:
-        fiat_cell = as_fiat_cell(cell)
-        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
-        integration_cell = fiat_cell.construct_subelement(integration_dim)
-        quad_rule = make_quadrature(integration_cell, quadrature_degree)
-        params["quadrature_rule"] = quad_rule
-
-    if not isinstance(quad_rule, AbstractQuadratureRule):
-        raise ValueError("Expected to find a QuadratureRule object, not a %s" %
-                         type(quad_rule))
-
-
-def get_index_ordering(quadrature_indices, return_variables):
-    split_argument_indices = tuple(chain(*[var.index_ordering()
-                                           for var in return_variables]))
-    return tuple(quadrature_indices) + split_argument_indices
-
-
-def lower_integral_type(fiat_cell, integral_type):
-    """Lower integral type into the dimension of the integration
-    subentity and a list of entity numbers for that dimension.
-
-    :arg fiat_cell: FIAT reference cell
-    :arg integral_type: integral type (string)
-    """
-    vert_facet_types = ['exterior_facet_vert', 'interior_facet_vert']
-    horiz_facet_types = ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']
-
-    dim = fiat_cell.get_dimension()
-    if integral_type == 'cell':
-        integration_dim = dim
-    elif integral_type in ['exterior_facet', 'interior_facet']:
-        if isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral cannot be used with a TensorProductCell; need to distinguish between vertical and horizontal contributions.".format(integral_type))
-        integration_dim = dim - 1
-    elif integral_type == 'vertex':
-        integration_dim = 0
-    elif integral_type in vert_facet_types + horiz_facet_types:
-        # Extrusion case
-        if not isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral requires a TensorProductCell.".format(integral_type))
-        basedim, extrdim = dim
-        assert extrdim == 1
-
-        if integral_type in vert_facet_types:
-            integration_dim = (basedim - 1, 1)
-        elif integral_type in horiz_facet_types:
-            integration_dim = (basedim, 0)
-    else:
-        raise NotImplementedError("integral type %s not supported" % integral_type)
-
-    if integral_type == 'exterior_facet_bottom':
-        entity_ids = [0]
-    elif integral_type == 'exterior_facet_top':
-        entity_ids = [1]
-    else:
-        entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
-
-    return integration_dim, entity_ids
-
-
-def pick_mode(mode):
-    "Return one of the specialized optimisation modules from a mode string."
-    try:
-        from firedrake_citations import Citations
-        cites = {"vanilla": ("Homolya2017", ),
-                 "coffee": ("Luporini2016", "Homolya2017", ),
-                 "spectral": ("Luporini2016", "Homolya2017", "Homolya2017a"),
-                 "tensor": ("Kirby2006", "Homolya2017", )}
-        for c in cites[mode]:
-            Citations().register(c)
-    except ImportError:
-        pass
-    if mode == "vanilla":
-        import tsfc.vanilla as m
-    elif mode == "coffee":
-        import tsfc.coffee_mode as m
-    elif mode == "spectral":
-        import tsfc.spectral as m
-    elif mode == "tensor":
-        import tsfc.tensor as m
-    else:
-        raise ValueError("Unknown mode: {}".format(mode))
-    return m
