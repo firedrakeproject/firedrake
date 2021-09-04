@@ -163,6 +163,21 @@ class KernelBuilderMixin(object):
                               self.argument_multiindices,
                               params)
 
+    def stash_integrals(self, reps, params, ctx):
+        """Stash integral representations in ctx.
+
+        :arg reps: integral representations.
+        :arg params: a dict containing "mode".
+        :arg ctx: context in which reps are stored.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        mode = pick_mode(params["mode"])
+        mode_irs = ctx['mode_irs']
+        mode_irs.setdefault(mode, collections.OrderedDict())
+        for var, rep in zip(self.return_variables, reps):
+            mode_irs[mode].setdefault(var, []).append(rep)
+
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.
 

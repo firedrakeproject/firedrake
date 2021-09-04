@@ -155,15 +155,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
 
-        mode = pick_mode(params["mode"])
-        mode_irs.setdefault(mode, collections.OrderedDict())
-
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand_exprs = builder.compile_integrand(integrand, params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
+        builder.stash_integrals(integral_exprs, params, ctx)
         quad_rule = params["quadrature_rule"]
-        for var, rep in zip(return_variables, integral_exprs):
-            mode_irs[mode].setdefault(var, []).append(rep)
 
     # Finalise mode representations into a set of assignments
     assignments = []
