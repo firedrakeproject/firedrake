@@ -160,11 +160,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
 
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
         integrand_exprs = builder.compile_integrand(integrand, params, ctx)
-
+        integral_exprs = builder.construct_integrals(integrand_exprs, params)
         quad_rule = params["quadrature_rule"]
-        reps = mode.Integrals(integrand_exprs, quad_rule.point_set.indices,
-                              argument_multiindices, params)
-        for var, rep in zip(return_variables, reps):
+        for var, rep in zip(return_variables, integral_exprs):
             mode_irs[mode].setdefault(var, []).append(rep)
 
     # Finalise mode representations into a set of assignments

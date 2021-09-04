@@ -8,7 +8,7 @@ import gem
 
 from gem.utils import cached_property
 
-from tsfc.driver import lower_integral_type, set_quad_rule
+from tsfc.driver import lower_integral_type, set_quad_rule, pick_mode
 from tsfc import fem, ufl_utils
 from tsfc.kernel_interface import KernelInterface
 from tsfc.finatinterface import as_fiat_cell
@@ -143,6 +143,25 @@ class KernelBuilderMixin(object):
                                       interior_facet=self.interior_facet)
         ctx['quadrature_indices'].extend(quad_rule.point_set.indices)
         return expressions
+
+    def construct_integrals(self, integrand_expressions, params):
+        """Construct integrals from integrand expressions.
+
+        :arg integrand_expressions: gem expressions for integrands.
+        :arg params: a dict containing "mode" and "quadrature_rule".
+
+        integrand_expressions must be indexed with :attr:`argument_multiindices`;
+        these gem expressions are obtained by calling :meth:`compile_integrand`
+        method or by modifying the gem expressions returned by
+        :meth:`compile_integrand`.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        mode = pick_mode(params["mode"])
+        return mode.Integrals(integrand_expressions,
+                              params["quadrature_rule"].point_set.indices,
+                              self.argument_multiindices,
+                              params)
 
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.
