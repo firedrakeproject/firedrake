@@ -45,7 +45,9 @@ class Kernel(object):
                  subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
                  needs_cell_sizes=False,
-                 flop_count=0):
+                 tabulations=None,
+                 flop_count=0,
+                 name=None):
         # Defaults
         self.ast = ast
         self.arguments = arguments
@@ -55,7 +57,9 @@ class Kernel(object):
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
+        self.tabulations = tabulations
         self.flop_count = flop_count
+        self.name = name
         super(Kernel, self).__init__()
 
 
@@ -129,13 +133,9 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                  dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
         integral_type = integral_data_info.integral_type
-        subdomain_id = integral_data_info.subdomain_id
-        domain_number = integral_data_info.domain_number
         super(KernelBuilder, self).__init__(coffee.as_cstr(scalar_type), integral_type.startswith("interior_facet"))
         self.fem_scalar_type = scalar_type
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
-                             domain_number=domain_number)
         self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
@@ -220,7 +220,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         for i, coefficient in enumerate(coefficients):
             coeff_coffee_arg = self._coefficient(coefficient, f"w_{i}")
             self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_coffee_arg))
-        self.kernel.coefficient_numbers = tuple(self.integral_data_info.coefficient_numbers)
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -240,46 +239,46 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
-        self.kernel.oriented = oriented
-        self.kernel.needs_cell_sizes = needs_cell_sizes
-        self.kernel.tabulations = tabulations
-
-        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
-        body = generate_coffee(impero_c, index_names, self.scalar_type)
-
+        info = self.integral_data_info
         args = [self.output_arg, self.coordinates_arg]
-        if self.kernel.oriented:
+        if oriented:
             ori_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
                                          pointers=[("restrict",)],
                                          qualifiers=["const"])
             args.append(kernel_args.CellOrientationsKernelArg(ori_coffee_arg))
-        if self.kernel.needs_cell_sizes:
+        if needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
-        if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+        if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             ext_coffee_arg = coffee.Decl("unsigned int",
                                          coffee.Symbol("facet", rank=(1,)),
                                          qualifiers=["const"])
             args.append(kernel_args.ExteriorFacetKernelArg(ext_coffee_arg))
-        elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
+        elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
             int_coffee_arg = coffee.Decl("unsigned int",
                                          coffee.Symbol("facet", rank=(2,)),
                                          qualifiers=["const"])
             args.append(kernel_args.InteriorFacetKernelArg(int_coffee_arg))
-        for n, shape in self.kernel.tabulations:
+        for name_, shape in tabulations:
             tab_coffee_arg = coffee.Decl(self.scalar_type,
-                                         coffee.Symbol(n, rank=shape),
+                                         coffee.Symbol(name_, rank=shape),
                                          qualifiers=["const"])
             args.append(kernel_args.TabulationKernelArg(tab_coffee_arg))
-
-        coffee_args = [a.coffee_arg for a in args]
+        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
         body = generate_coffee(impero_c, index_names, self.scalar_type)
-
-        self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, coffee_args, body)
-        self.kernel.arguments = tuple(args)
-        self.kernel.name = name
-        self.kernel.flop_count = count_flops(impero_c)
-        return self.kernel
+        ast = KernelBuilderBase.construct_kernel(self, name, [a.coffee_arg for a in args], body)
+        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        return Kernel(ast=ast,
+                      arguments=tuple(args),
+                      integral_type=info.integral_type,
+                      subdomain_id=info.subdomain_id,
+                      domain_number=info.domain_number,
+                      coefficient_numbers=info.coefficient_numbers,
+                      oriented=oriented,
+                      needs_cell_sizes=needs_cell_sizes,
+                      tabulations=tabulations,
+                      flop_count=flop_count,
+                      name=name)
 
     def construct_empty_kernel(self, name):
         """Return None, since Firedrake needs no empty kernels.

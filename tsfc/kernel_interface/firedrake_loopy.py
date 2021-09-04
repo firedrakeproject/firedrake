@@ -52,7 +52,9 @@ class Kernel:
                  subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
                  needs_cell_sizes=False,
-                 flop_count=0):
+                 tabulations=None,
+                 flop_count=0,
+                 name=None):
         # Defaults
         self.ast = ast
         self.arguments = arguments
@@ -62,7 +64,9 @@ class Kernel:
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
+        self.tabulations = tabulations
         self.flop_count = flop_count
+        self.name = name
 
 
 class KernelBuilderBase(_KernelBuilderBase):
@@ -204,13 +208,9 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                  dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
         integral_type = integral_data_info.integral_type
-        subdomain_id = integral_data_info.subdomain_id
-        domain_number = integral_data_info.domain_number
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
         self.fem_scalar_type = scalar_type
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
-                             domain_number=domain_number)
         self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
@@ -295,7 +295,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         for i, coefficient in enumerate(coefficients):
             coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
             self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
-        self.kernel.coefficient_numbers = tuple(self.integral_data_info.coefficient_numbers)
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -315,34 +314,37 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
-        self.kernel.oriented = oriented
-        self.kernel.needs_cell_sizes = needs_cell_sizes
-        self.kernel.tabulations = tabulations
-
+        info = self.integral_data_info
         args = [self.output_arg, self.coordinates_arg]
-        if self.kernel.oriented:
+        if oriented:
             args.append(self.cell_orientations_arg)
-        if self.kernel.needs_cell_sizes:
+        if needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
-        if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+        if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             ext_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
             args.append(kernel_args.ExteriorFacetKernelArg(ext_loopy_arg))
-        elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
+        elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
             int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
             args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
-        for name_, shape in self.kernel.tabulations:
+        for name_, shape in tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
-
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
-        self.kernel.ast = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
-                                         self.scalar_type, name, index_names)
-        self.kernel.arguments = tuple(args)
-        self.kernel.name = name
-        self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.flop_count = count_flops(impero_c)
-        return self.kernel
+        ast = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
+                             self.scalar_type, name, index_names)
+        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        return Kernel(ast=ast,
+                      arguments=tuple(args),
+                      integral_type=info.integral_type,
+                      subdomain_id=info.subdomain_id,
+                      domain_number=info.domain_number,
+                      coefficient_numbers=info.coefficient_numbers,
+                      oriented=oriented,
+                      needs_cell_sizes=needs_cell_sizes,
+                      tabulations=tabulations,
+                      flop_count=flop_count,
+                      name=name)
 
     def construct_empty_kernel(self, name):
         """Return None, since Firedrake needs no empty kernels.
