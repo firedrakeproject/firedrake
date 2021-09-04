@@ -226,8 +226,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        knl = self.kernel
-        knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
+        return check_requirements(ir)
 
     def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
         """Construct a fully built :class:`Kernel`.

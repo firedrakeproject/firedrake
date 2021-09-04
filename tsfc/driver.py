@@ -1,9 +1,7 @@
 import collections
-import operator
 import string
 import time
 import sys
-from functools import reduce
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
@@ -160,39 +158,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
         quad_rule = params["quadrature_rule"]
+    impero_c, oriented, needs_cell_sizes, tabulations = builder.compile_gem(ctx)  # Put this in builder.construct_kernel()
 
-    # Finalise mode representations into a set of assignments
-    assignments = []
-    for mode, var_reps in mode_irs.items():
-        assignments.extend(mode.flatten(var_reps.items(), index_cache))
-
-    if assignments:
-        return_variables, expressions = zip(*assignments)
-    else:
-        return_variables = []
-        expressions = []
-
-    # Need optimised roots
-    options = dict(reduce(operator.and_,
-                          [mode.finalise_options.items()
-                           for mode in mode_irs.keys()]))
-    expressions = impero_utils.preprocess_gem(expressions, **options)
-    assignments = list(zip(return_variables, expressions))
-
-    # Let the kernel interface inspect the optimised IR to register
-    # what kind of external data is required (e.g., cell orientations,
-    # cell sizes, etc.).
-    builder.register_requirements(expressions)
-
-    # Construct ImperoC
-    index_ordering = get_index_ordering(quadrature_indices, return_variables)
-    try:
-        impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-    except impero_utils.NoopError:
-        # No operations, construct empty kernel
-        return builder.construct_empty_kernel(kernel_name)
-
-    # Generate COFFEE
     index_names = get_index_names(quadrature_indices, argument_multiindices, index_cache)
 
     return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)

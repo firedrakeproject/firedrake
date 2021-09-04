@@ -121,6 +121,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
+    def register_requirements(self, ir):
+        """Inspect what is referenced by the IR that needs to be
+        provided by the kernel interface."""
+        return None, None, None
+
     def construct_kernel(self, name, impero_c, index_names, quadrature_rule=None):
         """Construct a fully built kernel function.
 

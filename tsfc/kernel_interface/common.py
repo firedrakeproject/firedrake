@@ -1,4 +1,6 @@
 import collections
+import operator
+from functools import reduce
 
 import numpy
 
@@ -7,8 +9,9 @@ import coffee.base as coffee
 import gem
 
 from gem.utils import cached_property
+import gem.impero_utils as impero_utils
 
-from tsfc.driver import lower_integral_type, set_quad_rule, pick_mode
+from tsfc.driver import lower_integral_type, set_quad_rule, pick_mode, get_index_ordering
 from tsfc import fem, ufl_utils
 from tsfc.kernel_interface import KernelInterface
 from tsfc.finatinterface import as_fiat_cell
@@ -177,6 +180,48 @@ class KernelBuilderMixin(object):
         mode_irs.setdefault(mode, collections.OrderedDict())
         for var, rep in zip(self.return_variables, reps):
             mode_irs[mode].setdefault(var, []).append(rep)
+
+    def compile_gem(self, ctx):
+        """Compile gem representation of integrals to impero_c.
+
+        :arg ctx: the context containing the gem representation of integrals.
+        :returns: a tuple of impero_c, oriented, needs_cell_sizes, tabulations
+            required to finally construct a kernel in :meth:`construct_kernel`.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        # Finalise mode representations into a set of assignments
+        mode_irs = ctx['mode_irs']
+
+        assignments = []
+        for mode, var_reps in mode_irs.items():
+            assignments.extend(mode.flatten(var_reps.items(), ctx['index_cache']))
+
+        if assignments:
+            return_variables, expressions = zip(*assignments)
+        else:
+            return_variables = []
+            expressions = []
+
+        # Need optimised roots
+        options = dict(reduce(operator.and_,
+                              [mode.finalise_options.items()
+                               for mode in mode_irs.keys()]))
+        expressions = impero_utils.preprocess_gem(expressions, **options)
+
+        # Let the kernel interface inspect the optimised IR to register
+        # what kind of external data is required (e.g., cell orientations,
+        # cell sizes, etc.).
+        oriented, needs_cell_sizes, tabulations = self.register_requirements(expressions)
+
+        # Construct ImperoC
+        assignments = list(zip(return_variables, expressions))
+        index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
+        try:
+            impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
+        except impero_utils.NoopError:
+            impero_c = None
+        return impero_c, oriented, needs_cell_sizes, tabulations
 
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.
