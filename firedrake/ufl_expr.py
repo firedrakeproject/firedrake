@@ -1,5 +1,6 @@
 import ufl
 import ufl.argument
+from ufl.duals import is_primal, is_dual
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -9,7 +10,7 @@ from firedrake import utils
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Argument', 'TestFunction', 'TrialFunction',
+__all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
            'action', 'CellSize', 'FacetNormal']
@@ -29,6 +30,12 @@ class Argument(ufl.argument.Argument):
        :func:`TestFunction`, with a number of ``1`` it is used as
        a :func:`TrialFunction`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Coargument(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
     def __init__(self, function_space, number, part=None):
         super(Argument, self).__init__(function_space.ufl_function_space(),
                                        number, part=part)
@@ -69,6 +76,62 @@ class Argument(ufl.argument.Argument):
                    == self.ufl_element().value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
+
+
+class Coargument(ufl.argument.Coargument):
+    """Representation of an argument to a form in a dual space.
+
+    :arg function_space: the :class:`.FunctionSpace` the argument
+        corresponds to.
+    :arg number: the number of the argument being constructed.
+    :kwarg part: optional index (mostly ignored).
+    """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_primal(args[0]):
+            return Argument(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
+    def __init__(self, function_space, number, part=None):
+        super(Coargument, self).__init__(function_space.ufl_function_space(),
+                                         number, part=part)
+        self._function_space = function_space
+
+    @utils.cached_property
+    def cell_node_map(self):
+        return self.function_space().cell_node_map
+
+    @utils.cached_property
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map
+
+    @utils.cached_property
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map
+
+    def function_space(self):
+        return self._function_space
+
+    def make_dat(self):
+        return self.function_space().make_dat()
+
+    def reconstruct(self, function_space=None,
+                    number=None, part=None):
+        if function_space is None or function_space == self.function_space():
+            function_space = self.function_space()
+        if number is None or number == self._number:
+            number = self._number
+        if part is None or part == self._part:
+            part = self._part
+        if number is self._number and part is self._part \
+           and function_space is self.function_space():
+            return self
+        ufl_assert(isinstance(number, int),
+                   "Expecting an int, not %s" % number)
+        ufl_assert(function_space.ufl_element().value_shape()
+                   == self.ufl_element().value_shape(),
+                   "Cannot reconstruct a Coargument with a different value shape.")
+        return Coargument(function_space, number, part=part)
 
 
 @PETSc.Log.EventDecorator()
