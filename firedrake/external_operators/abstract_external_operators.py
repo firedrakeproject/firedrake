@@ -138,6 +138,111 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             return self._evaluate_action(x, *args, **kwargs)
         return self._evaluate(*args, **kwargs)
 
+    @utils.cached_property
+    def _make_assembly_dict(self):
+        r"""
+            Construct a mapping keyed by a pair `(derivs, args)` where `derivs` is the number of derivatives taken
+            and `args` a tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
+            without arguments.
+
+            derivs: tells us if we assemble the operator, its Jacobian or its hessian
+                     -> Don't need the derivatives multi-index  but just the number of derivatives
+
+            args: tells us if adjoint or action has been taken
+
+            Example: Let N(u, m; v*) be an external operator, (uhat, mhat) Arguments, and (uu, mm, vv) Coefficients, we have:
+
+                    External operators             |    (derivs, args)      |  Assembly functions
+                -----------------------------------|------------------------|-----------------------------
+                 N(u, m; v*)                       | (0, (0,))              |  _assemble
+                                                   |                        |
+                 dN/du(u, m; uhat, v*)             | (1, (0, 1))            |  _assemble_jacobian
+                 dN/dm(u, m; mhat, v*)             | (1, (0, 1))            |  _assemble_jacobian
+                 dN/du(u, m; uu, v*)               | (1, (0, None))         |  _assemble_jacobian_action
+                 dN/dm(u, m; mm, v*)               | (1, (0, None))         |  _assemble_jacobian_action
+                                                   |                        |
+                 dN/du^{*}(u, m; v*, uhat)         | (1, (1, 0))            |  _assemble_jacobian_adjoint
+                 dN/dm^{*}(u, m; v*, mhat)         | (1, (1, 0))            |  _assemble_jacobian_adjoint
+                 dN/du^{*}(u, m; vv, uhat)         | (1, (1, None))         |  _assemble_jacobian_adjoint_action
+                 dN/dm^{*}(u, m; vv, uhat)         | (1, (1, None))         |  _assemble_jacobian_adjoint_action
+                                                   |                        |
+                 d2N/dudu(u, m; uu, uhat, v*)      | (2, (0, 1, None))      |  _assemble_hessian_action
+                 d2N/dudu^{*}(u, m; v*, uhat, uu)  | (2, (None, 1, 0))      |  _assemble_hessian_action_adjoint
+                 d2N/dudu^{*}(u, m; vv, uhat, uu)  | (2, (None, 1, None))   |  _assemble_hessian_action_adjoint_action
+                                                   |                        |
+        """
+        assembly_dict = {(0, (0,)): '_assemble',
+                         (1, (0, 1)): '_assemble_jacobian',
+                         (1, (0, None)): '_assemble_jacobian_action',
+                         (1, (1, 0)): '_assemble_jacobian_adjoint',
+                         (1, (1, None)): '_assemble_jacobian_adjoint_action',
+                         (2, (0, 1, None)): 'assemble_hessian_action',
+                         (2, (None, 1, 0)): 'assemble_hessian_action_adjoint',
+                         (2, (None, 1, None)): 'assemble_hessian_action_adjoint_action'}
+        return assembly_dict
+
+    def assemble(self, *args, assembly_opts=None, **kwargs):
+        """Assembly procedure"""
+
+        # Checks
+        number_arguments = len(self.arguments())
+        if number_arguments > 2:
+            if sum(self.derivatives) > 2:
+                err_msg = "Derivatives higher than 2 are not supported!"
+            else:
+                err_msg = "Cannot assemble external operators with more than 2 arguments! You need to take the action!"
+            raise ValueError(err_msg)
+
+        # Make key for assembly dict
+        #derivs = sum(self.derivatives)
+        derivs = self.derivatives
+        arguments = tuple(arg.number() if isinstance(arg, BaseArgument) else None for arg in self.argument_slots())
+        key = (derivs, arguments)
+
+        # --- Get assemble function ---
+
+        # Get assemble function name
+        assemble_name = self._make_assembly_dict[key]
+
+        # Lookup assemble functions: tells if the assemble function has been overriden by the external operator subclass
+        assemble = type(self).__dict__.get(assemble_name)
+
+
+        if assemble is None:
+            # Raise an error if an implementation is needed
+            raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
+                                      + ' has an implementation for %s !') % (type(self).__name__, str(key)))
+
+        # --- Assemble ---
+        # TODO: Returns matrix or function: is it relevant here ?
+        return assemble(self, *args, assembly_opts=assembly_opts, **kwargs)
+
+    def _assemble(self, *args, **kwargs):
+        """Assemble N"""
+        raise NotImplementedError('You need to implement _assemble for `%s`' % type(self).__name__)
+
+    def _assemble_jacobian(self, *args, **kwargs):
+        """Assemble TODO: Tells that still need to work out what is the i-th in dN/doperands_i"""
+        raise NotImplementedError('You need to implement _assemble_jacobian for `%s`' % type(self).__name__)
+
+    def _assemble_jacobian_action(self, *args, **kwargs):
+        raise NotImplementedError('You need to implement _assemble_jacobian_action for `%s`' % type(self).__name__)
+
+    def _assemble_jacobian_adjoint(self, *args, **kwargs):
+        raise NotImplementedError('You need to implement _assemble_jacobian_adjoint for `%s`' % type(self).__name__)
+
+    def _assemble_jacobian_adjoint_action(self, *args, **kwargs):
+        raise NotImplementedError('You need to implement _assemble_jacobian_adjoint_action for `%s`' % type(self).__name__)
+
+    def _assemble_hessian_action():
+        raise NotImplementedError('You need to implement _assemble_hessian_action for `%s`' % type(self).__name__)
+
+    def _assemble_hessian_action_adjoint():
+        raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint for `%s`' % type(self).__name__)
+
+    def _assemble_hessian_action_adjoint_action():
+        raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint_action for `%s`' % type(self).__name__)
+
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
