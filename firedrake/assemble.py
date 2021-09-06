@@ -168,11 +168,11 @@ def base_form_operands(expr):
         return [expr.form()]
     if isinstance(expr, ufl.Action):
         return [expr.left(), expr.right()]
-    # if isinstance(expr, ufl.Form):
-    #    return expr.external_operators()
+    if isinstance(expr, ufl.Form):
+        return expr.external_operators()
     #if isinstance(expr, ufl.ExternalOperator):
         # TODO: At the moment assemble nothing instead of only assembling BaseForm
-        #return tuple(expr.ufl_operands() u+ expr.argument_slots())
+        #return tuple(expr.ufl_operands() + expr.argument_slots())
     return []
 
 
