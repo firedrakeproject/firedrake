@@ -26,15 +26,17 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data=None):
         ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                  result_coefficient=result_coefficient, argument_slots=argument_slots)
+                                  argument_slots=argument_slots)
         fspace = self.ufl_function_space()
         if not isinstance(fspace, functionspaceimpl.WithGeometry):
             fspace = functionspaceimpl.FunctionSpace(function_space.mesh().topology, fspace.ufl_element())
             fspace = functionspaceimpl.WithGeometry(fspace, function_space.mesh())
 
-        # Check
-        if len(argument_slots)-1 != sum(derivatives):
-            raise ValueError('Expecting number of items in the argument slots (%s) to be equal to the number of derivatives taken + 1 (%s)' % (len(argument_slots), sum(derivatives) + 1) )
+
+        # Check?
+        #if len(self.argument_slots())-1 != sum(self.derivatives):
+        #    import ipdb; ipdb.set_trace()
+        #    raise ValueError('Expecting number of items in the argument slots (%s) to be equal to the number of derivatives taken + 1 (%s)' % (len(argument_slots), sum(derivatives) + 1) )
 
         if result_coefficient is None:
             result_coefficient = Function(fspace, val, name, dtype)
