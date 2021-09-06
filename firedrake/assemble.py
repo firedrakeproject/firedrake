@@ -218,7 +218,11 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                                       mat_type, sub_mat_type,
                                       appctx, options_prefix,
                                       visited)
-            import ipdb; ipdb.set_trace()
+
+            # Ugly: Temporary debug approach
+            if hasattr(tensor, 'petscmat'):
+                # Tensor takes the value of res
+                res.petscmat.copy(tensor.petscmat)
             return res
 
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
