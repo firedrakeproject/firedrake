@@ -256,7 +256,10 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             raise TypeError("Incompatible LHS for Action")
         rhs = args[1]
         if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            petsc_mat = lhs.M.handle
+            if isinstance(lhs, matrix.ImplicitMatrix):
+                petsc_mat = lhs.petscmat
+            else:
+                petsc_mat = lhs.M.handle
             (row, col) = lhs.arguments()
             res = _make_vector(col)
 
