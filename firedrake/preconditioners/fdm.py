@@ -6,6 +6,8 @@ from pyop2.sparsity import get_preallocation
 from ufl import FiniteElement, VectorElement, TensorElement
 from ufl import FacetNormal, Jacobian, JacobianDeterminant, JacobianInverse
 from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
+from ufl import grad, diff, replace, variable
+from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake.petsc import PETSc
@@ -62,10 +64,10 @@ class FDMPC(PCBase):
         self.uc = firedrake.Function(V)
         self.cell_node_map = get_permuted_map(V)
 
-        # Get problem solution and bcs
+        # Get Jacobian form and bcs
         solverctx = get_appctx(dm)
-        self.u = solverctx._problem.u
-        self.bcs = solverctx.bcs_F
+        self.J = solverctx.J
+        self.bcs = solverctx.bcs_J
 
         if len(self.bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False)
@@ -73,7 +75,7 @@ class FDMPC(PCBase):
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        bcflags = self.get_bc_flags(V, self.mesh, self.bcs, solverctx._problem.J)
+        bcflags = self.get_bc_flags(V, self.mesh, self.bcs, self.J)
 
         self.weight = self.multiplicity(V)
         with self.weight.dat.vec as w:
@@ -82,10 +84,23 @@ class FDMPC(PCBase):
         # Get form coefficients
         appctx = self.get_appctx(pc)
         eta = appctx.get("eta", (N+1)*(N+ndim))  # interior penalty parameter
-        mu = appctx.get("viscosity", None)  # second order coefficient
-        beta = appctx.get("reaction", None)  # zeroth order coefficient
         eta = float(eta)
         self.appctx = appctx
+        args_J = self.J.arguments()
+        integrals_J = self.J.integrals_by_type("cell")
+
+        rep_dict = {grad(t): variable(grad(t)) for t in args_J}
+        val = list(rep_dict.values())
+        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
+
+        rep_dict = {t: variable(t) for t in args_J}
+        val = list(rep_dict.values())
+        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
+        if isinstance(beta, Zero):
+            beta = None
+
+        self.alpha = alpha
+        self.beta = beta
 
         # Obtain the FDM basis and transfer kernels (restriction and prolongation)
         # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each direction and BC type
@@ -104,7 +119,7 @@ class FDMPC(PCBase):
         ncomp = ele.value_size()
         bsize = V.value_size
         needs_hdiv = bsize != ncomp
-        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(mu, beta, Nq, diagonal=True, piola=needs_hdiv)
+        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(alpha, beta, Nq, diagonal=True, piola=needs_hdiv)
 
         # Assign arbitrary non-zero coefficients for preallocation
         Gq.dat.data[:] = 1.0E0
@@ -212,9 +227,7 @@ class FDMPC(PCBase):
             sdim = sdim // ncomp
 
         if needs_hdiv:
-            # FIXME still need to pass mu
-            mu = self.appctx.get("viscosity", None)
-            Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(mu)
+            Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
             jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
 
         lexico_cell, nel = self.glonum_fun(V.cell_node_map())
@@ -357,14 +370,14 @@ class FDMPC(PCBase):
 
                             sij = 0.5E0 if (i == j) or (bool(k0) != bool(k1)) else -0.5E0
                             if needs_hdiv:
-                                beta = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
-                                        sij*numpy.dot(numpy.dot(mu[1], Piola[i]), Piola[j])]
+                                smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
+                                       sij*numpy.dot(numpy.dot(mu[1], Piola[i]), Piola[j])]
                             else:
-                                beta = [sij*mu[0], sij*mu[1]]
+                                smu = [sij*mu[0], sij*mu[1]]
 
-                            adense[ii, jj] += eta * sum(beta)
-                            adense[i0:i1, jj] -= beta[i] * Dfacet[:, iface % 2]
-                            adense[ii, j0:j1] -= beta[j] * Dfacet[:, jface % 2]
+                            adense[ii, jj] += eta * sum(smu)
+                            adense[i0:i1, jj] -= smu[i] * Dfacet[:, iface % 2]
+                            adense[ii, j0:j1] -= smu[j] * Dfacet[:, jface % 2]
 
                     ae = FDMPC.fdm_numpy_to_petsc(adense, dense_indices, diag=False)
                     if ndim > 1:
@@ -392,43 +405,34 @@ class FDMPC(PCBase):
 
         A.assemble()
 
-    def assemble_coef(self, mu, beta, Nq=0, diagonal=False, transpose=False, piola=False):
+    def assemble_coef(self, alpha, beta, Nq=0, diagonal=False, transpose=False, piola=False):
         ndim = self.mesh.topological_dimension()
         gdim = self.mesh.geometric_dimension()
         gshape = (ndim, ndim)
 
         if gdim == ndim:
             Finv = JacobianInverse(self.mesh)
-
             if piola:
                 PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
-                if mu is None:
-                    i1, i2, i3, i4, j1, j2 = indices(6)
-                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j1, i3] * Finv[i4, j2], (i1, i2, i3, i4))
-                elif mu.ufl_shape == ():
-                    i1, i2, i3, i4, j1, j2 = indices(6)
-                    G = mu * as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j1, i3] * Finv[i4, j2], (i1, i2, i3, i4))
-                elif len(mu.ufl_shape) == 4:
+                if len(alpha.ufl_shape) == 4:
                     i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j3, i3] * Finv[i4, j4] * mu[j1, j2, j3, j4], (i1, i2, i3, i4))
+                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
+                else:
+                    raise ValueError("I don't know what to do with the homogeneity tensor")
             else:
-                if mu is None:
-                    G = dot(Finv, Finv.T)
-                elif mu.ufl_shape == ():
-                    G = mu * dot(Finv, Finv.T)
-                elif mu.ufl_shape == gshape:
-                    G = dot(dot(Finv, mu), Finv.T)
-                elif len(mu.ufl_shape) == 4:
+                if alpha.ufl_shape == gshape:
+                    G = dot(dot(Finv, alpha), Finv.T)
+                elif len(alpha.ufl_shape) == 4:
                     i1, i2, i3, i4, j2, j4 = indices(6)
-                    G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
+                    G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
                 else:
                     raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
             F = Jacobian(self.mesh)
-            G = inv(dot(F.T, F))
-            if mu:
-                G = mu * G
-            # I don't know how to use tensor viscosity on embedded manifolds
+            if len(alpha.ufl_shape) == 2:
+                G = inv(dot(dot(F.T, inv(alpha)), F))
+            else:
+                raise ValueError("I don't know what to do with the homogeneity tensor")
 
         if diagonal:
             if len(G.ufl_shape) == 2:
@@ -457,13 +461,12 @@ class FDMPC(PCBase):
             Bq = None
             assemble_Bq = lambda: None
         else:
+            if piola:
+                beta = diag_vector(dot(PF.T, dot(beta, PF)))
             shape = beta.ufl_shape
-            if len(shape) == 2:
+            if shape:
                 Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default", shape=shape)
-            elif len(shape) == 1:
-                Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
-                                   quad_scheme="default", dim=shape[0])
             else:
                 Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
                                    quad_scheme="default")

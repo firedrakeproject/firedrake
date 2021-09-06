@@ -115,15 +115,15 @@ def fs(request, mesh):
 def test_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
-    uex = dot(x, x)
+    u_exact = dot(x, x)
     ncomp = fs.ufl_element().value_size()
     if ncomp > 1:
-        uex = as_vector([uex + Constant(k) for k in range(ncomp)])
+        u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
 
     n = FacetNormal(mesh)
-    Fex = grad(uex)
-    B = -div(Fex)
-    T = dot(Fex, n)
+    f_exact = grad(u_exact)
+    B = u_exact - div(f_exact)
+    T = dot(f_exact, n)
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
@@ -132,7 +132,7 @@ def test_direct_solver(fs):
     if mesh.layers:
         subs += ("top",)
 
-    bcs = [DirichletBC(fs, uex, sub) for sub in subs]
+    bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
 
     sub_Dir = "everywhere" if "on_boundary" in subs else tuple(s for s in subs if type(s) == int)
     if sub_Dir == "everywhere":
@@ -167,7 +167,8 @@ def test_direct_solver(fs):
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = eta/h
 
-    a = (inner(grad(v), grad(u))*dx
+    a = (inner(v, u)*dx
+         + inner(grad(v), grad(u))*dx
          + inner(outer_jump(v, n), avg(penalty) * outer_jump(u, n)) * dS_int
          - inner(avg(grad(v)), outer_jump(u, n)) * dS_int
          - inner(avg(grad(u)), outer_jump(v, n)) * dS_int
@@ -177,8 +178,8 @@ def test_direct_solver(fs):
 
     L = (inner(v, B)*dx
          + inner(v, T)*ds_Neu
-         + inner(v, penalty * uex) * ds_Dir
-         - inner(grad(v), outer(uex, n)) * ds_Dir)
+         + inner(v, penalty * u_exact) * ds_Dir
+         - inner(grad(v), outer(u_exact, n)) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
@@ -197,4 +198,4 @@ def test_direct_solver(fs):
     }, appctx={"eta": eta, })
     solver.solve()
 
-    assert solver.snes.ksp.getIterationNumber() == 1 and norm(uex-uh, "H1") < 1.0E-8
+    assert solver.snes.ksp.getIterationNumber() == 1 and norm(u_exact-uh, "H1") < 1.0E-8
