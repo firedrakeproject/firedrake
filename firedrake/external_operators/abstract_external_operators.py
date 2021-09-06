@@ -10,6 +10,7 @@ from ufl.operators import transpose, inner
 
 import firedrake.ufl_expr as ufl_expr
 import firedrake.assemble
+from firedrake.assemble import _make_matrix
 from firedrake.function import Function
 from firedrake.matrix import MatrixBase
 from firedrake.constant import Constant
@@ -321,6 +322,10 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             # `_evaluate_action` needs to take care of handling them correctly
             return self._evaluate_action(x, *args, **kwargs)
         return self._evaluate(*args, **kwargs)
+
+    #TODO: Do we want to cache this ?
+    def _matrix_builder(self, bcs, opts, integral_types):
+        return _make_matrix(self, bcs, opts, integral_types)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
