@@ -110,7 +110,7 @@ def test_assemble_methods(mesh):
             """Implements dN/dm^{*}(u, m; v*, mhat), which is represented by derivs = (0, 1) and args = (1, 0)"""
             pass
 
-        @assemble_method('jacobian')
+        @assemble_method('Jacobian')
         def jacobian(self, *args, **kwargs):
             """Implements the external operator jacobian: i.e. dN/dop with op in N's operands"""
             pass
@@ -119,4 +119,4 @@ def test_assemble_methods(mesh):
     assert e2._assembly_registry == MyExternalOperator2._assembly_registry
     assert MyExternalOperator2._assembly_registry == {((1, 0), (0, 1)): MyExternalOperator1.dN_du,
                                                       ((0, 1), (1, 0)): MyExternalOperator2.dN_dm_adjoint,
-                                                      ('jacobian',): MyExternalOperator2.jacobian}
+                                                      ('Jacobian',): MyExternalOperator2.jacobian}
