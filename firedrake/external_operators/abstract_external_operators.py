@@ -1,11 +1,14 @@
 from abc import ABCMeta
+from functools import wraps
 
 from ufl import conj
 from ufl.core.external_operator import ExternalOperator
+from ufl.argument import Argument, BaseArgument
 from ufl.coefficient import Coefficient
 from ufl.referencevalue import ReferenceValue
 from ufl.operators import transpose, inner
 
+import firedrake.ufl_expr as ufl_expr
 import firedrake.assemble
 from firedrake.function import Function
 from firedrake.constant import Constant
@@ -15,7 +18,19 @@ from firedrake.adjoint import ExternalOperatorsMixin
 from pyop2.datatypes import ScalarType
 
 
-class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metaclass=ABCMeta):
+class RegisteringAssemblyMethods(type):
+    def __init__(cls, name, bases, attrs):
+        cls._assembly_registry = {}
+        # Populate assembly registry with registries from the base classes
+        for base in bases:
+            cls._assembly_registry.update(getattr(base, '_assembly_registry', {}))
+        for key, val in attrs.items():
+            registry = getattr(val, '_registry', ())
+            for e in registry:
+                cls._assembly_registry.update({e: val})
+
+
+class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metaclass=RegisteringAssemblyMethods):#ABCMeta):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
@@ -114,6 +129,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     def _compute_derivatives(self):
         """apply the derivatives on operator_data"""
 
+    """
     def _evaluate(self):
         raise NotImplementedError('The %s class requires an _evaluate method' % type(self).__name__)
 
@@ -122,21 +138,42 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     def _evaluate_adjoint_action(self, *args, **kwargs):
         raise NotImplementedError('The %s class should have an _evaluate_adjoint_action method when needed' % type(self).__name__)
+     """
 
-    def evaluate(self, *args, **kwargs):
-        """define the evaluation method for the ExternalOperator object"""
-        action_coefficients = self.action_coefficients()
-        if any(self.is_type_global):  # Check if at least one operand is global
-            x = tuple(e for e, _ in action_coefficients)
-            if len(x) != sum(self.derivatives):
-                raise ValueError('Global external operators cannot be evaluated, you need to take the action!')
-            is_adjoint = action_coefficients[-1][1] if len(action_coefficients) > 0 else False
-            if is_adjoint:
-                return self._evaluate_adjoint_action(x)
-            # If there are local operands (i.e. if not all the operands are global)
-            # `_evaluate_action` needs to take care of handling them correctly
-            return self._evaluate_action(x, *args, **kwargs)
-        return self._evaluate(*args, **kwargs)
+    def assemble_method(derivs, args=None):
+        r""" Decorator function to specify assemble functions that an 
+        
+        """
+        # Checks
+        labels = ('Jacobian', 'Jacobian_action', 'Jacobian_adjoint_action')
+        if derivs not in labels:
+            if not isinstance(derivs, tuple) or not isinstance(args, tuple):# or len(derivs) != len(args):
+                  raise ValueError("Expecting `assemble_method` to take in either:\n\t 1) `(derivs, args)`, where `derivs` and `args` are tuples of same size\n\t or\n\t 2) One of the following labels: %s" % (labels,))
+            if not all(isinstance(d, int) for d in derivs) or any(d < 0 for d in derivs):
+                 raise ValueError("Expecting a derivative multi-index with nonnegative indices and not %s" % str(derivs))
+            if any((not isinstance(a, int) and a is not None) for a in args) or any(isinstance(a, int) and a < 0 for a in args): 
+                raise ValueError("Expecting an argument tuple with nonnegative integers or None objects and not %s" % str(args)) 
+            registry = (derivs, args)
+        else:
+            registry = (derivs,)
+        def decorator(assemble):
+            if not hasattr(assemble, '_registry'):
+                assemble._registry = ()
+            assemble._registry += (registry,)
+            return assemble
+        return decorator
+
+    # TODO: Should we have a default function assemble_jacobian ? 
+    #       Or a decorator syntax for Jacobian: 
+    #           e.g. @assemble_method('Jacobian')  ?
+    #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
+    #     such as PointexprOperator/PointsolveOperator/NeuralnetOperator
+    # TODO: Should we have a specific syntax so that we only write derivatives: e.g. adjoint((1,0)) ?
+    """
+    @assemble_method((1, 0), (0, 1))
+    def dN_du(self, *args, **kwargs):
+        return args
+    """
 
     @utils.cached_property
     def _make_assembly_dict(self):
@@ -201,17 +238,28 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
         # --- Get assemble function ---
 
+        """
         # Get assemble function name
         assemble_name = self._make_assembly_dict[key]
 
         # Lookup assemble functions: tells if the assemble function has been overriden by the external operator subclass
         assemble = type(self).__dict__.get(assemble_name)
+        """
 
+        # Get assemble function
+        assembly_registry = self._assembly_registry
+        assemble = assembly_registry.get(key)
 
         if assemble is None:
-            # Raise an error if an implementation is needed
-            raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
-                                      + ' has an implementation for %s !') % (type(self).__name__, str(key)))
+            # TODO: Handle other keywords: Jacobian_adjoint... (hint: use make_dict function above)
+            if sum(derivs) == 0:
+                assemble = getattr(type(self), '_assemble', None)
+            elif sum(derivs) == 1:
+                assemble = assembly_registry.get(('Jacobian',))
+            if assemble is None:
+                # Raise an error if an implementation is needed
+                raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
+                                           + ' has an implementation for %s !') % (type(self).__name__, str(key)))
 
         # --- Assemble ---
         # TODO: Returns matrix or function: is it relevant here ?
@@ -221,8 +269,9 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         """Assemble N"""
         raise NotImplementedError('You need to implement _assemble for `%s`' % type(self).__name__)
 
+    """
     def _assemble_jacobian(self, *args, **kwargs):
-        """Assemble TODO: Tells that still need to work out what is the i-th in dN/doperands_i"""
+        ""Assemble TODO: Tells that still need to work out what is the i-th in dN/doperands_i""
         raise NotImplementedError('You need to implement _assemble_jacobian for `%s`' % type(self).__name__)
 
     def _assemble_jacobian_action(self, *args, **kwargs):
@@ -242,6 +291,25 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     def _assemble_hessian_action_adjoint_action():
         raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint_action for `%s`' % type(self).__name__)
+    """
+
+    def evaluate(self, *args, **kwargs):
+        """define the evaluation method for the ExternalOperator object"""
+
+        import ipdb; ipdb.set_trace()
+
+        action_coefficients = self.action_coefficients()
+        if any(self.is_type_global):  # Check if at least one operand is global
+            x = tuple(e for e, _ in action_coefficients)
+            if len(x) != sum(self.derivatives):
+                raise ValueError('Global external operators cannot be evaluated, you need to take the action!')
+            is_adjoint = action_coefficients[-1][1] if len(action_coefficients) > 0 else False
+            if is_adjoint:
+                return self._evaluate_adjoint_action(x)
+            # If there are local operands (i.e. if not all the operands are global)
+            # `_evaluate_action` needs to take care of handling them correctly
+            return self._evaluate_action(x, *args, **kwargs)
+        return self._evaluate(*args, **kwargs)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
@@ -350,3 +418,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         # This should work for most cases
         r = "%s(%s,%s,%s,%s,%s)" % (type(self).__name__, ", ".join(repr(op) for op in self.ufl_operands), repr(self.ufl_function_space()), repr(self.derivatives), repr(self.ufl_shape), repr(self.operator_data))
         return r
+
+
+# Make a renamed public decorator function
+assemble_method = AbstractExternalOperator.assemble_method
