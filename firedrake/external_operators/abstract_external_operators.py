@@ -42,6 +42,14 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         elif not isinstance(result_coefficient, (Coefficient, ReferenceValue)):
             raise TypeError('Expecting a Coefficient and not %s', type(coefficient))
         self._result_coefficient = result_coefficient
+
+        if len(argument_slots) == 0:
+            # Make v*
+            v_star = ufl_expr.Coargument(fspace, 0)
+            #v_star = ufl_expr.Argument(fspace.dual(), 0)
+            argument_slots = (v_star,)
+        self._argument_slots = argument_slots
+
         self._val = val
         self._name = name
 
