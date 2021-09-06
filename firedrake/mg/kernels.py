@@ -25,7 +25,8 @@ from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.parameters import default_parameters
-from tsfc.finatinterface import create_element, lower_integral_type
+from tsfc.finatinterface import create_element
+from tsfc.kernel_interface.common import lower_integral_type
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
 from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
