@@ -341,6 +341,10 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
                              mat_type, sub_mat_type,
                              appctx, options_prefix)
+        if isinstance(res, firedrake.Function):
+            res = firedrake.Cofunction(res.function_space(), val=res.vector())
+
+        return res
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1):
             raise TypeError("Not enough operands for Adjoint")
