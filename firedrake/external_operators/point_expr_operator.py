@@ -6,7 +6,7 @@ from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
 from ufl.log import error
 
-from firedrake.external_operators import AbstractExternalOperator
+from firedrake.external_operators import AbstractExternalOperator, assemble_method
 
 from pyop2.datatypes import ScalarType
 
@@ -59,7 +59,51 @@ class PointexprOperator(AbstractExternalOperator):
 
     # --- Evaluation ---
 
-    def _evaluate(self):
+    def _assemble(self, *args, **kwargs):
+        return self._evaluate(*args, **kwargs)
+        """
+        operands = self.ufl_operands
+        expr = as_ufl(self.expr(*operands))
+        #operator = self._compute_derivatives()
+        #expr = as_ufl(operator(*operands))
+        if expr.ufl_shape == () and expr != 0:
+            var = VariableRuleset(self.ufl_operands[0])
+            expr = expr*var._Id
+        elif expr == 0:
+            return self.assign(expr)
+        return self.interpolate(expr)
+        """
+
+    """
+    @assemble_method((1, 0), (0, None))
+    @assemble_method((0, 1), (0, 1))#adjoint((1,0)))
+    def dN_dm(self, *args, **kwargs):
+        import ipdb; ipdb.set_trace()
+        print('args: ', args)
+        return args
+    """
+
+    @assemble_method((1,), (0, None))
+    def dN_dm(self, *args, **kwargs):
+        from firedrake.assemble import assemble
+        uhat = self.argument_slots()[-1]
+        dNdu = self._evaluate()
+        res = assemble(dNdu * uhat)
+        #import ipdb; ipdb.set_trace()
+        return res
+
+    @assemble_method('Jacobian')
+    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
+        result = self._evaluate()
+
+        # Construct the Jacobian matrix
+        integral_types = set(['cell'])
+        Jacobian = self._matrix_builder((), assembly_opts, integral_types)
+        with result.dat.vec as vec:
+            Jacobian.petscmat.setDiagonal(vec)
+        return Jacobian
+
+    def _evaluate(self, *args, **kwargs):
         operands = self.ufl_operands
         operator = self._compute_derivatives()
         expr = as_ufl(operator(*operands))
