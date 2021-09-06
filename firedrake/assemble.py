@@ -137,6 +137,10 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                        form_compiler_parameters,
                        mat_type, sub_mat_type,
                        appctx, options_prefix, visited=None):
+
+    # Preprocess and restructure the DAG
+    expr = preassemble_base_form(expr)
+
     stack = [expr]
     visited = visited or {}
     while stack:
@@ -159,6 +163,90 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                                            visited,
                                            *(visited[arg] for arg in operands))
     return visited[expr]
+
+def preassemble_base_form(expr, visited=None):
+    r"""Perform a preorder traversal to simplify and optimize the DAG.
+
+    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) and external operator.
+             We have: dFdu = \frac{\partial F}{\partial u} + Action(dFdN, dNdu)
+             Now taking the action on a rank-1 object w (e.g. Coefficient/Cofunction) results in:
+
+        (1) Action(Action(dFdN, dNdu), w)
+
+                Action                     Action
+                /    \                     /     \
+              Action  w     ----->       dFdN   Action
+              /    \                            /    \
+            dFdN    dNdu                      dNdu    w
+
+        This situations does not only arise for ExternalOperator but also when we have a 2-form instead of dNdu!
+
+        (2) Action(dNdu, w)
+
+             Action
+              /   \
+             /     w        ----->   dNdu(u; w, v*)
+            /
+       dNdu(u; uhat, v*)
+
+        (3) Adjoint(dNdu)
+
+             Adjoint
+                |           ----->   dNdu(u; v*, uhat)
+           dNdu(u; uhat, v*)
+
+
+    It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
+    the dag rotation (i.e. (1) and (2)) in expr.
+    """
+    #from tsfc
+    visited = visited or {}
+    if expr in visited:
+        return visited[expr]
+
+    operands = base_form_operands(expr)
+
+    # Perform the DAG rotation when needed
+    if isinstance(expr, ufl.Action):
+        left = expr.left()
+        right = expr.right()
+        is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function)) or len(x.arguments()) == 1
+        is_rank_2 = lambda x: len(x.arguments()) == 2
+
+        # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
+        if isinstance(left, ufl.Action) and is_rank_2(left):
+            operands = [left.left(), ufl.action(left.right(), right)]
+        if isinstance(left, ufl.ExternalOperator) and is_rank_1(right):
+            arg = left.arguments()[-1]
+            visited[expr] = ufl.replace(left,{arg: right})
+            return visited[expr]
+
+    if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.ExternalOperator):
+        e = expr.form()
+        # Adjoint arguments have already been swapped
+        args = expr.arguments()
+        visited[expr] = e._ufl_expr_reconstruct(*e.ufl_operands, argument_slots=args)
+        return visited[expr]
+
+    # Visit/update the children
+    #operands = list(preassemble_base_form(op, visited) for op in operands)
+    operands = list(restructure_base_form(op, visited) for op in operands)
+    # Need to reconstruct the DAG as we traverse it!
+    #  -> ufl.replace does not apply on most of the base form objects
+    visited[expr] = reconstruct_node_from_operands(expr, operands)
+    return visited[expr]
+
+
+def reconstruct_node_from_operands(expr, operands):
+    if isinstance(expr, ufl.form.FormSum):
+        return ufl.FormSum(*[(op, 1) for op in operands])
+    if isinstance(expr, ufl.Adjoint):
+        form, = operands
+        return ufl.Adjoint(form)
+    if isinstance(expr, ufl.Action):
+        left, right = operands
+        return ufl.Action(left, right)
+    return expr
 
 
 def base_form_operands(expr):
