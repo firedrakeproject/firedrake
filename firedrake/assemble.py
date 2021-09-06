@@ -289,15 +289,15 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
             res = PETSc.Mat().create()
-            set = False
+            is_set = False
             for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.M.handle
                 petsc_mat.scale(w)
-                if set:
+                if is_set:
                     res = res + petsc_mat
                 else:
                     res = petsc_mat
-                    set = True
+                    is_set = True
             return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
