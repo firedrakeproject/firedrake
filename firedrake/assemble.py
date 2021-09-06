@@ -226,7 +226,13 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                 res.petscmat.copy(tensor.petscmat)
             return res
 
-        return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
+        if args and mat_type!="matfree":
+            # Retrieve the Form's children
+            external_operators = expr.external_operators()
+            result_coefficients = args # tuple(e.result_coefficient() for e in external_operators)
+            # Substitue the external operators by their output
+            expr = ufl.replace(expr, dict(zip(external_operators, result_coefficients)))
+        res = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
                              mat_type, sub_mat_type,
                              appctx, options_prefix)
