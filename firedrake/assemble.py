@@ -210,7 +210,8 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                       mat_type, sub_mat_type,
                       appctx, options_prefix, visited, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        expr = preprocess_form(expr, form_compiler_parameters)
+        if mat_type != "matfree":
+            expr = preprocess_form(expr, form_compiler_parameters)
 
         if not isinstance(expr, ufl.form.Form):
             res = assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
