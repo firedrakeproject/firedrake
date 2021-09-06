@@ -5,7 +5,7 @@ import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
-from firedrake import function, dmhooks
+from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
@@ -554,4 +554,5 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return function.Function(self.F.arguments()[0].function_space())
+        #return function.Function(self.F.arguments()[0].function_space())
+        return cofunction.Cofunction(self.F.arguments()[0].function_space())
