@@ -11,6 +11,7 @@ from ufl.operators import transpose, inner
 import firedrake.ufl_expr as ufl_expr
 import firedrake.assemble
 from firedrake.function import Function
+from firedrake.matrix import MatrixBase
 from firedrake.constant import Constant
 from firedrake import utils, functionspaceimpl
 from firedrake.adjoint import ExternalOperatorsMixin
@@ -263,7 +264,17 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
         # --- Assemble ---
         # TODO: Returns matrix or function: is it relevant here ?
-        return assemble(self, *args, assembly_opts=assembly_opts, **kwargs)
+        result = assemble(self, *args, assembly_opts=assembly_opts, **kwargs)
+
+        # Compatibility check
+        # Assembled external op
+        if len(self.arguments()) == 1:
+            if not isinstance(result, Function):
+                raise ValueError('External operators with one argument must result in a firedrake.Function object!')
+        elif len(self.arguments()) == 2:
+            if not isinstance(result, MatrixBase):
+                raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
+        return result
 
     def _assemble(self, *args, **kwargs):
         """Assemble N"""
