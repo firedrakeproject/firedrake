@@ -536,7 +536,7 @@ def _make_vector(V):
     return vec
 
 
-def _make_matrix(expr, bcs, opts):
+def _make_matrix(expr, bcs, opts, integral_types=None):
     """Make an empty matrix.
 
     :arg expr: The expression being assembled.
@@ -559,7 +559,7 @@ def _make_matrix(expr, bcs, opts):
                                      appctx=opts.appctx,
                                      options_prefix=opts.options_prefix)
 
-    integral_types = set(i.integral_type() for i in expr.integrals())
+    integral_types = integral_types or set(i.integral_type() for i in expr.integrals())
     for bc in bcs:
         integral_types.update(integral.integral_type()
                               for integral in bc.integrals())
