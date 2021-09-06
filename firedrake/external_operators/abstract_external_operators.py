@@ -208,7 +208,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                                                       operator_data=operator_data,
                                                       add_kwargs=add_kwargs)
         else:
-            corresponding_coefficient = coefficient or self._coefficient
+            corresponding_coefficient = result_coefficient or self._result_coefficient
 
         reconstruct_op = type(self)(*operands, function_space=function_space or self._extop_master.ufl_function_space(),
                                     derivatives=deriv_multiindex,
@@ -230,8 +230,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
         return reconstruct_op
 
-    def __str__(self):
-        "Default repr string construction for PointwiseOperator operators."
+    def __repr__(self):
+        "Default repr string construction for AbstractExternalOperator operators."
         # This should work for most cases
         r = "%s(%s,%s,%s,%s,%s)" % (type(self).__name__, ", ".join(repr(op) for op in self.ufl_operands), repr(self.ufl_function_space()), repr(self.derivatives), repr(self.ufl_shape), repr(self.operator_data))
         return r
