@@ -305,7 +305,9 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.ExternalOperator):
-        return expr.assemble()
+        opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters,
+                             mat_type, sub_mat_type, appctx, options_prefix)
+        return expr.assemble(assembly_opts=opts)
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
     elif isinstance(expr, ufl.Coefficient):
