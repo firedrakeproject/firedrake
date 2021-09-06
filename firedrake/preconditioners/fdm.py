@@ -119,7 +119,7 @@ class FDMPC(PCBase):
         ncomp = ele.value_size()
         bsize = V.value_size
         needs_hdiv = bsize != ncomp
-        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(alpha, beta, Nq, diagonal=True, piola=needs_hdiv)
+        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(alpha, beta, Nq, diagonal=True, piola=needs_hdiv, cell_average=True)
 
         # Assign arbitrary non-zero coefficients for preallocation
         Gq.dat.data[:] = 1.0E0
@@ -234,7 +234,7 @@ class FDMPC(PCBase):
         gid, _ = self.glonum_fun(Gq.cell_node_map())
         bid, _ = self.glonum_fun(Bq.cell_node_map()) if Bq is not None else (None, nel)
 
-        # Build sparse cell matrices and assemble global matrix
+        # Build sparse cell matrices
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
         if needs_hdiv:
             pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
@@ -317,7 +317,8 @@ class FDMPC(PCBase):
                     A.setValues(row, cols[i0:i1], data[i0:i1], imode)
                 ae.destroy()
 
-        istart = 1 if needs_hdiv else 0
+        # Assemble SIPG interior facet terms
+        kstart = 1 if needs_hdiv else 0
         if needs_interior_facet:
 
             lexico_facet, nfacet, facet_cells, facet_data = self.get_facet_topology(V)
@@ -338,7 +339,7 @@ class FDMPC(PCBase):
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
 
-                for k in range(istart, ncomp):
+                for k in range(kstart, ncomp):
                     if needs_hdiv:
                         k0 = iord0[k]
                         k1 = iord1[k]
@@ -405,10 +406,9 @@ class FDMPC(PCBase):
 
         A.assemble()
 
-    def assemble_coef(self, alpha, beta, Nq=0, diagonal=False, transpose=False, piola=False):
+    def assemble_coef(self, alpha, beta, Nq, diagonal=False, transpose=False, piola=False, cell_average=False):
         ndim = self.mesh.topological_dimension()
         gdim = self.mesh.geometric_dimension()
-        gshape = (ndim, ndim)
 
         if gdim == ndim:
             Finv = JacobianInverse(self.mesh)
@@ -420,7 +420,7 @@ class FDMPC(PCBase):
                 else:
                     raise ValueError("I don't know what to do with the homogeneity tensor")
             else:
-                if alpha.ufl_shape == gshape:
+                if len(alpha.ufl_shape) == 2:
                     G = dot(dot(Finv, alpha), Finv.T)
                 elif len(alpha.ufl_shape) == 4:
                     i1, i2, i3, i4, j2, j4 = indices(6)
@@ -434,28 +434,36 @@ class FDMPC(PCBase):
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
 
+        quad_degree = Nq
+        if cell_average:
+            family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
+            degree = 0
+        else:
+            family = "Quadrature"
+            degree = Nq
+
         if diagonal:
             if len(G.ufl_shape) == 2:
                 G = diag_vector(G)
-                Qe = VectorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                Qe = VectorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", dim=numpy.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
                 if transpose:
                     G = as_tensor([[G[i, j, i, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[1])])
                 else:
                     G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
-                Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
                 raise ValueError("I don't know how to get the diagonal of a tensor with shape ", G.ufl_shape)
         else:
-            Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+            Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
-        assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=Nq), Gq)
+        assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=quad_degree), Gq)
 
         if beta is None:
             Bq = None
@@ -465,16 +473,16 @@ class FDMPC(PCBase):
                 beta = diag_vector(dot(PF.T, dot(beta, PF)))
             shape = beta.ufl_shape
             if shape:
-                Qe = TensorElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=shape)
             else:
-                Qe = FiniteElement("Quadrature", self.mesh.ufl_cell(), degree=Nq,
+                Qe = FiniteElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default")
 
             Q = firedrake.FunctionSpace(self.mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
-            assemble_Bq = partial(firedrake.assemble, inner(beta, q)*dx(degree=Nq), Bq)
+            assemble_Bq = partial(firedrake.assemble, inner(beta, q)*dx(degree=quad_degree), Bq)
 
         return Gq, Bq, assemble_Gq, assemble_Bq
 
