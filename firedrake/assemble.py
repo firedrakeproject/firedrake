@@ -164,7 +164,8 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                                            *(visited[arg] for arg in operands))
     return visited[expr]
 
-def preassemble_base_form(expr, visited=None):
+#def preassemble_base_form(expr, visited=None):
+def restructure_base_form(expr, visited=None):
     r"""Perform a preorder traversal to simplify and optimize the DAG.
 
     Example: Let's consider F(u, N(u; v*); v) with N(u; v*) and external operator.
@@ -195,6 +196,11 @@ def preassemble_base_form(expr, visited=None):
                 |           ----->   dNdu(u; v*, uhat)
            dNdu(u; uhat, v*)
 
+        (4) Action(F, N)
+        
+             Action         ----->   F(..., N)[v]
+              /   \
+            F[v]   N
 
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     the dag rotation (i.e. (1) and (2)) in expr.
@@ -213,6 +219,11 @@ def preassemble_base_form(expr, visited=None):
         is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function)) or len(x.arguments()) == 1
         is_rank_2 = lambda x: len(x.arguments()) == 2
 
+        if isinstance(left, ufl.Form) and is_rank_1(right):
+            v_rep = left.arguments()[-1]
+            visited[expr] = ufl.replace(left, {v_rep: right})
+            #import ipdb; ipdb.set_trace()
+            return visited[expr]
         # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
         if isinstance(left, ufl.Action) and is_rank_2(left):
             operands = [left.left(), ufl.action(left.right(), right)]
@@ -291,6 +302,12 @@ def preprocess_form(form, fc_params):
     complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
 
     return ufl.algorithms.preprocess_form(form, complex_mode)
+
+
+def preassemble_base_form(expr):
+    expr = restructure_base_form(expr)
+    expr = restructure_base_form(expr)
+    return expr
 
 
 def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
