@@ -4,7 +4,7 @@ from pyop2 import op2
 from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement
-from ufl import FacetNormal, Jacobian, JacobianDeterminant, JacobianInverse
+from ufl import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
 from ufl import grad, diff, replace, variable
 from ufl.constantvalue import Zero
@@ -16,7 +16,7 @@ from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_permuted_map, tensor_product_space_query
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
-import firedrake.dmhooks as dmhooks
+from firedrake.logging import warning
 import firedrake
 import numpy
 
@@ -26,6 +26,7 @@ try:
     def sym_eig(A, B):
         return eigh(A, B)
 except ImportError:
+    warning("scipy not available, using numpy for generalized eigendecomposition.")
     import numpy.linalg as npla
 
     def sym_eig(A, B):
@@ -38,6 +39,19 @@ except ImportError:
 
 
 class FDMPC(PCBase):
+    """
+    `FDMPC` a precondtioner that introduces a change of basis into the local
+    basis functions that diagonalize the H^1 Riesz map on the interval, and
+    assembles a global sparse matrix on which other preconditioners, such as
+    `ASMStarPC`, can be applied. The sparse matrix is obtained by approximating
+    the PDE coefficients as piecewise constants.
+
+    Here we assume that the volume integrals in the Jacobian can be expressed as
+
+    inner(grad(v), alpha(grad(u)))*dx + inner(v, beta(u))*dx
+
+    where alpha and beta are linear functions (tensor contractions).
+    """
 
     _prefix = "fdm_"
 
@@ -54,9 +68,10 @@ class FDMPC(PCBase):
         use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
 
         if not use_tensorproduct or (family <= {"RTCE", "NCE"}):
-            raise ValueError("The element %s is not supported by FDMPC." % (V.ufl_element(), ))
+            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
+        needs_hdiv = family <= {"RTCF", "NCF"}
         Nq = 2*N+1  # quadrature degree
 
         self.mesh = V.mesh()
@@ -81,61 +96,41 @@ class FDMPC(PCBase):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        # Get form coefficients
+        # Get the interior penalty parameter from the appctx
         appctx = self.get_appctx(pc)
-        eta = appctx.get("eta", (N+1)*(N+ndim))  # interior penalty parameter
+        eta = appctx.get("eta", (N+1)*(N+ndim))
         eta = float(eta)
-        self.appctx = appctx
-        args_J = self.J.arguments()
-        integrals_J = self.J.integrals_by_type("cell")
 
-        rep_dict = {grad(t): variable(grad(t)) for t in args_J}
-        val = list(rep_dict.values())
-        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
-
-        rep_dict = {t: variable(t) for t in args_J}
-        val = list(rep_dict.values())
-        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
-        if isinstance(beta, Zero):
-            beta = None
-
-        self.alpha = alpha
-        self.beta = beta
-
-        # Obtain the FDM basis and transfer kernels (restriction and prolongation)
+        # Get the FDM basis and transfer kernels (restriction and prolongation)
         # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each direction and BC type
-        # Dfdm = normal derivate matrices in the FDM basis
+        # Dfdm = tabulation of normal derivative of the FDM basis at the boundary
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet)
 
-        # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
-        prealloc = PETSc.Mat().create(comm=A.comm)
-        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-        prealloc.setSizes(A.getSizes())
-        prealloc.setUp()
-        ndof = V.value_size * V.dof_dset.set.size
+        # Get coefficients w.r.t. the reference coordinates
+        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(self.J, Nq, diagonal=True, piola=needs_hdiv, cell_average=True)
 
-        # PDE coefficients interpolated on the quadrature nodes
-        ele = V.ufl_element()
-        ncomp = ele.value_size()
-        bsize = V.value_size
-        needs_hdiv = bsize != ncomp
-        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(alpha, beta, Nq, diagonal=True, piola=needs_hdiv, cell_average=True)
-
-        # Assign arbitrary non-zero coefficients for preallocation
+        # Set arbitrary non-zero coefficients for preallocation
         Gq.dat.data[:] = 1.0E0
         if Bq is not None:
             Bq.dat.data[:] = 1.0E0
 
-        self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+        # Preallocate by calling the assembly routine on a PETSc Mat of type PREALLOCATOR
+        ndof = V.value_size * V.dof_dset.set.size
+        prealloc = PETSc.Mat().create(comm=A.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(A.getSizes())
+        prealloc.setUp()
+        self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_hdiv)
         nnz = get_preallocation(prealloc, ndof)
+
         self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
-                                      Afdm, Dfdm, eta, bcflags, needs_interior_facet)
+                                      Afdm, Dfdm, eta, bcflags, needs_hdiv)
 
-        prealloc.destroy()
         lgmap = V.dof_dset.lgmap
         self.Pmat.setBlockSize(V.value_size)
         self.Pmat.setLGMap(lgmap, lgmap)
+        prealloc.destroy()
 
         opc = pc
         # Internally, we just set up a PC object that the user can configure
@@ -146,19 +141,12 @@ class FDMPC(PCBase):
 
         # We set a DM on the constructed PC so one
         # can do patch solves with ASMPC.
-        from firedrake.solving_utils import _SNESContext
-        mat_type = "aij"
         dm = opc.getDM()
-        octx = get_appctx(dm)
-        oproblem = octx._problem
-        self._ctx_ref = _SNESContext(oproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
-
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.Pmat, self.Pmat)
         self.pc = pc
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
-            pc.setFromOptions()
+        pc.setFromOptions()
         self.update(pc)
 
     def update(self, pc):
@@ -169,8 +157,33 @@ class FDMPC(PCBase):
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def applyTranspose(self, pc, x, y):
-        # TODO trivial to implement reusing the code below
-        pass
+        self.uc.assign(firedrake.zero())
+
+        with self.uf.dat.vec_wo as xf:
+            x.copy(xf)
+
+        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.INC, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map),
+                     self.weight.dat(op2.READ, self.cell_node_map))
+
+        for bc in self.bcs:
+            bc.zero(self.uc)
+
+        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+            self.pc.applyTranspose(x_, y_)
+
+        for bc in self.bcs:
+            bc.zero(self.uf)
+
+        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.WRITE, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map))
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(y)
+
+        y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def apply(self, pc, x, y):
         self.uc.assign(firedrake.zero())
@@ -186,8 +199,7 @@ class FDMPC(PCBase):
         for bc in self.bcs:
             bc.zero(self.uc)
 
-        dm = pc.getDM()
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref), self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
             self.pc.apply(x_, y_)
 
         for bc in self.bcs:
@@ -210,44 +222,42 @@ class FDMPC(PCBase):
 
     @staticmethod
     def pull_axis(x, pshape, idir):
+        # permute x by reshaping into pshape and moving axis idir to the front
         return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_interior_facet):
+    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_hdiv):
+        # assemble the stiffness matrix in the FDM basis
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
-        ele = V.ufl_element()
-        ncomp = ele.value_size()
         bsize = V.value_size
-        ndim = V.mesh().topological_dimension()
-        sdim = V.finat_element.space_dimension()
+        ndim = V.ufl_domain().topological_dimension()
+        ncomp = V.ufl_element().value_size()
+        sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
 
-        needs_hdiv = bsize != ncomp
-        if needs_hdiv:
-            sdim = sdim // ncomp
-
-        if needs_hdiv:
-            Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
-            jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
-
-        lexico_cell, nel = self.glonum_fun(V.cell_node_map())
-        gid, _ = self.glonum_fun(Gq.cell_node_map())
-        bid, _ = self.glonum_fun(Bq.cell_node_map()) if Bq is not None else (None, nel)
-
-        # Build sparse cell matrices
-        flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
+        # pshape is the shape of the DOFs in the tensor product
         if needs_hdiv:
             pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
+            Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
+            jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
         else:
             pshape = [Ak[0][0].size[0] for Ak in Afdm]
 
+        lexico_cell, nel = self.glonum_fun(V.cell_node_map())
+        lexico_coef, _ = self.glonum_fun(Gq.cell_node_map())
+
+        flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
+
+        # we do this to preallocate the diagonal of Dirichlet nodes
         for row in V.dof_dset.lgmap.indices:
             A.setValue(row, row, 0.0E0, imode)
 
-        # We first deal with the reaction term if Bq is a tensor
-        use_separate_reaction = False if Bq is None else (not needs_hdiv and len(Bq.ufl_shape) == 2)
-
+        # assemble zero-th order term separately, including off-diagonals (mixed components)
+        # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
+        # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
+        use_separate_reaction = not (Bq is None or needs_hdiv)
         if use_separate_reaction:
+            # be = Bhat kron ... kron Bhat
             be = Afdm[0][0][1]
             for k in range(1, ndim):
                 be = be.kron(Afdm[k][0][1])
@@ -255,7 +265,8 @@ class FDMPC(PCBase):
             aptr = numpy.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
             aidx = numpy.tile(numpy.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
             for e in range(nel):
-                adata = numpy.sum(Bq.dat.data_ro[bid(e)], axis=0)
+                # ae = be kron Bq[e]
+                adata = numpy.sum(Bq.dat.data_ro[lexico_coef(e)], axis=0)
                 ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
                 ae = be.kron(ae)
 
@@ -271,29 +282,32 @@ class FDMPC(PCBase):
                 ae.destroy()
             Bq = None
 
-        # Assemble the viscouos term and the reaction term if any
+        # assemble the second order term and the zero-th order term if any,
+        # discarding mixed derivatives and mixed components
         for e in range(nel):
             ie = lexico_cell(e)
             if needs_hdiv:
                 ie = numpy.reshape(ie, (ncomp, -1))
 
-            mue = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro[gid(e)], axis=0))
             bce = bcflags[e]
-
+            # get second order coefficient on this cell
+            je = lexico_coef(e)
+            mue = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro[je], axis=0))
             if Bq is not None:
-                bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[bid(e)], axis=0))
-                if len(bqe) == 1:
-                    bqe = numpy.tile(bqe, ncomp)
+                # get zero-th order coefficient on this cell
+                bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
 
             for k in range(ncomp):
-                bcj = bce[k] if len(bce.shape) == 2 else bce
+                # obtain the element stiffness matrix ae with weak Drichlet BCs
                 muj = mue[k] if len(mue.shape) == 2 else mue
+                bcj = bce[k] if len(bce.shape) == 2 else bce
                 fbc = bcj @ flag2id
 
                 facet_perm = numpy.arange(ndim)
                 if needs_hdiv:
                     facet_perm = (facet_perm-k) % ndim
 
+                # ae = mue[k][0] Ahat + bqe[k] Bhat
                 be = Afdm[facet_perm[0]][fbc[0]][1]
                 ae = Afdm[facet_perm[0]][fbc[0]][0].copy()
                 ae.scale(muj[0])
@@ -301,9 +315,11 @@ class FDMPC(PCBase):
                     ae.axpy(bqe[k], be)
 
                 if ndim > 1:
+                    # ae = ae kron Bhat + mue[k][1] Bhat kron Ahat
                     ae = ae.kron(Afdm[facet_perm[1]][fbc[1]][1])
                     ae.axpy(muj[1], be.kron(Afdm[facet_perm[1]][fbc[1]][0]))
                     if ndim > 2:
+                        # ae = ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
                         be = be.kron(Afdm[facet_perm[1]][fbc[1]][1])
                         ae = ae.kron(Afdm[facet_perm[2]][fbc[2]][1])
                         ae.axpy(muj[2], be.kron(Afdm[facet_perm[2]][fbc[2]][0]))
@@ -317,7 +333,8 @@ class FDMPC(PCBase):
                     A.setValues(row, cols[i0:i1], data[i0:i1], imode)
                 ae.destroy()
 
-        # Assemble SIPG interior facet terms
+        # assemble SIPG interior facet terms
+        needs_interior_facet = Dfdm[0] is not None
         kstart = 1 if needs_hdiv else 0
         if needs_interior_facet:
 
@@ -329,8 +346,8 @@ class FDMPC(PCBase):
                 idir = facet_data[f] // 2
 
                 ie = lexico_facet(f)
-                mu0 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[gid(e0)], axis=0))
-                mu1 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[gid(e1)], axis=0))
+                mu0 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[lexico_coef(e0)], axis=0))
+                mu1 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[lexico_coef(e1)], axis=0))
 
                 if needs_hdiv:
                     fid = numpy.reshape(jid(f), (2, -1))
@@ -382,7 +399,7 @@ class FDMPC(PCBase):
 
                     ae = FDMPC.fdm_numpy_to_petsc(adense, dense_indices, diag=False)
                     if ndim > 1:
-                        # Here we are assuming that the mesh is oriented
+                        # assume that the mesh is oriented
                         ae = ae.kron(Afdm[facet_perm[1]][0][1])
                         if ndim > 2:
                             ae = ae.kron(Afdm[facet_perm[2]][0][1])
@@ -406,10 +423,51 @@ class FDMPC(PCBase):
 
         A.assemble()
 
-    def assemble_coef(self, alpha, beta, Nq, diagonal=False, transpose=False, piola=False, cell_average=False):
-        ndim = self.mesh.topological_dimension()
-        gdim = self.mesh.geometric_dimension()
+    def assemble_coef(self, J, quad_degree, diagonal=False, piola=False, cell_average=False):
+        """
+        Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
 
+        :arg J: the Jacobian bilinear form
+        :arg quad_degree: the quadrature degree used for the coefficients
+        :arg diagonal: to store the diagonal part of Gq, discarding mixed derivatives and mixed components
+        :arg piola: to apply the contravariant Piola transform to the coefficients
+        :arg cell_average: to return the coefficients as DG_0 Functions
+
+        The quadrature-weighted coefficients are stored in
+
+        Gq, a :class:`firedrake.Function` with the coefficients of the reference gradient of both arguments
+        Bq, a :class:`firedrake.Function` with the coefficients of both arguments
+
+        :returns: a 4-tuple of (Gq, Bq, assemble_Gq, assemble_Bq)
+        """
+
+        gdim = self.mesh.geometric_dimension()
+        ndim = self.mesh.topological_dimension()
+        if cell_average:
+            family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
+            degree = 0
+        else:
+            family = "Quadrature"
+            degree = quad_degree
+
+        # extract coefficients directly from the bilinear form
+        args_J = J.arguments()
+        integrals_J = J.integrals_by_type("cell")
+
+        # get second order coefficient
+        rep_dict = {grad(t): variable(grad(t)) for t in args_J}
+        val = list(rep_dict.values())
+        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
+
+        # get zero-th order coefficent
+        rep_dict = {t: variable(t) for t in args_J}
+        val = list(rep_dict.values())
+        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
+
+        self.alpha = alpha
+        self.beta = beta
+
+        # transform the second order coefficient alpha (physical gradient) to obtain G (reference gradient)
         if gdim == ndim:
             Finv = JacobianInverse(self.mesh)
             if piola:
@@ -428,30 +486,21 @@ class FDMPC(PCBase):
                 else:
                     raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
+            # immersed manifold mesh
             F = Jacobian(self.mesh)
             if len(alpha.ufl_shape) == 2:
                 G = inv(dot(dot(F.T, inv(alpha)), F))
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
 
-        quad_degree = Nq
-        if cell_average:
-            family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
-            degree = 0
-        else:
-            family = "Quadrature"
-            degree = Nq
-
         if diagonal:
+            # discard mixed derivative and mixed component entries
             if len(G.ufl_shape) == 2:
                 G = diag_vector(G)
                 Qe = VectorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", dim=numpy.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
-                if transpose:
-                    G = as_tensor([[G[i, j, i, j] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[1])])
-                else:
-                    G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
+                G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
                 Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
@@ -460,16 +509,19 @@ class FDMPC(PCBase):
             Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
+        # assemble second order coefficient
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
         assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=quad_degree), Gq)
 
-        if beta is None:
+        # assemble zero-th order coefficient
+        if isinstance(beta, Zero):
             Bq = None
             assemble_Bq = lambda: None
         else:
             if piola:
+                # apply contravariant Piola transform and keep diagonal
                 beta = diag_vector(dot(PF.T, dot(beta, PF)))
             shape = beta.ufl_shape
             if shape:
@@ -486,7 +538,9 @@ class FDMPC(PCBase):
 
         return Gq, Bq, assemble_Gq, assemble_Bq
 
-    def assemble_piola_facet(self, mu):
+    def assemble_piola_facet(self, alpha):
+        # Return DGT functions with the second order coefficients w.r.t to the reference gradient
+        # and the Piola transform matrix for each side of each facet
         extruded = self.mesh.cell_set._extruded
         dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
         area = firedrake.FacetArea(self.mesh)
@@ -494,16 +548,13 @@ class FDMPC(PCBase):
         Finv = JacobianInverse(self.mesh)
         vol = abs(JacobianDeterminant(self.mesh))
         i1, i2, i3, i4, j2, j4 = indices(6)
-        if mu is None:
-            I = firedrake.Identity(self.mesh.topological_dimension())
-            G = vol * as_tensor(I[i1, i3] * Finv[i2, j2] * Finv[i4, j2], (i1, i2, i3, i4))
-        else:
-            G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * mu[i1, j2, i3, j4], (i1, i2, i3, i4))
+        G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
         G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
-        hinv = area / vol
-        Finv = hinv * FacetNormal(self.mesh)
-        # G = vol * as_tensor(Finv[j2] * Finv[j4] * mu[i1, j2, i3, j4], (i1, i3))
+        # hinv = area / vol
+        # Finv = hinv * FacetNormal(self.mesh)
+        # G = vol * as_tensor(Finv[j2] * Finv[j4] * alpha[i1, j2, i3, j4], (i1, i3))
+
         DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=G.ufl_shape)
         test = firedrake.TestFunction(DGT)
         Gfacet0 = firedrake.assemble(inner(test('+'), G('+') / area) * dS_int)
@@ -517,31 +568,9 @@ class FDMPC(PCBase):
         return Gfacet0, Gfacet1, Pfacet0, Pfacet1
 
     @staticmethod
-    @lru_cache(maxsize=10)
-    def semhat(N, Nq):
-        # Ahat = GLL stiffness matrix
-        # Bhat = GLL mass matrix
-        # Jhat = GLL(N) basis tabulated on the quadrature nodes
-        # Dhat = first derivative of GLL(N) basis tabulated on the quadrature nodes
-        # what = quadrature weights
-        from FIAT.reference_element import UFCInterval
-        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
-        from FIAT.quadrature import GaussLegendreQuadratureLineRule
-        cell = UFCInterval()
-        elem = GaussLobattoLegendre(cell, N)
-        rule = GaussLegendreQuadratureLineRule(cell, (Nq + 2) // 2)
-        basis = elem.tabulate(1, rule.get_points())
-        Jhat = basis[(0,)]
-        Dhat = basis[(1,)]
-        what = rule.get_weights()
-        Ahat = Dhat @ numpy.diag(what) @ Dhat.T
-        Bhat = Jhat @ numpy.diag(what) @ Jhat.T
-        return Ahat, Bhat, Jhat, Dhat, what
-
-    @staticmethod
     def fdm_numpy_to_petsc(A_numpy, dense_indices, diag=True):
         # Creates a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
-        # If dense_indinces is empty, it includes the off-diagonal corners of the matrix
+        # If dense_indices is empty, then also include the off-diagonal corners of the matrix
         n = A_numpy.shape[0]
         nbase = int(diag) + len(dense_indices)
         nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
@@ -569,13 +598,48 @@ class FDMPC(PCBase):
         return A_petsc
 
     @staticmethod
+    def semhat(N, Nq):
+        # Ahat = GLL(N) stiffness matrix
+        # Bhat = GLL(N) mass matrix
+        # Jhat = GLL(N) basis tabulated on the GL quadrature nodes
+        # Dhat = first derivative of GLL(N) basis tabulated on the GL quadrature nodes
+        # what = GL quadrature weights
+        from FIAT.reference_element import UFCInterval
+        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
+        from FIAT.quadrature import GaussLegendreQuadratureLineRule
+        cell = UFCInterval()
+        elem = GaussLobattoLegendre(cell, N)
+        rule = GaussLegendreQuadratureLineRule(cell, (Nq + 2) // 2)
+        basis = elem.tabulate(1, rule.get_points())
+        Jhat = basis[(0,)]
+        Dhat = basis[(1,)]
+        what = rule.get_weights()
+        Ahat = Dhat @ numpy.diag(what) @ Dhat.T
+        Bhat = Jhat @ numpy.diag(what) @ Jhat.T
+        return Ahat, Bhat, Jhat, Dhat, what
+
+    @staticmethod
     def fdm_cg(Ahat, Bhat):
+        """
+        Setup for the fast diagonalization method for continuous Lagrange elements.
+        Compute the FDM eigenvector basis and sparsified interval stiffness and mass matrices.
+
+        :arg Ahat: GLL stiffness matrix as a :class:`numpy.ndarray`
+        :arg Bhat: GLL mass matrix as a :class:`numpy.ndarray`
+
+        Sfdm is the tabulation of Dirichlet eigenfunctions on the GLL nodes.
+
+        For each combination of either natural or strong Dirichlet BCs on each endpoint
+        forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s (Sfdm.T @ Ahat @ Sfdm, Sfdm.T @ Bhat @ Sfdm)
+
+        :returns: 3-tuple of (Afdm, Sfdm, None)
+        """
         rd = (0, -1)
         kd = slice(1, -1)
-        Vfdm = numpy.eye(Ahat.shape[0])
-        if Vfdm.shape[0] > 2:
-            _, Vfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[numpy.ix_(rd, rd)])
+        Sfdm = numpy.eye(Ahat.shape[0])
+        if Sfdm.shape[0] > 2:
+            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
+            Sfdm[kd, rd] = -Sfdm[kd, kd] @ ((Sfdm[kd, kd].T @ Bhat[kd, rd]) @ Sfdm[numpy.ix_(rd, rd)])
 
         def apply_strong_bcs(Ahat, Bhat, bc0, bc1):
             k0 = 0 if bc0 == 1 else 1
@@ -594,26 +658,45 @@ class FDMPC(PCBase):
                     FDMPC.fdm_numpy_to_petsc(B, [])]
 
         Afdm = []
-        Ak = Vfdm.T @ Ahat @ Vfdm
-        Bk = Vfdm.T @ Bhat @ Vfdm
+        Ak = Sfdm.T @ Ahat @ Sfdm
+        Bk = Sfdm.T @ Bhat @ Sfdm
         Bk[rd, kd] = 0.0E0
         Bk[kd, rd] = 0.0E0
         for bc1 in range(2):
             for bc0 in range(2):
                 Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
 
-        return Afdm, Vfdm, None
+        return Afdm, Sfdm, None
 
     @staticmethod
-    def fdm_ipdg(Ahat, Bhat, N, eta, gll=False):
+    def fdm_ipdg(Ahat, Bhat, eta, gll=False):
+        """
+        Setup for the fast diagonalization method for the IP-DG formulation.
+        Obtain the FDM eigenvector basis and sparsified interval stiffness and mass matrices.
+
+        :arg Ahat: GLL stiffness matrix as a :class:`numpy.ndarray`
+        :arg Bhat: GLL mass matrix as a :class:`numpy.array`
+        :arg eta: penalty coefficient as a `float`
+        :arg gll: bool flag indicating whether to keep the GLL basis in the IP-DG method
+
+        For each combination of either natural or weak Dirichlet BCs on each endpoint
+        forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s (Sfdm.T @ Ahat @ Sfdm, Sfdm.T @ Bhat @ Sfdm)
+
+        Sfdm is the tabulation of Dirichlet eigenfunctions on the GL nodes.
+
+        Dfdm is the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+
+        :returns: 3-tuple of (Afdm, Sfdm, Dfdm)
+        """
         from FIAT.reference_element import UFCInterval
         from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
         from FIAT.quadrature import GaussLegendreQuadratureLineRule
 
+        N = Ahat.shape[0]-1
         cell = UFCInterval()
         elem = GaussLobattoLegendre(cell, N)
 
-        # Interpolation onto GL nodes
+        # Tabulation of GLL(N) basis onto GL quadrature nodes
         rule = GaussLegendreQuadratureLineRule(cell, N + 1)
         basis = elem.tabulate(0, rule.get_points())
         Jipdg = basis[(0,)]
@@ -625,10 +708,10 @@ class FDMPC(PCBase):
 
         rd = (0, -1)
         kd = slice(1, -1)
-        Vfdm = numpy.eye(Ahat.shape[0])
-        if Vfdm.shape[0] > 2:
-            _, Vfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Vfdm[kd, rd] = -Vfdm[kd, kd] @ ((Vfdm[kd, kd].T @ Bhat[kd, rd]) @ Vfdm[numpy.ix_(rd, rd)])
+        Sfdm = numpy.eye(Ahat.shape[0])
+        if Sfdm.shape[0] > 2:
+            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
+            Sfdm[kd, rd] = -Sfdm[kd, kd] @ ((Sfdm[kd, kd].T @ Bhat[kd, rd]) @ Sfdm[numpy.ix_(rd, rd)])
 
         def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
@@ -641,19 +724,19 @@ class FDMPC(PCBase):
             return [FDMPC.fdm_numpy_to_petsc(Abc, [0, Abc.shape[0]-1]),
                     FDMPC.fdm_numpy_to_petsc(Bhat, [])]
 
-        A = Vfdm.T @ Ahat @ Vfdm
+        A = Sfdm.T @ Ahat @ Sfdm
         a = A.diagonal().copy()
         A[kd, kd] = 0.0E0
         numpy.fill_diagonal(A, a)
 
-        B = Vfdm.T @ Bhat @ Vfdm
+        B = Sfdm.T @ Bhat @ Sfdm
         b = B.diagonal().copy()
         B[kd, kd] = 0.0E0
         B[rd, kd] = 0.0E0
         B[kd, rd] = 0.0E0
         numpy.fill_diagonal(B, b)
 
-        Dfdm = Vfdm.T @ Dfacet
+        Dfdm = Sfdm.T @ Dfacet
         Afdm = []
         for bc1 in range(2):
             for bc0 in range(2):
@@ -661,15 +744,14 @@ class FDMPC(PCBase):
                 Afdm.append(apply_weak_bcs(A, B, Dfdm, bcs, eta))
 
         if not gll:
-            # Vfdm first rotates GL residuals into GLL space
-            Vfdm = Jipdg.T @ Vfdm
+            # Interpolate eigenfunctions from GLL onto GL
+            Sfdm = Jipdg.T @ Sfdm
 
-        return Afdm, Vfdm, Dfdm
+        return Afdm, Sfdm, Dfdm
 
     @staticmethod
-    @lru_cache(maxsize=10)
     def assemble_matfree(V, N, Nq, eta, needs_interior_facet):
-        # Assemble sparse 1D matrices and matrix-free kernels for basis transformation
+        # Assemble sparse interval matrices and matrix-free kernels for basis transformation
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
         bsize = V.value_size
@@ -679,34 +761,33 @@ class FDMPC(PCBase):
         lwork = bsize * sdim
 
         needs_hdiv = nscal != bsize
-
         if needs_hdiv:
             Ahat, Bhat, Jhat, Dhat, _ = FDMPC.semhat(N-1, Nq)
-            Afdm, Vfdm, Dfdm = FDMPC.fdm_ipdg(Ahat, Bhat, N-1, eta)
+            Afdm, Sfdm, Dfdm = FDMPC.fdm_ipdg(Ahat, Bhat, eta)
             Afdm = [Afdm]*ndim
-            Vfdm = [Vfdm]*ndim
+            Sfdm = [Sfdm]*ndim
             Dfdm = [Dfdm]*ndim
             Ahat, Bhat, Jhat, Dhat, _ = FDMPC.semhat(N, Nq)
-            Afdm[0], Vfdm[0], Dfdm[0] = FDMPC.fdm_ipdg(Ahat, Bhat, N, eta, gll=True)
+            Afdm[0], Sfdm[0], Dfdm[0] = FDMPC.fdm_ipdg(Ahat, Bhat, eta, gll=True)
         else:
             Ahat, Bhat, Jhat, Dhat, _ = FDMPC.semhat(N, Nq)
             if needs_interior_facet:
-                Afdm, Vfdm, Dfdm = FDMPC.fdm_ipdg(Ahat, Bhat, N, eta)
+                Afdm, Sfdm, Dfdm = FDMPC.fdm_ipdg(Ahat, Bhat, eta)
             else:
-                Afdm, Vfdm, Dfdm = FDMPC.fdm_cg(Ahat, Bhat)
+                Afdm, Sfdm, Dfdm = FDMPC.fdm_cg(Ahat, Bhat)
             Afdm = [Afdm]*ndim
+            Sfdm = [Sfdm]*ndim
             Dfdm = [Dfdm]*ndim
-            Vfdm = [Vfdm]*ndim
 
-        nx = Vfdm[0].shape[0]
-        ny = Vfdm[1].shape[0] if ndim >= 2 else 1
-        nz = Vfdm[2].shape[0] if ndim >= 3 else 1
+        nx = Sfdm[0].shape[0]
+        ny = Sfdm[1].shape[0] if ndim >= 2 else 1
+        nz = Sfdm[2].shape[0] if ndim >= 3 else 1
 
-        Vsize = sum([Vk.size for Vk in Vfdm])
-        Vhex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Vk).flatten() for Vk in Vfdm])))
-        VX = "V"
-        VY = f"V+{nx*nx}" if ndim > 1 else "&one"
-        VZ = f"V+{nx*nx+ny*ny}" if ndim > 2 else "&one"
+        S_size = sum([Sk.size for Sk in Sfdm])
+        S_hex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Sk).flatten() for Sk in Sfdm])))
+        SX = "S"
+        SY = f"S+{nx*nx}" if ndim > 1 else "&one"
+        SZ = f"S+{nx*nx+ny*ny}" if ndim > 2 else "&one"
 
         kronmxv_code = """
         #include <petscsys.h>
@@ -762,7 +843,7 @@ class FDMPC(PCBase):
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-            PetscScalar V[{Vsize}] = {{ {Vhex} }};
+            PetscScalar S[{S_size}] = {{ {S_hex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 
@@ -770,7 +851,7 @@ class FDMPC(PCBase):
                 for({IntType_c} i=0; i<{bsize}; i++)
                     t0[j + {sdim}*i] = x[i + {bsize}*j];
 
-            kronmxv(1, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {VX},{VY},{VZ}, t0, t1);
+            kronmxv(1, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {SX},{SY},{SZ}, t0, t1);
 
             for({IntType_c} j=0; j<{sdim}; j++)
                 for({IntType_c} i=0; i<{bsize}; i++)
@@ -780,7 +861,7 @@ class FDMPC(PCBase):
 
         void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
                          const PetscScalar *restrict w){{
-            PetscScalar V[{Vsize}] = {{ {Vhex} }};
+            PetscScalar S[{S_size}] = {{ {S_hex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 
@@ -788,7 +869,7 @@ class FDMPC(PCBase):
                 for({IntType_c} i=0; i<{bsize}; i++)
                     t0[j + {sdim}*i] = x[i + {bsize}*j] * w[i + {bsize}*j];
 
-            kronmxv(0, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {VX},{VY},{VZ}, t0, t1);
+            kronmxv(0, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {SX},{SY},{SZ}, t0, t1);
 
             for({IntType_c} j=0; j<{sdim}; j++)
                 for({IntType_c} i=0; i<{bsize}; i++)
@@ -799,7 +880,6 @@ class FDMPC(PCBase):
 
         restrict_kernel = op2.Kernel(transfer_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
         prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(), ldargs=BLASLAPACK_LIB.split())
-
         return Afdm, Dfdm, restrict_kernel, prolong_kernel
 
     @staticmethod
@@ -822,7 +902,7 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def get_facet_topology(V):
         # Returns the 4-tuple of
-        # lexico_facet: a function that maps an interior facet id with the nodes of the two cells sharing it
+        # lexico_facet: a function that maps an interior facet id to the set of nodes of the two cells sharing it
         # nfacets: the total number of interior facets owned by this process
         # facet_cells: the interior facet to cell map
         # facet_data: the local numbering of each interior facet with respect to the two cells sharing it

@@ -5,6 +5,7 @@ from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
+from firedrake.logging import warning
 import numpy
 
 try:
@@ -124,6 +125,8 @@ class ASMStarPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
+        if mesh.layers:
+            warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
@@ -177,6 +180,8 @@ class ASMVankaPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
+        if mesh.layers:
+            warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)

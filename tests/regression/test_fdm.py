@@ -134,6 +134,8 @@ def test_direct_solver(fs):
 
     bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
 
+    # sub_Dir = vertical subdomains for Dirichlet BCs
+    # sub_Neu = vertical subdomains for Neumann BCs
     sub_Dir = "everywhere" if "on_boundary" in subs else tuple(s for s in subs if type(s) == int)
     if sub_Dir == "everywhere":
         sub_Neu = ()
