@@ -155,7 +155,7 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
             stack.append(e)
             stack.extend(unvisted_children)
         else:
-            visited[e] = base_form_visitor(e, tensor, bcs, diagonal,
+            visited[e] = base_form_assembly_visitor(e, tensor, bcs, diagonal,
                                            assembly_type,
                                            form_compiler_parameters,
                                            mat_type, sub_mat_type,
@@ -197,10 +197,19 @@ def restructure_base_form(expr, visited=None):
            dNdu(u; uhat, v*)
 
         (4) Action(F, N)
-        
-             Action         ----->   F(..., N)[v]
+                                                          F
+             Action         ----->   F(..., N)[v]  =      |
               /   \
-            F[v]   N
+            F[v]   N                                      N
+
+
+    So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
+
+             Action             Action               Action                 
+             /    \    (1)      /     \      (2)     /     \               (4)                                dFdN
+           Action  w  ---->  dFdN   Action  ---->  dFdN   dNdu(u; w, v*)  ---->  dFdN(..., dNdu(u; w, v*)) =    |
+           /    \                    /    \                                                                  dNdu(u; w, v*)
+         dFdN    dNdu              dNdu    w
 
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     the dag rotation (i.e. (1) and (2)) in expr.
@@ -285,7 +294,7 @@ def preprocess_form(form, fc_params):
 
     This function preprocess the form, mainly by expanding the derivatives, in order to determine
     if we are dealing with a :class:`~ufl.classes.Form` or a :class:`~ufl.classes.BaseForm` object.
-    This function is called in :func:`base_form_visitor`. Depending on the type of the resulting tensor,
+    This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
     we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
     """
     from firedrake.parameters import parameters as default_parameters
@@ -310,12 +319,13 @@ def preassemble_base_form(expr):
     return expr
 
 
-def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
+def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                       form_compiler_parameters,
                       mat_type, sub_mat_type,
                       appctx, options_prefix, visited, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         if mat_type != "matfree":
+            # For "matfree", Form evaluation is delayed
             expr = preprocess_form(expr, form_compiler_parameters)
 
         if not isinstance(expr, ufl.form.Form):
@@ -335,12 +345,14 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             # Retrieve the Form's children
             external_operators = expr.external_operators()
             result_coefficients = args # tuple(e.result_coefficient() for e in external_operators)
-            # Substitue the external operators by their output
+            # Substitute the external operators by their output
             expr = ufl.replace(expr, dict(zip(external_operators, result_coefficients)))
+
         res = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
                              mat_type, sub_mat_type,
                              appctx, options_prefix)
+
         if isinstance(res, firedrake.Function):
             res = firedrake.Cofunction(res.function_space(), val=res.vector())
 
