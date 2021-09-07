@@ -41,10 +41,10 @@ except ImportError:
 class FDMPC(PCBase):
     """
     `FDMPC` a precondtioner that introduces a change of basis into the local
-    basis functions that diagonalize the H^1 Riesz map on the interval, and
-    assembles a global sparse matrix on which other preconditioners, such as
-    `ASMStarPC`, can be applied. The sparse matrix is obtained by approximating
-    the PDE coefficients as piecewise constants.
+    basis functions that diagonalize the H^1 Riesz map on the interior of the
+    interval, and assembles a global sparse matrix on which other
+    preconditioners, such as `ASMStarPC`, can be applied. The sparse matrix is
+    obtained by approximating the PDE coefficients as piecewise constants.
 
     Here we assume that the volume integrals in the Jacobian can be expressed as
 
@@ -621,16 +621,18 @@ class FDMPC(PCBase):
     @staticmethod
     def fdm_cg(Ahat, Bhat):
         """
-        Setup for the fast diagonalization method for continuous Lagrange elements.
-        Compute the FDM eigenvector basis and sparsified interval stiffness and mass matrices.
+        Setup for the fast diagonalization method for continuous Lagrange
+        elements. Compute the FDM eigenvector basis and sparsified interval
+        stiffness and mass matrices.
 
         :arg Ahat: GLL stiffness matrix as a :class:`numpy.ndarray`
         :arg Bhat: GLL mass matrix as a :class:`numpy.ndarray`
 
         Sfdm is the tabulation of Dirichlet eigenfunctions on the GLL nodes.
 
-        For each combination of either natural or strong Dirichlet BCs on each endpoint
-        forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s (Sfdm.T @ Ahat @ Sfdm, Sfdm.T @ Bhat @ Sfdm)
+        For each combination of either natural or strong Dirichlet BCs on each
+        endpoint forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s
+        (Sfdm.T * Ahat * Sfdm, Sfdm.T * Bhat * Sfdm)
 
         :returns: 3-tuple of (Afdm, Sfdm, None)
         """
@@ -672,19 +674,22 @@ class FDMPC(PCBase):
     def fdm_ipdg(Ahat, Bhat, eta, gll=False):
         """
         Setup for the fast diagonalization method for the IP-DG formulation.
-        Obtain the FDM eigenvector basis and sparsified interval stiffness and mass matrices.
+        Obtain the FDM eigenvector basis and sparsified interval stiffness and
+        mass matrices.
 
         :arg Ahat: GLL stiffness matrix as a :class:`numpy.ndarray`
         :arg Bhat: GLL mass matrix as a :class:`numpy.array`
         :arg eta: penalty coefficient as a `float`
         :arg gll: bool flag indicating whether to keep the GLL basis in the IP-DG method
 
-        For each combination of either natural or weak Dirichlet BCs on each endpoint
-        forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s (Sfdm.T @ Ahat @ Sfdm, Sfdm.T @ Bhat @ Sfdm)
+        For each combination of either natural or weak Dirichlet BCs on each
+        endpoint forms the list Afdm with 2-tuples of :class:`PETSc.Mat`s
+        (Sfdm.T * Ahat * Sfdm, Sfdm.T * Bhat * Sfdm)
 
         Sfdm is the tabulation of Dirichlet eigenfunctions on the GL nodes.
 
-        Dfdm is the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+        Dfdm is the tabulation of the normal derivatives of the Dirichlet
+        eigenfunctions.
 
         :returns: 3-tuple of (Afdm, Sfdm, Dfdm)
         """
