@@ -312,7 +312,7 @@ class FDMPC(PCBase):
                 bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
 
             for k in range(ncomp):
-                # obtain the element stiffness matrix ae with weak Drichlet BCs
+                # compute the element stiffness matrix ae with weak Drichlet BCs
                 muk = mue[k] if len(mue.shape) == 2 else mue
                 bck = bce[k] if len(bce.shape) == 2 else bce
                 fbc = bck @ flag2id
@@ -580,11 +580,11 @@ class FDMPC(PCBase):
         Gfacet0 = firedrake.assemble(inner(test('+'), G('+') / area) * dS_int)
         Gfacet1 = firedrake.assemble(inner(test('+'), G('-') / area) * dS_int)
 
-        P = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh).T
+        PT = Jacobian(self.mesh).T / JacobianDeterminant(self.mesh))
         DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=P.ufl_shape)
         test = firedrake.TestFunction(DGT)
-        Pfacet0 = firedrake.assemble(inner(test('+'), P('+') / area) * dS_int)
-        Pfacet1 = firedrake.assemble(inner(test('+'), P('-') / area) * dS_int)
+        Pfacet0 = firedrake.assemble(inner(test('+'), PT('+') / area) * dS_int)
+        Pfacet1 = firedrake.assemble(inner(test('+'), PT('-') / area) * dS_int)
         return Gfacet0, Gfacet1, Pfacet0, Pfacet1
 
     @staticmethod

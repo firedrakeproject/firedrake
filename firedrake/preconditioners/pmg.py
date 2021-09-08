@@ -723,7 +723,7 @@ class StandaloneInterpolationMatrix(object):
         Jlen = sum([Jk.size for Jk in Jhat])
 
         # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
-        # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
+        # Vector and tensor field generalization from Deville, Fischer, and Mund section 8.3.1.
         kronmxv_code = """
         #include <petscsys.h>
         #include <petscblaslapack.h>
