@@ -31,20 +31,9 @@ Key Dates
 Programme
 ---------
 
-Each day will run between 14:00 and 18:30 (BST) and will be split up
-into two sessions with the following events planned for each session:
+Workshop talks will be held on Zoom. Coffee breaks, the code clinic, and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
 
-+----------------+----------------------+-------------------------+-------------------+
-|                | Wednesday (15/09/21) | Thursday (16/09/21)     | Friday (17/09/21) |
-+================+======================+=========================+===================+
-| **Session 1**  | Presentations        | Presentations           | Presentations     |
-+----------------+----------------------+-------------------------+-------------------+
-| **Session 2**  | Poster session       | Q&A with Firedrake team | Code clinic       | 
-+----------------+----------------------+-------------------------+-------------------+
-
-Coffee breaks and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
-
-The full programme will be made available on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_.
+The full programme is on `EasyChair <https://easychair.org/smart-program/Firedrake'21/>`_.
 
 Registration
 ------------
@@ -65,18 +54,12 @@ own codes that use Firedrake and members of the Firedrake development
 team will be on hand to offer expert advice on how to fix or improve
 your code.
 
-Abstract submission
--------------------
-
-If you would like to deliver a talk or present a poster please submit
-an abstract on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_..
-
 Prizes
 ------
 
 Prizes will be awarded for the best presentations and posters given by students and postdocs.
 
-Each winner will be awarded with a copy of `PETSc for Partial Differential Equations:
+Each winner will be awarded a copy of `PETSc for Partial Differential Equations:
 Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
 by Ed Bueler, which contains an excellent chapter on using Firedrake.
 
