@@ -55,7 +55,7 @@ class FDMPC(PCBase):
     alpha and beta as cell-wise constants.
 
     For spaces that are not H^1-conforming, this preconditioner will use
-    the symmetric interior-penalty DG method. The penalty coefficient can be
+    the symmetric interior-penalty DG method. The penalty coefficient can b
     provided in the application context, keyed on ``"eta"``.
     """
 
@@ -109,11 +109,11 @@ class FDMPC(PCBase):
 
         # Get the FDM basis and transfer kernels (restriction and prolongation)
         # Afdm = 1D interval stiffness and mass matrices in the FDM basis for each direction and BC type
-        # Dfdm = tabulation of normal derivative of the FDM basis at the boundary
+        # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, needs_hdiv)
 
         # Get coefficients w.r.t. the reference coordinates
-        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(self.J, Nq, diagonal=True, piola=needs_hdiv, cell_average=True)
+        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(self.J, Nq, discard_mixed=True, cell_average=True)
 
         # Set arbitrary non-zero coefficients for preallocation
         Gq.dat.data[:] = 1.0E0
@@ -121,14 +121,14 @@ class FDMPC(PCBase):
             Bq.dat.data[:] = 1.0E0
 
         # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        ndof = V.value_size * V.dof_dset.set.size
         prealloc = PETSc.Mat().create(comm=A.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
         self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-        nnz = get_preallocation(prealloc, ndof)
 
+        ndof = V.value_size * V.dof_dset.set.size
+        nnz = get_preallocation(prealloc, ndof)
         self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
                                       Afdm, Dfdm, eta, bcflags, needs_hdiv)
@@ -436,14 +436,13 @@ class FDMPC(PCBase):
 
         A.assemble()
 
-    def assemble_coef(self, J, quad_degree, diagonal=False, piola=False, cell_average=False):
+    def assemble_coef(self, J, quad_degree, discard_mixed=False, cell_average=False):
         """
         Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
 
         :arg J: the Jacobian bilinear form
         :arg quad_degree: the quadrature degree used for the coefficients
-        :arg diagonal: to store the diagonal part of Gq, discarding mixed derivatives and mixed components
-        :arg piola: to apply the contravariant Piola transform to the coefficients
+        :arg discard_mixed: discard entries in second order coefficient with mixed derivatives and mixed components
         :arg cell_average: to return the coefficients as DG_0 Functions
 
         The quadrature-weighted coefficients are stored in
@@ -456,6 +455,7 @@ class FDMPC(PCBase):
 
         gdim = self.mesh.geometric_dimension()
         ndim = self.mesh.topological_dimension()
+        Finv = JacobianInverse(self.mesh)
         if cell_average:
             family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
             degree = 0
@@ -466,6 +466,15 @@ class FDMPC(PCBase):
         # extract coefficients directly from the bilinear form
         args_J = J.arguments()
         integrals_J = J.integrals_by_type("cell")
+        mapping = args_J[0].ufl_element().mapping().lower()
+        if mapping == 'identity':
+            Piola = None
+        elif mapping == 'covariant piola':
+            Piola = Finv.T
+        elif mapping == 'contravariant piola':
+            Piola = Jacobian(self.mesh) / JacobianDeterminant(self.mesh)
+        else:
+            raise ValueError("Unrecognized element mapping %s" % mapping)
 
         # get second order coefficient
         rep_dict = {grad(t): variable(grad(t)) for t in args_J}
@@ -482,15 +491,7 @@ class FDMPC(PCBase):
 
         # transform the second order coefficient alpha (physical gradient) to obtain G (reference gradient)
         if gdim == ndim:
-            Finv = JacobianInverse(self.mesh)
-            if piola:
-                PF = (1/JacobianDeterminant(self.mesh)) * Jacobian(self.mesh)
-                if len(alpha.ufl_shape) == 4:
-                    i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(PF[j1, i1] * Finv[i2, j2] * PF[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
-                else:
-                    raise ValueError("I don't know what to do with the homogeneity tensor")
-            else:
+            if Piola is None:
                 if len(alpha.ufl_shape) == 2:
                     G = dot(dot(Finv, alpha), Finv.T)
                 elif len(alpha.ufl_shape) == 4:
@@ -498,16 +499,22 @@ class FDMPC(PCBase):
                     G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
                 else:
                     raise ValueError("I don't know what to do with the homogeneity tensor")
+            else:
+                if len(alpha.ufl_shape) == 4:
+                    i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
+                    G = as_tensor(Piola[j1, i1] * Finv[i2, j2] * Piola[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
+                else:
+                    raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
             # immersed manifold mesh
             F = Jacobian(self.mesh)
-            if len(alpha.ufl_shape) == 2:
+            if len(alpha.ufl_shape) == 2 and Piola is None:
                 G = inv(dot(dot(F.T, inv(alpha)), F))
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
 
-        if diagonal:
-            # discard mixed derivative and mixed component entries
+        if discard_mixed:
+            # discard mixed derivatives and mixed components
             if len(G.ufl_shape) == 2:
                 G = diag_vector(G)
                 Qe = VectorElement(family, self.mesh.ufl_cell(), degree=degree,
@@ -517,7 +524,7 @@ class FDMPC(PCBase):
                 Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
-                raise ValueError("I don't know how to get the diagonal of a tensor with shape ", G.ufl_shape)
+                raise ValueError("I don't know how to discard mixed entries of a tensor with shape ", G.ufl_shape)
         else:
             Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
                                quad_scheme="default", shape=G.ufl_shape, symmetry=True)
@@ -533,9 +540,9 @@ class FDMPC(PCBase):
             Bq = None
             assemble_Bq = lambda: None
         else:
-            if piola:
-                # apply contravariant Piola transform and keep diagonal
-                beta = diag_vector(dot(PF.T, dot(beta, PF)))
+            if Piola:
+                # apply Piola transform and keep diagonal
+                beta = diag_vector(dot(Piola.T, dot(beta, Piola)))
             shape = beta.ufl_shape
             if shape:
                 Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
@@ -686,7 +693,7 @@ class FDMPC(PCBase):
         :arg Ahat: GLL stiffness matrix as a :class:`numpy.ndarray`
         :arg Bhat: GLL mass matrix as a :class:`numpy.array`
         :arg eta: penalty coefficient as a `float`
-        :arg gll: bool flag indicating whether to keep the GLL basis in the IP-DG method
+        :arg gll: `bool` flag indicating whether to keep the GLL basis in the IP-DG method
 
         For each combination of either natural or weak Dirichlet BCs on each
         endpoint form the list Afdm with 2-tuples of :class:`PETSc.Mat`
@@ -783,7 +790,7 @@ class FDMPC(PCBase):
         ny = Sfdm[1].shape[0] if ndim >= 2 else 1
         nz = Sfdm[2].shape[0] if ndim >= 3 else 1
 
-        S_size = sum([Sk.size for Sk in Sfdm])
+        S_len = sum([Sk.size for Sk in Sfdm])
         S_hex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Sk).flatten() for Sk in Sfdm])))
         SX = "S"
         SY = f"S+{nx*nx}" if ndim > 1 else "&one"
@@ -843,7 +850,7 @@ class FDMPC(PCBase):
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-            PetscScalar S[{S_size}] = {{ {S_hex} }};
+            PetscScalar S[{S_len}] = {{ {S_hex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 
@@ -861,7 +868,7 @@ class FDMPC(PCBase):
 
         void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
                          const PetscScalar *restrict w){{
-            PetscScalar S[{S_size}] = {{ {S_hex} }};
+            PetscScalar S[{S_len}] = {{ {S_hex} }};
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
 

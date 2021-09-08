@@ -570,7 +570,6 @@ def get_line_element(V):
             element.append(cg)
     else:
         raise ValueError("Don't know how to get line element for %r" % family)
-
     return element
 
 
@@ -603,7 +602,6 @@ def get_line_nodes(V):
         for j in range(1, ndim):
             points.append(cg.get_points())
         return points
-
     else:
         raise ValueError("Don't know how to get line nodes for %r" % family)
 
@@ -628,8 +626,10 @@ class StandaloneInterpolationMatrix(object):
 
         tf, _, _, _, _ = tensor_product_space_query(Vf)
         tc, _, _, _, _ = tensor_product_space_query(Vc)
+        mf = Vf.ufl_element().mapping().lower()
+        mc = Vc.ufl_element().mapping().lower()
 
-        if tf and tc:
+        if tf and tc and mf == mc:
             self.Vf_map = get_permuted_map(Vf)
             self.Vc_map = get_permuted_map(Vc)
             self.prolong_kernel, self.restrict_kernel = self.make_blas_kernels(Vf, Vc)
@@ -637,7 +637,6 @@ class StandaloneInterpolationMatrix(object):
             self.Vf_map = Vf.cell_node_map()
             self.Vc_map = Vc.cell_node_map()
             self.prolong_kernel, self.restrict_kernel = self.make_kernels(Vf, Vc)
-        return
 
     def make_kernels(self, Vf, Vc):
         """
@@ -721,7 +720,7 @@ class StandaloneInterpolationMatrix(object):
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
         JY = f"JX+{mx*nx}" if ndim >= 2 else "&one"
         JZ = f"JX+{mx*nx+my*ny}" if ndim >= 3 else "&one"
-        Jlen = mx*nx + (ndim >= 2)*my*ny + (ndim >= 3)*mz*nz
+        Jlen = sum([Jk.size for Jk in Jhat])
 
         # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
         # Vector and tensor field genearalization from Deville, Fischer, and Mund section 8.3.1.
