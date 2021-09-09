@@ -407,6 +407,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -425,6 +427,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -443,6 +447,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
@@ -461,6 +467,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat /= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat /= expr.dat
