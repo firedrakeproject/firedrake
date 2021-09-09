@@ -141,6 +141,10 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
     See also :func:`ufl.derivative`.
     """
+    if not isinstance(form, ufl.Form):
+        raise TypeError(
+            f"Cannot take the derivative of a {type(form).__name__}"
+        )
     # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
     uc, = (u,) if u_is_x else extract_coefficients(u)
