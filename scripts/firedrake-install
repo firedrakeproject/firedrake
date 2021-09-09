@@ -619,10 +619,11 @@ elif options.get("with_blas") is not None:
         petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
 elif osname == "Darwin":
     brew_prefix = check_output(['brew', '--prefix'])[:-1]
+    brew_gcc_prefix = brew_prefix+"/opt/gcc/lib/gcc/11"
     mac_blas = brew_prefix+"/opt/openblas"
     petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
     petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
-    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(mac_blas, brew_gcc_prefix))
 
 for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
     if option.startswith("--with-hdf5-dir"):
