@@ -350,13 +350,14 @@ class FDMPC(PCBase):
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         needs_interior_facet = Dfdm[0] is not None
         if needs_interior_facet:
-            lexico_facet, nfacet, facet_cells, facet_data = self.get_facet_topology(V)
+            lexico_facet, facet_to_cells, local_facet_data, nfacets = self.get_facet_topology(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
 
-            for f in range(nfacet):
-                e0, e1 = facet_cells[f]
-                idir = facet_data[f] // 2
+            for f in range(nfacets):
+                e0, e1 = facet_to_cells(f)
+                lfd = local_facet_data(f)
+                idir = lfd // 2
 
                 ie = lexico_facet(f)
                 mu0 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[lexico_coef(e0)], axis=0))
@@ -364,7 +365,7 @@ class FDMPC(PCBase):
 
                 if needs_hdiv:
                     fid = numpy.reshape(jid(f), (2, -1))
-                    fdof = fid[0][facet_data[f, 0]]
+                    fdof = fid[0][lfd[0]]
                     icell = numpy.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
@@ -389,12 +390,12 @@ class FDMPC(PCBase):
                     offset = Dfacet.shape[0]
                     adense = numpy.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
                     dense_indices = []
-                    for j, jface in enumerate(facet_data[f]):
+                    for j, jface in enumerate(lfd):
                         j0 = j * offset
                         j1 = j0 + offset
                         jj = j0 + (offset-1) * (jface % 2)
                         dense_indices.append(jj)
-                        for i, iface in enumerate(facet_data[f]):
+                        for i, iface in enumerate(lfd):
                             i0 = i * offset
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
@@ -910,57 +911,56 @@ class FDMPC(PCBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def get_facet_topology(V):
-        # Returns the 4-tuple of
-        # lexico_facet: a function that maps an interior facet id to the set of nodes of the two cells sharing it
-        # nfacets: the total number of interior facets owned by this process
-        # facet_cells: the interior facet to cell map
-        # facet_data: the local numbering of each interior facet with respect to the two cells sharing it
+        """
+        Utility function to extrude interior facet information
+
+        :arg V: a :class:`FunctionSpace`
+
+        :returns: the 4-tuple of
+        facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
+        facet_to_cells_fun: maps interior facets to the two cells sharing it,
+        local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
+        nfacets: the total number of interior facets owned by this process,
+        """
+
         mesh = V.mesh()
         intfacets = mesh.interior_facets
-        facet_cells = intfacets.facet_cell_map.values
-        facet_data = intfacets.local_facet_dat.data_ro
+        facet_to_cells = intfacets.facet_cell_map.values
+        local_facet_data = intfacets.local_facet_dat.data_ro
 
         facet_node_map = V.interior_facet_node_map()
-        facet_values = facet_node_map.values
-        nbase = facet_node_map.values.shape[0]
+        facet_to_nodes = facet_node_map.values
+        nbase = facet_to_nodes.shape[0]
 
         if mesh.layers:
             layers = facet_node_map.iterset.layers_array
-            if layers.shape[0] == 1:
+            cell_node_map = V.cell_node_map()
+            cell_to_nodes = cell_node_map.values
+            cell_offset = cell_node_map.offset
+            facet_offset = facet_node_map.offset
+            local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
 
-                cell_node_map = V.cell_node_map()
-                cell_values = cell_node_map.values
-                cell_offset = cell_node_map.offset
-                nelh = cell_values.shape[0]
+            if layers.shape[0] == 1:
+                nelv = cell_to_nodes.shape[0]
                 nelz = layers[0, 1] - layers[0, 0] - 1
 
-                nh = nbase * nelz
-                nv = nelh * (nelz - 1)
-                nfacets = nh + nv
-                facet_offset = facet_node_map.offset
+                nv = nbase * nelz
+                nh = nelv * (nelz - 1)
+                nfacets = nv + nh
 
-                lexico_base = lambda e: facet_values[e % nbase] + (e//nbase)*facet_offset
-
-                lexico_v = lambda e: numpy.append(cell_values[e % nelh] + (e//nelh)*cell_offset,
-                                                  cell_values[e % nelh] + (e//nelh + 1)*cell_offset)
-
-                lexico_facet = lambda e: lexico_base(e) if e < nh else lexico_v(e-nh)
-
-                if nv:
-                    facet_data = numpy.concatenate((numpy.tile(facet_data, (nelz, 1)),
-                                                    numpy.tile(numpy.array([[5, 4]], facet_data.dtype), (nv, 1))), axis=0)
-
-                    facet_cells = [facet_cells + nelh*k for k in range(nelz)]
-                    facet_cells.append(numpy.array([[k, k+nelh] for k in range(nv)], facet_cells[0].dtype))
-                    facet_cells = numpy.concatenate(facet_cells, axis=0)
-
+                local_facet_data_fun = lambda e: local_facet_data[e % nbase] if e < nv else local_facet_data_h
+                facet_to_cells_fun = lambda e: facet_to_cells[e % nbase] + (e//nbase)*nelv if e < nv else numpy.array([e-nv, e-nv+nelv], facet_to_cells.dtype)
+                facet_to_nodes_fun = lambda e: facet_to_nodes[e % nbase] + (e//nbase)*facet_offset if e < nv else numpy.append(cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv)*cell_offset,
+                                                                                                                               cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv + 1)*cell_offset)
             else:
                 raise NotImplementedError("Not implemented for variable layers")
         else:
-            lexico_facet = lambda e: facet_values[e]
+            facet_to_nodes_fun = lambda e: facet_to_nodes[e]
+            facet_to_cells_fun = lambda e: facet_to_cells[e]
+            local_facet_data_fun = lambda e: local_facet_data[e]
             nfacets = nbase
 
-        return lexico_facet, nfacets, facet_cells, facet_data
+        return facet_to_nodes_fun, facet_to_cells_fun, local_facet_data_fun, nfacets
 
     @staticmethod
     @lru_cache(maxsize=10)
