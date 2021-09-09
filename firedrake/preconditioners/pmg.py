@@ -11,6 +11,7 @@ import loopy
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
+from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
 from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
@@ -190,6 +191,13 @@ class PMGBase(PCSNESBase):
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
 
+        fproblem = fctx._problem
+        fu = fproblem.u
+        cu = firedrake.Function(cV)
+
+        fV._coarse = cV
+        fu._coarse = cu
+
         def get_max_degree(ele):
             if isinstance(ele, MixedElement):
                 return max(get_max_degree(sub) for sub in ele.sub_elements())
@@ -235,10 +243,6 @@ class PMGBase(PCSNESBase):
         Nf = get_max_degree(fV.ufl_element())
         Nc = get_max_degree(cV.ufl_element())
 
-        fproblem = fctx._problem
-        fu = fproblem.u
-        cu = firedrake.Function(cV)
-
         # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
                      test: firedrake.TestFunction(cV),
@@ -275,11 +279,6 @@ class PMGBase(PCSNESBase):
                           options_prefix=fctx.options_prefix,
                           transfer_manager=fctx.transfer_manager)
 
-        # TODO coarsen nullspace
-        # cctx.set_nullspace(fctx._nullspace)
-        # cctx.set_nullspace(fctx._nullspace_T, transpose=True)
-        # cctx.set_nullspace(fctx._near_nullspace, near=True)
-
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
         fctx._coarse = cctx
@@ -301,7 +300,7 @@ class PMGBase(PCSNESBase):
         except ValueError:
             pass
 
-        # Injection of the initial state
+        # injection of the initial state
         def inject_state(mat):
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                 mat.multTranspose(xf, xc)
@@ -309,6 +308,42 @@ class PMGBase(PCSNESBase):
         injection = self.create_injection(cdm, fdm)
         add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
+        # restrict the nullspace basis
+        def coarsen_nullspace(coarse_V, mat, fine_nullspace):
+            if isinstance(fine_nullspace, MixedVectorSpaceBasis):
+                if mat.type == 'nest':
+                    submats = [mat.getNestSubMatrix(i, i) for i in range(mat.getNestSize()[0])]
+                elif mat.type == 'python':
+                    submats = mat.getPythonContext().getSubMats()
+                else:
+                    raise TypeError("Cannot get SubMatrix for Mat with type %s" % mat.type)
+                coarse_bases = []
+                for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
+                    if isinstance(basis, VectorSpaceBasis):
+                        coarse_bases.append(coarsen_nullspace(fs, submat, basis))
+                    else:
+                        coarse_bases.append(coarse_V.sub(basis.index))
+                return MixedVectorSpaceBasis(coarse_V, coarse_bases)
+            elif isinstance(fine_nullspace, VectorSpaceBasis):
+                coarse_vecs = []
+                for xf in fine_nullspace._petsc_vecs:
+                    wc = firedrake.Function(coarse_V)
+                    with wc.dat.vec as xc:
+                        mat.mult(xf, xc)
+                    coarse_vecs.append(wc)
+                vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
+                vsb.orthonormalize()
+                return vsb
+            else:
+                return fine_nullspace
+
+        I, _ = self.create_interpolation(cdm, fdm)
+        cctx._nullspace = coarsen_nullspace(cV, I, fctx._nullspace)
+        cctx.set_nullspace(cctx._nullspace, transpose=False, near=False)
+        cctx._nullspace_T = coarsen_nullspace(cV, I, fctx._nullspace_T)
+        cctx.set_nullspace(cctx._nullspace_T, transpose=True, near=False)
+        cctx._near_nullspace = coarsen_nullspace(cV, I, fctx._near_nullspace)
+        cctx.set_nullspace(cctx._near_nullspace, transpose=False, near=True)
         return cdm
 
     @staticmethod
@@ -940,7 +975,6 @@ class MixedInterpolationMatrix(object):
         self.mesh = Vf.mesh()
 
     def mult(self, mat, resf, resc):
-
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
 
@@ -961,7 +995,6 @@ class MixedInterpolationMatrix(object):
             xc.copy(resc)
 
     def multTranspose(self, mat, xc, xf, inc=False):
-
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
@@ -986,6 +1019,15 @@ class MixedInterpolationMatrix(object):
         else:
             self.multTranspose(mat, x, w)
             w.axpy(1.0, y)
+
+    def getSubMats(self):
+        submats = []
+        for s in self.standalones:
+            sizes = (s.Vc.dof_dset.layout_vec.getSizes(), s.Vf.dof_dset.layout_vec.getSizes())
+            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.Vf.mesh().comm)
+            M_shll.setUp()
+            submats.append(M_shll)
+        return submats
 
 
 def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):

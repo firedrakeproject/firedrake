@@ -55,7 +55,7 @@ class FDMPC(PCBase):
     alpha and beta as cell-wise constants.
 
     For spaces that are not H^1-conforming, this preconditioner will use
-    the symmetric interior-penalty DG method. The penalty coefficient can b
+    the symmetric interior-penalty DG method. The penalty coefficient can be
     provided in the application context, keyed on ``"eta"``.
     """
 
@@ -580,8 +580,8 @@ class FDMPC(PCBase):
         Gfacet0 = firedrake.assemble(inner(test('+'), G('+') / area) * dS_int)
         Gfacet1 = firedrake.assemble(inner(test('+'), G('-') / area) * dS_int)
 
-        PT = Jacobian(self.mesh).T / JacobianDeterminant(self.mesh))
-        DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=P.ufl_shape)
+        PT = Jacobian(self.mesh).T / JacobianDeterminant(self.mesh)
+        DGT = firedrake.TensorFunctionSpace(self.mesh, "DGT", 0, shape=PT.ufl_shape)
         test = firedrake.TestFunction(DGT)
         Pfacet0 = firedrake.assemble(inner(test('+'), PT('+') / area) * dS_int)
         Pfacet1 = firedrake.assemble(inner(test('+'), PT('-') / area) * dS_int)
@@ -589,7 +589,7 @@ class FDMPC(PCBase):
 
     @staticmethod
     def numpy_to_petsc(A_numpy, dense_indices, diag=True):
-        # Creates a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
+        # Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
         # If dense_indices is empty, then also include the off-diagonal corners of the matrix
         n = A_numpy.shape[0]
         nbase = int(diag) + len(dense_indices)
@@ -950,9 +950,9 @@ class FDMPC(PCBase):
                     facet_data = numpy.concatenate((numpy.tile(facet_data, (nelz, 1)),
                                                     numpy.tile(numpy.array([[5, 4]], facet_data.dtype), (nv, 1))), axis=0)
 
-                    facet_cells_base = [facet_cells + nelh*k for k in range(nelz)]
-                    facet_cells_base.append(numpy.array([[k, k+nelh] for k in range(nv)], facet_cells.dtype))
-                    facet_cells = numpy.concatenate(facet_cells_base, axis=0)
+                    facet_cells = [facet_cells + nelh*k for k in range(nelz)]
+                    facet_cells.append(numpy.array([[k, k+nelh] for k in range(nv)], facet_cells[0].dtype))
+                    facet_cells = numpy.concatenate(facet_cells, axis=0)
 
             else:
                 raise NotImplementedError("Not implemented for variable layers")
