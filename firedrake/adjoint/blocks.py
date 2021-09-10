@@ -211,6 +211,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdm)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
         dFdm = dFdm * adj_sol
