@@ -933,17 +933,17 @@ class FDMPC(PCBase):
         nbase = facet_to_nodes.shape[0]
 
         if mesh.layers:
-            layers = facet_node_map.iterset.layers_array
-            cell_node_map = V.cell_node_map()
-            cell_to_nodes = cell_node_map.values
-            cell_offset = cell_node_map.offset
             facet_offset = facet_node_map.offset
             local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
 
-            if layers.shape[0] == 1:
-                nelv = cell_to_nodes.shape[0]
-                nelz = layers[0, 1] - layers[0, 0] - 1
+            cell_node_map = V.cell_node_map()
+            cell_to_nodes = cell_node_map.values
+            cell_offset = cell_node_map.offset
 
+            nelv = cell_to_nodes.shape[0]
+            layers = facet_node_map.iterset.layers_array
+            if layers.shape[0] == 1:
+                nelz = layers[0, 1] - layers[0, 0] - 1
                 nv = nbase * nelz
                 nh = nelv * (nelz - 1)
                 nfacets = nv + nh
@@ -954,6 +954,7 @@ class FDMPC(PCBase):
                                                                                                                                cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv + 1)*cell_offset)
             else:
                 raise NotImplementedError("Not implemented for variable layers")
+
         else:
             facet_to_nodes_fun = lambda e: facet_to_nodes[e]
             facet_to_cells_fun = lambda e: facet_to_cells[e]
@@ -966,19 +967,19 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def glonum_fun(node_map):
         # Returns a function that maps the cell id to its global nodes
-        nelh = node_map.values.shape[0]
+        nelv = node_map.values.shape[0]
         if node_map.offset is None:
-            return lambda e: node_map.values_with_halo[e], nelh
+            return lambda e: node_map.values_with_halo[e], nelv
         else:
             layers = node_map.iterset.layers_array
             if layers.shape[0] == 1:
                 nelz = layers[0, 1] - layers[0, 0] - 1
-                nel = nelz * nelh
-                return lambda e: node_map.values_with_halo[e % nelh] + (e//nelh)*node_map.offset, nel
+                nel = nelz * nelv
+                return lambda e: node_map.values_with_halo[e % nelv] + (e//nelv)*node_map.offset, nel
             else:
                 k = 0
                 nelz = layers[:, 1] - layers[:, 0] - 1
-                nel = sum(nelz[:nelh])
+                nel = sum(nelz[:nelv])
                 layer_id = numpy.zeros((sum(nelz), 2))
                 for e in range(len(nelz)):
                     for l in range(nelz[e]):

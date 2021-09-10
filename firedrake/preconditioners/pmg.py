@@ -47,7 +47,6 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-    _type = "mg"
 
     def coarsen_element(self, ele):
         """
@@ -130,7 +129,7 @@ class PMGBase(PCSNESBase):
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
-        self.coarse_degree = PETSc.Options(options_prefix).getInt(self._type+"_coarse_degree", default=1)
+        self.coarse_degree = PETSc.Options(options_prefix).getInt("coarse_degree", default=1)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -420,7 +419,6 @@ class PMGPC(PCBase, PMGBase):
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
-    _type = "fas"
 
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
