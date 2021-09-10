@@ -918,10 +918,10 @@ class FDMPC(PCBase):
         :arg V: a :class:`FunctionSpace`
 
         :returns: the 4-tuple of
-        facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
-        facet_to_cells_fun: maps interior facets to the two cells sharing it,
-        local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
-        nfacets: the total number of interior facets owned by this process
+            facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
+            facet_to_cells_fun: maps interior facets to the two cells sharing it,
+            local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
+            nfacets: the total number of interior facets owned by this process
         """
         mesh = V.mesh()
         intfacets = mesh.interior_facets
