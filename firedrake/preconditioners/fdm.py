@@ -78,7 +78,7 @@ class FDMPC(PCBase):
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
         needs_hdiv = family <= {"RTCF", "NCF"}
-        Nq = 2*N+1  # quadrature degree
+        Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
         self.mesh = V.mesh()
         self.uf = firedrake.Function(V)
@@ -113,6 +113,7 @@ class FDMPC(PCBase):
         Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, needs_hdiv)
 
         # Get coefficients w.r.t. the reference coordinates
+        # we may use a lower quadrature degree, but using Nq is not so expensive
         Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(self.J, Nq, discard_mixed=True, cell_average=True)
 
         # Set arbitrary non-zero coefficients for preallocation
