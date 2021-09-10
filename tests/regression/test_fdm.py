@@ -40,7 +40,7 @@ def test_p_independence(mesh, expected):
         asm = "firedrake.ASMStarPC"
         subs = ("on_boundary",)
         if mesh.topological_dimension() == 3:
-            asm = "firedrake.ASMHexStarPC"
+            asm = "firedrake.ASMExtrudedStarPC"
             subs += ("top", "bottom")
         bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
 

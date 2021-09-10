@@ -253,7 +253,7 @@ class FDMPC(PCBase):
         if needs_hdiv:
             pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
             Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
-            jid, _, _, _ = self.get_facet_topology(Gfacet0.function_space())
+            jid, _, _, _ = self.get_interior_facet_maps(Gfacet0.function_space())
         else:
             pshape = [Ak[0][0].size[0] for Ak in Afdm]
 
@@ -350,7 +350,7 @@ class FDMPC(PCBase):
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         needs_interior_facet = Dfdm[0] is not None
         if needs_interior_facet:
-            lexico_facet, facet_to_cells, local_facet_data, nfacets = self.get_facet_topology(V)
+            lexico_facet, facet_to_cells, local_facet_data, nfacets = self.get_interior_facet_maps(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
 
@@ -910,9 +910,9 @@ class FDMPC(PCBase):
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def get_facet_topology(V):
+    def get_interior_facet_maps(V):
         """
-        Utility function to extrude interior facet information
+        Utility function to extrude interior facet maps
 
         :arg V: a :class:`FunctionSpace`
 
@@ -920,9 +920,8 @@ class FDMPC(PCBase):
         facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
         facet_to_cells_fun: maps interior facets to the two cells sharing it,
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
-        nfacets: the total number of interior facets owned by this process,
+        nfacets: the total number of interior facets owned by this process
         """
-
         mesh = V.mesh()
         intfacets = mesh.interior_facets
         facet_to_cells = intfacets.facet_cell_map.values
@@ -942,7 +941,9 @@ class FDMPC(PCBase):
 
             nelv = cell_to_nodes.shape[0]
             layers = facet_node_map.iterset.layers_array
-            if layers.shape[0] == 1:
+            if mesh.variable_layers:
+                raise NotImplementedError("Not implemented for variable layers")
+            else:
                 nelz = layers[0, 1] - layers[0, 0] - 1
                 nv = nbase * nelz
                 nh = nelv * (nelz - 1)
@@ -952,9 +953,6 @@ class FDMPC(PCBase):
                 facet_to_cells_fun = lambda e: facet_to_cells[e % nbase] + (e//nbase)*nelv if e < nv else numpy.array([e-nv, e-nv+nelv], facet_to_cells.dtype)
                 facet_to_nodes_fun = lambda e: facet_to_nodes[e % nbase] + (e//nbase)*facet_offset if e < nv else numpy.append(cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv)*cell_offset,
                                                                                                                                cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv + 1)*cell_offset)
-            else:
-                raise NotImplementedError("Not implemented for variable layers")
-
         else:
             facet_to_nodes_fun = lambda e: facet_to_nodes[e]
             facet_to_cells_fun = lambda e: facet_to_cells[e]

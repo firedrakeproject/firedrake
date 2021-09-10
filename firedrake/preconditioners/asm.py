@@ -15,7 +15,7 @@ except ImportError:
     have_tinyasm = False
 
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMHexStarPC")
+__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
 
 
 class ASMPatchPC(PCBase):
@@ -313,11 +313,11 @@ def get_basemesh_nodes(W):
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
 
-class ASMHexStarPC(ASMPatchPC):
+class ASMExtrudedStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
 
-    ASMHexStarPC is an additive Schwarz preconditioner where each patch
+    ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
     specified by `pc_hexstar_construct_dim`.
     '''
