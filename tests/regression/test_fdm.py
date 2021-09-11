@@ -9,9 +9,13 @@ def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
-        layers = layers_array = np.array([[0, nx]]*(nx*nx))
+        # layers = np.array([[0, nx]]*(nx*nx))
+        # layers[0,0] = 1
+        # layers[0,1] -= 1
+        # layers[-1,1] += 1
         # m = ExtrudedMesh(m, layers=layers, layer_height=1/nx)
         m = ExtrudedMesh(m, nx)
+
     x = SpatialCoordinate(m)
     xnew = as_vector([acos(1-2*xj)/pi for xj in x])
     m.coordinates.interpolate(xnew)
@@ -27,7 +31,7 @@ def expected(mesh):
 
 
 @pytest.mark.skipcomplex
-def not_test_p_independence(mesh, expected):
+def test_p_independence(mesh, expected):
     nits = []
     for p in range(3, 6):
         V = FunctionSpace(mesh, "Lagrange", p)

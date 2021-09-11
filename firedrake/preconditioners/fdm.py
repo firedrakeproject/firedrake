@@ -943,40 +943,41 @@ class FDMPC(PCBase):
             nelv = cell_to_nodes.shape[0]
             layers = facet_node_map.iterset.layers_array
             itype = facet_to_cells.dtype
-            if mesh.variable_layers:
-                nh = layers[:, 1] - layers[:, 0] - 2     
-                k = 0
-                layer_id = numpy.zeros((sum(nh), 2), dtype=PETSc.IntType)
-                for e in range(len(nh)):
-                    for l in range(nh[e]):
-                        layer_id[k, :] = [e, l]
-                        k += 1
-                layer_id = layer_id[layer_id[:, 1].argsort(kind='mergesort')]
+            shift_h = numpy.array([[0], [1]], itype)
 
+            if mesh.variable_layers:
                 nv = 0
                 to_base = []
-                col_offset = []
+                to_layer = []
                 for f, cells in enumerate(facet_to_cells):
                     istart = max(layers[cells, 0])
                     iend = min(layers[cells, 1])
-                    nelz = iend - istart - 1
-                    nv += nelz
-                    to_base.append(numpy.full((nelz,), f, itype))
-                    delta = layers[cells[[1,0]], 0] - layers[cells, 0]
-                    col_offset.append(numpy.maximum(delta, 0) + numpy.reshape(numpy.arange(nelz, dtype=itype), (-1, 1)))
+                    nz = iend - istart - 1
+                    nv += nz
+                    to_base.append(numpy.full((nz,), f, itype))
+                    to_layer.append(numpy.arange(nz, dtype=itype))
+
+                nh = layers[:, 1] - layers[:, 0] - 2
+                for cell, nf, in enumerate(nh):
+                    to_base.append(numpy.full((nf,), cell, itype))
+                    to_layer.append(numpy.arange(nf, dtype=itype))
 
                 nfacets = nv + sum(nh[:nelv])
                 to_base = numpy.concatenate(to_base)
-                col_offset = numpy.concatenate(col_offset)
-                extrude_id = numpy.zeros((nelv+1,), itype)
-                extrude_id[1:] = numpy.cumsum(nh[:nelv]+1)
-                pair = [0, 1]
+                to_layer = numpy.concatenate(to_layer)
+
+                k = 0
+                nelz = layers[:nelv, 1] - layers[:nelv, 0] - 1
+                no_holes = numpy.full((max(nelz), nelv), -1, dtype=itype)
+                for l in range(max(nelz)):
+                    e = l < nelz
+                    no_holes[l, e] = numpy.arange(k, k+sum(e))
+                    k += sum(e)
+                no_holes = numpy.reshape(no_holes, (-1,))
 
                 local_facet_data_fun = lambda e: local_facet_data[to_base[e]] if e < nv else local_facet_data_h
-                facet_to_cells_fun = lambda e: extrude_id[facet_to_cells[to_base[e]]] + col_offset[e] if e < nv else pair+(extrude_id[layer_id[e-nv,0]]+layer_id[e-nv,1])
-                cell_to_nodes_fun, _ = FDMPC.glonum_fun(cell_node_map)
-                facet_to_nodes_fun = lambda e: cell_to_nodes_fun(facet_to_cells_fun(e))
-                #raise NotImplementedError("Not implemented for variable layers")
+                facet_to_cells_fun = lambda e: no_holes[facet_to_cells[to_base[e]] + to_layer[e]*nelv if e < nv else to_base[e] + (to_layer[e]+numpy.arange(2))*nelv]
+                facet_to_nodes_fun = lambda e: facet_to_nodes[to_base[e]] + to_layer[e]*facet_offset if e < nv else numpy.reshape(cell_to_nodes[to_base[e]] + numpy.kron(to_layer[e]+shift_h, cell_offset), (-1,))
             else:
                 nelz = layers[0, 1] - layers[0, 0] - 1
                 nv = nbase * nelz
@@ -985,8 +986,7 @@ class FDMPC(PCBase):
 
                 local_facet_data_fun = lambda e: local_facet_data[e % nbase] if e < nv else local_facet_data_h
                 facet_to_cells_fun = lambda e: facet_to_cells[e % nbase] + (e//nbase)*nelv if e < nv else numpy.array([e-nv, e-nv+nelv], itype)
-                facet_to_nodes_fun = lambda e: facet_to_nodes[e % nbase] + (e//nbase)*facet_offset if e < nv else numpy.append(cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv)*cell_offset,
-                                                                                                                               cell_to_nodes[(e-nv) % nelv] + ((e-nv)//nelv + 1)*cell_offset)
+                facet_to_nodes_fun = lambda e: facet_to_nodes[e % nbase] + (e//nbase)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv) % nelv] + numpy.kron((e-nv)//nelv+shift_h, cell_offset), (-1,))
         else:
             facet_to_nodes_fun = lambda e: facet_to_nodes[e]
             facet_to_cells_fun = lambda e: facet_to_cells[e]
@@ -998,7 +998,7 @@ class FDMPC(PCBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def glonum_fun(node_map):
-        # Returns a function that maps the cell id to its global nodes
+        # Return a function that maps the cell to its nodes
         nelv = node_map.values.shape[0]
         if node_map.offset is None:
             return lambda e: node_map.values_with_halo[e], nelv
@@ -1009,44 +1009,27 @@ class FDMPC(PCBase):
                 nel = nelz * nelv
                 return lambda e: node_map.values_with_halo[e % nelv] + (e//nelv)*node_map.offset, nel
             else:
-                k = 0
-                nelz = layers[:, 1] - layers[:, 0] - 1
+                nelz = layers[:, 1]-layers[:, 0]-1
                 nel = sum(nelz[:nelv])
-                layer_id = numpy.zeros((sum(nelz), 2), dtype=PETSc.IntType)
-                for e in range(len(nelz)):
-                    for l in range(nelz[e]):
-                        layer_id[k, :] = [e, l]
-                        k += 1
-
-                layer_id = layer_id[layer_id[:, 1].argsort(kind='mergesort')]
-                return lambda e: node_map.values_with_halo[layer_id[e, 0]] + numpy.squeeze(numpy.kron(numpy.reshape(layer_id[e, 1], (-1, 1)), node_map.offset)), nel
+                to_base = numpy.concatenate([numpy.reshape(numpy.argwhere(l < nelz), (-1,)) for l in range(max(nelz))])
+                to_layer = numpy.concatenate([numpy.full((sum(l < nelz),), l, dtype=node_map.offset.dtype) for l in range(max(nelz))])
+                return lambda e: node_map.values_with_halo[to_base[e]] + numpy.squeeze(numpy.kron(numpy.reshape(to_layer[e], (-1, 1)), node_map.offset)), nel
 
     @staticmethod
     @lru_cache(maxsize=10)
     def glonum(V):
-        # Returns an array of global nodes for each cell id
+        # Return an array of nodes for each cell
         node_map = V.cell_node_map()
         if node_map.offset is None:
             return node_map.values
         else:
-            nelv = node_map.values.shape[0]
             layers = node_map.iterset.layers_array
-            if(layers.shape[0] == 1):
+            if layers.shape[0] == 1:
                 nelz = layers[0, 1]-layers[0, 0]-1
-                nel = nelz * nelv
-                gl = numpy.zeros((nelz,)+node_map.values.shape, dtype=PETSc.IntType)
-                for k in range(0, nelz):
-                    gl[k] = node_map.values + k*node_map.offset
-                gl = numpy.reshape(gl, (nel, -1))
+                return numpy.concatenate([node_map.values + l*node_map.offset for l in range(nelz)])
             else:
-                nelz = layers[:nelv, 1]-layers[:nelv, 0]-1
-                nel = sum(nelz)
-                gl = []
-                for l in range(max(nelz)):
-                    e = numpy.reshape(numpy.argwhere((l >= layers[:nelv, 0]) & (l < layers[:nelv, 1])), (-1,))
-                    gl.append(node_map.values[e] + numpy.kron(numpy.reshape(l-layers[e, 0], (-1, 1)), node_map.offset))
-                gl = numpy.concatenate(gl)
-            return gl
+                nelz = layers[:, 1]-layers[:, 0]-1
+                return numpy.concatenate([node_map.values[l < nelz] + l*node_map.offset for l in range(max(nelz))])
 
     @staticmethod
     @lru_cache(maxsize=10)
@@ -1060,20 +1043,16 @@ class FDMPC(PCBase):
         ndim = mesh.topological_dimension()
         nface = 2*ndim
 
-        # Partition of unity at interior facets (fraction of volumes)
-        DG0 = firedrake.FunctionSpace(mesh, 'DG', 0)
         if ndim == 1:
             DGT = firedrake.FunctionSpace(mesh, 'Lagrange', 1)
         else:
             DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
 
-        face2cell = FDMPC.glonum(DGT)
-
         v = firedrake.TestFunction(DGT)
         dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
         w = firedrake.assemble((v('-')+v('+')) * dS_int)
+        face2cell = FDMPC.glonum(DGT)
         rho = w.dat.data_ro_with_halos[face2cell]
-        
         if extruded:
             ibot = 4
             itop = 5
@@ -1089,10 +1068,7 @@ class FDMPC(PCBase):
                 nelz = layers[:nelv, 1] - layers[:nelv, 0] - 1
                 nel = sum(nelz)
                 facetdata = numpy.zeros([nel, nface, 2], dtype=PETSc.IntType)
-                fdv = []
-                for l in range(max(nelz)):
-                    e = numpy.reshape(numpy.argwhere((l >= layers[:nelv, 0]) & (l < layers[:nelv, 1])), (-1,))
-                    fdv.append(mesh.cell_to_facets.data[e])
+                fdv = [mesh.cell_to_facets.data[l < nelz] for l in range(max(nelz))]
                 facetdata[:, ivert, :] = numpy.concatenate(fdv)
                 for f in ivert:
                     bnd = numpy.isclose(rho[:, f], 0.0E0)
