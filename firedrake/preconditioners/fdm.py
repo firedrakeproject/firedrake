@@ -96,7 +96,7 @@ class FDMPC(PCBase):
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        bcflags = self.get_bc_flags(V, self.mesh, self.bcs, self.J)
+        bcflags = self.get_bc_flags(self.bcs, self.J)
 
         self.weight = self.multiplicity(V)
         with self.weight.dat.vec as w:
@@ -253,8 +253,6 @@ class FDMPC(PCBase):
         # pshape is the shape of the DOFs in the tensor product
         if needs_hdiv:
             pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
-            Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
-            jid, _, _, _ = self.get_interior_facet_maps(Gfacet0.function_space())
         else:
             pshape = [Ak[0][0].size[0] for Ak in Afdm]
 
@@ -351,18 +349,18 @@ class FDMPC(PCBase):
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         needs_interior_facet = Dfdm[0] is not None
         if needs_interior_facet:
-            lexico_facet, facet_to_cells, local_facet_data, nfacets = self.get_interior_facet_maps(V)
+            lexico_facet, local_facet_data, nfacets = self.get_interior_facet_maps(V)
+            lexico_coef, _, _ = self.get_interior_facet_maps(Gq)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
+            if needs_hdiv:
+                Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
+                jid, _, _ = self.get_interior_facet_maps(Gfacet0)
 
             for f in range(nfacets):
-                e0, e1 = facet_to_cells(f)
+                ie = lexico_facet(f)
                 lfd = local_facet_data(f)
                 idir = lfd // 2
-
-                ie = lexico_facet(f)
-                mu0 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[lexico_coef(e0)], axis=0))
-                mu1 = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro_with_halos[lexico_coef(e1)], axis=0))
 
                 if needs_hdiv:
                     fid = numpy.reshape(jid(f), (2, -1))
@@ -370,6 +368,8 @@ class FDMPC(PCBase):
                     icell = numpy.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
+                else:
+                    mu0, mu1 = Gq.dat.data_ro_with_halos[lexico_coef(f)]
 
                 for k in range(kstart, ncomp):
                     if needs_hdiv:
@@ -917,13 +917,12 @@ class FDMPC(PCBase):
 
         :arg V: a :class:`FunctionSpace`
 
-        :returns: the 4-tuple of
+        :returns: the 3-tuple of
             facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
-            facet_to_cells_fun: maps interior facets to the two cells sharing it,
             local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
             nfacets: the total number of interior facets owned by this process
         """
-        mesh = V.mesh()
+        mesh = V.ufl_domain()
         intfacets = mesh.interior_facets
         facet_to_cells = intfacets.facet_cell_map.values
         local_facet_data = intfacets.local_facet_dat.data_ro
@@ -942,7 +941,7 @@ class FDMPC(PCBase):
 
             nelv = cell_to_nodes.shape[0]
             layers = facet_node_map.iterset.layers_array
-            itype = facet_to_cells.dtype
+            itype = cell_offset.dtype
             shift_h = numpy.array([[0], [1]], itype)
 
             if mesh.variable_layers:
@@ -957,43 +956,30 @@ class FDMPC(PCBase):
                     to_base.append(numpy.full((nz,), f, itype))
                     to_layer.append(numpy.arange(nz, dtype=itype))
 
-                nh = layers[:, 1] - layers[:, 0] - 2
-                for cell, nf, in enumerate(nh):
-                    to_base.append(numpy.full((nf,), cell, itype))
-                    to_layer.append(numpy.arange(nf, dtype=itype))
+                nh = layers[:, 1]-layers[:, 0]-2
+                to_base.append(numpy.repeat(numpy.arange(len(nh), dtype=itype), nh))
+                to_layer += [numpy.arange(nf, dtype=itype) for nf in nh]
 
-                nfacets = nv + sum(nh[:nelv])
                 to_base = numpy.concatenate(to_base)
                 to_layer = numpy.concatenate(to_layer)
-
-                k = 0
-                nelz = layers[:nelv, 1] - layers[:nelv, 0] - 1
-                no_holes = numpy.full((max(nelz), nelv), -1, dtype=itype)
-                for l in range(max(nelz)):
-                    e = l < nelz
-                    no_holes[l, e] = numpy.arange(k, k+sum(e))
-                    k += sum(e)
-                no_holes = numpy.reshape(no_holes, (-1,))
+                nfacets = nv + sum(nh[:nelv])
 
                 local_facet_data_fun = lambda e: local_facet_data[to_base[e]] if e < nv else local_facet_data_h
-                facet_to_cells_fun = lambda e: no_holes[facet_to_cells[to_base[e]] + to_layer[e]*nelv if e < nv else to_base[e] + (to_layer[e]+numpy.arange(2))*nelv]
                 facet_to_nodes_fun = lambda e: facet_to_nodes[to_base[e]] + to_layer[e]*facet_offset if e < nv else numpy.reshape(cell_to_nodes[to_base[e]] + numpy.kron(to_layer[e]+shift_h, cell_offset), (-1,))
             else:
-                nelz = layers[0, 1] - layers[0, 0] - 1
+                nelz = layers[0, 1]-layers[0, 0]-1
                 nv = nbase * nelz
-                nh = nelv * (nelz - 1)
+                nh = nelv * (nelz-1)
                 nfacets = nv + nh
 
-                local_facet_data_fun = lambda e: local_facet_data[e % nbase] if e < nv else local_facet_data_h
-                facet_to_cells_fun = lambda e: facet_to_cells[e % nbase] + (e//nbase)*nelv if e < nv else numpy.array([e-nv, e-nv+nelv], itype)
-                facet_to_nodes_fun = lambda e: facet_to_nodes[e % nbase] + (e//nbase)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv) % nelv] + numpy.kron((e-nv)//nelv+shift_h, cell_offset), (-1,))
+                local_facet_data_fun = lambda e: local_facet_data[e//nelz] if e < nv else local_facet_data_h
+                facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv) % nelv] + numpy.kron(((e-nv) // nelv)+shift_h, cell_offset), (-1,))
         else:
             facet_to_nodes_fun = lambda e: facet_to_nodes[e]
-            facet_to_cells_fun = lambda e: facet_to_cells[e]
             local_facet_data_fun = lambda e: local_facet_data[e]
             nfacets = nbase
 
-        return facet_to_nodes_fun, facet_to_cells_fun, local_facet_data_fun, nfacets
+        return facet_to_nodes_fun, local_facet_data_fun, nfacets
 
     @staticmethod
     @lru_cache(maxsize=10)
@@ -1007,76 +993,73 @@ class FDMPC(PCBase):
             if layers.shape[0] == 1:
                 nelz = layers[0, 1] - layers[0, 0] - 1
                 nel = nelz * nelv
-                return lambda e: node_map.values_with_halo[e % nelv] + (e//nelv)*node_map.offset, nel
+                return lambda e: node_map.values_with_halo[e//nelz] + (e % nelz)*node_map.offset, nel
             else:
                 nelz = layers[:, 1]-layers[:, 0]-1
                 nel = sum(nelz[:nelv])
-                to_base = numpy.concatenate([numpy.reshape(numpy.argwhere(l < nelz), (-1,)) for l in range(max(nelz))])
-                to_layer = numpy.concatenate([numpy.full((sum(l < nelz),), l, dtype=node_map.offset.dtype) for l in range(max(nelz))])
-                return lambda e: node_map.values_with_halo[to_base[e]] + numpy.squeeze(numpy.kron(numpy.reshape(to_layer[e], (-1, 1)), node_map.offset)), nel
+                to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
+                to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
+                return lambda e: node_map.values_with_halo[to_base[e]] + to_layer[e]*node_map.offset, nel
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def glonum(V):
+    def glonum(node_map):
         # Return an array of nodes for each cell
-        node_map = V.cell_node_map()
         if node_map.offset is None:
-            return node_map.values
+            return node_map.values_with_halo
         else:
             layers = node_map.iterset.layers_array
             if layers.shape[0] == 1:
                 nelz = layers[0, 1]-layers[0, 0]-1
-                return numpy.concatenate([node_map.values + l*node_map.offset for l in range(nelz)])
+                to_layer = numpy.tile(numpy.arange(nelz, dtype=node_map.offset.dtype), len(node_map.values_with_halo))
             else:
                 nelz = layers[:, 1]-layers[:, 0]-1
-                return numpy.concatenate([node_map.values[l < nelz] + l*node_map.offset for l in range(max(nelz))])
+                to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
+            return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(numpy.reshape(to_layer, (-1, 1)), node_map.offset)
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def get_bc_flags(V, mesh, bcs, J):
+    def get_bc_flags(bcs, J):
         # Returns boundary condition flags on each cell facet
         # 0 => Natural, do nothing
         # 1 => Strong / Weak Dirichlet
         # 2 => Interior facet
-
+        V = J.arguments()[0].function_space()
+        mesh = V.ufl_domain()
         extruded = mesh.cell_set._extruded
-        ndim = mesh.topological_dimension()
-        nface = 2*ndim
 
-        if ndim == 1:
-            DGT = firedrake.FunctionSpace(mesh, 'Lagrange', 1)
-        else:
-            DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
-
-        v = firedrake.TestFunction(DGT)
-        dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
-        w = firedrake.assemble((v('-')+v('+')) * dS_int)
-        face2cell = FDMPC.glonum(DGT)
-        rho = w.dat.data_ro_with_halos[face2cell]
         if extruded:
+            ndim = mesh.topological_dimension()
+            nface = 2*ndim
             ibot = 4
             itop = 5
             ivert = [0, 1, 2, 3]
             nelv = mesh.cell_set.sizes[1]
             layers = mesh.cell_set.layers_array
             if layers.shape[0] == 1:
-                nelz = layers[0, 1] - layers[0, 0] - 1
-                nel = nelv * nelz
-                facetdata = numpy.zeros([nel, nface, 2], dtype=PETSc.IntType)
-                facetdata[:, ivert, :] = numpy.tile(mesh.cell_to_facets.data, (nelz, 1, 1))
+                nelz = layers[0, 1]-layers[0, 0]-1
+                nel = nelv*nelz
             else:
-                nelz = layers[:nelv, 1] - layers[:nelv, 0] - 1
+                nelz = layers[:nelv, 1]-layers[:nelv, 0]-1
                 nel = sum(nelz)
-                facetdata = numpy.zeros([nel, nface, 2], dtype=PETSc.IntType)
-                fdv = [mesh.cell_to_facets.data[l < nelz] for l in range(max(nelz))]
-                facetdata[:, ivert, :] = numpy.concatenate(fdv)
+
+            facetdata = numpy.zeros([nel, nface, 2], dtype=PETSc.IntType)
+            facetdata[:, ivert, :] = numpy.reshape(numpy.repeat(mesh.cell_to_facets.data, nelz, axis=0), (-1, 4, 2))
+
+            dS_int = firedrake.dS_h + firedrake.dS_v
+            DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
+            v = firedrake.TestFunction(DGT)
+            w = firedrake.assemble((v('-')+v('+'))*dS_int)
+            face2cell = FDMPC.glonum(DGT.cell_node_map())
+            intfacets = w.dat.data_ro_with_halos[face2cell]
+            if layers.shape[0] == 1:
                 for f in ivert:
-                    bnd = numpy.isclose(rho[:, f], 0.0E0)
+                    bnd = numpy.isclose(intfacets[:, f], 0.0E0)
                     bnd &= (facetdata[:, f, 0] != 0)
                     facetdata[bnd, f, :] = [0, -8]
 
-            bot = numpy.isclose(rho[:, ibot], 0.0E0)
-            top = numpy.isclose(rho[:, itop], 0.0E0)
+            bot = numpy.isclose(intfacets[:, ibot], 0.0E0)
+            top = numpy.isclose(intfacets[:, itop], 0.0E0)
             facetdata[:, [ibot, itop], :] = -1
             facetdata[bot, ibot, :] = [0, -2]
             facetdata[top, itop, :] = [0, -4]
