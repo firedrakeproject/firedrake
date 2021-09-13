@@ -9,10 +9,9 @@ def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
-        layers = np.array([[0, nx]]*(nx*nx))
+        # layers = np.array([[0, nx]]*(nx*nx))
         # layers[0, 0] = 1
         # layers[0, 1] -= 1
-        # layers[-1, 1] += 1
         # m = ExtrudedMesh(m, layers=layers, layer_height=1/nx)
         m = ExtrudedMesh(m, nx)
 

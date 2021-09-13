@@ -350,26 +350,27 @@ class FDMPC(PCBase):
         needs_interior_facet = Dfdm[0] is not None
         if needs_interior_facet:
             lexico_facet, local_facet_data, nfacets = self.get_interior_facet_maps(V)
-            lexico_coef, _, _ = self.get_interior_facet_maps(Gq)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
             if needs_hdiv:
                 Gfacet0, Gfacet1, Piola0, Piola1 = self.assemble_piola_facet(self.alpha)
-                jid, _, _ = self.get_interior_facet_maps(Gfacet0)
+                lexico_coef, _, _ = self.get_interior_facet_maps(Gfacet0)
+            else:
+                lexico_coef, _, _ = self.get_interior_facet_maps(Gq)
 
             for f in range(nfacets):
                 ie = lexico_facet(f)
                 lfd = local_facet_data(f)
                 idir = lfd // 2
+                fid = numpy.reshape(lexico_coef(f), (2, -1))
 
                 if needs_hdiv:
-                    fid = numpy.reshape(jid(f), (2, -1))
-                    fdof = fid[0][lfd[0]]
+                    fdof = fid[0, lfd[0]]
                     icell = numpy.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
                 else:
-                    mu0, mu1 = Gq.dat.data_ro_with_halos[lexico_coef(f)]
+                    Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[fid], axis=1)
 
                 for k in range(kstart, ncomp):
                     if needs_hdiv:
@@ -384,8 +385,7 @@ class FDMPC(PCBase):
                         k0 = k
                         k1 = k
                         facet_perm = (idir[0]+numpy.arange(ndim)) % ndim
-                        mu = [mu0[k0][idir[0]] if len(mu0.shape) > 1 else mu0[idir[0]],
-                              mu1[k1][idir[1]] if len(mu1.shape) > 1 else mu1[idir[1]]]
+                        mu = Gfacet[[0, 1], [k0, k1], idir] if len(Gfacet.shape) == 3 else Gfacet[[0, 1], idir]
 
                     Dfacet = Dfdm[facet_perm[0]]
                     offset = Dfacet.shape[0]
@@ -406,7 +406,7 @@ class FDMPC(PCBase):
                                 smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
                                        sij*numpy.dot(numpy.dot(mu[1], Piola[i]), Piola[j])]
                             else:
-                                smu = [sij*mu[0], sij*mu[1]]
+                                smu = sij*mu
 
                             adense[ii, jj] += eta * sum(smu)
                             adense[i0:i1, jj] -= smu[i] * Dfacet[:, iface % 2]
@@ -636,8 +636,8 @@ class FDMPC(PCBase):
         Jhat = basis[(0,)]
         Dhat = basis[(1,)]
         what = rule.get_weights()
-        Ahat = Dhat @ numpy.diag(what) @ Dhat.T
-        Bhat = Jhat @ numpy.diag(what) @ Jhat.T
+        Ahat = numpy.dot(Dhat, numpy.dot(numpy.diag(what), Dhat.T))
+        Bhat = numpy.dot(Jhat, numpy.dot(numpy.diag(what), Jhat.T))
         return Ahat, Bhat, Jhat, Dhat, what
 
     @staticmethod
@@ -677,8 +677,8 @@ class FDMPC(PCBase):
                     FDMPC.numpy_to_petsc(Bhat, [])]
 
         Afdm = []
-        Ak = Sfdm.T @ Ahat @ Sfdm
-        Bk = Sfdm.T @ Bhat @ Sfdm
+        Ak = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
+        Bk = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
         for bc1 in range(2):
             for bc0 in range(2):
                 Afdm.append(apply_strong_bcs(Ak, Bk, bc0, bc1))
@@ -731,7 +731,9 @@ class FDMPC(PCBase):
         Sfdm = numpy.eye(Ahat.shape[0])
         if Sfdm.shape[0] > 2:
             _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Sfdm[kd, rd] = -Sfdm[kd, kd] @ ((Sfdm[kd, kd].T @ Bhat[kd, rd]) @ Sfdm[numpy.ix_(rd, rd)])
+            Sfdm[kd, rd] = numpy.dot(-Sfdm[kd, kd],
+                                     numpy.dot(numpy.dot(Sfdm[kd, kd].T, Bhat[kd, rd]),
+                                               Sfdm[numpy.ix_(rd, rd)]))
 
         def apply_weak_bcs(Ahat, Bhat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
@@ -991,7 +993,7 @@ class FDMPC(PCBase):
         else:
             layers = node_map.iterset.layers_array
             if layers.shape[0] == 1:
-                nelz = layers[0, 1] - layers[0, 0] - 1
+                nelz = layers[0, 1]-layers[0, 0]-1
                 nel = nelz * nelv
                 return lambda e: node_map.values_with_halo[e//nelz] + (e % nelz)*node_map.offset, nel
             else:
@@ -1023,7 +1025,6 @@ class FDMPC(PCBase):
         # Returns boundary condition flags on each cell facet
         # 0 => Natural, do nothing
         # 1 => Strong / Weak Dirichlet
-        # 2 => Interior facet
         V = J.arguments()[0].function_space()
         mesh = V.ufl_domain()
         extruded = mesh.cell_set._extruded
@@ -1031,43 +1032,41 @@ class FDMPC(PCBase):
         if extruded:
             ndim = mesh.topological_dimension()
             nface = 2*ndim
-            ibot = 4
-            itop = 5
-            ivert = [0, 1, 2, 3]
-            nelv = mesh.cell_set.sizes[1]
             layers = mesh.cell_set.layers_array
+            nelv = mesh.cell_to_facets.data_with_halos.shape[0]
             if layers.shape[0] == 1:
                 nelz = layers[0, 1]-layers[0, 0]-1
                 nel = nelv*nelz
             else:
-                nelz = layers[:nelv, 1]-layers[:nelv, 0]-1
+                nelz = layers[:, 1]-layers[:, 0]-1
                 nel = sum(nelz)
+            # extrude cell_to_facets
+            cell_to_facets = numpy.zeros((nel, nface, 2), dtype=mesh.cell_to_facets.data.dtype)
+            cell_to_facets[:, :nface-2, :] = numpy.repeat(mesh.cell_to_facets.data_with_halos, nelz, axis=0)
 
-            facetdata = numpy.zeros([nel, nface, 2], dtype=PETSc.IntType)
-            facetdata[:, ivert, :] = numpy.reshape(numpy.repeat(mesh.cell_to_facets.data, nelz, axis=0), (-1, 4, 2))
-
+            # create markers for the top and bottom boundaries
             dS_int = firedrake.dS_h + firedrake.dS_v
             DGT = firedrake.FunctionSpace(mesh, 'DGT', 0)
+            w = firedrake.Function(DGT)
             v = firedrake.TestFunction(DGT)
-            w = firedrake.assemble((v('-')+v('+'))*dS_int)
-            face2cell = FDMPC.glonum(DGT.cell_node_map())
-            intfacets = w.dat.data_ro_with_halos[face2cell]
-            if layers.shape[0] == 1:
-                for f in ivert:
-                    bnd = numpy.isclose(intfacets[:, f], 0.0E0)
-                    bnd &= (facetdata[:, f, 0] != 0)
-                    facetdata[bnd, f, :] = [0, -8]
+            firedrake.assemble((v('+')+v('-'))*dS_int, w)
 
-            bot = numpy.isclose(intfacets[:, ibot], 0.0E0)
-            top = numpy.isclose(intfacets[:, itop], 0.0E0)
-            facetdata[:, [ibot, itop], :] = -1
-            facetdata[bot, ibot, :] = [0, -2]
-            facetdata[top, itop, :] = [0, -4]
+            markers = (-2, -4)
+            subs = ("bottom", "top")
+            bc_h = [firedrake.DirichletBC(DGT, marker, sub) for marker, sub in zip(markers, subs)]
+            [bc.apply(w) for bc in bc_h]
+            marked_facets = w.dat.data_ro_with_halos[FDMPC.glonum(DGT.cell_node_map())]
+            for f in range(nface):
+                bnd = marked_facets[:, f] < 0
+                cell_to_facets[bnd, f, 0] = 0
+                cell_to_facets[bnd, f, 1] = marked_facets[bnd, f].astype(cell_to_facets.dtype)
+                interior = marked_facets[:, f] > 0
+                cell_to_facets[interior, f, :] = [1, -1]
         else:
-            facetdata = mesh.cell_to_facets.data
+            cell_to_facets = mesh.cell_to_facets.data_with_halos
 
-        flags = facetdata[:, :, 0]
-        sub = facetdata[:, :, 1]
+        flags = cell_to_facets[:, :, 0]
+        sub = cell_to_facets[:, :, 1]
 
         maskall = []
         comp = dict()
