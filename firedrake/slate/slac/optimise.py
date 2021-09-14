@@ -1,34 +1,41 @@
 from gem.node import MemoizerArg
 from functools import singledispatch
 from itertools import repeat
-import firedrake.slate.slate as sl
+from firedrake.slate.slate import *
+from contextlib import contextmanager
+from collections import namedtuple
+from firedrake import Function
 
 
 def optimise(expression, parameters):
-    """Optimises a Slate expression, e.g. by pushing blocks inside the expression.
+    """Optimises a Slate expression, by pushing blocks and multiplications
+    inside the expression and by removing double transposes.
 
     :arg expression: A (potentially unoptimised) Slate expression.
     :arg parameters: A dict of compiler parameters.
 
     Returns: An optimised Slate expression
     """
+    # 1) Block optimisation
     expression = push_block(expression)
-    if isinstance(expression, Mul):
-        return push_mul(*expression.children, parameters)
-    else:
-        # Optimise expression which is already partially optimised
-        # by optimising a subexpression that is not optimised yet
-        # the non optimised expression is a Mul
-        # and has at least one AssembledVector as child
-        partially_optimised = not (isinstance(expression, Mul)
-                                or any(isinstance(child, AssembledVector)
-                                        for child in expression.children))
-        if partially_optimised:
-            # for partially optimised exppresions we pass no coefficient to act on 
-            return drop_double_transpose(push_mul(expression, None, parameters))
-        else:
-            return drop_double_transpose(push_mul(*expression.children, parameters))
 
+    # 2) Multiplication optimisation
+    # Optimise expression which is already partially optimised
+    # by optimising a subexpression that is not optimised yet
+    # the non optimised expression is a Mul
+    # and has at least one AssembledVector as child
+    partially_optimised = not (isinstance(expression, Mul)
+                               or any(isinstance(child, AssembledVector)
+                                      for child in expression.children))
+    if partially_optimised:
+        expression = push_mul(expression, None, parameters)
+    else:
+        expression = push_mul(*expression.children, parameters)
+
+    # 3) Transpose optimisation
+    expression = drop_double_transpose(expression)
+
+    return expression
 
 def push_block(expression):
     """Executes a Slate compiler optimisation pass.
@@ -52,41 +59,41 @@ def _push_block(expr, self, indices):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
 
 
-@_push_block.register(sl.Transpose)
+@_push_block.register(Transpose)
 def _push_block_transpose(expr, self, indices):
     """Indices of the Blocks are transposed if Block is pushed into a Transpose."""
-    return sl.Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
+    return Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
 
 
-@_push_block.register(sl.Add)
-@_push_block.register(sl.Negative)
+@_push_block.register(Add)
+@_push_block.register(Negative)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
     return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
 
 
-@_push_block.register(sl.Factorization)
-@_push_block.register(sl.Inverse)
-@_push_block.register(sl.Solve)
-@_push_block.register(sl.Mul)
+@_push_block.register(Factorization)
+@_push_block.register(Inverse)
+@_push_block.register(Solve)
+@_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
-    return sl.Block(expr, indices) if indices else expr
+    return Block(expr, indices) if indices else expr
 
 
-@_push_block.register(sl.Tensor)
+@_push_block.register(Tensor)
 def _push_block_tensor(expr, self, indices):
     """Turns a Block on a Tensor into a Tensor of an indexed form."""
-    return sl.Tensor(sl.Block(expr, indices).form) if indices else expr
+    return Tensor(Block(expr, indices).form) if indices else expr
 
 
-@_push_block.register(sl.AssembledVector)
+@_push_block.register(AssembledVector)
 def _push_block_assembled_vector(expr, self, indices):
     """Turns a Block on an AssembledVector into the  specialized node BlockAssembledVector."""
-    return sl.BlockAssembledVector(expr._function, sl.Block(expr, indices).form, indices) if indices else expr
+    return BlockAssembledVector(expr._function, Block(expr, indices).form, indices) if indices else expr
 
 
-@_push_block.register(sl.Block)
+@_push_block.register(Block)
 def _push_block_block(expr, self, indices):
     """Inlines Blocks into each other.
     Note that the indices are inlined from the ouside.
@@ -100,11 +107,6 @@ def _push_block_block(expr, self, indices):
     block, = map(self, expr.children, repeat(indices))
     return block
 
-from functools import singledispatch
-from contextlib import contextmanager
-from collections import namedtuple
-from firedrake.slate.slate import *
-from firedrake import Function
 
 
 def drop_double_transpose(expr):
@@ -124,7 +126,6 @@ def _drop_double_transpose(expr, self):
 
 @_drop_double_transpose.register(Tensor)
 @_drop_double_transpose.register(AssembledVector)
-@_drop_double_transpose.register(TensorShell)
 @_drop_double_transpose.register(Block)
 def _drop_double_transpose_terminals(expr, self):
     return expr
@@ -160,17 +161,13 @@ def _drop_double_transpose_action(expr, self):
 def _action(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
 
-@_action.register(Action)
-def _action_action(expr, self, state):
-    return expr
-
 @_action.register(Tensor)
 @_action.register(Block)
 def _action_tensor(expr, self, state):
     if not self.action:
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
-        return Action(expr, state.coeff, state.pick_op)
+        assert "Actions in Slate are not yet supported."
 
 @_action.register(AssembledVector)
 def _action_block(expr, self, state):
@@ -324,6 +321,7 @@ def _action_mul(expr, self, state):
 
 @_action.register(Factorization)
 def _action_factorization(expr, self, state):
+    """ Drop any factorisations. """
     return self(*expr.children, state)
 
 def push_mul(tensor, coeff, options):

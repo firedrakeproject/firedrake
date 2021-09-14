@@ -39,7 +39,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve']
+           'Add', 'Mul', 'Solve', 'BlockAssembledVector']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
