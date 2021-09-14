@@ -237,20 +237,24 @@ def _push_mul_solve(expr, self, state):
 
 @_push_mul.register(Transpose)
 def _push_mul_transpose(expr, self, state):
-    """ Pushes an action through a multiplication.
-        Considers A.T*x = (x.T*A).T,
-        e.g. (C*A.solve(B.T)).T * y = ((y.T * (C*A.solve(B.T))).T
+    """ Pushes a multiplication through a transpose.
+        This works with help of A.T*x = (x.T*A).T.
+        Another example for  expr:=C*A.solve(B.T) : (C*A.solve(B.T)).T * y = (y.T * (C*A.solve(B.T))).T
 
-        :arg expr: a Mul Slate node.
-        :arg self: MemoizerArg.
-        :arg state:  1: if we need to transpose this node, 0 will contain an operand
-                        which needs to be swapped through
-                    0: coefficient
-                    2: pick op
-        :returns: an action of this node on the coefficient.
+        :arg expr: a Transpose
+        :arg self: a MemoizerArg object.
+        :arg state: state carries a coefficient in .coeff,
+                    information about argument swapping in .swap_op,
+                    and information if multiply from front (0) or back (1) in .pick_op
+        :returns: a transposed expression
     """
     if expr.rank == 2:
-        return self(Transpose(self(*expr.children, ActionBag(state.coeff, state.swap_op, state.pick_op^1))),  ActionBag(state.coeff, state.swap_op, state.pick_op))
+        pushed_expr = self(*expr.children,              # push mul into A
+                           ActionBag(state.coeff,
+                                     state.swap_op,
+                                     state.pick_op^1))  # but switch the multiplication order with pick_op 
+        return self(Transpose(pushed_expr,              # then Transpose the end result
+                    ActionBag(state.coeff, state.swap_op, state.pick_op)))
     else:
         return expr
 
