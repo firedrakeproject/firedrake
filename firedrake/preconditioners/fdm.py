@@ -782,13 +782,13 @@ class FDMPC(PCBase):
 
         :returns: a 4-tuple with
             Afdm: a list of 2-tuples of interval stiffness and mass matrices for BC type and
-                  each direction,
+            each direction,
             Dfdm: a list with tabulations of the normal derivative for each direction if
-                  needs_interior_facet is True, else None,
+            needs_interior_facet is True, else None,
             restrict_kernel: a :class:`pyop2.Kernel` with the tensor product restriction from
-                             V onto the FDM space
+            V onto the FDM space,
             prolong_kernel: a :class:`pyop2.Kernel` with the tensor product prolongation from
-                            the FDM space onto V
+            the FDM space onto V
         """
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 
