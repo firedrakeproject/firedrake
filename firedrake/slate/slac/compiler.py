@@ -160,7 +160,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     # Optimise slate expr, e.g. push blocks as far inward as possible
     if compiler_parameters["slate_compiler"]["optimise"]:
-        slate_expr = optimise(slate_expr)
+        slate_expr = optimise(slate_expr, compiler_parameters["slate_compiler"])
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
