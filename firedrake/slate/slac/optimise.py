@@ -137,7 +137,8 @@ def _drop_double_transpose_transpose(expr, self):
     if isinstance(child, Transpose):
         grandchild, = child.children
         return self(grandchild)
-    return type(expr)(*map(self, expr.children))
+    else:
+        return type(expr)(*map(self, expr.children))
 
 
 @_drop_double_transpose.register(Negative)
