@@ -153,27 +153,27 @@ def _drop_double_transpose_solve(expr, self):
 
 
 @singledispatch
-def _action(expr, self, state):
+def _push_mul(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
 
-@_action.register(Tensor)
-@_action.register(Block)
-def _action_tensor(expr, self, state):
+@_push_mul.register(Tensor)
+@_push_mul.register(Block)
+def _push_mul_tensor(expr, self, state):
     if not self.action:
         return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
     else:
         assert "Actions in Slate are not yet supported."
 
-@_action.register(AssembledVector)
-def _action_block(expr, self, state):
+@_push_mul.register(AssembledVector)
+def _push_mul_block(expr, self, state):
     return expr
 
-@_action.register(Inverse)
-def _action_inverse(expr, self, state):
+@_push_mul.register(Inverse)
+def _push_mul_inverse(expr, self, state):
     return Solve(expr.children[0], state.coeff, matfree=True)
 
-@_action.register(Solve)
-def _action_solve(expr, self, state):
+@_push_mul.register(Solve)
+def _push_mul_solve(expr, self, state):
     """ Pushes an action through a multiplication.
         We explot A.T*x = (x.T*A).T,
         e.g.            (y_new*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
@@ -216,8 +216,8 @@ def _action_solve(expr, self, state):
             # always push into the right hand side of the solve
             return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
 
-@_action.register(Transpose)
-def _action_transpose(expr, self, state):
+@_push_mul.register(Transpose)
+def _push_mul_transpose(expr, self, state):
     """ Pushes an action through a multiplication.
         Considers A.T*x = (x.T*A).T,
         e.g. (C*A.solve(B.T)).T * y = ((y.T * (C*A.solve(B.T))).T
@@ -236,13 +236,13 @@ def _action_transpose(expr, self, state):
         return expr
 
 
-@_action.register(Negative)
-@_action.register(Add)
-def _action_distributive(expr, self, state):
+@_push_mul.register(Negative)
+@_push_mul.register(Add)
+def _push_mul_distributive(expr, self, state):
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
 
-@_action.register(Mul)
-def _action_mul(expr, self, state):
+@_push_mul.register(Mul)
+def _push_mul_mul(expr, self, state):
     """ Pushes an action through a multiplication.
 
         EXAMPLE 1: (A*B*C)*y
@@ -314,8 +314,8 @@ def _action_mul(expr, self, state):
         else:
             return expr
 
-@_action.register(Factorization)
-def _action_factorization(expr, self, state):
+@_push_mul.register(Factorization)
+def _push_mul_factorization(expr, self, state):
     """ Drop any factorisations. """
     return self(*expr.children, state)
 
@@ -330,7 +330,7 @@ def push_mul(tensor, coeff, options):
     """
 
     from gem.node import MemoizerArg
-    mapper = MemoizerArg(_action)
+    mapper = MemoizerArg(_push_mul)
     mapper.swapc = SwapController()
     mapper.action = options["replace_mul"]
     a = mapper(tensor, ActionBag(coeff, None, 1))
