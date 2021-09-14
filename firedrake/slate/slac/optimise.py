@@ -127,6 +127,7 @@ def _drop_double_transpose(expr, self):
 @_drop_double_transpose.register(AssembledVector)
 @_drop_double_transpose.register(Block)
 def _drop_double_transpose_terminals(expr, self):
+    """ Terminal expression is encountered."""
     return expr
 
 
@@ -148,7 +149,7 @@ def _drop_double_transpose_distributive(expr, self):
 
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_solve(expr, self):
-    return type(expr)(*map(self, expr.children), matfree=expr.is_matfree, Aonx=expr._Aonx, Aonp=expr._Aonp)
+    return type(expr)(*map(self, expr.children))
 
 
 @singledispatch
