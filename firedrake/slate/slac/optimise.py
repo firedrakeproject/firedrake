@@ -147,11 +147,6 @@ def _drop_double_transpose_distributive(expr, self):
     return type(expr)(*map(self, expr.children))
 
 
-@_drop_double_transpose.register(Action)
-def _drop_double_transpose_action(expr, self):
-    return type(expr)(*map(self, expr.children), expr.pick_op)
-
-
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_action(expr, self):
     return type(expr)(*map(self, expr.children), matfree=expr.is_matfree, Aonx=expr._Aonx, Aonp=expr._Aonp)
