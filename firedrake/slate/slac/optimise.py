@@ -339,7 +339,7 @@ def push_mul(tensor, coeff, options):
     from gem.node import MemoizerArg
     mapper = MemoizerArg(_action)
     mapper.swapc = SwapController()
-    mapper.action = options["replace_mul_with_action"]
+    mapper.action = options["replace_mul"]
     a = mapper(tensor, ActionBag(coeff, None, 1))
     return a
 
