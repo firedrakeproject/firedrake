@@ -185,13 +185,11 @@ def _push_mul_vector(expr, self, state):
     """Do not push into AssembledVectors."""
     return expr
 
-
 @_push_mul.register(Negative)
 @_push_mul.register(Add)
 def _push_mul_distributive(expr, self, state):
     """Distribute the multiplication into the children of the expression. """
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
-
 
 @_push_mul.register(Inverse)
 def _push_mul_inverse(expr, self, state):
@@ -199,6 +197,29 @@ def _push_mul_inverse(expr, self, state):
     with a coefficient into a Solve via A^{-1}*b = A.solve(b)."""
     child, = expr.children
     return Solve(child, state.coeff)
+
+@_push_mul.register(Transpose)
+def _push_mul_transpose(expr, self, state):
+    """ Pushes a multiplication through a transpose.
+        This works with help of A.T*x = (x.T*A).T.
+        Another example for  expr:=C*A.solve(B.T) : (C*A.solve(B.T)).T * y = (y.T * (C*A.solve(B.T))).T
+
+        :arg expr: a Transpose
+        :arg self: a MemoizerArg object.
+        :arg state: state carries a coefficient in .coeff,
+                    information about argument swapping in .swap_op,
+                    and information if multiply from front (0) or back (1) in .pick_op
+        :returns: a transposed expression
+    """
+    if expr.rank == 2:
+        pushed_expr = self(*expr.children,              # push mul into A
+                           ActionBag(state.coeff,
+                                     state.swap_op,
+                                     state.pick_op^1))  # but switch the multiplication order with pick_op 
+        return self(Transpose(pushed_expr,              # then Transpose the end result
+                    ActionBag(state.coeff, state.swap_op, state.pick_op)))
+    else:
+        return expr
 
 @_push_mul.register(Solve)
 def _push_mul_solve(expr, self, state):
@@ -244,28 +265,6 @@ def _push_mul_solve(expr, self, state):
             # always push into the right hand side of the solve
             return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
 
-@_push_mul.register(Transpose)
-def _push_mul_transpose(expr, self, state):
-    """ Pushes a multiplication through a transpose.
-        This works with help of A.T*x = (x.T*A).T.
-        Another example for  expr:=C*A.solve(B.T) : (C*A.solve(B.T)).T * y = (y.T * (C*A.solve(B.T))).T
-
-        :arg expr: a Transpose
-        :arg self: a MemoizerArg object.
-        :arg state: state carries a coefficient in .coeff,
-                    information about argument swapping in .swap_op,
-                    and information if multiply from front (0) or back (1) in .pick_op
-        :returns: a transposed expression
-    """
-    if expr.rank == 2:
-        pushed_expr = self(*expr.children,              # push mul into A
-                           ActionBag(state.coeff,
-                                     state.swap_op,
-                                     state.pick_op^1))  # but switch the multiplication order with pick_op 
-        return self(Transpose(pushed_expr,              # then Transpose the end result
-                    ActionBag(state.coeff, state.swap_op, state.pick_op)))
-    else:
-        return expr
 
 @_push_mul.register(Mul)
 def _push_mul_mul(expr, self, state):
