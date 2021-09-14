@@ -323,7 +323,6 @@ def _push_mul_mul(expr, self, state):
                  2: pick op
     :returns: an action of this node on the coefficient.
     """
-    assert expr.rank != 0, "You cannot do actions on 0 forms"
     if expr.rank == 2:
             other_child = expr.children[state.pick_op^1]
             prio_child = expr.children[state.pick_op]
