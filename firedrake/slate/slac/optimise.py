@@ -150,6 +150,24 @@ def _drop_double_transpose_distributive(expr, self):
     return type(expr)(*map(self, expr.children))
 
 
+def push_mul(tensor, coeff, options):
+    """Compute the action of a form on a Coefficient.
+
+    This works simply by replacing the last Argument
+    with a Coefficient on the same function space (element).
+    The form returned will thus have one Argument less
+    and one additional Coefficient at the end if no
+    Coefficient has been provided.
+    """
+
+    from gem.node import MemoizerArg
+    mapper = MemoizerArg(_push_mul)
+    mapper.swapc = SwapController()
+    mapper.action = options["replace_mul"]
+    a = mapper(tensor, ActionBag(coeff, None, 1))
+    return a
+
+
 @singledispatch
 def _push_mul(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
@@ -316,23 +334,6 @@ def _push_mul_mul(expr, self, state):
 def _push_mul_factorization(expr, self, state):
     """ Drop any factorisations. """
     return self(*expr.children, state)
-
-def push_mul(tensor, coeff, options):
-    """Compute the action of a form on a Coefficient.
-
-    This works simply by replacing the last Argument
-    with a Coefficient on the same function space (element).
-    The form returned will thus have one Argument less
-    and one additional Coefficient at the end if no
-    Coefficient has been provided.
-    """
-
-    from gem.node import MemoizerArg
-    mapper = MemoizerArg(_push_mul)
-    mapper.swapc = SwapController()
-    mapper.action = options["replace_mul"]
-    a = mapper(tensor, ActionBag(coeff, None, 1))
-    return a
 
 """ ActionBag class
 :arg coeff: what we contract with.
