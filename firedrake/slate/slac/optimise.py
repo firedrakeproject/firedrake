@@ -241,15 +241,7 @@ def _push_mul_solve(expr, self, state):
             expr1, expr2 = expr.children
             assert expr2.rank == 1
             coeff = self(expr2, state)
-            arbitrary_coeff_x = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
-            arbitrary_coeff_p = AssembledVector(Function(expr1.arg_function_spaces[state.pick_op]))
-            Aonx = self(expr1, ActionBag(arbitrary_coeff_x, None, state.pick_op))
-            Aonp = self(expr1, ActionBag(arbitrary_coeff_p, None, state.pick_op))
-            if not isinstance(expr1, Tensor): # non terminal node 
-                mat = TensorShell(expr1)
-            else:
-                mat = expr1
-            return Solve(mat, coeff, matfree=expr.is_matfree, Aonx=Aonx, Aonp=Aonp)
+            return Solve(expr1, coeff)
     else:
         # swap operands if we are currently premultiplying due to a former transpose
         if state.pick_op == 0:
