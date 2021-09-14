@@ -186,7 +186,9 @@ def _push_mul_block(expr, self, state):
 
 @_push_mul.register(Inverse)
 def _push_mul_inverse(expr, self, state):
-    return Solve(expr.children[0], state.coeff, matfree=True)
+    """ Rewrite Inverse into Solve with A^{-1}*b = A.solve(b)."""
+    child, = expr.children
+    return Solve(child, state.coeff)
 
 @_push_mul.register(Solve)
 def _push_mul_solve(expr, self, state):
