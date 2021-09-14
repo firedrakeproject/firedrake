@@ -177,7 +177,7 @@ def test_p_multigrid_mixed():
     V = FunctionSpace(mesh, "CG", 4)
     Z = MixedFunctionSpace([V, V])
     x = SpatialCoordinate(mesh) - Constant((0.5, 0.5))
-    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/12)])
+    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/6)])
     B = -div(grad(z_exact))
     T = dot(grad(z_exact), FacetNormal(mesh))
     z = Function(Z)
@@ -195,13 +195,14 @@ def test_p_multigrid_mixed():
               "ksp_max_it": 1,
               "ksp_norm_type": "unpreconditioned",
               "ksp_monitor": None,
-              "pc_type": "lu",
+              "pc_type": "cholesky",
               "pc_factor_shift_type": "nonzero",
               "pc_factor_shift_amount": 1E-10}
 
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
-          "ksp_type": "fgmres",
+          "ksp_type": "cg",
+          "ksp_rtol": 1E-8,
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": __name__ + ".MixedPMG",
@@ -215,20 +216,23 @@ def test_p_multigrid_mixed():
     problem = NonlinearVariationalProblem(F, z, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
     solver.solve()
+    assert solver.snes.ksp.its <= 5
+    ppc = solver.snes.ksp.pc.getPythonContext().ppc
+    assert ppc.getMGLevels() == 3
 
     level = solver._ctx
+    assert np.isclose(assemble(z[1]*dx), 0.0E0)
+    assert np.isclose(norm(z-z_exact, "H1"), 0.0E0)
+    ctx_levels = 0
     while level is not None:
         nsp = level._nullspace
         assert isinstance(nsp, MixedVectorSpaceBasis)
         assert nsp._bases[0].index == 0
         assert isinstance(nsp._bases[1], VectorSpaceBasis)
         assert len(nsp._bases[1]._petsc_vecs) == 1
-        assert np.isclose(assemble(level._problem.u[1]*dx), 0.0E0)
         level = level._coarse
-
-    assert solver.snes.ksp.its <= 4
-    ppc = solver.snes.ksp.pc.getPythonContext().ppc
-    assert ppc.getMGLevels() == 3
+        ctx_levels += 1
+    assert ctx_levels == 3
 
 
 @pytest.mark.skipcomplex

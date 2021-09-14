@@ -268,19 +268,21 @@ class FDMPC(PCBase):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
-        use_separate_reaction = not (Bq is None or needs_hdiv)
+        use_separate_reaction = False if Bq is None else not needs_hdiv and Bq.ufl_shape
         if use_separate_reaction:
+            bshape = Bq.ufl_shape
+            assert (len(bshape) == 2) and (bshape[0] == bshape[1])
             # be = Bhat kron ... kron Bhat
             be = Afdm[0][0][1]
             for k in range(1, ndim):
                 be = be.kron(Afdm[k][0][1])
 
-            aptr = numpy.arange(0, (Bq.ufl_shape[0]+1)*Bq.ufl_shape[1], Bq.ufl_shape[1], dtype=PETSc.IntType)
-            aidx = numpy.tile(numpy.arange(Bq.ufl_shape[1], dtype=PETSc.IntType), Bq.ufl_shape[0])
+            aptr = numpy.arange(0, (bshape[0]+1)*bshape[1], bshape[1], dtype=PETSc.IntType)
+            aidx = numpy.tile(numpy.arange(bshape[1], dtype=PETSc.IntType), bshape[0])
             for e in range(nel):
                 # ae = be kron Bq[e]
                 adata = numpy.sum(Bq.dat.data_ro[index_coef(e)], axis=0)
-                ae = PETSc.Mat().createAIJWithArrays(Bq.ufl_shape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
                 ae = be.kron(ae)
 
                 ie = index_cell(e)

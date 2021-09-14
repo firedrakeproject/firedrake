@@ -9,10 +9,6 @@ def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
-        # layers = np.array([[0, nx]]*(nx*nx))
-        # layers[0, 0] = 1
-        # layers[0, 1] -= 1
-        # m = ExtrudedMesh(m, layers=layers, layer_height=1/nx)
         m = ExtrudedMesh(m, nx)
 
     x = SpatialCoordinate(m)
@@ -24,9 +20,9 @@ def mesh(request):
 @pytest.fixture
 def expected(mesh):
     if mesh.topological_dimension() == 2:
-        return [4, 4, 4]
+        return [5, 5, 5]
     elif mesh.topological_dimension() == 3:
-        return [7, 7, 7]
+        return [8, 8, 8]
 
 
 @pytest.mark.skipcomplex
@@ -34,13 +30,11 @@ def test_p_independence(mesh, expected):
     nits = []
     for p in range(3, 6):
         V = FunctionSpace(mesh, "Lagrange", p)
-
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        a = inner(grad(u), grad(v))*dx
-
-        L = inner(Constant(1), v)*dx
+        a = inner(grad(v), grad(u))*dx
+        L = inner(v, Constant(1))*dx
 
         asm = "firedrake.ASMStarPC"
         subs = ("on_boundary",)
@@ -51,12 +45,13 @@ def test_p_independence(mesh, expected):
 
         uh = Function(V)
         problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-
         solver = LinearVariationalSolver(problem, solver_parameters={
             "mat_type": "matfree",
             "ksp_type": "cg",
             "ksp_atol": 0.0E0,
             "ksp_rtol": 1.0E-8,
+            "ksp_norm_type": "unpreconditioned",
+            "ksp_monitor_true_residual": None,
             "ksp_converged_reason": None,
             "pc_type": "python",
             "pc_python_type": "firedrake.P1PC",
@@ -64,11 +59,10 @@ def test_p_independence(mesh, expected):
                 "ksp_type": "chebyshev",
                 "esteig_ksp_type": "cg",
                 "esteig_ksp_norm_type": "unpreconditioned",
-                "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+                "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
                 "ksp_chebyshev_esteig_noisy": True,
-                "ksp_chebyshev_esteig_steps": 7,
+                "ksp_chebyshev_esteig_steps": 8,
                 "ksp_norm_type": "unpreconditioned",
-                "ksp_monitor_true_residual": None,
                 "pc_type": "python",
                 "pc_python_type": "firedrake.FDMPC",
                 "fdm": {
@@ -76,8 +70,8 @@ def test_p_independence(mesh, expected):
                     "pc_type": "python",
                     "pc_python_type": asm,
                     "pc_star_backend": "petscasm",
-                    "pc_star_sub_sub_ksp_type": "preonly",
                     "pc_star_sub_sub_pc_type": "cholesky",
+                    "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
                 }
             },
             "pmg_mg_coarse": {
@@ -86,13 +80,78 @@ def test_p_independence(mesh, expected):
                 "pc_type": "python",
                 "pc_python_type": "firedrake.AssembledPC",
                 "assembled_pc_type": "cholesky",
-            },
-            "ksp_monitor": None})
-
+            }})
         solver.solve()
-
         nits.append(solver.snes.ksp.getIterationNumber())
     assert (nits == expected)
+
+
+@pytest.mark.skipcomplex
+def test_variable_coefficient(mesh):
+    ndim = mesh.geometric_dimension()
+    k = 4
+    V = FunctionSpace(mesh, "Lagrange", k)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    x = SpatialCoordinate(mesh)
+    x -= Constant([0.5]*ndim)
+
+    # variable coefficients
+    alphas = [0.1+10*dot(x, x)]*ndim
+    alphas[0] = 1+10*exp(-dot(x, x))
+    alpha = diag(as_vector(alphas))
+    beta = ((10*cos(3*pi*x[0]) + 20*sin(2*pi*x[1]))*cos(pi*x[ndim-1]))**2
+
+    a = (inner(grad(v), dot(alpha, grad(u))) + inner(v, beta*u))*dx(degree=3*k+2)
+    L = inner(v, Constant(1))*dx
+
+    asm = "firedrake.ASMStarPC"
+    subs = ("on_boundary",)
+    if mesh.topological_dimension() == 3:
+        asm = "firedrake.ASMExtrudedStarPC"
+        subs += ("top", "bottom")
+    bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters={
+        "mat_type": "matfree",
+        "ksp_type": "cg",
+        "ksp_atol": 0.0E0,
+        "ksp_rtol": 1.0E-8,
+        "ksp_norm_type": "unpreconditioned",
+        "ksp_monitor_true_residual": None,
+        "ksp_converged_reason": None,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_levels": {
+            "ksp_type": "chebyshev",
+            "esteig_ksp_type": "cg",
+            "esteig_ksp_norm_type": "unpreconditioned",
+            "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
+            "ksp_chebyshev_esteig_noisy": True,
+            "ksp_chebyshev_esteig_steps": 7,
+            "ksp_norm_type": "unpreconditioned",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.FDMPC",
+            "fdm": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": asm,
+                "pc_star_backend": "petscasm",
+                "pc_star_sub_sub_pc_type": "cholesky",
+                "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
+            }
+        },
+        "pmg_mg_coarse": {
+            "mat_type": "aij",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.AssembledPC",
+            "assembled_pc_type": "cholesky",
+        }})
+    solver.solve()
+    assert solver.snes.ksp.getIterationNumber() <= 14
 
 
 def outer_jump(v, n):
@@ -113,7 +172,7 @@ def fs(request, mesh):
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, family, degree)
+        return VectorFunctionSpace(mesh, family, degree, dim=5-ndim)
 
 
 @pytest.mark.skipcomplex
@@ -121,17 +180,28 @@ def test_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     u_exact = dot(x, x)
+    ndim = mesh.geometric_dimension()
     ncomp = fs.ufl_element().value_size()
     if ncomp > 1:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
 
-    n = FacetNormal(mesh)
-    f_exact = grad(u_exact)
-    B = u_exact - div(f_exact)
-    T = dot(f_exact, n)
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
+
+    A1 = diag(Constant(numpy.arange(1, ndim+1)))
+    A2 = diag(Constant(numpy.arange(1, ncomp+1)))
+    F_v = lambda grad_u: dot(dot(A2, grad_u), A1)
+    vgradu = variable(grad(uh))
+
+    # problem coefficients
+    alpha = diff(F_v(vgradu), vgradu)
+    beta = Identity(ncomp)
+
+    n = FacetNormal(mesh)
+    f_exact = F_v(grad(u_exact))
+    B = dot(beta, u_exact) - div(f_exact)
+    T = dot(f_exact, n)
 
     subs = (1, 3)
     if mesh.cell_set._extruded:
@@ -172,21 +242,23 @@ def test_direct_solver(fs):
 
     eta = Constant((N+1)**2)
     h = CellVolume(mesh)/FacetArea(mesh)
-    penalty = eta/h
+    penalty = (eta/h) * alpha
 
-    a = (inner(v, u)*dx
-         + inner(grad(v), grad(u))*dx
-         + inner(outer_jump(v, n), avg(penalty) * outer_jump(u, n)) * dS_int
-         - inner(avg(grad(v)), outer_jump(u, n)) * dS_int
-         - inner(avg(grad(u)), outer_jump(v, n)) * dS_int
-         + inner(v, penalty * u) * ds_Dir
-         - inner(grad(v), outer(u, n)) * ds_Dir
-         - inner(grad(u), outer(v, n)) * ds_Dir)
+    i1, i2, i3, i4 = indices(4)
+    ddot = lambda a, b: as_tensor(a[i1, i2, i3, i4] * b[i3, i4], (i1, i2))
+    num_flux = lambda w: ddot(avg(penalty/2), outer_jump(w, n))
+    num_flux_b = lambda w: ddot(penalty/2, outer(w, n))
+
+    a = (inner(v, dot(beta, u))*dx
+         + inner(grad(v), F_v(grad(u)))*dx
+         + inner(outer_jump(v, n), num_flux(u)-avg(F_v(grad(u)))) * dS_int
+         + inner(outer_jump(u, n), num_flux(v)-avg(F_v(grad(v)))) * dS_int
+         + inner(outer(v, n), num_flux_b(u)-F_v(grad(u))) * ds_Dir
+         + inner(outer(u, n), num_flux_b(v)-F_v(grad(v))) * ds_Dir)
 
     L = (inner(v, B)*dx
          + inner(v, T)*ds_Neu
-         + inner(v, penalty * u_exact) * ds_Dir
-         - inner(grad(v), outer(u_exact, n)) * ds_Dir)
+         + inner(outer(u_exact, n), 2*num_flux_b(v)-F_v(grad(v))) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
