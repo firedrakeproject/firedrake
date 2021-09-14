@@ -176,19 +176,28 @@ def test_p_multigrid_mixed():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)
     Z = MixedFunctionSpace([V, V])
-
+    x = SpatialCoordinate(mesh) - Constant((0.5, 0.5))
+    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/12)])
+    B = -div(grad(z_exact))
+    T = dot(grad(z_exact), FacetNormal(mesh))
     z = Function(Z)
-    E = 0.5 * inner(grad(z), grad(z))*dx - inner(Constant((1, 1)), z)*dx
+    E = 0.5 * inner(grad(z), grad(z))*dx - inner(B, z)*dx - inner(T, z)*ds
     F = derivative(E, z, TestFunction(Z))
-
-    bcs = [DirichletBC(Z.sub(0), 0, "on_boundary"),
-           DirichletBC(Z.sub(1), 0, "on_boundary")]
+    bcs = [DirichletBC(Z.sub(0), z_exact[0], "on_boundary")]
 
     relax = {"ksp_type": "chebyshev",
              "ksp_monitor_true_residual": None,
              "ksp_norm_type": "unpreconditioned",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
+
+    coarse = {"ksp_type": "richardson",
+              "ksp_max_it": 1,
+              "ksp_norm_type": "unpreconditioned",
+              "ksp_monitor": None,
+              "pc_type": "lu",
+              "pc_factor_shift_type": "nonzero",
+              "pc_factor_shift_amount": 1E-10}
 
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
@@ -199,16 +208,25 @@ def test_p_multigrid_mixed():
           "mat_type": "aij",
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
-          "pmg_mg_coarse_pc_type": "lu"}
+          "pmg_mg_coarse": coarse}
+
+    basis = VectorSpaceBasis([assemble(TestFunction(Z.sub(1))*dx)])
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
     problem = NonlinearVariationalProblem(F, z, bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
     solver.solve()
 
-    assert solver.snes.ksp.its <= 5
+    level = solver._ctx
+    while level is not None:
+        nsp = level._nullspace
+        assert isinstance(nsp, MixedVectorSpaceBasis)
+        assert nsp._bases[0].index == 0
+        assert isinstance(nsp._bases[1], VectorSpaceBasis)
+        assert len(nsp._bases[1]._petsc_vecs) == 1
+        assert np.isclose(assemble(level._problem.u[1]*dx), 0.0E0)
+        level = level._coarse
+
+    assert solver.snes.ksp.its <= 4
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
 

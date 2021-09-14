@@ -194,9 +194,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        fV._coarse = cV
-        fu._coarse = cu
-
         def get_max_degree(ele):
             if isinstance(ele, MixedElement):
                 return max(get_max_degree(sub) for sub in ele.sub_elements())
