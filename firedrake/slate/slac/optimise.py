@@ -258,6 +258,7 @@ def _push_mul_transpose(expr, self, state):
 @_push_mul.register(Negative)
 @_push_mul.register(Add)
 def _push_mul_distributive(expr, self, state):
+    """Distribute the multiplication into the children of the expression. """
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
 
 @_push_mul.register(Mul)
