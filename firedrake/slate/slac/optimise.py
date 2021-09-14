@@ -218,7 +218,7 @@ def _push_mul_transpose(expr, self, state):
         :arg state: state carries a coefficient in .coeff,
                     information about argument swapping in .swap_op,
                     and information if multiply from front (0) or back (1) in .pick_op
-        :returns: a transposed expression
+        :returns: an optimised transposed expression
     """
     if expr.rank == 2:
         pushed_expr = self(*expr.children,              # push mul into A
