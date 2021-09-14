@@ -4,10 +4,11 @@ from itertools import repeat
 import firedrake.slate.slate as sl
 
 
-def optimise(expression):
+def optimise(expression, parameters):
     """Optimises a Slate expression, e.g. by pushing blocks inside the expression.
 
     :arg expression: A (potentially unoptimised) Slate expression.
+    :arg parameters: A dict of compiler parameters.
 
     Returns: An optimised Slate expression
     """
@@ -15,7 +16,18 @@ def optimise(expression):
     if isinstance(expression, Mul):
         return push_mul(*expression.children, tsfc_parameters)
     else:
-        return expression
+        # Optimise expression which is already partially optimised
+        # by optimising a subexpression that is not optimised yet
+        # the non optimised expression is a Mul
+        # and has at least one AssembledVector as child
+        partially_optimised = not (isinstance(expression, Mul)
+                                or any(isinstance(child, AssembledVector)
+                                        for child in expression.children))
+        if partially_optimised:
+            # for partially optimised exppresions we pass no coefficient to act on 
+            return drop_double_transpose(push_mul(expression, None, parameters))
+        else:
+            return drop_double_transpose(push_mul(*expression.children, parameters))
 
 
 def push_block(expression):
@@ -353,17 +365,3 @@ class SwapController(object):
         :arg op: operand to be swapped.
         :returns: the modified code generation context."""
         yield ActionBag(state.coeff, swap_op, state.pick_op)
-
-def optimise(expr, tsfc_parameters):
-    # Optimise expression which is already partially optimised
-    # by optimising a subexpression that is not optimised yet
-    # the non optimised expression is a Mul
-    # and has at least one AssembledVector as child
-    partially_optimised = not (isinstance(expr, Mul)
-                               or any(isinstance(child, AssembledVector)
-                                      for child in expr.children))
-    if partially_optimised:
-        # for partially optimised exppresions we pass no coefficient to act on 
-        return drop_double_transpose(push_mul(expr, None, tsfc_parameters))
-    else:
-        return drop_double_transpose(push_mul(*expr.children, tsfc_parameters))
