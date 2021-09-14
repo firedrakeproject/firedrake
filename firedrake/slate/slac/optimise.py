@@ -261,7 +261,7 @@ def _push_mul_solve(expr, self, state):
             # FIXME
             assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
                                                                 the rhs in a  Solve is a result of a Solve"
-            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1))
+            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)))
         else:
             """
             case 2) child 1 is matrix, child2 is matrix
