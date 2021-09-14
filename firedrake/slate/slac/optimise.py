@@ -6,6 +6,15 @@ from contextlib import contextmanager
 from collections import namedtuple
 from firedrake import Function
 
+""" ActionBag class
+:arg coeff: what we contract with.
+:arg swap_op:   holds an operand that needs to be swapped with the child of another operand
+                needed to deal with solves which get premultiplied by a vector.
+:arg pick_op:   decides which argument in Tensor is exchanged against the coefficient
+                and also in which operand the action has to be pushed,
+                basically determins if we pre or postmultiply
+"""
+ActionBag = namedtuple("ActionBag", ["coeff", "swap_op",  "pick_op"])
 
 def optimise(expression, parameters):
     """Optimises a Slate expression, by pushing blocks and multiplications
@@ -352,15 +361,6 @@ def _push_mul_factorization(expr, self, state):
     """ Drop any factorisations. """
     return self(*expr.children, state)
 
-""" ActionBag class
-:arg coeff: what we contract with.
-:arg swap_op:   holds an operand that needs to be swapped with the child of another operand
-                needed to deal with solves which get premultiplied by a vector.
-:arg pick_op:   decides which argument in Tensor is exchanged against the coefficient
-                and also in which operand the action has to be pushed,
-                basically determins if we pre or postmultiply
-"""
-ActionBag = namedtuple("ActionBag", ["coeff", "swap_op",  "pick_op"])
 
 class SwapController(object):
 
