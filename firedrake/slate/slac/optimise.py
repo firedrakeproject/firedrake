@@ -109,8 +109,8 @@ def _push_block_block(expr, self, indices):
 
 
 def drop_double_transpose(expr):
-    """ Remove double transposes from optimised Slate expression.
-        Remember A = A.T.T
+    """ Remove double transposes from optimised Slate expression, 
+        since A = A.T.T.
     """
     from gem.node import Memoizer
     mapper = Memoizer(_drop_double_transpose)
