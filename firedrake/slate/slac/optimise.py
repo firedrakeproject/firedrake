@@ -108,7 +108,6 @@ def _push_block_block(expr, self, indices):
     return block
 
 
-
 def drop_double_transpose(expr):
     """ Remove double transposes from optimised Slate expression.
         Remember A = A.T.T
