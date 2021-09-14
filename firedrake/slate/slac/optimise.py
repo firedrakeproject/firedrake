@@ -257,13 +257,12 @@ def _push_mul_solve(expr, self, state):
             # FIXME
             assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
                                                                 the rhs in a  Solve is a result of a Solve"
-            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)),
-                                    matfree=expr.is_matfree)
+            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1))
         else:
             rhs = expr.children[state.pick_op]
             mat = expr.children[state.pick_op^1]
             # always push into the right hand side of the solve
-            return Solve(mat, self(rhs, state), matfree=expr.is_matfree)
+            return Solve(mat, self(rhs, state))
 
 
 @_push_mul.register(Mul)
