@@ -185,6 +185,14 @@ def _push_mul_vector(expr, self, state):
     """Do not push into AssembledVectors."""
     return expr
 
+
+@_push_mul.register(Negative)
+@_push_mul.register(Add)
+def _push_mul_distributive(expr, self, state):
+    """Distribute the multiplication into the children of the expression. """
+    return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
+
+
 @_push_mul.register(Inverse)
 def _push_mul_inverse(expr, self, state):
     """ Rewrites the multiplication of Inverse
@@ -258,13 +266,6 @@ def _push_mul_transpose(expr, self, state):
                     ActionBag(state.coeff, state.swap_op, state.pick_op)))
     else:
         return expr
-
-
-@_push_mul.register(Negative)
-@_push_mul.register(Add)
-def _push_mul_distributive(expr, self, state):
-    """Distribute the multiplication into the children of the expression. """
-    return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
 
 @_push_mul.register(Mul)
 def _push_mul_mul(expr, self, state):
