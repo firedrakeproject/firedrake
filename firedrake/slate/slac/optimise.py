@@ -181,7 +181,8 @@ def _push_mul_tensor(expr, self, state):
         assert "Actions in Slate are not yet supported."
 
 @_push_mul.register(AssembledVector)
-def _push_mul_block(expr, self, state):
+def _push_mul_vector(expr, self, state):
+    """Do not push into AssembledVectors."""
     return expr
 
 @_push_mul.register(Inverse)
