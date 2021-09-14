@@ -14,7 +14,7 @@ def optimise(expression, parameters):
     """
     expression = push_block(expression)
     if isinstance(expression, Mul):
-        return push_mul(*expression.children, tsfc_parameters)
+        return push_mul(*expression.children, parameters)
     else:
         # Optimise expression which is already partially optimised
         # by optimising a subexpression that is not optimised yet
