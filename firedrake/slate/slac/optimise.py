@@ -146,7 +146,7 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_distributive(expr, self):
-    """Distribute the multiplication into the children of the expression. """
+    """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
 
 
