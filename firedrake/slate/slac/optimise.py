@@ -223,19 +223,21 @@ def _push_mul_transpose(expr, self, state):
 
 @_push_mul.register(Solve)
 def _push_mul_solve(expr, self, state):
-    """ Pushes an action through a multiplication.
-        We explot A.T*x = (x.T*A).T,
-        e.g.            (y_new*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
-        transforms to   (((A.inv*(B.T)).T*y_new.T).T.T    -> {[(4,4)*(4,3)].T*(4,1)}.T.T
-                        = (B*A.inv.T*y_new.T).T.T         -> {(3,4)*[(4,4)*(4,1)]}
-                        = B*A.T.solve(y_new.T)
+    """ Pushes a multiplication through a solve.
+        case 1) child 1 is matrix, child2 is vector
+        case 2) child 1 is matrix, child2 is matrix
+                a) multiplication from front
+                b) multiplication from back
     """
-    assert expr.rank != 0, "You cannot do actions on 0 forms"
     if expr.rank == 1:
         if not state.coeff:
-            # expression is already partially optimised
-            # meaning coefficient is not multiplied on the outside of it
-            # so the rhs of the solve must contain the coefficient
+            """
+            case 1) child 1 is matrix, child2 is vector
+                    In this case the Solve expression is already partially optimised.
+                    Its rhs is a vector but may still leave space for optimisation.
+                    Rhs of the solve must contain the coefficient.
+                    No coefficient would be multiplied on the outside of the Solve.
+            """
             expr1, expr2 = expr.children
             assert expr2.rank == 1
             coeff = self(expr2, state)
@@ -251,17 +253,32 @@ def _push_mul_solve(expr, self, state):
     else:
         # swap operands if we are currently premultiplying due to a former transpose
         if state.pick_op == 0:
-            rhs = state.swap_op
-            mat = Transpose(expr.children[state.pick_op])
-            swapped_op = Transpose(expr.children[state.pick_op^1])#, ActionBag(state.coeff, None, state.pick_op))
+            """
+            case 2) child 1 is matrix, child2 is matrix
+                 a) multiplication from front
+                    We exploit A.T*x = (x.T*A).T and previously used A.inv*b=A.solve(b).
+                    e.g.            (1) (y*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
+                    transforms to   (2) (((A.inv*(B.T)).T*y.T).T.T    -> {[(4,4)*(4,3)].T*(4,1)}.T.T
+                                    (3) = (B*A.inv.T*y.T).T.T         -> {(3,4)*[(4,4)*(4,1)]}
+                                    (4) = B*A.T.solve(y.T)
+                    From (2) to (3) we need to swap rhs of the solve with the coefficient.
+            """
+            rhs = state.swap_op                                     # y in example
+            mat = Transpose(expr.children[state.pick_op])           # A.T in example
+            swapped_op = Transpose(expr.children[state.pick_op^1])  # B.T.T in example
             # FIXME
             assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
                                                                 the rhs in a  Solve is a result of a Solve"
             return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1))
         else:
+            """
+            case 2) child 1 is matrix, child2 is matrix
+                 b) multiplication from back
+                    A.solve(B)*x = A.inv*B*x = A.inv*(B*x) = A.solve(Bx)
+                    We always push into the right hand side of the solve.
+            """
             rhs = expr.children[state.pick_op]
             mat = expr.children[state.pick_op^1]
-            # always push into the right hand side of the solve
             return Solve(mat, self(rhs, state))
 
 
