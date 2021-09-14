@@ -109,9 +109,7 @@ def _push_block_block(expr, self, indices):
 
 
 def drop_double_transpose(expr):
-    """ Remove double transposes from optimised Slate expression, 
-        since A = A.T.T.
-    """
+    """Remove double transposes from optimised Slate expression."""
     from gem.node import Memoizer
     mapper = Memoizer(_drop_double_transpose)
     a = mapper(expr)
@@ -127,12 +125,14 @@ def _drop_double_transpose(expr, self):
 @_drop_double_transpose.register(AssembledVector)
 @_drop_double_transpose.register(Block)
 def _drop_double_transpose_terminals(expr, self):
-    """ Terminal expression is encountered."""
+    """Terminal expression is encountered."""
     return expr
 
 
 @_drop_double_transpose.register(Transpose)
 def _drop_double_transpose_transpose(expr, self):
+    """When the expression and its child are transposes the grandchild is returned,
+    because A=A.T.T."""
     child, = expr.children
     if isinstance(child, Transpose):
         grandchild, = child.children
@@ -146,11 +146,7 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_distributive(expr, self):
-    return type(expr)(*map(self, expr.children))
-
-
-@_drop_double_transpose.register(Solve)
-def _drop_double_transpose_solve(expr, self):
+    """Distribute the multiplication into the children of the expression. """
     return type(expr)(*map(self, expr.children))
 
 
