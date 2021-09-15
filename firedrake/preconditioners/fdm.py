@@ -40,9 +40,9 @@ except ImportError:
 
 class FDMPC(PCBase):
     """
-    A precondtioner for tensor-product elements that changes the shape
-    functions so that the H^1 Riesz map is diagonalized in the interior of the
-    interval, and assembles a global sparse matrix on which other
+    A preconditioner for tensor-product elements that changes the shape
+    functions so that the H^1 Riesz map is diagonalized in the interior of a
+    Cartesian cell, and assembles a global sparse matrix on which other
     preconditioners, such as `ASMStarPC`, can be applied.
 
     Here we assume that the volume integrals in the Jacobian can be expressed as:
@@ -50,9 +50,9 @@ class FDMPC(PCBase):
     inner(grad(v), alpha(grad(u)))*dx + inner(v, beta(u))*dx
 
     where alpha and beta are linear functions (tensor contractions).
-    The coefficients in alpha that couple mixed derivatives and mixed vector
-    components are discarded. The sparse matrix is obtained by approximating
-    alpha and beta as cell-wise constants.
+    The sparse matrix is obtained by approximating alpha and beta by cell-wise
+    constants and discarding the coefficients in alpha that couple together
+    mixed derivatives and mixed components.
 
     For spaces that are not H^1-conforming, this preconditioner will use
     the symmetric interior-penalty DG method. The penalty coefficient can be
@@ -91,8 +91,7 @@ class FDMPC(PCBase):
         self.bcs = solverctx.bcs_J
 
         if len(self.bcs) > 0:
-            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False)
-                                                            for bc in self.bcs]))
+            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
@@ -163,59 +162,38 @@ class FDMPC(PCBase):
         self._assemble_Pmat()
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
+    def apply(self, pc, x, y, transpose=False):
+        self.uc.assign(firedrake.zero())
+
+        with self.uf.dat.vec_wo as xf:
+            x.copy(xf)
+
+        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.INC, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map),
+                     self.weight.dat(op2.READ, self.cell_node_map))
+
+        [bc.zero(self.uc) for bc in self.bcs]
+
+        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+            if transpose:
+                self.pc.applyTranspose(x_, y_)
+            else:
+                self.pc.apply(x_, y_)
+
+        [bc.zero(self.uf) for bc in self.bcs]
+
+        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
+                     self.uc.dat(op2.WRITE, self.cell_node_map),
+                     self.uf.dat(op2.READ, self.cell_node_map))
+
+        with self.uc.dat.vec_ro as xc:
+            xc.copy(y)
+
+        y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+
     def applyTranspose(self, pc, x, y):
-        self.uc.assign(firedrake.zero())
-
-        with self.uf.dat.vec_wo as xf:
-            x.copy(xf)
-
-        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map),
-                     self.weight.dat(op2.READ, self.cell_node_map))
-
-        [bc.zero(self.uc) for bc in self.bcs]
-
-        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
-            self.pc.applyTranspose(x_, y_)
-
-        [bc.zero(self.uf) for bc in self.bcs]
-
-        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.WRITE, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map))
-
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(y)
-
-        y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
-
-    def apply(self, pc, x, y):
-        self.uc.assign(firedrake.zero())
-
-        with self.uf.dat.vec_wo as xf:
-            x.copy(xf)
-
-        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map),
-                     self.weight.dat(op2.READ, self.cell_node_map))
-
-        [bc.zero(self.uc) for bc in self.bcs]
-
-        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
-            self.pc.apply(x_, y_)
-
-        [bc.zero(self.uf) for bc in self.bcs]
-
-        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.WRITE, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map))
-
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(y)
-
-        y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+        self.apply(pc, x, y, transpose=True)
 
     def view(self, pc, viewer=None):
         super(FDMPC, self).view(pc, viewer)
@@ -250,16 +228,15 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
 
+        index_cell, nel = self.glonum_fun(V.cell_node_map())
+        index_coef, _ = self.glonum_fun(Gq.cell_node_map())
+        flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
+
         # pshape is the shape of the DOFs in the tensor product
         if needs_hdiv:
             pshape = [[Afdm[(k-i) % ncomp][0][0].size[0] for i in range(ndim)] for k in range(ncomp)]
         else:
             pshape = [Ak[0][0].size[0] for Ak in Afdm]
-
-        index_cell, nel = self.glonum_fun(V.cell_node_map())
-        index_coef, _ = self.glonum_fun(Gq.cell_node_map())
-
-        flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # we need to preallocate the diagonal of Dirichlet nodes
         for row in V.dof_dset.lgmap.indices:
@@ -286,7 +263,7 @@ class FDMPC(PCBase):
                 ae = be.kron(ae)
 
                 ie = index_cell(e)
-                ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=PETSc.IntType), len(ie))
+                ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=ie.dtype), len(ie))
                 indptr, indices, data = ae.getValuesCSR()
                 rows = lgmap.apply(ie)
                 cols = rows[indices]
@@ -323,7 +300,7 @@ class FDMPC(PCBase):
                     facet_perm = (facet_perm-k) % ndim
 
                 # ae = mue[k][0] Ahat + bqe[k] Bhat
-                be = Afdm[facet_perm[0]][fbc[0]][1]
+                be = Afdm[facet_perm[0]][fbc[0]][1].copy()
                 ae = Afdm[facet_perm[0]][fbc[0]][0].copy()
                 ae.scale(muk[0])
                 if Bq is not None:
@@ -347,6 +324,7 @@ class FDMPC(PCBase):
                     i1 = indptr[i+1]
                     A.setValues(row, cols[i0:i1], data[i0:i1], imode)
                 ae.destroy()
+                be.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         needs_interior_facet = Dfdm[0] is not None
@@ -966,7 +944,7 @@ class FDMPC(PCBase):
             local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
 
             cell_node_map = V.cell_node_map()
-            cell_to_nodes = cell_node_map.values
+            cell_to_nodes = cell_node_map.values_with_halo
             cell_offset = cell_node_map.offset
 
             nelv = cell_to_nodes.shape[0]
@@ -1015,9 +993,9 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def glonum_fun(node_map):
         """
-        Return a function that maps the cell to its nodes and the total number of cells.
+        Return a function that maps each cell to its nodes and the total number of cells.
 
-        :arg node_map: a :class:`pyop2.Map` mapping the set of cells to their nodes
+        :arg node_map: a :class:`pyop2.Map` mapping cells to their nodes
 
         :returns: a 2-tuple with the map and the number of cells owned by this process
         """
@@ -1043,7 +1021,7 @@ class FDMPC(PCBase):
         """
         Return an array with the nodes of each cell.
 
-        :arg node_map: a :class:`pyop2.Map` mapping the set of cells to their nodes
+        :arg node_map: a :class:`pyop2.Map` mapping cells to their nodes
 
         :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
         """
@@ -1067,9 +1045,8 @@ class FDMPC(PCBase):
         # 1 => strong / weak Dirichlet
         V = J.arguments()[0].function_space()
         mesh = V.ufl_domain()
-        extruded = mesh.cell_set._extruded
 
-        if extruded:
+        if mesh.cell_set._extruded:
             layers = mesh.cell_set.layers_array
             nelv, nfacet, _ = mesh.cell_to_facets.data_with_halos.shape
             if layers.shape[0] == 1:
@@ -1082,24 +1059,28 @@ class FDMPC(PCBase):
             cell_to_facets = numpy.zeros((nel, nfacet+2, 2), dtype=mesh.cell_to_facets.data.dtype)
             cell_to_facets[:, :nfacet, :] = numpy.repeat(mesh.cell_to_facets.data_with_halos, nelz, axis=0)
 
-            # create markers for the top and bottom boundaries
+            # get a function with a single node per facet
+            # mark interior facets by assembling a surface integral
             dS_int = firedrake.dS_h + firedrake.dS_v
             DGT = firedrake.FunctionSpace(mesh, "DGT", 0)
-            w = firedrake.Function(DGT)
             v = firedrake.TestFunction(DGT)
-            firedrake.assemble((v('+')+v('-'))*dS_int, w)
+            w = firedrake.assemble((v('+')+v('-'))*dS_int)
 
+            # mark the bottom and top boundaries with DirichletBCs
             markers = (-2, -4)
             subs = ("bottom", "top")
             bc_h = [firedrake.DirichletBC(DGT, marker, sub) for marker, sub in zip(markers, subs)]
             [bc.apply(w) for bc in bc_h]
+
+            # index the function with the extruded cell_node_map
             marked_facets = w.dat.data_ro_with_halos[FDMPC.glonum(DGT.cell_node_map())]
-            for f in range(marked_facets.shape[1]):
-                bnd = marked_facets[:, f] < 0
-                cell_to_facets[bnd, f, 0] = 0
-                cell_to_facets[bnd, f, 1] = marked_facets[bnd, f].astype(cell_to_facets.dtype)
-                interior = marked_facets[:, f] > 0
-                cell_to_facets[interior, f, :] = [1, -1]
+
+            # complete the missing pieces of cell_to_facets
+            interior = marked_facets > 0
+            cell_to_facets[interior, :] = [1, -1]
+            bnd = marked_facets < 0
+            cell_to_facets[bnd, 0] = 0
+            cell_to_facets[bnd, 1] = marked_facets[bnd].astype(cell_to_facets.dtype)
         else:
             cell_to_facets = mesh.cell_to_facets.data_with_halos
 

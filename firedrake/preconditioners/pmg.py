@@ -379,7 +379,6 @@ class PMGBase(PCSNESBase):
 
 class PMGPC(PCBase, PMGBase):
     _prefix = "pmg_"
-    _type = "mg"
 
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
