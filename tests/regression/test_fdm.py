@@ -130,7 +130,7 @@ def test_variable_coefficient(mesh):
             "esteig_ksp_norm_type": "unpreconditioned",
             "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
             "ksp_chebyshev_esteig_noisy": True,
-            "ksp_chebyshev_esteig_steps": 7,
+            "ksp_chebyshev_esteig_steps": 8,
             "ksp_norm_type": "unpreconditioned",
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",
