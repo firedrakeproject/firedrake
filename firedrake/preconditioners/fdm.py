@@ -103,8 +103,7 @@ class FDMPC(PCBase):
 
         # Get the interior penalty parameter from the appctx
         appctx = self.get_appctx(pc)
-        eta = appctx.get("eta", (N+1)*(N+ndim))
-        eta = float(eta)
+        eta = float(appctx.get("eta", (N+1)*(N+ndim)))
 
         # Get the FDM transfer kernels (restriction and prolongation)
         # Afdm = sparse interval mass and stiffness matrices for each direction
@@ -113,25 +112,24 @@ class FDMPC(PCBase):
 
         # Get coefficients w.r.t. the reference coordinates
         # we may use a lower quadrature degree, but using Nq is not so expensive
-        Gq, Bq, self._assemble_Gq, self._assemble_Bq = self.assemble_coef(self.J, Nq, discard_mixed=True, cell_average=True)
+        coefficients, self.assembly_callables = self.assemble_coef(self.J, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
 
         # Set arbitrary non-zero coefficients for preallocation
-        Gq.dat.data[:] = 1.0E0
-        if Bq is not None:
-            Bq.dat.data[:] = 1.0E0
+        for coef in coefficients.values():
+            coef.dat.data[:] = 1.0E0
 
         # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
         prealloc = PETSc.Mat().create(comm=A.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
-        self.assemble_kron(prealloc, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        self.assemble_kron(prealloc, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
 
         ndof = V.value_size * V.dof_dset.set.size
         nnz = get_preallocation(prealloc, ndof)
         self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, Gq, Bq,
-                                      Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, 
+                                      coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
 
         lgmap = V.dof_dset.lgmap
         self.Pmat.setBlockSize(V.value_size)
@@ -156,8 +154,7 @@ class FDMPC(PCBase):
         self.update(pc)
 
     def update(self, pc):
-        self._assemble_Gq()
-        self._assemble_Bq()
+        [assemble_coef() for assemble_coef in self.assembly_callables]
         self.Pmat.zeroEntries()
         self._assemble_Pmat()
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
@@ -206,7 +203,7 @@ class FDMPC(PCBase):
         # permute x by reshaping into pshape and moving axis idir to the front
         return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
-    def assemble_kron(self, A, V, Gq, Bq, Afdm, Dfdm, eta, bcflags, needs_hdiv):
+    def assemble_kron(self, A, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
@@ -220,6 +217,9 @@ class FDMPC(PCBase):
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `FDMPC.get_bc_flags`
         :arg needs_hdiv: a `bool` indicating whether the function space V is H(div)-conforming
         """
+        Gq = coefficients.get("Gq", None)
+        Bq = coefficients.get("Bq", None)
+
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(self.bcs)
 
@@ -333,8 +333,8 @@ class FDMPC(PCBase):
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
             if needs_hdiv:
-                # TODO make assembly callable for facet coefficients
-                Gq_facet, Piola_facet = self.assemble_piola_facet(self.alpha)
+                Gq_facet = coefficients.get("Gq_facet", None)
+                PT_facet = coefficients.get("PT_facet", None)
                 index_coef, _, _ = self.get_interior_facet_maps(Gq_facet)
             else:
                 index_coef, _, _ = self.get_interior_facet_maps(Gq)
@@ -351,7 +351,7 @@ class FDMPC(PCBase):
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
                     je = je[[0, 1], lfd]
-                    Pfacet = Piola_facet.dat.data_ro_with_halos[je]
+                    Pfacet = PT_facet.dat.data_ro_with_halos[je]
                     Gfacet = Gq_facet.dat.data_ro_with_halos[je]
                 else:
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
@@ -419,23 +419,22 @@ class FDMPC(PCBase):
                     Ae.destroy()
         A.assemble()
 
-    def assemble_coef(self, J, quad_degree, discard_mixed=False, cell_average=False):
+    def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False, needs_hdiv=False):
         """
         Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
 
         :arg J: the Jacobian bilinear form
-        :arg quad_degree: the quadrature degree used for the coefficients
+        :arg quad_deg: the quadrature degree used for the coefficients
         :arg discard_mixed: discard entries in second order coefficient with mixed derivatives and mixed components
         :arg cell_average: to return the coefficients as DG_0 Functions
 
-        The quadrature-weighted coefficients are stored in
-
-        Gq: a :class:`firedrake.Function` with the coefficients of the reference gradient of both arguments
-        Bq: a :class:`firedrake.Function` with the coefficients of both arguments
-
-        :returns: a 4-tuple of (Gq, Bq, assemble_Gq, assemble_Bq)
+        :returns: a 2-tuple of 
+            coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
+            assembly_callables: a list of assembly callables for each coefficient of the form
         """
-
+        coefficients = {}
+        assembly_callables = []
+        
         gdim = self.mesh.geometric_dimension()
         ndim = self.mesh.topological_dimension()
         Finv = JacobianInverse(self.mesh)
@@ -444,7 +443,7 @@ class FDMPC(PCBase):
             degree = 0
         else:
             family = "Quadrature"
-            degree = quad_degree
+            degree = quad_deg
 
         # extract coefficients directly from the bilinear form
         args_J = J.arguments()
@@ -468,9 +467,6 @@ class FDMPC(PCBase):
         rep_dict = {t: variable(t) for t in args_J}
         val = list(rep_dict.values())
         beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
-
-        self.alpha = alpha
-        self.beta = beta
 
         # transform the second order coefficient alpha (physical gradient) to obtain G (reference gradient)
         if gdim == ndim:
@@ -516,12 +512,12 @@ class FDMPC(PCBase):
         Q = firedrake.FunctionSpace(self.mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
-        assemble_Gq = partial(firedrake.assemble, inner(G, q)*dx(degree=quad_degree), Gq)
+        coefficients["Gq"] = Gq
+        assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx(degree=quad_deg), Gq))
 
         # assemble zero-th order coefficient
         if isinstance(beta, Zero):
             Bq = None
-            assemble_Bq = lambda: None
         else:
             if Piola:
                 # apply Piola transform and keep diagonal
@@ -537,36 +533,41 @@ class FDMPC(PCBase):
             Q = firedrake.FunctionSpace(self.mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
-            assemble_Bq = partial(firedrake.assemble, inner(beta, q)*dx(degree=quad_degree), Bq)
-        return Gq, Bq, assemble_Gq, assemble_Bq
+            coefficients["Bq"] = Bq
+            assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx(degree=quad_deg), Bq))
 
-    def assemble_piola_facet(self, alpha):
-        # Return DGT functions with the second order coefficients w.r.t to the reference gradient
-        # and the Piola transform matrix for each side of each facet
-        extruded = self.mesh.cell_set._extruded
-        dS_int = firedrake.dS_h + firedrake.dS_v if extruded else firedrake.dS
-        area = firedrake.FacetArea(self.mesh)
+        if needs_hdiv:
+            # make DGT functions with the second order coefficient
+            # and the Piola transform matrix for each side of each facet
+            extruded = self.mesh.cell_set._extruded
+            dS_int = firedrake.dS_h(degree=quad_deg) + firedrake.dS_v(degree=quad_deg) if extruded else firedrake.dS(degree=quad_deg)
+            cell = firedrake.hexahedron if extruded else self.mesh.ufl_cell()  # FIXME
+            ele = BrokenElement(FiniteElement("DGT", cell, 0))
+            area = firedrake.FacetArea(self.mesh)
 
-        Finv = JacobianInverse(self.mesh)
-        vol = abs(JacobianDeterminant(self.mesh))
-        i1, i2, i3, i4, j2, j4 = indices(6)
-        G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
-        G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
+            Finv = JacobianInverse(self.mesh)
+            vol = abs(JacobianDeterminant(self.mesh))
+            i1, i2, i3, i4, j2, j4 = indices(6)
+            G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
+            G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
-        # hinv = area / vol
-        # Finv = hinv * FacetNormal(self.mesh)
-        # G = vol * as_tensor(Finv[j2] * Finv[j4] * alpha[i1, j2, i3, j4], (i1, i3))
-        cell = firedrake.hexahedron if extruded else self.mesh.ufl_cell()  # FIXME
-        ele = BrokenElement(FiniteElement("DGT", cell, 0))
-        Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=G.ufl_shape)
-        test = firedrake.TestFunction(Q)
-        Gfacet = firedrake.assemble(((inner(test('+'), G('+')) + inner(test('-'), G('-')))/area) * dS_int)
+            # hinv = area / vol
+            # Finv = hinv * FacetNormal(self.mesh)
+            # G = vol * as_tensor(Finv[j2] * Finv[j4] * alpha[i1, j2, i3, j4], (i1, i3))
+            Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=G.ufl_shape)
+            q = firedrake.TestFunction(Q)
+            Gq_facet = firedrake.Function(Q)
+            coefficients["Gq_facet"] = Gq_facet
+            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), G('+')) + inner(q('-'), G('-')))/area) * dS_int, Gq_facet))
 
-        PT = Jacobian(self.mesh).T / JacobianDeterminant(self.mesh)
-        Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=PT.ufl_shape)
-        test = firedrake.TestFunction(Q)
-        Pfacet = firedrake.assemble(((inner(test('+'), PT('+')) + inner(test('-'), PT('-')))/area) * dS_int)
-        return Gfacet, Pfacet
+            PT = Piola.T
+            Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=PT.ufl_shape)
+            q = firedrake.TestFunction(Q)
+            PT_facet = firedrake.Function(Q)
+            coefficients["PT_facet"] = PT_facet
+            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
+        
+        return coefficients, assembly_callables
 
     @staticmethod
     def numpy_to_petsc(A_numpy, dense_indices, diag=True):

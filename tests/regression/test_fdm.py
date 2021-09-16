@@ -184,7 +184,14 @@ def test_direct_solver(fs):
     ncomp = fs.ufl_element().value_size()
     if ncomp > 1:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
+    
+    N = fs.ufl_element().degree()
+    try:
+        N, = set(N)
+    except TypeError:
+        pass
 
+    Nq = 2*(N+1)-1
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
@@ -216,29 +223,24 @@ def test_direct_solver(fs):
         sub_Neu = ()
     else:
         sub_Neu = tuple(set(mesh.exterior_facets.unique_markers) - set(s for s in subs if type(s) == int))
-
+    
+    dxq = dx(degree=Nq)
     if mesh.cell_set._extruded:
-        dS_int = dS_v + dS_h
-        ds_Dir = ds_v(sub_Dir)
-        ds_Neu = ds_v(sub_Neu)
+        dS_int = dS_v(degree=Nq) + dS_h(degree=Nq)
+        ds_Dir = ds_v(sub_Dir, degree=Nq)
+        ds_Neu = ds_v(sub_Neu, degree=Nq)
         if "bottom" in subs:
-            ds_Dir += ds_b
+            ds_Dir += ds_b(degree=Nq)
         else:
-            ds_Neu += ds_b
+            ds_Neu += ds_b(degree=Nq)
         if "top" in subs:
-            ds_Dir += ds_t
+            ds_Dir += ds_t(degree=Nq)
         else:
-            ds_Neu += ds_t
+            ds_Neu += ds_t(degree=Nq)
     else:
-        dS_int = dS
-        ds_Dir = ds(sub_Dir)
-        ds_Neu = ds(sub_Neu)
-
-    N = fs.ufl_element().degree()
-    try:
-        N, = set(N)
-    except TypeError:
-        pass
+        dS_int = dS(degree=Nq)
+        ds_Dir = ds(sub_Dir, degree=Nq)
+        ds_Neu = ds(sub_Neu, degree=Nq)
 
     eta = Constant((N+1)**2)
     h = CellVolume(mesh)/FacetArea(mesh)
@@ -249,14 +251,14 @@ def test_direct_solver(fs):
     num_flux = lambda w: ddot(avg(penalty/2), outer_jump(w, n))
     num_flux_b = lambda w: ddot(penalty/2, outer(w, n))
 
-    a = (inner(v, dot(beta, u))*dx
-         + inner(grad(v), F_v(grad(u)))*dx
+    a = (inner(v, dot(beta, u))*dxq
+         + inner(grad(v), F_v(grad(u)))*dxq
          + inner(outer_jump(v, n), num_flux(u)-avg(F_v(grad(u)))) * dS_int
          + inner(outer_jump(u, n), num_flux(v)-avg(F_v(grad(v)))) * dS_int
          + inner(outer(v, n), num_flux_b(u)-F_v(grad(u))) * ds_Dir
          + inner(outer(u, n), num_flux_b(v)-F_v(grad(v))) * ds_Dir)
 
-    L = (inner(v, B)*dx
+    L = (inner(v, B)*dxq
          + inner(v, T)*ds_Neu
          + inner(outer(u_exact, n), 2*num_flux_b(v)-F_v(grad(v))) * ds_Dir)
 
