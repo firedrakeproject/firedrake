@@ -137,6 +137,12 @@ def _drop_double_transpose_terminals(expr, self):
     return expr
 
 
+@_drop_double_transpose.register(Factorization)
+def _drop_double_transpose_factorization(expr, self):
+    """ Drop any factorisations. """
+    return self(*expr.children)
+
+
 @_drop_double_transpose.register(Transpose)
 def _drop_double_transpose_transpose(expr, self):
     """When the expression and its child are transposes the grandchild is returned,
