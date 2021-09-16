@@ -545,7 +545,6 @@ class FDMPC(PCBase):
             ele = BrokenElement(FiniteElement("DGT", cell, 0))
             area = firedrake.FacetArea(self.mesh)
 
-            Finv = JacobianInverse(self.mesh)
             vol = abs(JacobianDeterminant(self.mesh))
             i1, i2, i3, i4, j2, j4 = indices(6)
             G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
@@ -1047,7 +1046,7 @@ class FDMPC(PCBase):
 
             # get a function with a single node per facet
             # mark interior facets by assembling a surface integral
-            dS_int = firedrake.dS_h + firedrake.dS_v
+            dS_int = firedrake.dS_h(degree=0) + firedrake.dS_v(degree=0)
             DGT = firedrake.FunctionSpace(mesh, "DGT", 0)
             v = firedrake.TestFunction(DGT)
             w = firedrake.assemble((v('+')+v('-'))*dS_int)
@@ -1064,9 +1063,9 @@ class FDMPC(PCBase):
             # complete the missing pieces of cell_to_facets
             interior = marked_facets > 0
             cell_to_facets[interior, :] = [1, -1]
-            bnd = marked_facets < 0
-            cell_to_facets[bnd, 0] = 0
-            cell_to_facets[bnd, 1] = marked_facets[bnd].astype(cell_to_facets.dtype)
+            topbot = marked_facets < 0
+            cell_to_facets[topbot, 0] = 0
+            cell_to_facets[topbot, 1] = marked_facets[topbot].astype(cell_to_facets.dtype)
         else:
             cell_to_facets = mesh.cell_to_facets.data_with_halos
 
