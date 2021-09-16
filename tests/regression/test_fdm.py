@@ -154,10 +154,6 @@ def test_variable_coefficient(mesh):
     assert solver.snes.ksp.getIterationNumber() <= 14
 
 
-def outer_jump(v, n):
-    return outer(v('+'), n('+'))+outer(v('-'), n('-'))
-
-
 @pytest.fixture(params=["cg", "dg", "rt"],
                 ids=["cg", "dg", "rt"])
 def fs(request, mesh):
@@ -246,8 +242,11 @@ def test_direct_solver(fs):
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = (eta/h) * alpha
 
-    i1, i2, i3, i4 = indices(4)
-    ddot = lambda a, b: as_tensor(a[i1, i2, i3, i4] * b[i3, i4], (i1, i2))
+    mid = len(alpha.ufl_shape) // 2
+    idx = indices(len(alpha.ufl_shape))
+    ddot = lambda a, b: as_tensor(a[idx] * b[idx[mid:]], idx[:mid])
+    outer_jump = lambda w, n: outer(w('+'), n('+')) + outer(w('-'), n('-'))
+
     num_flux = lambda w: ddot(avg(penalty/2), outer_jump(w, n))
     num_flux_b = lambda w: ddot(penalty/2, outer(w, n))
 

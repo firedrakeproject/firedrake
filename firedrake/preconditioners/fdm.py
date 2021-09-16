@@ -932,7 +932,7 @@ class FDMPC(PCBase):
             cell_to_nodes = cell_node_map.values_with_halo
             cell_offset = cell_node_map.offset
 
-            nelv = cell_to_nodes.shape[0]
+            nelv = cell_node_map.values.shape[0]
             layers = facet_node_map.iterset.layers_array
             itype = cell_offset.dtype
             shift_h = numpy.array([[0], [1]], itype)
@@ -944,7 +944,7 @@ class FDMPC(PCBase):
                 for f, cells in enumerate(facet_to_cells):
                     istart = max(layers[cells, 0])
                     iend = min(layers[cells, 1])
-                    nz = iend - istart - 1
+                    nz = iend-istart-1
                     nv += nz
                     to_base.append(numpy.full((nz,), f, itype))
                     to_layer.append(numpy.arange(nz, dtype=itype))
@@ -966,7 +966,7 @@ class FDMPC(PCBase):
                 nfacets = nv + nh
 
                 local_facet_data_fun = lambda e: local_facet_data[e//nelz] if e < nv else local_facet_data_h
-                facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv) % nelv] + numpy.kron(((e-nv) // nelv)+shift_h, cell_offset), (-1,))
+                facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv)//(nelz-1)] + numpy.kron(((e-nv) % (nelz-1))+shift_h, cell_offset), (-1,))
         else:
             facet_to_nodes_fun = lambda e: facet_to_nodes[e]
             local_facet_data_fun = lambda e: local_facet_data[e]
