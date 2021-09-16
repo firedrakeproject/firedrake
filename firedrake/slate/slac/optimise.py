@@ -159,6 +159,7 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
+@_drop_double_transpose.register(Inverse)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
