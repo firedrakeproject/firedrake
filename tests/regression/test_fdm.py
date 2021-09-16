@@ -184,7 +184,7 @@ def test_direct_solver(fs):
     ncomp = fs.ufl_element().value_size()
     if ncomp > 1:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
-    
+
     N = fs.ufl_element().degree()
     try:
         N, = set(N)
@@ -223,7 +223,7 @@ def test_direct_solver(fs):
         sub_Neu = ()
     else:
         sub_Neu = tuple(set(mesh.exterior_facets.unique_markers) - set(s for s in subs if type(s) == int))
-    
+
     dxq = dx(degree=Nq)
     if mesh.cell_set._extruded:
         dS_int = dS_v(degree=Nq) + dS_h(degree=Nq)
@@ -251,8 +251,8 @@ def test_direct_solver(fs):
     num_flux = lambda w: ddot(avg(penalty/2), outer_jump(w, n))
     num_flux_b = lambda w: ddot(penalty/2, outer(w, n))
 
-    a = (inner(v, dot(beta, u))*dxq
-         + inner(grad(v), F_v(grad(u)))*dxq
+    a = (inner(v, dot(beta, u)) * dxq
+         + inner(grad(v), F_v(grad(u))) * dxq
          + inner(outer_jump(v, n), num_flux(u)-avg(F_v(grad(u)))) * dS_int
          + inner(outer_jump(u, n), num_flux(v)-avg(F_v(grad(v)))) * dS_int
          + inner(outer(v, n), num_flux_b(u)-F_v(grad(u))) * ds_Dir
