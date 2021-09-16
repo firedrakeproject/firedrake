@@ -4,7 +4,6 @@ from itertools import repeat
 from firedrake.slate.slate import *
 from contextlib import contextmanager
 from collections import namedtuple
-from firedrake import Function
 
 """ ActionBag class
 :arg coeff: what we contract with.
