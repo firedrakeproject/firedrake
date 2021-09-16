@@ -35,6 +35,8 @@ Workshop talks will be held on Zoom. Coffee breaks, the code clinic, and evening
 
 The full programme is on `EasyChair <https://easychair.org/smart-program/Firedrake'21/>`_.
 
+The recorded talks are available on `Vimeo <https://vimeo.com/search?q=Firedrake%20%2721>`_. 
+
 Registration
 ------------
 
