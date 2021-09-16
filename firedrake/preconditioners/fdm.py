@@ -128,7 +128,7 @@ class FDMPC(PCBase):
         ndof = V.value_size * V.dof_dset.set.size
         nnz = get_preallocation(prealloc, ndof)
         self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V, 
+        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
 
         lgmap = V.dof_dset.lgmap
@@ -428,13 +428,13 @@ class FDMPC(PCBase):
         :arg discard_mixed: discard entries in second order coefficient with mixed derivatives and mixed components
         :arg cell_average: to return the coefficients as DG_0 Functions
 
-        :returns: a 2-tuple of 
+        :returns: a 2-tuple of
             coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
             assembly_callables: a list of assembly callables for each coefficient of the form
         """
         coefficients = {}
         assembly_callables = []
-        
+
         gdim = self.mesh.geometric_dimension()
         ndim = self.mesh.topological_dimension()
         Finv = JacobianInverse(self.mesh)
@@ -566,7 +566,6 @@ class FDMPC(PCBase):
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
-        
         return coefficients, assembly_callables
 
     @staticmethod
