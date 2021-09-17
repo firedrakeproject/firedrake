@@ -1121,7 +1121,7 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
-        if A.shape[1] != B.shape[0]:
+        if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
