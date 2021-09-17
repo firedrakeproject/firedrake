@@ -244,6 +244,8 @@ def test_push_mul_schurlike(TC, TC2):
 
 
 def test_push_mul_non_symm(TC_non_symm):
+    """Test Optimisers's ability to handle transponses on tensors
+    that are actually not symmetric."""
     T, C = TC_non_symm
     ref = assemble(T, form_compiler_parameters={"optimise": False}).M.values
     opt = assemble(T.T, form_compiler_parameters={"optimise": False}).M.values
