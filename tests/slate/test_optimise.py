@@ -252,6 +252,20 @@ def test_push_mul_non_symm(TC_non_symm):
     compare_vector_expressions_mixed(expressions)  # only testing data is sufficient here
 
 
+def test_drop_transposes(TC_non_symm):
+    A, C = TC_non_symm
+
+    expressions = [A.T.T, A.T.T.inv, A.T.T+A.T.T]
+    opt_expressions = [A, A.inv, A+A]
+    compare_tensor_expressions(expressions)  
+    compare_slate_tensors(expressions, opt_expressions)
+
+    expressions = [A.solve(A.T.T*C)]
+    opt_expressions = [A.solve(A*C)]
+    compare_vector_expressions(expressions)  
+    compare_slate_tensors(expressions, opt_expressions)
+
+
 def compare_tensor_expressions(expressions):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"optimise": False}).M.values
