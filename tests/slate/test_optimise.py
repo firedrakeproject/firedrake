@@ -270,6 +270,22 @@ def test_drop_transposes(TC_non_symm):
     compare_slate_tensors(expressions, opt_expressions)
 
 
+
+def test_partially_optimised(TC_non_symm):
+    """Test Optimisers's ability to handle partially optimised expressions."""
+    A, C = TC_non_symm
+
+    expressions = [A*C+A*C, A.inv*C+A.inv*C, (A+A)*A.solve(C),
+                   (A+A)*A.solve((A+A)*C)]
+    opt_expressions = [A*C+A*C, A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
+                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C)]
+    
+    # TODO expression with two different coefficients
+    
+    compare_vector_expressions(expressions)  
+    compare_slate_tensors(expressions, opt_expressions)
+
+
 def compare_tensor_expressions(expressions):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"optimise": False}).M.values
