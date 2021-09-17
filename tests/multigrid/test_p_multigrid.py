@@ -172,7 +172,7 @@ class MixedPMG(PMGPC):
 
 
 @pytest.mark.skipcomplex
-def test_p_multigrid_mixed():
+def test_p_multigrid_mixed(mat_type):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)
     Z = MixedFunctionSpace([V, V])
@@ -185,7 +185,8 @@ def test_p_multigrid_mixed():
     F = derivative(E, z, TestFunction(Z))
     bcs = [DirichletBC(Z.sub(0), z_exact[0], "on_boundary")]
 
-    relax = {"ksp_type": "chebyshev",
+    relax = {"transfer_mat_type": mat_type,
+             "ksp_type": "chebyshev",
              "ksp_monitor_true_residual": None,
              "ksp_norm_type": "unpreconditioned",
              "ksp_max_it": 3,
@@ -202,11 +203,11 @@ def test_p_multigrid_mixed():
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
           "ksp_type": "cg",
-          "ksp_rtol": 1E-8,
+          "ksp_rtol": 1E-12,
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": __name__ + ".MixedPMG",
-          "mat_type": "aij",
+          # "mat_type": mat_type,  # FIXME bug with mat-free jacobi on MixedFunctionSpace
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
@@ -216,13 +217,13 @@ def test_p_multigrid_mixed():
     problem = NonlinearVariationalProblem(F, z, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
     solver.solve()
-    assert solver.snes.ksp.its <= 5
+    assert solver.snes.ksp.its <= 7
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
 
     level = solver._ctx
-    assert np.isclose(assemble(z[1]*dx), 0.0E0)
-    assert np.isclose(norm(z-z_exact, "H1"), 0.0E0)
+    assert abs(assemble(z[1]*dx)) < 1E-12
+    assert norm(z-z_exact, "H1") < 1E-12
     ctx_levels = 0
     while level is not None:
         nsp = level._nullspace

@@ -1,6 +1,5 @@
 from functools import partial, lru_cache
 from itertools import chain
-import numpy as np
 
 from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
 from ufl import FiniteElement, EnrichedElement, HDivElement, HCurlElement, hexahedron
@@ -8,6 +7,7 @@ from ufl.classes import Expr
 
 from pyop2 import op2, PermutedMap
 import loopy
+import numpy
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
@@ -18,6 +18,8 @@ from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import ScalarType_c, IntType_c
 import firedrake
+
+__all__ = ("PMGPC", "PMGSNES")
 
 
 class PMGBase(PCSNESBase):
@@ -88,7 +90,7 @@ class PMGBase(PCSNESBase):
 
         Can only set a single degree along all axes of a TensorProductElement.
 
-        :arg ele: a :class:`ufl.FiniteElement` to reconstruct.
+        :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
         :arg N: an integer degree.
         """
         if isinstance(ele, TensorElement):
@@ -180,6 +182,7 @@ class PMGBase(PCSNESBase):
 
         # Have we already done this?
         # FIXME this is triggering weird gmg erros
+        # what if we have nested p-FAS/p-MG with different coarsening schedules?
         cctx = fctx._coarse
         if cctx is not None:
             return cctx.J.arguments()[0].function_space().dm
@@ -307,12 +310,9 @@ class PMGBase(PCSNESBase):
         # restrict the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
-                if mat.type == 'nest':
-                    submats = [mat.getNestSubMatrix(i, i) for i in range(mat.getNestSize()[0])]
-                elif mat.type == 'python':
-                    submats = mat.getPythonContext().getSubMats()
-                else:
-                    raise TypeError("Cannot get SubMatrix for Mat with type %s" % mat.type)
+                if mat.type == 'python':
+                    mat = mat.getPythonContext()
+                submats = [mat.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
                 coarse_bases = []
                 for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
                     if isinstance(basis, VectorSpaceBasis):
@@ -325,7 +325,7 @@ class PMGBase(PCSNESBase):
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(coarse_V)
                     with wc.dat.vec as xc:
-                        mat.mult(xf, xc)
+                        mat.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
                 vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
                 vsb.orthonormalize()
@@ -352,23 +352,22 @@ class PMGBase(PCSNESBase):
         fbcs = fctx._problem.bcs if fbcs else []
 
         if mat_type == "matfree":
-            I = prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
+            return prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
         elif mat_type == "aij":
-            I = PETSc.Mat().createTranspose(prolongation_matrix_aij(fV, cV, fbcs, cbcs))
+            return prolongation_matrix_aij(fV, cV, fbcs, cbcs)
         else:
             raise ValueError("Unknown matrix type")
-        return I
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
-        return I, None
+        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False), None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
+        I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
+        return PETSc.Mat().createTranspose(I)
 
     def view(self, pc, viewer=None):
         if viewer is None:
@@ -491,9 +490,10 @@ def tensor_product_space_query(V):
     Checks whether the custom transfer kernels support the FunctionSpace V.
 
     V must be either CG(N) or DG(N) on quads or hexes (same N along every direction).
+    Or RTCF(N) or RTCE(N) on quads or NCF(N) or NCE(N) on hexes.
 
     :arg V: FunctionSpace
-    :returns: 4-tuple of (use_tensorproduct, degree, family, variant)
+    :returns: 4-tuple of (use_tensorproduct, degree, topological_dimension, family, variant)
     """
     from FIAT import reference_element
     ndim = V.ufl_domain().topological_dimension()
@@ -559,10 +559,10 @@ def get_permuted_map(V):
         return V.cell_node_map()
 
     ncomp, = V.finat_element.value_shape
-    permutation = np.reshape(np.arange(V.finat_element.space_dimension()), (ncomp, -1))
+    permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), (ncomp, -1))
     for k in range(ncomp):
-        permutation[k] = np.reshape(np.transpose(np.reshape(permutation[k], pshape), axes=(1+k+np.arange(ncomp)) % ncomp), (-1,))
-    permutation = np.reshape(permutation, (-1,))
+        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(1+k+numpy.arange(ncomp)) % ncomp), (-1,))
+    permutation = numpy.reshape(permutation, (-1,))
     return PermutedMap(V.cell_node_map(), permutation)
 
 
@@ -744,7 +744,7 @@ class StandaloneInterpolationMatrix(object):
         lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
 
         # Pass the 1D tabulation as hexadecimal string
-        JX = ', '.join(map(float.hex, np.concatenate([np.asarray(Jk).flatten() for Jk in Jhat])))
+        JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
 
         # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
         JY = f"JX+{mx*nx}" if ndim >= 2 else "&one"
@@ -882,7 +882,7 @@ class StandaloneInterpolationMatrix(object):
     def multiplicity(V):
         # Lawrence's magic code for calculating dof multiplicities
         shapes = (V.finat_element.space_dimension(),
-                  np.prod(V.shape))
+                  numpy.prod(V.shape))
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
@@ -894,7 +894,7 @@ class StandaloneInterpolationMatrix(object):
                            {"w": (weight, op2.INC)}, is_loopy_kernel=True)
         return weight
 
-    def mult(self, mat, resf, resc):
+    def multTranspose(self, mat, resf, resc):
         """
         Implement restriction: restrict residual on fine grid resf to coarse grid resc.
         """
@@ -917,7 +917,7 @@ class StandaloneInterpolationMatrix(object):
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
-    def multTranspose(self, mat, xc, xf, inc=False):
+    def mult(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
@@ -939,11 +939,11 @@ class StandaloneInterpolationMatrix(object):
             else:
                 xf_.copy(xf)
 
-    def multTransposeAdd(self, mat, x, y, w):
+    def multAdd(self, mat, x, y, w):
         if y.handle == w.handle:
-            self.multTranspose(mat, x, w, inc=True)
+            self.mult(mat, x, w, inc=True)
         else:
-            self.multTranspose(mat, x, w)
+            self.mult(mat, x, w)
             w.axpy(1.0, y)
 
 
@@ -968,7 +968,7 @@ class MixedInterpolationMatrix(object):
         self.uf = firedrake.Function(Vf)
         self.mesh = Vf.mesh()
 
-    def mult(self, mat, resf, resc):
+    def multTranspose(self, mat, resf, resc):
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
 
@@ -988,7 +988,7 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
-    def multTranspose(self, mat, xc, xf, inc=False):
+    def mult(self, mat, xc, xf, inc=False):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
@@ -1007,21 +1007,22 @@ class MixedInterpolationMatrix(object):
             else:
                 xf_.copy(xf)
 
-    def multTransposeAdd(self, mat, x, y, w):
+    def multAdd(self, mat, x, y, w):
         if y.handle == w.handle:
-            self.multTranspose(mat, x, w, inc=True)
+            self.mult(mat, x, w, inc=True)
         else:
-            self.multTranspose(mat, x, w)
+            self.mult(mat, x, w)
             w.axpy(1.0, y)
 
-    def getSubMats(self):
-        submats = []
-        for s in self.standalones:
-            sizes = (s.Vc.dof_dset.layout_vec.getSizes(), s.Vf.dof_dset.layout_vec.getSizes())
+    def getNestSubMatrix(self, i, j):
+        if i == j:
+            s = self.standalones[i]
+            sizes = (s.Vf.dof_dset.layout_vec.getSizes(), s.Vc.dof_dset.layout_vec.getSizes())
             M_shll = PETSc.Mat().createPython(sizes, s, comm=s.Vf.mesh().comm)
             M_shll.setUp()
-            submats.append(M_shll)
-        return submats
+            return M_shll
+        else:
+            return None
 
 
 def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
@@ -1070,7 +1071,7 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
     else:
         ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
 
-    sizes = (Vc.dof_dset.layout_vec.getSizes(), Vf.dof_dset.layout_vec.getSizes())
+    sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.mesh().comm)
     M_shll.setUp()
 

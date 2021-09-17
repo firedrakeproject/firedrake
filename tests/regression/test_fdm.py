@@ -192,17 +192,14 @@ def test_direct_solver(fs):
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    A1 = diag(Constant(numpy.arange(1, ndim+1)))
-    A2 = diag(Constant(numpy.arange(1, ncomp+1)))
-    F_v = lambda grad_u: dot(dot(A2, grad_u), A1)
-    vgradu = variable(grad(uh))
-
     # problem coefficients
-    alpha = diff(F_v(vgradu), vgradu)
-    beta = Identity(ncomp)
+    A1 = diag(Constant(range(1, ndim+1)))
+    A2 = diag(Constant(range(1, ncomp+1)))
+    alpha = lambda grad_u: dot(dot(A2, grad_u), A1)
+    beta = diag(Constant(range(2, ncomp+2)))
 
     n = FacetNormal(mesh)
-    f_exact = F_v(grad(u_exact))
+    f_exact = alpha(grad(u_exact))
     B = dot(beta, u_exact) - div(f_exact)
     T = dot(f_exact, n)
 
@@ -240,26 +237,22 @@ def test_direct_solver(fs):
 
     eta = Constant((N+1)**2)
     h = CellVolume(mesh)/FacetArea(mesh)
-    penalty = (eta/h) * alpha
+    penalty = eta/h
 
-    mid = len(alpha.ufl_shape) // 2
-    idx = indices(len(alpha.ufl_shape))
-    ddot = lambda a, b: as_tensor(a[idx] * b[idx[mid:]], idx[:mid])
     outer_jump = lambda w, n: outer(w('+'), n('+')) + outer(w('-'), n('-'))
-
-    num_flux = lambda w: ddot(avg(penalty/2), outer_jump(w, n))
-    num_flux_b = lambda w: ddot(penalty/2, outer(w, n))
+    num_flux = lambda w: alpha(avg(penalty/2) * outer_jump(w, n))
+    num_flux_b = lambda w: alpha((penalty/2) * outer(w, n))
 
     a = (inner(v, dot(beta, u)) * dxq
-         + inner(grad(v), F_v(grad(u))) * dxq
-         + inner(outer_jump(v, n), num_flux(u)-avg(F_v(grad(u)))) * dS_int
-         + inner(outer_jump(u, n), num_flux(v)-avg(F_v(grad(v)))) * dS_int
-         + inner(outer(v, n), num_flux_b(u)-F_v(grad(u))) * ds_Dir
-         + inner(outer(u, n), num_flux_b(v)-F_v(grad(v))) * ds_Dir)
+         + inner(grad(v), alpha(grad(u))) * dxq
+         + inner(outer_jump(v, n), num_flux(u)-avg(alpha(grad(u)))) * dS_int
+         + inner(outer_jump(u, n), num_flux(v)-avg(alpha(grad(v)))) * dS_int
+         + inner(outer(v, n), num_flux_b(u)-alpha(grad(u))) * ds_Dir
+         + inner(outer(u, n), num_flux_b(v)-alpha(grad(v))) * ds_Dir)
 
     L = (inner(v, B)*dxq
          + inner(v, T)*ds_Neu
-         + inner(outer(u_exact, n), 2*num_flux_b(v)-F_v(grad(v))) * ds_Dir)
+         + inner(outer(u_exact, n), 2*num_flux_b(v)-alpha(grad(v))) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={

@@ -20,6 +20,8 @@ from firedrake.logging import warning
 import firedrake
 import numpy
 
+__all__ = ("FDMPC",)
+
 try:
     from scipy.linalg import eigh
 
@@ -435,9 +437,10 @@ class FDMPC(PCBase):
         coefficients = {}
         assembly_callables = []
 
-        gdim = self.mesh.geometric_dimension()
-        ndim = self.mesh.topological_dimension()
-        Finv = JacobianInverse(self.mesh)
+        mesh = J.ufl_domain()
+        gdim = mesh.geometric_dimension()
+        ndim = mesh.topological_dimension()
+        Finv = JacobianInverse(mesh)
         if cell_average:
             family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
             degree = 0
@@ -454,7 +457,7 @@ class FDMPC(PCBase):
         elif mapping == 'covariant piola':
             Piola = Finv.T
         elif mapping == 'contravariant piola':
-            Piola = Jacobian(self.mesh) / JacobianDeterminant(self.mesh)
+            Piola = Jacobian(mesh) / JacobianDeterminant(mesh)
         else:
             raise NotImplementedError("Unrecognized element mapping %s" % mapping)
 
@@ -486,7 +489,7 @@ class FDMPC(PCBase):
                     raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
             # immersed manifold mesh
-            F = Jacobian(self.mesh)
+            F = Jacobian(mesh)
             if len(alpha.ufl_shape) == 2 and Piola is None:
                 G = inv(dot(dot(F.T, inv(alpha)), F))
             else:
@@ -496,20 +499,20 @@ class FDMPC(PCBase):
             # discard mixed derivatives and mixed components
             if len(G.ufl_shape) == 2:
                 G = diag_vector(G)
-                Qe = VectorElement(family, self.mesh.ufl_cell(), degree=degree,
+                Qe = VectorElement(family, mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", dim=numpy.prod(G.ufl_shape))
             elif len(G.ufl_shape) == 4:
                 G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
-                Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
+                Qe = TensorElement(family, mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=G.ufl_shape)
             else:
                 raise ValueError("I don't know how to discard mixed entries of a tensor with shape ", G.ufl_shape)
         else:
-            Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
+            Qe = TensorElement(family, mesh.ufl_cell(), degree=degree,
                                quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         # assemble second order coefficient
-        Q = firedrake.FunctionSpace(self.mesh, Qe)
+        Q = firedrake.FunctionSpace(mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
         coefficients["Gq"] = Gq
@@ -524,13 +527,13 @@ class FDMPC(PCBase):
                 beta = diag_vector(dot(Piola.T, dot(beta, Piola)))
             shape = beta.ufl_shape
             if shape:
-                Qe = TensorElement(family, self.mesh.ufl_cell(), degree=degree,
+                Qe = TensorElement(family, mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default", shape=shape)
             else:
-                Qe = FiniteElement(family, self.mesh.ufl_cell(), degree=degree,
+                Qe = FiniteElement(family, mesh.ufl_cell(), degree=degree,
                                    quad_scheme="default")
 
-            Q = firedrake.FunctionSpace(self.mesh, Qe)
+            Q = firedrake.FunctionSpace(mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
             coefficients["Bq"] = Bq
@@ -539,28 +542,28 @@ class FDMPC(PCBase):
         if needs_hdiv:
             # make DGT functions with the second order coefficient
             # and the Piola transform matrix for each side of each facet
-            extruded = self.mesh.cell_set._extruded
+            extruded = mesh.cell_set._extruded
             dS_int = firedrake.dS_h(degree=quad_deg) + firedrake.dS_v(degree=quad_deg) if extruded else firedrake.dS(degree=quad_deg)
-            cell = firedrake.hexahedron if extruded else self.mesh.ufl_cell()  # FIXME
+            cell = firedrake.hexahedron if extruded else mesh.ufl_cell()  # FIXME
             ele = BrokenElement(FiniteElement("DGT", cell, 0))
-            area = firedrake.FacetArea(self.mesh)
+            area = firedrake.FacetArea(mesh)
 
-            vol = abs(JacobianDeterminant(self.mesh))
+            vol = abs(JacobianDeterminant(mesh))
             i1, i2, i3, i4, j2, j4 = indices(6)
             G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
             G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
             # hinv = area / vol
-            # Finv = hinv * FacetNormal(self.mesh)
+            # Finv = hinv * FacetNormal(mesh)
             # G = vol * as_tensor(Finv[j2] * Finv[j4] * alpha[i1, j2, i3, j4], (i1, i3))
-            Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=G.ufl_shape)
+            Q = firedrake.TensorFunctionSpace(mesh, ele, shape=G.ufl_shape)
             q = firedrake.TestFunction(Q)
             Gq_facet = firedrake.Function(Q)
             coefficients["Gq_facet"] = Gq_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), G('+')) + inner(q('-'), G('-')))/area) * dS_int, Gq_facet))
 
             PT = Piola.T
-            Q = firedrake.TensorFunctionSpace(self.mesh, ele, shape=PT.ufl_shape)
+            Q = firedrake.TensorFunctionSpace(mesh, ele, shape=PT.ufl_shape)
             q = firedrake.TestFunction(Q)
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
