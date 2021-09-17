@@ -235,6 +235,7 @@ def test_push_mul_nested(TC, TC2):
 
 
 def test_push_mul_schurlike(TC, TC2):
+    """Test Optimisers's ability to handle schur complement like expressions."""
     T, C = TC
     T2, _ = TC2
     expressions = [(T-T.inv*T)*C, (T+T.inv*T)*C, (T+T-T2*T.inv*T)*C]
