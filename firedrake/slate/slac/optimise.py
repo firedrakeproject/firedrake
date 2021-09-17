@@ -28,17 +28,8 @@ def optimise(expression, parameters):
     expression = push_block(expression)
 
     # 2) Multiplication optimisation
-    # Optimise expression which is already partially optimised
-    # by optimising a subexpression that is not optimised yet
-    # the non optimised expression is a Mul
-    # and has at least one AssembledVector as child
-    partially_optimised = not (isinstance(expression, Mul)
-                               or any(isinstance(child, AssembledVector)
-                                      for child in expression.children))
-    if partially_optimised:
+    if expression.rank < 2:
         expression = push_mul(expression, None, parameters)
-    else:
-        expression = push_mul(*expression.children, parameters)
 
     # 3) Transpose optimisation
     expression = drop_double_transpose(expression)
@@ -191,7 +182,10 @@ def _push_mul(expr, self, state):
 @_push_mul.register(Block)
 def _push_mul_tensor(expr, self, state):
     if not self.action:
-        return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
+        if state.coeff:
+            return Mul(expr, state.coeff) if state.pick_op == 1 else Mul(state.coeff, expr)
+        else:
+            return expr
     else:
         assert "Actions in Slate are not yet supported."
 
@@ -257,8 +251,10 @@ def _push_mul_solve(expr, self, state):
             assert expr2.rank == 1
             coeff = self(expr2, state)
             return Solve(expr1, coeff)
-    else:
-        # swap operands if we are currently premultiplying due to a former transpose
+        else:
+            # WIP right thing to do?
+            return expr
+    elif expr.rank == 2:
         if state.pick_op == 0:
             """
             case 2) child 1 is matrix, child2 is matrix
