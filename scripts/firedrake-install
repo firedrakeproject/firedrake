@@ -1217,10 +1217,10 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip_install(["sphinx"])
-    run_pip_install(["sphinxcontrib-bibtex"])
-    run_pip_install(["bibtexparser"])
-    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
+    run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinxcontrib-bibtex"])
+    run_pip(["install", "-U", "bibtexparser"])
+    run_pip(["install", "-U", "sphinxcontrib-youtube"])
 
 
 def clean_obsolete_packages():
@@ -1661,6 +1661,12 @@ else:
         git_update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))

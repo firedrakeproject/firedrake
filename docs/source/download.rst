@@ -47,6 +47,23 @@ resulting library when run in parallel.  Instructions on how best to
 configure MPI for the installation process are `found here
 <https://www.firedrakeproject.org/parallelism.html>`_.
 
+
+Installing SciPy
+----------------
+
+If you want to install the ``scipy`` package alongside Firedrake you
+must ensure that the package is built against the same libraries as the
+rest of the Firedrake toolchain. To do this at install time simply add
+``scipy`` to the ``firedrake-install`` command line arguments::
+
+  python3 firedrake-install --pip-install scipy
+
+If you want to add ``scipy`` to your environment after installing
+Firedrake, first activate the virtual environment, then run::
+
+  firedrake-update --pip-install scipy
+
+
 Testing the installation
 ------------------------
 
