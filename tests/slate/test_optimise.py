@@ -312,6 +312,24 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
 
 
 #######################################
+# Test transposition optimisation pass
+#######################################
+def test_drop_transposes(TC_non_symm):
+    """Test Optimisers's ability to drop double transposes."""
+    A, C = TC_non_symm
+
+    expressions = [A.T.T, A.T.T.inv, A.T.T+A.T.T]
+    opt_expressions = [A, A.inv, A+A]
+    compare_tensor_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
+    expressions = [A.solve(A.T.T*C)]
+    opt_expressions = [A.solve(A*C)]
+    compare_vector_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
+
+#######################################
 # Helper functions
 #######################################
 def compare_tensor_expressions(expressions):
