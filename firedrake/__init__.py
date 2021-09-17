@@ -137,11 +137,11 @@ try:
         try:
             getattr(_blas_lib, _method_name)(1)
         except AttributeError:
-            warning("Cannot set number of threads in BLAS library!")
+            info("Cannot set number of threads in BLAS library")
 except OSError:
-    warning("Could not load BLAS library!")
+    info("Cannot set number of threads in BLAS library because the library could not be loaded")
 except TypeError:
-    warning("Could not find BLAS library!")
+    info("Cannot set number of threads in BLAS library because the library could not be found")
 
 # OMP_NUM_THREADS can be set to a comma-separated list of positive integers
 try:
