@@ -253,6 +253,7 @@ def test_push_mul_non_symm(TC_non_symm):
 
 
 def test_drop_transposes(TC_non_symm):
+    """Test Optimisers's ability to drop double transposes."""
     A, C = TC_non_symm
 
     expressions = [A.T.T, A.T.T.inv, A.T.T+A.T.T]
