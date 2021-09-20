@@ -8,6 +8,7 @@ from functools import partial
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
+from gem.flop_count import count_flops
 from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
@@ -20,7 +21,7 @@ from tsfc.loopy import generate as generate_loopy
 
 # Expression kernel description type
 ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients',
-                                                   'first_coefficient_fake_coords', 'tabulations', 'name', 'arguments'])
+                                                   'first_coefficient_fake_coords', 'tabulations', 'name', 'arguments', 'flop_count'])
 
 
 def make_builder(*args, **kwargs):
@@ -327,7 +328,12 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, index_names, first_coefficient_fake_coords):
+    def set_output(self, o):
+        """Produce the kernel return argument"""
+        self.return_arg = LocalTensorKernelArg((o.shape,), 1,  # TODO
+                                          dtype=self.scalar_type, shape_fixed=True)
+
+    def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg return_arg: loopy.GlobalArg for the return value
@@ -337,7 +343,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             coefficient is a constructed UFL coordinate field
         :returns: :class:`ExpressionKernel` object
         """
-        args = [return_arg]
+        args = [self.return_arg]
         if self.oriented:
             args.append(self.cell_orientations_loopy_arg)
         if self.cell_sizes:
@@ -353,7 +359,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                                       name, index_names)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
                                 self.coefficients, first_coefficient_fake_coords,
-                                self.tabulations, name, args)
+                                self.tabulations, name, args, count_flops(impero_c))
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -455,8 +461,7 @@ class KernelBuilder(KernelBuilderBase):
         knl = self.kernel
         knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule,
-                         flop_count=0):
+    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -466,7 +471,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg impero_c: ImperoC tuple with Impero AST and other data
         :arg index_names: pre-assigned index names
         :arg quadrature rule: quadrature rule
-        :arg flop_count: Estimated total flops for this kernel.
         :returns: :class:`Kernel` object
         """
 
@@ -490,7 +494,7 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.quadrature_rule = quadrature_rule
         self.kernel.ast = generate_loopy(impero_c, loopy_args, self.scalar_type, name, index_names)
         self.kernel.name = name
-        self.kernel.flop_count = flop_count
+        self.kernel.flop_count = count_flops(impero_c)
         return self.kernel
 
     def construct_empty_kernel(self, name):
