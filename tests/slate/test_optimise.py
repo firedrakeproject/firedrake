@@ -93,6 +93,24 @@ def TC(mesh):
 
 
 @pytest.fixture
+def TC_double_mass(mesh):
+    V = VectorFunctionSpace(mesh, "DG", 1)
+    U = FunctionSpace(mesh, "DG", 1)
+    T = FunctionSpace(mesh, "DG", 0)
+    W = V * U * T
+    x = SpatialCoordinate(mesh)
+    q = Function(V).project(grad(sin(pi*x[0])*cos(pi*x[1])))
+    p = Function(U).interpolate(-x[0]*exp(-x[1]**2))
+    r = Function(T).assign(42.0)
+    u, phi, eta = TrialFunctions(W)
+    v, psi, nu = TestFunctions(W)
+
+    K = Tensor((inner(u, v)*dx + inner(u, v)*dx  + inner(phi, psi)*dx + inner(eta, nu)*dx))
+    f = assemble(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
+    return K, AssembledVector(f)
+
+
+@pytest.fixture
 def TC2(mesh):
     V = VectorFunctionSpace(mesh, "DG", 1)
     U = FunctionSpace(mesh, "DG", 1)
@@ -271,9 +289,11 @@ def test_drop_transposes(TC_non_symm):
 
 
 
-def test_partially_optimised(TC_non_symm):
+def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
     """Test Optimisers's ability to handle partially optimised expressions."""
     A, C = TC_non_symm
+    T2, C2 = TC
+    T3, _ = TC_double_mass
 
     expressions = [A*C+A*C, A.inv*C+A.inv*C, (A+A)*A.solve(C),
                    (A+A)*A.solve((A+A)*C)]
@@ -283,6 +303,11 @@ def test_partially_optimised(TC_non_symm):
     # TODO expression with two different coefficients
     
     compare_vector_expressions(expressions)  
+    compare_slate_tensors(expressions, opt_expressions)
+    
+    expressions = [C2.T*(T3.solve(T2.solve(T2)))]
+    opt_expressions = [T2.T.solve(T3.T.solve(C2.T))*T2]
+    compare_vector_expressions_mixed(expressions)  
     compare_slate_tensors(expressions, opt_expressions)
 
 
