@@ -489,8 +489,8 @@ def tensor_product_space_query(V):
     """
     Checks whether the custom transfer kernels support the FunctionSpace V.
 
-    V must be either CG(N) or DG(N) on quads or hexes (same N along every direction).
-    Or RTCF(N) or RTCE(N) on quads or NCF(N) or NCE(N) on hexes.
+    V must be either Q(N) or DQ(N) (same N along every direction),
+    RTCF(N), RTCE(N), NCF(N), or NCE(N) on quads or hexes.
 
     :arg V: FunctionSpace
     :returns: 4-tuple of (use_tensorproduct, degree, topological_dimension, family, variant)
@@ -539,8 +539,8 @@ def tensor_product_space_query(V):
 
     isCG = family <= {"Q", "Lagrange"}
     isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    isHdiv = family <= {"RTCF", "NCF"}
-    isHcurl = family <= {"RTCE", "NCE"}
+    isHdiv = family < {"RTCF", "NCF"}
+    isHcurl = family < {"RTCE", "NCE"}
     isspectral = variant is None or variant == "spectral"
     use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv or isHcurl)
 
@@ -548,11 +548,12 @@ def tensor_product_space_query(V):
 
 
 def get_permuted_map(V):
+    # Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
     use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
-    if use_tensorproduct and family <= {"RTCF", "NCF"}:
+    if use_tensorproduct and family < {"RTCF", "NCF"}:
         pshape = [N]*ndim
         pshape[0] = -1
-    elif use_tensorproduct and family <= {"RTCE", "NCE"}:
+    elif use_tensorproduct and family < {"RTCE", "NCE"}:
         pshape = [N+1]*ndim
         pshape[0] = -1
     else:
@@ -567,7 +568,7 @@ def get_permuted_map(V):
 
 
 def get_line_element(V):
-    # Return the corresponding Line element for CG / DG
+    # Return the Line elements for Q, DQ, RTCF/E, NCF/E
     from FIAT.reference_element import UFCInterval
     from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
     use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
@@ -585,25 +586,21 @@ def get_line_element(V):
         else:
             element = gauss_legendre.GaussLegendre(cell, N)
         element = [element]*ndim
-    elif family <= {"RTCF", "NCF"}:
+    elif family < {"RTCF", "NCF"}:
         cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
         dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [cg]
-        for j in range(1, ndim):
-            element.append(dg)
-    elif family <= {"RTCE", "NCE"}:
+        element = [cg] + [dg]*(ndim-1)
+    elif family < {"RTCE", "NCE"}:
         cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
         dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [dg]
-        for j in range(1, ndim):
-            element.append(cg)
+        element = [dg] + [cg]*(ndim-1)
     else:
         raise ValueError("Don't know how to get line element for %r" % family)
     return element
 
 
 def get_line_nodes(V):
-    # Return the corresponding nodes in the Line for CG / DG
+    # Return the Line nodes for Q, DQ, RTCF/E, NCF/E
     from FIAT.reference_element import UFCInterval
     from FIAT import quadrature
     use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
@@ -617,20 +614,14 @@ def get_line_nodes(V):
     elif family <= {"DQ", "Discontinuous Lagrange"}:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
-    elif family <= {"RTCF", "NCF"}:
+    elif family < {"RTCF", "NCF"}:
         cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        points = [cg.get_points()]
-        for j in range(1, ndim):
-            points.append(dg.get_points())
-        return points
-    elif family <= {"RTCE", "NCE"}:
+        return [cg.get_points()] + [dg.get_points()]*(ndim-1)
+    elif family < {"RTCE", "NCE"}:
         cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        points = [dg.get_points()]
-        for j in range(1, ndim):
-            points.append(cg.get_points())
-        return points
+        return [dg.get_points()] + [cg.get_points()]*(ndim-1)
     else:
         raise ValueError("Don't know how to get line nodes for %r" % family)
 
@@ -730,11 +721,7 @@ class StandaloneInterpolationMatrix(object):
 
         celem = get_line_element(Vc)
         nodes = get_line_nodes(Vf)
-
-        Jhat = []
-        for e, z in zip(celem, nodes):
-            basis = e.tabulate(0, z)
-            Jhat.append(basis[(0,)])
+        Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
 
         # Declare array shapes to be used as literals inside the kernels
         # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
@@ -903,7 +890,7 @@ class StandaloneInterpolationMatrix(object):
             resf.copy(xf)
 
         with self.uc.dat.vec_wo as xc:
-            xc.set(0)
+            xc.set(0.0E0)
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
 
@@ -973,7 +960,7 @@ class MixedInterpolationMatrix(object):
             resf.copy(xf)
 
         with self.uc.dat.vec_wo as xc:
-            xc.set(0)
+            xc.set(0.0E0)
 
         [bc.zero(self.uf) for bc in self.Vf_bcs]
 

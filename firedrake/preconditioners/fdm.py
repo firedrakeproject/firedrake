@@ -75,11 +75,11 @@ class FDMPC(PCBase):
         V = get_function_space(dm)
         use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
 
-        if not use_tensorproduct or (family <= {"RTCE", "NCE"}):
+        if not use_tensorproduct or (family < {"RTCE", "NCE"}):
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
         needs_interior_facet = not (family <= {"Q", "Lagrange"})
-        needs_hdiv = family <= {"RTCF", "NCF"}
+        needs_hdiv = family < {"RTCF", "NCF"}
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
         self.mesh = V.mesh()
@@ -162,7 +162,8 @@ class FDMPC(PCBase):
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def apply(self, pc, x, y, transpose=False):
-        self.uc.assign(firedrake.zero())
+        with self.uc.dat.vec as xc:
+            xc.set(0.0E0)
 
         with self.uf.dat.vec_wo as xf:
             x.copy(xf)
@@ -553,9 +554,6 @@ class FDMPC(PCBase):
             G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
             G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
-            # hinv = area / vol
-            # Finv = hinv * FacetNormal(mesh)
-            # G = vol * as_tensor(Finv[j2] * Finv[j4] * alpha[i1, j2, i3, j4], (i1, i3))
             Q = firedrake.TensorFunctionSpace(mesh, ele, shape=G.ufl_shape)
             q = firedrake.TestFunction(Q)
             Gq_facet = firedrake.Function(Q)
