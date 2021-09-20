@@ -240,14 +240,17 @@ def test_push_mul_simple(TC):
     compare_slate_tensors(expressions, opt_expressions)
 
 
-def test_push_mul_nested(TC, TC2):
+def test_push_mul_nested(TC, TC2, TC_non_symm):
     """Test Optimisers's ability to handle multiplications nested with nested expressions."""
     T, C = TC
     T2, _ = TC2
+    T3, C3 = TC_non_symm
     expressions = [(T+T+T2)*C, (T+T2+T)*C, (T-T+T2)*C, (T+T2-T)*C,
-                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C]
+                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C,
+                   (C.T*T.inv)*(T.inv*T), (C3.T*T3.inv)*(T3.inv*T3)]
     opt_expressions = [T*C+T*C+T2*C, T*C+T2*C+T*C, T*C-(T*C)+T2*C, T*C+T2*C-(T*C),
-                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C)]
+                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C),
+                       (T.T.solve(T.T.solve(C))).T*T, (T3.T.solve(T3.T.solve(C3))).T*T3]
     compare_vector_expressions_mixed(expressions)
     compare_slate_tensors(expressions, opt_expressions)
 
