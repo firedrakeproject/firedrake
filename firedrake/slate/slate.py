@@ -956,7 +956,7 @@ class Inverse(UnaryOp):
         )
 
         if A.shape > (4, 4) and not isinstance(A, Factorization):
-            A = Factorization(A, decomposition="PartialPivLU")
+            A = A #Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 
@@ -1236,7 +1236,8 @@ def space_equivalence(A, B):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor],
     [Add],
-    [Mul, Solve],
+    [Mul],
+    [Solve],
     [UnaryOp],
 ]
 
