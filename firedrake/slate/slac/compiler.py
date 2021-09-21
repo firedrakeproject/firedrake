@@ -183,6 +183,11 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                              include_dirs=BLASLAPACK_INCLUDE.split(),
                              ldargs=BLASLAPACK_LIB.split())
 
+    # map the coefficients in the order that PyOP2 needs
+    new_coeffs = slate_expr.coefficients()
+    orig_coeffs = orig_expr.coefficients()
+    coeff_map = tuple((orig_coeffs.index(new_coeffs[n]),split_map) for (n, split_map) in slate_expr.coeff_map)
+
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
                        oriented=builder.bag.needs_cell_orientations,
