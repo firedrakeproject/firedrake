@@ -205,7 +205,8 @@ def _push_mul_inverse(expr, self, state):
     """ Rewrites the multiplication of Inverse
     with a coefficient into a Solve via A^{-1}*b = A.solve(b)."""
     child, = expr.children
-    return Solve(child, state.coeff) if state.pick_op else Transpose(Solve(Transpose(child), Transpose(state.coeff)))
+    return Solve(child, state.coeff) if state.pick_op \
+           else Transpose(Solve(Transpose(child), Transpose(state.coeff)))
 
 @_push_mul.register(Transpose)
 def _push_mul_transpose(expr, self, state):
