@@ -907,7 +907,7 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def get_interior_facet_maps(V):
         """
-        Utility function to extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
+        Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
 
         :arg V: a :class:`FunctionSpace`
 

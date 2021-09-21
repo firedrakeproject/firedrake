@@ -1,15 +1,14 @@
 from functools import partial, lru_cache
 from itertools import chain
 
-from ufl import Form, MixedElement, VectorElement, TensorElement, TensorProductElement, replace
-from ufl import FiniteElement, EnrichedElement, HDivElement, HCurlElement, hexahedron
+from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
+from ufl import EnrichedElement, HDivElement, HCurlElement, Form, replace
 from ufl.classes import Expr
 
 from pyop2 import op2, PermutedMap
 import loopy
 import numpy
 
-from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
@@ -17,6 +16,7 @@ from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, set_function_space
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import ScalarType_c, IntType_c
+from firedrake.petsc import PETSc
 import firedrake
 
 __all__ = ("PMGPC", "PMGSNES")
@@ -60,55 +60,57 @@ class PMGBase(PCSNESBase):
         By default, this does power-of-2 coarsening in polynomial degree until
         we reach the coarse degree specified through PETSc options (1 by default).
 
-        It raises a `NotImplementedError` for :class:`ufl.MixedElement`s, as
-        I don't know if there's a sensible default strategy to implement here.
-        It is intended that the user subclass `PMGPC` to override this method
-        for their problem.
-
         :arg ele: a :class:`ufl.FiniteElement` to coarsen.
         """
-        if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
-            raise NotImplementedError("Implement this method yourself")
-
-        N = ele.degree()
-        try:
-            N, = set(N)
-        except TypeError:
-            pass
-        except ValueError:
-            raise NotImplementedError("Different degrees on TensorProductElement")
-
+        N = PMGBase.max_degree(ele)
         if N <= self.coarse_degree:
             raise ValueError
+        return PMGBase.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
 
-        return self.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
+    @staticmethod
+    def max_degree(ele):
+        if isinstance(ele, (MixedElement, TensorProductElement)):
+            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
+        elif isinstance(ele, EnrichedElement):
+            return max(PMGBase.max_degree(sub) for sub in ele._elements)
+        elif isinstance(ele, (HDivElement, HCurlElement)):
+            return PMGBase.max_degree(ele._element)
+        else:
+            N = ele.degree()
+            try:
+                return max(N)
+            except TypeError:
+                return N
 
     @staticmethod
     def reconstruct_degree(ele, N):
         """
-        Reconstruct a given element, modifying its polynomial degree.
+        Reconstruct an element, modifying its polynomial degree.
 
-        Can only set a single degree along all axes of a TensorProductElement.
+        By default, reconstructed TensorProductElements and MixedElements
+        will have N as their maximum degree and respect the relative
+        differences between their degrees.
+        This is useful to coarsen spaces like NCF(N) x DQ(N-1).
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
         :arg N: an integer degree.
+
+        :returns: the reconstructed element
         """
-        if isinstance(ele, TensorElement):
-            sub = ele.sub_elements()
-            return TensorElement(PMGBase.reconstruct_degree(sub[0], N), shape=ele.value_shape(), symmetry=ele.symmetry())
-        elif isinstance(ele, VectorElement):
-            sub = ele.sub_elements()
-            return VectorElement(PMGBase.reconstruct_degree(sub[0], N), dim=len(sub))
-        elif isinstance(ele, TensorProductElement):
-            return TensorProductElement(*(PMGBase.reconstruct_degree(sub, N) for sub in ele.sub_elements()), cell=ele.cell())
+        if isinstance(ele, VectorElement):
+            return VectorElement(PMGBase.reconstruct_degree(ele._sub_element, N), dim=ele.num_sub_elements())
+        elif isinstance(ele, TensorElement):
+            return TensorElement(PMGBase.reconstruct_degree(ele._sub_element, N), shape=ele.value_shape(), symmetry=ele.symmetry())
+        elif isinstance(ele, (HDivElement, HCurlElement)):
+            return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
         elif isinstance(ele, EnrichedElement):
-            # NCF and NCF get decomposed eagerly
-            if all([isinstance(sub, HDivElement) for sub in ele._elements]):
-                return FiniteElement("NCF", hexahedron, N)
-            elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
-                return FiniteElement("NCE", hexahedron, N)
-            else:
-                raise NotImplementedError("I don't know how to coarsen a ", ele)
+            return EnrichedElement(*(PMGBase.reconstruct_degree(e, N) for e in ele._elements))
+        elif isinstance(ele, TensorProductElement):
+            M = PMGBase.max_degree(ele)
+            return TensorProductElement(*(PMGBase.reconstruct_degree(e, N-M+PMGBase.max_degree(e)) for e in ele.sub_elements()), cell=ele.cell())
+        elif isinstance(ele, MixedElement):
+            M = PMGBase.max_degree(ele)
+            return MixedElement(*(PMGBase.reconstruct_degree(e, N-M+PMGBase.max_degree(e)) for e in ele.sub_elements()))
         else:
             return ele.reconstruct(degree=N)
 
@@ -197,16 +199,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        def get_max_degree(ele):
-            if isinstance(ele, MixedElement):
-                return max(get_max_degree(sub) for sub in ele.sub_elements())
-            else:
-                N = ele.degree()
-                try:
-                    return max(N)
-                except TypeError:
-                    return N
-
         def coarsen_quadrature(df, Nf, Nc):
             # Coarsen the quadrature degree in a dictionary
             # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
@@ -239,8 +231,8 @@ class PMGBase(PCSNESBase):
                     raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
             return cbcs
 
-        Nf = get_max_degree(fV.ufl_element())
-        Nc = get_max_degree(cV.ufl_element())
+        Nf = PMGBase.max_degree(fV.ufl_element())
+        Nc = PMGBase.max_degree(cV.ufl_element())
 
         # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
