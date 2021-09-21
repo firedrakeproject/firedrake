@@ -119,6 +119,7 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     params = copy.deepcopy(parameters)
     if tsfc_parameters is not None:
         params["form_compiler"].update(tsfc_parameters)
+        params["slate_compiler"].update(tsfc_parameters)
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
