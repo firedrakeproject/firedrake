@@ -352,11 +352,20 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
+    from tsfc.kernel_interface.firedrake_loopy import LocalVectorKernelArg, LocalMatrixKernelArg
+
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
-    return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape)
-    return_expr = gem.Indexed(return_var, return_indices)
+    if len(argument_multiindices) == 0:
+        shape = tuple([idx.extent for idx in basis_indices])
+        return_arg = LocalVectorKernelArg(shape, builder.scalar_type)
+    elif len(argument_multiindices) == 1:
+        rshape = tuple([idx.extent for idx in basis_indices])
+        cshape = tuple([idx.extent for idx in chain(*argument_multiindices)])
+        return_arg = LocalMatrixKernelArg(rshape, cshape, builder.scalar_type)
+    else:
+        raise AssertionError
+    return_expr, = return_arg.make_gem_exprs([return_indices])
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
@@ -365,7 +374,7 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
-    builder.set_output(return_var)
+    builder.set_output(return_arg)
     # Build kernel tuple
     return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
 

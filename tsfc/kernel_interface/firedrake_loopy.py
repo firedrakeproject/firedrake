@@ -168,19 +168,124 @@ class LocalTensorKernelArg(KernelArg):
     name = "A"
     intent = Intent.OUT
 
-    def __init__(self, shape, rank, dtype, interior_facet=False):
-        super().__init__(
-            shape=shape,
-            rank=rank,
-            dtype=dtype,
-            interior_facet=interior_facet
+class LocalScalarKernelArg(LocalTensorKernelArg):
+
+    rank = 0
+    shape = (1,)
+
+    def __init__(self, dtype):
+        self.dtype = dtype
+
+    @property
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
+
+    def make_gem_exprs(self, multiindices):
+        assert len(multiindices) == 0
+        return [gem.Indexed(gem.Variable(self.name, self.shape), (0,))]
+
+
+class LocalVectorKernelArg(LocalTensorKernelArg):
+
+    rank = 1
+
+    def __init__(self, shape, dtype, interior_facet=False, diagonal=False):
+        assert type(shape) == tuple
+        self.shape = shape
+        self.dtype = dtype
+        self.interior_facet = interior_facet
+        self.diagonal = diagonal
+
+    @property
+    def u_shape(self):
+        return numpy.array([numpy.prod(self.shape, dtype=int)])
+
+    @property
+    def c_shape(self):
+        if self.interior_facet:
+            return tuple(2*self.u_shape)
+        else:
+            return tuple(self.u_shape)
+
+    @property
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
+
+    def make_gem_exprs(self, multiindices):
+        if self.diagonal:
+            multiindices = multiindices[:1]
+
+        if self.interior_facet:
+            slicez = [
+                [slice(r*s, (r + 1)*s) for r, s in zip(restrictions, self.u_shape)]
+                for restrictions in product((0, 1), repeat=self.rank)
+            ]
+        else:
+            slicez = [[slice(s) for s in self.u_shape]]
+
+        var = gem.Variable(self.name, self.c_shape)
+        exprs = [self._make_expression(gem.view(var, *slices), multiindices) for slices in slicez]
+        return prune(exprs)
+
+
+    # TODO More descriptive name
+    def _make_expression(self, restricted, multiindices):
+        return gem.Indexed(gem.reshape(restricted, self.shape),
+                           tuple(chain(*multiindices)))
+
+
+
+
+class LocalMatrixKernelArg(LocalTensorKernelArg):
+
+    rank = 2
+
+    def __init__(self, rshape, cshape, dtype, interior_facet=False):
+        assert type(rshape) == tuple and type(cshape) == tuple
+        self.rshape = rshape
+        self.cshape = cshape
+        self.dtype = dtype
+        self.interior_facet = interior_facet
+
+    @property
+    def shape(self):
+        return self.rshape, self.cshape
+
+    @property
+    def u_shape(self):
+        return numpy.array(
+            [numpy.prod(self.rshape, dtype=int), numpy.prod(self.cshape, dtype=int)]
         )
 
     @property
-    def loopy_shape(self):
-        lp_shape = numpy.array([numpy.prod(s, dtype=int) for s in self.shape])
-        return tuple(lp_shape) if not self.interior_facet else tuple(2*lp_shape)
+    def c_shape(self):
+        if self.interior_facet:
+            return tuple(2*self.u_shape)
+        else:
+            return tuple(self.u_shape)
 
+    @property
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
+
+    def make_gem_exprs(self, multiindices):
+        if self.interior_facet:
+            slicez = [
+                [slice(r*s, (r + 1)*s) for r, s in zip(restrictions, self.u_shape)]
+                for restrictions in product((0, 1), repeat=self.rank)
+            ]
+        else:
+            slicez = [[slice(s) for s in self.u_shape]]
+
+        var = gem.Variable(self.name, self.c_shape)
+        exprs = [self._make_expression(gem.view(var, *slices), multiindices) for slices in slicez]
+        return prune(exprs)
+
+
+    # TODO More descriptive name
+    def _make_expression(self, restricted, multiindices):
+        return gem.Indexed(gem.reshape(restricted, self.rshape, self.cshape),
+                           tuple(chain(*multiindices)))
 
 
 class Kernel:
@@ -323,18 +428,9 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def set_output(self, o):
+    def set_output(self, kernel_arg):
         """Produce the kernel return argument"""
-        # Since dual evaluation always returns scalar values, we know that the length of
-        # o.shape matches the rank of the tensor.
-        if len(o.shape) == 1:
-            self.return_arg = LocalTensorKernelArg((o.shape,), 1,
-                                              dtype=self.scalar_type)
-        else:
-            assert len(o.shape) == 2
-            # TODO clean this up
-            self.return_arg = LocalTensorKernelArg(((o.shape[0],), (o.shape[1],)), 2,
-                                              dtype=self.scalar_type)
+        self.return_arg = kernel_arg
 
     def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
@@ -402,10 +498,11 @@ class KernelBuilder(KernelBuilderBase):
         :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
+        kernel_arg = prepare_arguments(
+            arguments, self.scalar_type, interior_facet=self.interior_facet,
             diagonal=self.diagonal)
-        return expressions
+        self.local_tensor = kernel_arg
+        return kernel_arg.make_gem_exprs(multiindices)
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -546,13 +643,12 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     return expression, shape, False
 
 
-def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
+def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg arguments: UFL Arguments
-    :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
     :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
     :returns: (funarg, expression)
@@ -563,14 +659,9 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
-        # No arguments
-        funarg = LocalTensorKernelArg((1,), 0, scalar_type)
-        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
-
-        return funarg, [expression]
+        return LocalScalarKernelArg(scalar_type)
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    shapes = tuple(element.index_shape for element in elements)
 
     if diagonal:
         if len(arguments) != 2:
@@ -581,24 +672,13 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
         elements = (element, )
-        shapes = tuple(element.index_shape for element in elements)
-        multiindices = multiindices[:1]
 
-    def expression(restricted):
-        return gem.Indexed(gem.reshape(restricted, *shapes),
-                           tuple(chain(*multiindices)))
 
-    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
-    if interior_facet:
-        c_shape = tuple(2 * u_shape)
-        slicez = [[slice(r * s, (r + 1) * s)
-                   for r, s in zip(restrictions, u_shape)]
-                  for restrictions in product((0, 1), repeat=len(arguments))]
+    if len(arguments) == 1 or diagonal:
+        element, = elements  # elements must contain only one item
+        return LocalVectorKernelArg(element.index_shape, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
+    elif len(arguments) == 2:
+        relem, celem = elements
+        return LocalMatrixKernelArg(relem.index_shape, celem.index_shape, scalar_type, interior_facet=interior_facet)
     else:
-        c_shape = tuple(u_shape)
-        slicez = [[slice(s) for s in u_shape]]
-
-    funarg = LocalTensorKernelArg(shapes, len(shapes), scalar_type, interior_facet=interior_facet)
-    varexp = gem.Variable("A", c_shape)
-    expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
-    return funarg, prune(expressions)
+        raise AssertionError
