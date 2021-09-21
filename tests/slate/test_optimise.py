@@ -12,12 +12,12 @@ def mesh():
 
 @pytest.fixture
 def p1():
-    return FiniteElement("CG", triangle, 1)
+    return FiniteElement("CG", triangle, 2)
 
 
 @pytest.fixture
 def p2():
-    return VectorElement("CG", triangle, 2)
+    return VectorElement("CG", triangle, 3)
 
 
 @pytest.fixture
