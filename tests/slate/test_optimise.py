@@ -308,10 +308,21 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
     compare_vector_expressions(expressions)  
     compare_slate_tensors(expressions, opt_expressions)
     
-    expressions = [C2.T*(T3.solve(T2.solve(T2)))]
-    opt_expressions = [T2.T.solve(T3.T.solve(C2.T))*T2]
+    expressions = [C2*(T2.inv*(T2.inv*(T2))),
+                   C2*(T2.inv*(T3.inv*(T2))),
+                   (T2.inv*(T3.inv*(T2)))*C2]
+    opt_expressions = [(T2.T.solve(T2.T.solve(C2.T))).T*T2,
+                       (T3.T.solve(T2.T.solve(C2.T))).T*T2,
+                       T2.solve(T3.solve(T2*C2))]
     compare_vector_expressions_mixed(expressions)  
     compare_slate_tensors(expressions, opt_expressions)
+
+    # TODO do with something that is actually non symmetric
+    opt = assemble((C2*(T2.solve(T2.solve(T2)))), form_compiler_parameters={"optimise": True}).dat.data
+    ref = assemble((C2*(T2.inv*(T2.inv*(T2)))), form_compiler_parameters={"optimise": True}).dat.data
+    for r, o in zip(ref, opt):
+        assert np.allclose(o, r, rtol=1e-14)
+    compare_slate_tensors([(C2*(T2.solve(T2.solve(T2))))], [(T2.T.solve(T2.T.solve(C2.T))).T*T2])
 
 
 def compare_tensor_expressions(expressions):
