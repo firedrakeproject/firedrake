@@ -226,7 +226,7 @@ def _push_mul_transpose(expr, self, state):
                            ActionBag(state.coeff,
                                      state.swap_op,
                                      state.pick_op^1))  # but switch the multiplication order with pick_op 
-        return self(Transpose(pushed_expr),              # then Transpose the end result
+        return self(Transpose(pushed_expr),             # then Transpose the end result
                     ActionBag(state.coeff, state.swap_op, state.pick_op))
     else:
         return expr
