@@ -7,13 +7,11 @@ from collections import namedtuple
 
 """ ActionBag class
 :arg coeff: what we contract with.
-:arg swap_op:   holds an operand that needs to be swapped with the child of another operand
-                needed to deal with solves which get premultiplied by a vector.
 :arg pick_op:   decides which argument in Tensor is exchanged against the coefficient
                 and also in which operand the action has to be pushed,
                 basically determins if we pre or postmultiply
 """
-ActionBag = namedtuple("ActionBag", ["coeff", "swap_op",  "pick_op"])
+ActionBag = namedtuple("ActionBag", ["coeff", "pick_op"])
 
 def optimise(expression, parameters):
     """Optimises a Slate expression, by pushing blocks and multiplications
@@ -168,9 +166,8 @@ def push_mul(tensor, coeff, options):
 
     from gem.node import MemoizerArg
     mapper = MemoizerArg(_push_mul)
-    mapper.swapc = SwapController()
     mapper.action = options["replace_mul"]
-    a = mapper(tensor, ActionBag(coeff, None, 1))
+    a = mapper(tensor, ActionBag(coeff, 1))
     return a
 
 
@@ -217,17 +214,15 @@ def _push_mul_transpose(expr, self, state):
         :arg expr: a Transpose
         :arg self: a MemoizerArg object.
         :arg state: state carries a coefficient in .coeff,
-                    information about argument swapping in .swap_op,
                     and information if multiply from front (0) or back (1) in .pick_op
         :returns: an optimised transposed expression
     """
     if expr.rank == 2:
         pushed_expr = self(*expr.children,              # push mul into A
                            ActionBag(state.coeff,
-                                     state.swap_op,
                                      state.pick_op^1))  # but switch the multiplication order with pick_op 
         return self(Transpose(pushed_expr),             # then Transpose the end result
-                    ActionBag(state.coeff, state.swap_op, state.pick_op))
+                    ActionBag(state.coeff, state.pick_op))
     else:
         return expr
 
@@ -239,51 +234,35 @@ def _push_mul_solve(expr, self, state):
                 a) multiplication from front
                 b) multiplication from back
     """
-    if expr.rank == 1:
-        if not state.coeff:
-            """
-            case 1) child 1 is matrix, child2 is vector
-                    In this case the Solve expression is already partially optimised.
-                    Its rhs is a vector but may still leave space for optimisation.
-                    Rhs of the solve must contain the coefficient.
-                    No coefficient would be multiplied on the outside of the Solve.
-            """
-            expr1, expr2 = expr.children
-            assert expr2.rank == 1
-            coeff = self(expr2, state)
-            return Solve(expr1, coeff)
-        else:
-            # WIP right thing to do?
-            return expr
-    elif expr.rank == 2:
-        if state.pick_op == 0:
-            """
-            case 2) child 1 is matrix, child2 is matrix
-                 a) multiplication from front
+    if expr.rank == 2 and state.pick_op == 0:
+        """
+        case 2) child 1 is matrix, child2 is matrix and a coefficient is passed through
+                a)  multiplication from front
                     We exploit A.T*x = (x.T*A).T and previously used A.inv*b=A.solve(b).
                     e.g.            (1) (y*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
                     transforms to   (2) (((A.inv*(B.T)).T*y.T).T.T    -> {[(4,4)*(4,3)].T*(4,1)}.T.T
                                     (3) = (B*A.inv.T*y.T).T.T         -> {(3,4)*[(4,4)*(4,1)]}
                                     (4) = B*A.T.solve(y.T)
                     From (2) to (3) we need to swap rhs of the solve with the coefficient.
-            """
-            rhs = state.swap_op                                     # y in example
-            mat = Transpose(expr.children[state.pick_op])           # A.T in example
-            swapped_op = Transpose(expr.children[state.pick_op^1])  # B.T.T in example
-            # FIXME
-            assert not(isinstance(rhs, Solve) and rhs.rank==2), "We need to fix the case where \
-                                                                the rhs in a  Solve is a result of a Solve"
-            return swapped_op, Solve(mat, self(rhs, ActionBag(state.coeff, None, state.pick_op^1)))
+        """
+        mat = Transpose(expr.children[state.pick_op])                                                           # A.T in example
+        swapped_op = Transpose(expr.children[state.pick_op^1])                                                  # B.T.T in example
+        new_rhs = Transpose(state.coeff)                                                                        # y.T in example
+        return Transpose(self(swapped_op, ActionBag(Transpose(Solve(mat, new_rhs)), state.pick_op^1)))          # push_mul(B,A.T.solve(y.T))
+    else:
+        """
+        case 1) a)  child 1 is matrix, child2 is vector and there is no coefficient passed through
+                b)  child 2 is matrix, child2 is matrix and there is a coefficient passed through
+                    ->  multiplication from back
+                        A.solve(B)*x = A.inv*B*x = A.inv*(B*x) = A.solve(Bx)
+                We always push into the right hand side of the solve.
+        """
+        mat, rhs = expr.children
+        if (rhs.rank == 1 and state.coeff):
+            return expr
         else:
-            """
-            case 2) child 1 is matrix, child2 is matrix
-                 b) multiplication from back
-                    A.solve(B)*x = A.inv*B*x = A.inv*(B*x) = A.solve(Bx)
-                    We always push into the right hand side of the solve.
-            """
-            rhs = expr.children[state.pick_op]
-            mat = expr.children[state.pick_op^1]
-            return Solve(mat, self(rhs, state))
+            coeff = self(rhs, state)
+            return Solve(mat, self(coeff, state))
 
 
 @_push_mul.register(Mul)
@@ -294,51 +273,36 @@ def _push_mul_mul(expr, self, state):
         case 1) child 1 is matrix, child2 is vector or other way around
         case 2) child 1 is matrix, child2 is matrix
 
-        :arg expr: a Multiplocation
+        :arg expr: a Multiplication
         :arg self: a MemoizerArg object.
         :arg state: state carries a coefficient in .coeff,
-                    information about argument swapping in .swap_op,
                     and information if multiply from front (0) or back (1) in .pick_op
         :returns: an optimised Multiplication
     """
     if expr.rank == 1:
-        if not state.coeff:
-            """
-            case 1) child 1 is matrix, child2 is vector or other way around
-                 a)  In this case the Mul expression is already partially optimised.
-                    The child with rank 1 must contain the coefficient.
-                    Both childs may still leave space for optimisation.
-                    Optimise child of rank 1 first and use result as coefficient
-                    to push the Mul into the other child.
-                    No coefficient would be multiplied on the outside of the Mul.
-                    e.g. (A0*A1)*((A2+A3)*y) = (A0*A1)*(A2*y+A3*y) = A0*(A1*(A2*y+A3*y))
-            """
-            rank1expr, = tuple(filter(lambda child: child.rank == 1, expr.children))    # (A2+A3)*y
-            coeff = self(rank1expr, state)                                              # (A2*y+A3*y)
-            pick_op = expr.children.index(rank1expr)
-            other_child = expr.children[pick_op^1]                                      # A0*A1
-            return self(other_child, ActionBag(coeff, state.swap_op, pick_op))          # A0*(A1*(A2*y+A3*y))
-        else:
-            """
-            case 1) child 1 is matrix, child2 is vector or other way around
-                 b) In this case the Mul expression is already partially optimised.
-                    A coefficient is multiplied from the outside.
-                    Both childs may still leave space for optimisation.
-                    Optimise child of rank 1 first but do not use result as coefficient.
-                    Push coefficient from the outside into the Mul of the other child.
-                    e.g. (y.T*(A0+A1)*B)*y = ((y.T*A0+y.T*A1)*B)*y = (y.T*A0+y.T*A1)*(B*y) 
-            """
-            rank1expr, = tuple(filter(lambda child: child.rank == 1, expr.children))    # (y.T*A0+y.T*A1)
-            coeff = self(rank1expr, state)                                              # y.T*A0+y.T*A1)
-            pick_op = expr.children.index(rank1expr)
-            other_child = expr.children[pick_op^1]                                                 # B
-            pushed_other_child = self(other_child, ActionBag(state.coeff, state.swap_op, pick_op)) # B*y
-            return Mul(coeff, pushed_other_child) if pick_op else Mul(pushed_other_child, coeff)   # (y.T*A0+y.T*A1)*(B*y)
+        """
+        case 1) child 1 is matrix, child2 is vector or other way around
+                In this case the Mul expression is already partially optimised.
+                a) The child with rank 1 must contain the coefficient.
+                Both childs may still leave space for optimisation.
+                Optimise child of rank 1 first and use result as coefficient
+                to push the Mul into the other child.
+                No coefficient would be multiplied on the outside of the Mul.
+                e.g. (A0*A1)*((A2+A3)*y) = (A0*A1)*(A2*y+A3*y) = A0*(A1*(A2*y+A3*y))
+                b) A coefficient is multiplied from the outside.
+                Both childs may still leave space for optimisation.
+                Optimise child of rank 1 first but do not use result as coefficient.
+                Push coefficient from the outside into the Mul of the other child.
+                e.g. (y.T*(A0+A1)*B)*y = ((y.T*A0+y.T*A1)*B)*y = (y.T*A0+y.T*A1)*(B*y) 
+        """
+        rank1expr, = tuple(filter(lambda child: child.rank == 1, expr.children))        # a) (A2+A3)*y              b) (y.T*A0+y.T*A1)
+        coeff = self(rank1expr, state)                                                  # a) (A2*y+A3*y)            b) y.T*A0+y.T*A1)
+        pick_op = expr.children.index(rank1expr)
+        other_child = expr.children[pick_op^1]                                          # a) A0*A1                  b) B             
+        return self(other_child, ActionBag(coeff, pick_op))                             # a) A0*(A1*(A2*y+A3*y))    b)(y.T*A0+y.T*A1)*(B*y)
     elif expr.rank == 2:
             """
             case 2) child 1 is matrix, child2 is matrix
-                    
-            Solve needs some special casing because we need to swap args if we premultiply with a vec.
 
             EXAMPLE 1: (A*B*C)*y
             –––––––––––––––––––––––––––––––––––––––––––––––––––––––
@@ -366,46 +330,18 @@ def _push_mul_mul(expr, self, state):
                     (y.T * (C*A.solve(B.T)).T                               ->{(1,3)*[(3,4)*(4,4)*(4,3)]}.T
             -->     ((y.T*C)*A.solve(B.T)).T =(y_new*(A.inv*(B.T))).T       ->{(1,4)*[((4,4)*(4,3)]}.T
             -->     (((A.inv*(B.T)).T*y_new.T).T.T                          ->{[(4,4)*(4,3)].T*(4,1)}.T.T
-            -->     (B*A.inv.T*(y_new.T)).T.T = B*A.T.solve(y_new.T)    -> (3,4)*[(4,4)*(4,1)]
+            -->     (B*A.inv.T*(y_new.T)).T.T = B*A.T.solve(y_new.T)       -> (3,4)*[(4,4)*(4,1)]
 
             """
-            # We optimise the first child first if multiplication happens from front,               EXAMPLE 3
+            # We optimise the first child first if multiplication happens from front,    EXAMPLE 3
             # otw. we we walk into second child first.
-            other_child = expr.children[state.pick_op^1]                                            # A.solve(B.T)
-            prio_child = expr.children[state.pick_op]                                               # C
-            if self.swapc.should_swap(prio_child, state):                                           # no
-                with self.swapc.swap_ops_bag(state, Transpose(other_child)) as new_state:
-                    other_child, pushed_prio_child = self(prio_child, new_state)
-            else:
-                pushed_prio_child = self(prio_child, state)                                         # C
-
-            # Then optimise the leftover operator with help of the already optimised operator
-            # so pushed_prio_child is new coefficient
-            if self.swapc.should_swap(other_child, state):                                          # yes
-                with self.swapc.swap_ops_bag(state, Transpose(pushed_prio_child)) as new_state:
-                    swapped_op, pushed_other_child = self(other_child, new_state)                   # swapped_op:B, pushed_other_child:A.T.solve(y_new.T)
-                coeff = pushed_other_child
-                result = self(swapped_op, ActionBag(coeff, state.swap_op, state.pick_op^1))         # B*A.T.solve(y_new.T) 
-                return self(Transpose(result, ActionBag(coeff, state.swap_op, state.pick_op)))      # B*A.T.solve(y_new.T).T
-            else:
-                coeff = pushed_prio_child
-                return self(other_child, ActionBag(coeff, state.swap_op, state.pick_op))
+            other_child = expr.children[state.pick_op^1]                                 # A.solve(B.T)
+            prio_child = expr.children[state.pick_op]                                    # C
+            coeff = self(prio_child, state)                                              # y.T*C
+            return self(other_child, ActionBag(coeff, state.pick_op))                    # push_mul(A.solve(B), y.T*C)
 
 @_push_mul.register(Factorization)
 def _push_mul_factorization(expr, self, state):
     """ Drop any factorisations. """
     return self(*expr.children, state)
 
-
-class SwapController(object):
-
-    def should_swap(self, child, state):
-        return isinstance(child, Solve) and state.pick_op == 0 and child.rank == 2
-
-    @contextmanager
-    def swap_ops_bag(self, state, swap_op):
-        """Provides a context to swap operand swap_op with a node from a level down.
-        :arg state: current state.
-        :arg op: operand to be swapped.
-        :returns: the modified code generation context."""
-        yield ActionBag(state.coeff, swap_op, state.pick_op)
