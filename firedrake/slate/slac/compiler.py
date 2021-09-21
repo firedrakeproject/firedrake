@@ -159,6 +159,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     Citations().register("Gibson2018")
 
+    orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible
     if compiler_parameters["slate_compiler"]["optimise"]:
         slate_expr = optimise(slate_expr, compiler_parameters["slate_compiler"])
