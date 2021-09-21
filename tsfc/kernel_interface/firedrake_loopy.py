@@ -168,23 +168,18 @@ class LocalTensorKernelArg(KernelArg):
     name = "A"
     intent = Intent.OUT
 
-    def __init__(self, shape, rank, dtype, interior_facet=False, shape_fixed=False):
+    def __init__(self, shape, rank, dtype, interior_facet=False):
         super().__init__(
             shape=shape,
             rank=rank,
             dtype=dtype,
             interior_facet=interior_facet
         )
-        self.shape_fixed = shape_fixed  # debug param because interpolating doesn't work
 
     @property
     def loopy_shape(self):
-        if self.shape_fixed:
-            return self.shape[0]
-        else:
-            # The outer dimension of self.shape corresponds to the form arguments.
-            lp_shape = numpy.array([numpy.prod(s, dtype=int) for s in self.shape])
-            return tuple(lp_shape) if not self.interior_facet else tuple(2*lp_shape)
+        lp_shape = numpy.array([numpy.prod(s, dtype=int) for s in self.shape])
+        return tuple(lp_shape) if not self.interior_facet else tuple(2*lp_shape)
 
 
 
@@ -330,8 +325,16 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
     def set_output(self, o):
         """Produce the kernel return argument"""
-        self.return_arg = LocalTensorKernelArg((o.shape,), 1,  # TODO
-                                          dtype=self.scalar_type, shape_fixed=True)
+        # Since dual evaluation always returns scalar values, we know that the length of
+        # o.shape matches the rank of the tensor.
+        if len(o.shape) == 1:
+            self.return_arg = LocalTensorKernelArg((o.shape,), 1,
+                                              dtype=self.scalar_type)
+        else:
+            assert len(o.shape) == 2
+            # TODO clean this up
+            self.return_arg = LocalTensorKernelArg(((o.shape[0],), (o.shape[1],)), 2,
+                                              dtype=self.scalar_type)
 
     def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
