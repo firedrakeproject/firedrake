@@ -2,6 +2,31 @@ import pytest
 from firedrake import *
 
 
+def test_reconstruct_degree():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    for ndim in [2, 3]:
+        if ndim == 3:
+            mesh = ExtrudedMesh(mesh, layers=1)
+
+        elist = []
+        for degree in [7, 2, 31]:
+            V = VectorFunctionSpace(mesh, "Q", degree)
+            Q = FunctionSpace(mesh, "DQ", degree-2)
+            Z = MixedFunctionSpace([V, Q])
+            e = Z.ufl_element()
+            elist.append(e)
+            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+
+        elist = []
+        for degree in [7, 2, 31]:
+            V = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", degree)
+            Q = FunctionSpace(mesh, "DQ", degree-1)
+            Z = MixedFunctionSpace([V, Q])
+            e = Z.ufl_element()
+            elist.append(e)
+            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+
+
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
 def mesh(request):
     if request.param == "triangles":
@@ -166,11 +191,6 @@ def test_p_multigrid_vector():
     assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 3
 
 
-class MixedPMG(PMGPC):
-    def coarsen_element(self, ele):
-        return MixedElement([PMGPC.coarsen_element(self, sub) for sub in ele.sub_elements()])
-
-
 @pytest.mark.skipcomplex
 def test_p_multigrid_mixed(mat_type):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
@@ -206,7 +226,7 @@ def test_p_multigrid_mixed(mat_type):
           "ksp_rtol": 1E-12,
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
-          "pc_python_type": __name__ + ".MixedPMG",
+          "pc_python_type": "firedrake.PMGPC",
           # "mat_type": mat_type,  # FIXME bug with mat-free jacobi on MixedFunctionSpace
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,

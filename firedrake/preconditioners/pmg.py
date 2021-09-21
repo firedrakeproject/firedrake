@@ -33,7 +33,7 @@ class PMGBase(PCSNESBase):
     or any other solver in firedrake may be applied to the coarse problem.
 
     Other PETSc options inspected by this class in particular are:
-    - 'pmg_mg_coarse_degree': to specify the degree of the coarse level
+    - 'pmg_coarse_degree': to specify the degree of the coarse level
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
@@ -42,9 +42,8 @@ class PMGBase(PCSNESBase):
     should be the coarsest one of the hierarchy).
 
     The default coarsen_element is to perform power-of-2 reduction
-    of the polynomial degree. For mixed systems a ``NotImplementedError``
-    is raised, as I don't know how to make a sensible default for this.
-    It is expected that many (most?) applications of this preconditioner
+    of the polynomial degree.
+    It is expected that some applications of this preconditioner
     will subclass :class:`PMGBase` to override `coarsen_element`.
     """
 
@@ -88,8 +87,8 @@ class PMGBase(PCSNESBase):
         Reconstruct an element, modifying its polynomial degree.
 
         By default, reconstructed TensorProductElements and MixedElements
-        will have N as their maximum degree and respect the relative
-        differences between their degrees.
+        will have N as their maximum degree and preserve the differences
+        between their degrees.
         This is useful to coarsen spaces like NCF(N) x DQ(N-1).
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
@@ -507,7 +506,7 @@ def tensor_product_space_query(V):
         # Just a single int
         pass
 
-    if isinstance(ele, firedrake.TensorProductElement):
+    if isinstance(ele, TensorProductElement):
         family = set(e.family() for e in ele.sub_elements())
         try:
             # variant = None defaults to spectral
@@ -517,10 +516,10 @@ def tensor_product_space_query(V):
             # Multiple variants
             variant = "unsupported"
             use_tensorproduct = False
-    elif isinstance(ele, firedrake.EnrichedElement):
-        if all([isinstance(sub, HDivElement) for sub in ele._elements]):
+    elif isinstance(ele, EnrichedElement):
+        if all(isinstance(sub, HDivElement) for sub in ele._elements):
             family = {"NCF"}
-        elif all([isinstance(sub, HCurlElement) for sub in ele._elements]):
+        elif all(isinstance(sub, HCurlElement) for sub in ele._elements):
             family = {"NCE"}
         else:
             family = {"unknown"}
