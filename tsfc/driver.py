@@ -307,8 +307,9 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     builder = interface(parameters["scalar_type"])
     arguments = extract_arguments(expression)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
+    assert len(arguments) in {0, 1}  # sanity check - could it ever be more?
+    argument_elements = tuple(builder.create_element(arg.ufl_element()) for arg in arguments)
+    argument_multiindices = tuple(elem.get_indices() for elem in argument_elements)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
@@ -366,10 +367,32 @@ def compile_expression_dual_evaluation(expression, to_element, *,
             node_shape = ()
         return_arg = LocalVectorKernelArg(basis_shape, builder.scalar_type, node_shape=node_shape)
     elif len(argument_multiindices) == 1:
-        raise NotImplementedError
-        rshape = tuple([idx.extent for idx in basis_indices])
-        cshape = tuple([idx.extent for idx in chain(*argument_multiindices)])
-        return_arg = LocalMatrixKernelArg(rshape, cshape, builder.scalar_type)
+        # rshape first
+        if isinstance(to_element, finat.TensorFiniteElement):
+            assert isinstance(to_element._shape, tuple)
+            rbasis_shape = _get_shape_from_indices(basis_indices[:-len(to_element._shape)])
+            rnode_shape = to_element._shape
+        else:
+            rbasis_shape = _get_shape_from_indices(basis_indices)
+            rnode_shape = ()
+
+        # now cshape
+        # both should only have one item in them
+        arg_elem, = argument_elements
+        arg_multiindices, = argument_multiindices
+        if isinstance(arg_elem, finat.TensorFiniteElement):
+            assert isinstance(arg_elem._shape, tuple)
+            cbasis_shape = _get_shape_from_indices(arg_multiindices[:-len(arg_elem._shape)])
+            cnode_shape = arg_elem._shape
+        else:
+            cbasis_shape = _get_shape_from_indices(arg_multiindices)
+            cnode_shape = ()
+
+        return_arg = LocalMatrixKernelArg(
+            rbasis_shape, cbasis_shape, builder.scalar_type,
+            rnode_shape=rnode_shape,
+            cnode_shape=cnode_shape
+        )
     else:
         raise AssertionError
     return_expr, = return_arg.make_gem_exprs([return_indices])

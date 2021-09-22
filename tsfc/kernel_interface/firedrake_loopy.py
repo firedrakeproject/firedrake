@@ -661,6 +661,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         minus = gem.view(varexp, slice(size, 2*size))
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
+    breakpoint()
     return expression, shape, False
 
 
