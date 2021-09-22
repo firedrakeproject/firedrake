@@ -134,7 +134,6 @@ class FDMPC(PCBase):
         self.Pmat.setLGMap(V.dof_dset.lgmap)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-
         prealloc.destroy()
 
         opc = pc

@@ -68,6 +68,9 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
+        """
+        Return the maximum degree of a :class:`ufl.FiniteElement`
+        """
         if isinstance(ele, (VectorElement, TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
         elif isinstance(ele, (MixedElement, TensorProductElement)):
@@ -89,9 +92,9 @@ class PMGBase(PCSNESBase):
         """
         Reconstruct an element, modifying its polynomial degree.
 
-        By default, reconstructed TensorProductElements and MixedElements
-        will have N as their maximum degree and preserve the differences
-        between their degrees.
+        By default, reconstructed EnrichedElements, TensorProductElements,
+        and MixedElements will have the degree of the sub-elements shifted
+        by the same amount so that the maximum degree is N.
         This is useful to coarsen spaces like NCF(N) x DQ(N-1).
 
         :arg ele: a :class:`ufl.FiniteElement` to reconstruct,

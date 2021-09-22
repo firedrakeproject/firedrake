@@ -266,7 +266,7 @@ def test_direct_solver(fs):
         "pc_type": "python",
         "pc_python_type": "firedrake.FDMPC",
         "fdm_pc_type": "cholesky",
-        "fdm_pc_factor_mat_solver_type": "cholmod",
+        "fdm_pc_factor_mat_solver_type": "mumps",
         "fdm_pc_factor_mat_ordering_type": "nd",
     }, appctx={"eta": eta, })
     solver.solve()
