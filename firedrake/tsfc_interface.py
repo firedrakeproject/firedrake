@@ -4,6 +4,7 @@ transforms the TSFC-generated code to make it suitable for
 passing to the backends.
 
 """
+from itertools import chain
 import pickle
 from functools import partial
 import time
@@ -233,8 +234,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 subspaces.update(split_subspaces[form_data_index])
         subspaces = subspaces.difference(set((None, )))
         # Sort subspaces and prepare for use in assemble.py.
-        #subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
-        _subspaces = set(subspace if subspace.parent is None else subspace.parent for subspace in subspaces)
+        _subspaces = set(chain(*(subspace.subspaces() for subspace in subspaces)))
         _subspaces = sorted(_subspaces, key=lambda s: s.count())
         subspace_numbers = []
         for i, subspace in enumerate(original_subspaces):
@@ -247,16 +247,31 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 ind = _subspaces.index(subspace.parent)
                 subspace_parts[ind].append(subspace.index)
         subspace_parts = [sorted(part) if part is not None else None for part in subspace_parts]
+        lgmap_temp = []
+        i = 0
+        for s, part in zip(_subspaces, subspace_parts):
+            if part is None:
+                lgmap_temp.append(i)
+                i+=1
+            else:
+                n = len(s.ufl_element().sub_elements())
+                for j in range(n):
+                    if j in part:
+                        lgmap_temp.append(i)
+                    i+=1
+                
         # Register enabled (split) subspaces and get associated gem expressions.
         #subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
-        elements = []
-        for i, subspace in enumerate(_subspaces):
-            if subspace_parts[i] is None:
-                elements.append(subspace.ufl_element())
-            else:
-                for part in subspace_parts[i]:
-                    elements.append(subspace.ufl_element().sub_elements()[part])
-        subspace_exprs = builder.set_external_data(elements)
+        #elements = []
+        #for i, subspace in enumerate(_subspaces):
+        #    if subspace_parts[i] is None:
+        #        elements.append(subspace.ufl_element())
+        #    else:
+        #        for part in subspace_parts[i]:
+        #            elements.append(subspace.ufl_element().sub_elements()[part])
+        #subspace_exprs = builder.set_external_data(elements)
+        _subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in _subspaces])
+        subspace_exprs = [_subspace_exprs[i] for i in lgmap_temp]
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
         subspaces = sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(),
                                                      -1 if s.index is None else s.index))
@@ -306,7 +321,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # Construct kernel
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts)
+        kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts,lgmap_temp=lgmap_temp)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)

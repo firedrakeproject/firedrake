@@ -119,6 +119,9 @@ class Subspace(object):
         """
         raise NotImplementedError("Subclasses must implement `transform` method.")
 
+    def subspaces(self):
+        return (self, )
+
     def __eq__(self, other):
         if other is self:
             return True
@@ -164,6 +167,9 @@ class IndexedSubspace(object):
 
     def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
         return self.parent.transform(expressions, subspace_expr, i_dummy, i, finat_element, dtype)
+
+    def subspaces(self):
+        return self.parent.subspaces()
 
     def __eq__(self, other):
         return self.parent == other.parent and self.index == other.index
