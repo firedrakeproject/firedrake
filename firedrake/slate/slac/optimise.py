@@ -239,16 +239,23 @@ def _push_mul_solve(expr, self, state):
         case 2) child 1 is matrix, child2 is matrix and a coefficient is passed through
                 a)  multiplication from front
                     We exploit A.T*x = (x.T*A).T and previously used A.inv*b=A.solve(b).
-                    e.g.            (1) (y*(A.inv*(B.T))).T           -> {(1,4)*[((4,4)*(4,3)]}.T
-                    transforms to   (2) (((A.inv*(B.T)).T*y.T).T.T    -> {[(4,4)*(4,3)].T*(4,1)}.T.T
-                                    (3) = (B*A.inv.T*y.T).T.T         -> {(3,4)*[(4,4)*(4,1)]}
-                                    (4) = B*A.T.solve(y.T)
+                    e.g.            (1) T3*T3.inv*T3.T              
+                    transforms to   (2) T3.T.solve(C3.T).T*T3.T     
+                                    (3) (T_3*T3.T.solve(C3.T)).T    
                     From (2) to (3) we need to swap rhs of the solve with the coefficient.
+
+                    or              (1) (C*(A.solve(A.solve(A))))
+                    is              (2) (A.solve(A).T*A.T.solve(C.T)).T
+                    transforms to   (3) (A.T.solve(C.T)).T*A.solve(A)).T.T
+                                    (4) (A.T*A.T.solve((A.T.solve(C.T)))
+                                    (5) (A.T*A.T.solve(A.T.solve(C.T))).T
+                                    (6) A.T.solve(A.T.solve(C.T)).T*A
         """
-        mat = Transpose(expr.children[state.pick_op])                                                           # A.T in example
-        swapped_op = Transpose(expr.children[state.pick_op^1])                                                  # B.T.T in example
-        new_rhs = Transpose(state.coeff)                                                                        # y.T in example
-        return Transpose(self(swapped_op, ActionBag(Transpose(Solve(mat, new_rhs)), state.pick_op^1)))          # push_mul(B,A.T.solve(y.T))
+        mat = Transpose(expr.children[state.pick_op])
+        swapped_op = Transpose(expr.children[state.pick_op^1])
+        new_rhs = Transpose(state.coeff)
+        pushed_child = self(Solve(mat, new_rhs), ActionBag(None, state.pick_op^1))
+        return Transpose(self(swapped_op, ActionBag(pushed_child, state.pick_op^1)))
     else:
         """
         case 1) a)  child 1 is matrix, child2 is vector and there is no coefficient passed through
