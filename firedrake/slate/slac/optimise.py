@@ -219,7 +219,7 @@ def _push_mul_transpose(expr, self, state):
     """
     if expr.rank == 2:
         pushed_expr = self(*expr.children,              # push mul into A
-                           ActionBag(state.coeff,
+                           ActionBag(Transpose(state.coeff),
                                      state.pick_op^1))  # but switch the multiplication order with pick_op 
         return self(Transpose(pushed_expr),             # then Transpose the end result
                     ActionBag(state.coeff, state.pick_op))
