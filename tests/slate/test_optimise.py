@@ -131,10 +131,10 @@ def TC2(mesh):
 @pytest.fixture
 def TC_non_symm(mesh, Mixed, Velo, Pres, dg):
     w = Function(Mixed)
-    velocity = as_vector((10, 10))
-    velo = Function(Velo).assign(velocity)
+    x = SpatialCoordinate(mesh)
+    velo = Function(Velo).project(as_vector([10*sin(pi*x[0]), 0]))
     w.sub(0).assign(velo)
-    pres = Function(Pres).assign(1)
+    pres = Function(Pres).assign(10.)
     w.sub(1).assign(pres)
 
     T = TrialFunction(dg)
