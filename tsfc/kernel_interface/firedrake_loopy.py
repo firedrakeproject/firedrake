@@ -75,8 +75,15 @@ class CoordinatesKernelArg(KernelArg):
     rank = 1
     intent = Intent.IN
 
-    def __init__(self, shape, dtype, interior_facet=False):
-        super().__init__(shape=shape, dtype=dtype, interior_facet=interior_facet)
+    def __init__(self, basis_shape, node_shape, dtype, interior_facet=False):
+        self.basis_shape = basis_shape
+        self.node_shape = node_shape
+        self.dtype = dtype
+        self.interior_facet = interior_facet
+
+    @property
+    def shape(self):
+        return self.basis_shape + self.node_shape
 
 
 class ConstantKernelArg(KernelArg):
@@ -97,16 +104,40 @@ class CoefficientKernelArg(KernelArg):
     rank = 1
     intent = Intent.IN
 
-    def __init__(self, name, shape, dtype, interior_facet=False):
-        super().__init__(name=name, shape=shape, dtype=dtype,
-                         interior_facet=interior_facet)
+    def __init__(self, name, basis_shape, dtype, *, node_shape=(), interior_facet=False):
+        self.name = name
+        self.basis_shape = basis_shape
+        self.dtype = dtype
+        self.node_shape = node_shape
+        self.interior_facet = interior_facet
+
+    @property
+    def shape(self):
+        return self.basis_shape + self.node_shape
+
+    @property
+    def u_shape(self):
+        return numpy.array([numpy.prod(self.shape, dtype=int)])
+
+    @property
+    def c_shape(self):
+        if self.interior_facet:
+            return tuple(2*self.u_shape)
+        else:
+            return tuple(self.u_shape)
+
+    @property
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
 
 
 class CellOrientationsKernelArg(KernelArg):
 
     name = "cell_orientations"
-    rank = 0
+    rank = 1
     shape = (1,)
+    basis_shape = (1,)
+    node_shape = ()
     intent = Intent.IN
     dtype = numpy.int32
 
@@ -120,15 +151,19 @@ class CellSizesKernelArg(KernelArg):
     rank = 1
     intent = Intent.IN
 
-    def __init__(self, shape, dtype, interior_facet=False):
-        super().__init__(shape=shape, dtype=dtype, interior_facet=interior_facet)
+    def __init__(self, basis_shape, node_shape, dtype, interior_facet=False):
+        self.basis_shape = basis_shape
+        self.node_shape = node_shape
+        super().__init__(dtype=dtype, interior_facet=interior_facet)
 
 
 class ExteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (1,)
-    rank = 0
+    basis_shape = (1,)
+    node_shape = ()
+    rank = 1
     intent = Intent.IN
     dtype = numpy.uint32
 
@@ -141,7 +176,9 @@ class InteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (2,)
-    rank = 0
+    basis_shape = (2,)  # this is a guess
+    node_shape = ()
+    rank = 1
     intent = Intent.IN
     dtype = numpy.uint32
 
@@ -381,12 +418,9 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        expression, shape, is_constant = prepare_coefficient(coefficient, name, self.interior_facet)
+        kernel_arg, expression = prepare_coefficient(coefficient, name, self.scalar_type, self.interior_facet)
         self.coefficient_map[coefficient] = expression
-        if is_constant:
-            return ConstantKernelArg(name, shape, self.scalar_type)
-        else:
-            return CoefficientKernelArg(name, shape, self.scalar_type, self.interior_facet)
+        return kernel_arg
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -406,8 +440,8 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            expression, shape, _ = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
-            self.cell_sizes_arg = CellSizesKernelArg(self.scalar_type, shape, self.interior_facet)
+            kernel_arg, expression  = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+            self.cell_sizes_arg = kernel_arg
             self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
@@ -535,11 +569,9 @@ class KernelBuilder(KernelBuilderBase):
         self.domain_coordinate[domain] = f
         # TODO Copy-pasted from _coefficient - needs refactor
         # self.coordinates_arg = self._coefficient(f, "coords")
-        expression, shape, _ = prepare_coefficient(f, "coords", self.interior_facet)
+        kernel_arg, expression = prepare_coefficient(f, "coords", self.scalar_type, self.interior_facet)
         self.coefficient_map[f] = expression
-        self.coordinates_arg = CoordinatesKernelArg(
-            shape, self.scalar_type, interior_facet=self.interior_facet
-        )
+        self.coordinates_arg = kernel_arg
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -628,7 +660,7 @@ class KernelBuilder(KernelBuilderBase):
 
 
 # TODO Returning is_constant is nasty. Refactor.
-def prepare_coefficient(coefficient, name, interior_facet=False):
+def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -639,14 +671,15 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
          expression - GEM expression referring to the Coefficient values
          shape - TODO
     """
+    # TODO Return expression and kernel arg...
     assert isinstance(interior_facet, bool)
 
     if coefficient.ufl_element().family() == 'Real':
-        # Constant
         value_size = coefficient.ufl_element().value_size()
+        kernel_arg = ConstantKernelArg(name, (value_size,), dtype)
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
-        return expression, (value_size,), True
+        return kernel_arg, expression
 
     finat_element = create_element(coefficient.ufl_element())
 
@@ -661,8 +694,30 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         minus = gem.view(varexp, slice(size, 2*size))
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
-    breakpoint()
-    return expression, shape, False
+
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        basis_shape = finat_element.index_shape[:-len(finat_element._shape)]
+        node_shape = finat_element._shape
+    else:
+        basis_shape = finat_element.index_shape
+        node_shape = ()
+
+    # This is truly disgusting, clean up ASAP
+    if name == "cell_sizes":
+        kernel_arg = CellSizesKernelArg(dtype, basis_shape, node_shape, interior_facet)
+    elif name == "coords":
+        kernel_arg = CoordinatesKernelArg(
+            basis_shape, node_shape, dtype, interior_facet=interior_facet
+        )
+    else:
+        kernel_arg = CoefficientKernelArg(
+            name,
+            basis_shape,
+            dtype,
+            node_shape=node_shape,
+            interior_facet=interior_facet
+        )
+    return kernel_arg, expression
 
 
 def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=False):
