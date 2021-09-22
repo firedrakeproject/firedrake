@@ -200,7 +200,8 @@ def _push_mul_distributive(expr, self, state):
 @_push_mul.register(Inverse)
 def _push_mul_inverse(expr, self, state):
     """ Rewrites the multiplication of Inverse
-    with a coefficient into a Solve via A^{-1}*b = A.solve(b)."""
+    with a coefficient into a Solve via A.inv*b = A.solve(b)
+    or b*A^{-1}= (A.T.inv*b.T).T = A.T.solve(b.T).T ."""
     child, = expr.children
     return Solve(child, state.coeff) if state.pick_op \
            else Transpose(Solve(Transpose(child), Transpose(state.coeff)))
