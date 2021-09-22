@@ -298,31 +298,35 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
     T2, C2 = TC
     T3, _ = TC_double_mass
 
-    expressions = [A*C+A*C, A.inv*C+A.inv*C, (A+A)*A.solve(C),
-                   (A+A)*A.solve((A+A)*C)]
-    opt_expressions = [A*C+A*C, A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
-                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C)]
-    
-    # TODO expression with two different coefficients
+    # Test some non symmetric, non mixed, nested expressions
+    expressions = [A.inv*C+A.inv*C, (A+A)*A.solve(C),
+                   (A+A)*A.solve((A+A)*C), C*(A.solve(A.solve(A)))]
+    opt_expressions = [A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
+                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C),
+                       (A.T.solve(A.T.solve(C.T))).T*A]
     
     compare_vector_expressions(expressions)  
     compare_slate_tensors(expressions, opt_expressions)
-    
-    expressions = [C2*(T2.inv*(T2.inv*(T2))),
+
+    # Make sure optimised solve gives same answer as expression with inverses
+    opt = assemble((C*(A.solve(A.solve(A)))), form_compiler_parameters={"optimise": True}).dat.data
+    ref = assemble((C*(A.inv*(A.inv*(A)))), form_compiler_parameters={"optimise": False}).dat.data
+    for r, o in zip(ref, opt):
+        assert np.allclose(o, r, rtol=1e-14)
+
+    # Test some symmetric, mixed, nested expressions
+    expressions = [T2.inv*C2+T2.inv*C2, 
+                   C2*(T2.inv*(T2.inv*(T2))),
                    C2*(T2.inv*(T3.inv*(T2))),
                    (T2.inv*(T3.inv*(T2)))*C2]
-    opt_expressions = [(T2.T.solve(T2.T.solve(C2.T))).T*T2,
+    opt_expressions = [T2.solve(C2)+T2.solve(C2), 
+                       (T2.T.solve(T2.T.solve(C2.T))).T*T2,
                        (T3.T.solve(T2.T.solve(C2.T))).T*T2,
                        T2.solve(T3.solve(T2*C2))]
     compare_vector_expressions_mixed(expressions)  
     compare_slate_tensors(expressions, opt_expressions)
-
-    # TODO do with something that is actually non symmetric
-    opt = assemble((C2*(T2.solve(T2.solve(T2)))), form_compiler_parameters={"optimise": True}).dat.data
-    ref = assemble((C2*(T2.inv*(T2.inv*(T2)))), form_compiler_parameters={"optimise": True}).dat.data
-    for r, o in zip(ref, opt):
-        assert np.allclose(o, r, rtol=1e-14)
-    compare_slate_tensors([(C2*(T2.solve(T2.solve(T2))))], [(T2.T.solve(T2.T.solve(C2.T))).T*T2])
+    
+    # TODO expression with two different coefficients
 
 
 def compare_tensor_expressions(expressions):
