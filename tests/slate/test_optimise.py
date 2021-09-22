@@ -38,7 +38,7 @@ def Mixed(mesh, p2, p1):
 
 @pytest.fixture
 def dg(mesh):
-    return FunctionSpace(mesh, "DG", 1)
+    return FunctionSpace(mesh, "DG", 2)
 
 
 @pytest.fixture
