@@ -206,6 +206,7 @@ class LocalTensorKernelArg(KernelArg):
     name = "A"
     intent = Intent.OUT
 
+
 class LocalScalarKernelArg(LocalTensorKernelArg):
 
     rank = 0
@@ -216,7 +217,7 @@ class LocalScalarKernelArg(LocalTensorKernelArg):
 
     @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape, is_output=True)
 
     def make_gem_exprs(self, multiindices):
         assert len(multiindices) == 0
@@ -255,7 +256,7 @@ class LocalVectorKernelArg(LocalTensorKernelArg):
 
     @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape, is_output=True)
 
     # TODO Function please
     def make_gem_exprs(self, multiindices):
@@ -324,7 +325,7 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
 
     @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape, is_output=True)
 
     def make_gem_exprs(self, multiindices):
         if self.interior_facet:
