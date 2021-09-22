@@ -235,7 +235,7 @@ def test_push_mul_simple(TC):
     """Test Optimisers's ability to handle multiplications nested with simple expressions."""
     T, C = TC
     expressions = [(T+T)*C, (T*T)*C, (-T)*C, T.T*C, T.inv*C]
-    opt_expressions = [T*C+T*C, T*(T*C), -(T*C), (C*T).T, T.solve(C)]
+    opt_expressions = [T*C+T*C, T*(T*C), -(T*C), (C.T*T).T, T.solve(C)]
     compare_vector_expressions_mixed(expressions)
     compare_slate_tensors(expressions, opt_expressions)
 
@@ -247,10 +247,22 @@ def test_push_mul_nested(TC, TC2, TC_non_symm):
     T3, C3 = TC_non_symm
     expressions = [(T+T+T2)*C, (T+T2+T)*C, (T-T+T2)*C, (T+T2-T)*C,
                    (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C,
-                   (C.T*T.inv)*(T.inv*T), (C3.T*T3.inv)*(T3.inv*T3)]
+                   (C.T*T.inv)*(T.inv*T), C3*(T3.inv*T3.T), (C3.T*T3.inv)*(T3.inv*T3)]
     opt_expressions = [T*C+T*C+T2*C, T*C+T2*C+T*C, T*C-(T*C)+T2*C, T*C+T2*C-(T*C),
                        T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C),
-                       (T.T.solve(T.T.solve(C))).T*T, (T3.T.solve(T3.T.solve(C3))).T*T3]
+                       (T.T.solve(T.T.solve(C))).T*T, (T3*(T3.T.solve(C3.T))).T, (T3.T.solve(T3.T.solve(C3))).T*T3]
+    
+    opt = assemble((T3*T3.T.solve(C3.T)).T, form_compiler_parameters={"optimise": False}).dat.data
+    ref = assemble(C3*(T3.inv*T3.T), form_compiler_parameters={"optimise": False}).dat.data
+    for r, o in zip(ref, opt):
+        assert np.allclose(o, r, rtol=1e-14)
+
+    opt = assemble((T3.T.solve(T3.T.solve(C3))).T*T3, form_compiler_parameters={"optimise": False}).dat.data
+    ref = assemble((C3.T*T3.inv)*(T3.inv*T3), form_compiler_parameters={"optimise": False}).dat.data
+    for r, o in zip(ref, opt):
+        assert np.allclose(o, r, rtol=1e-14)
+
+
     compare_vector_expressions_mixed(expressions)
     compare_slate_tensors(expressions, opt_expressions)
 
@@ -300,7 +312,7 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
 
     # Test some non symmetric, non mixed, nested expressions
     expressions = [A.inv*C+A.inv*C, (A+A)*A.solve(C),
-                   (A+A)*A.solve((A+A)*C), C*(A.solve(A.solve(A)))]
+                   (A+A)*A.solve((A+A)*C), C*(A.inv*(A.inv*(A)))]
     opt_expressions = [A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
                        A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C),
                        (A.T.solve(A.T.solve(C.T))).T*A]
@@ -313,6 +325,7 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
     ref = assemble((C*(A.inv*(A.inv*(A)))), form_compiler_parameters={"optimise": False}).dat.data
     for r, o in zip(ref, opt):
         assert np.allclose(o, r, rtol=1e-14)
+    compare_slate_tensors([(C*(A.solve(A.solve(A))))], [(A.T.solve(A.T.solve(C.T))).T*A])
 
     # Test some symmetric, mixed, nested expressions
     expressions = [T2.inv*C2+T2.inv*C2, 

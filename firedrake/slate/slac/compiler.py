@@ -187,7 +187,8 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # map the coefficients in the order that PyOP2 needs
     new_coeffs = slate_expr.coefficients()
     orig_coeffs = orig_expr.coefficients()
-    coeff_map = tuple((orig_coeffs.index(new_coeffs[n]),split_map) for (n, split_map) in slate_expr.coeff_map)
+    get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
+    coeff_map = tuple((get_index(n),split_map) for (n, split_map) in slate_expr.coeff_map)
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
