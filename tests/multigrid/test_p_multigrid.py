@@ -3,11 +3,10 @@ from firedrake import *
 
 
 def test_reconstruct_degree():
-    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
-    for ndim in [2, 3]:
-        if ndim == 3:
-            mesh = ExtrudedMesh(mesh, layers=1)
-
+    meshes = [UnitSquareMesh(1, 1, quadrilateral=True)]
+    meshes.append(ExtrudedMesh(meshes[0], layers=1))
+    for mesh in meshes:
+        ndim = mesh.topological_dimension()
         elist = []
         for degree in [7, 2, 31]:
             V = VectorFunctionSpace(mesh, "Q", degree)

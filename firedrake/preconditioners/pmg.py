@@ -68,18 +68,21 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
-        if isinstance(ele, (MixedElement, TensorProductElement)):
+        if isinstance(ele, (VectorElement, TensorElement)):
+            return PMGBase.max_degree(ele._sub_element)
+        elif isinstance(ele, (MixedElement, TensorProductElement)):
             return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
         elif isinstance(ele, EnrichedElement):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, (HDivElement, HCurlElement)):
-            return PMGBase.max_degree(ele._element)
         else:
-            N = ele.degree()
             try:
-                return max(N)
-            except TypeError:
-                return N
+                return PMGBase.max_degree(ele._element)
+            except AttributeError:
+                N = ele.degree()
+                try:
+                    return max(N)
+                except TypeError:
+                    return N
 
     @staticmethod
     def reconstruct_degree(ele, N):
@@ -100,18 +103,20 @@ class PMGBase(PCSNESBase):
             return VectorElement(PMGBase.reconstruct_degree(ele._sub_element, N), dim=ele.num_sub_elements())
         elif isinstance(ele, TensorElement):
             return TensorElement(PMGBase.reconstruct_degree(ele._sub_element, N), shape=ele.value_shape(), symmetry=ele.symmetry())
-        elif isinstance(ele, (HDivElement, HCurlElement)):
-            return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
         elif isinstance(ele, EnrichedElement):
-            return EnrichedElement(*(PMGBase.reconstruct_degree(e, N) for e in ele._elements))
+            shift = N-PMGBase.max_degree(ele)
+            return EnrichedElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
         elif isinstance(ele, TensorProductElement):
-            M = PMGBase.max_degree(ele)
-            return TensorProductElement(*(PMGBase.reconstruct_degree(e, N-M+PMGBase.max_degree(e)) for e in ele.sub_elements()), cell=ele.cell())
+            shift = N-PMGBase.max_degree(ele)
+            return TensorProductElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()), cell=ele.cell())
         elif isinstance(ele, MixedElement):
-            M = PMGBase.max_degree(ele)
-            return MixedElement(*(PMGBase.reconstruct_degree(e, N-M+PMGBase.max_degree(e)) for e in ele.sub_elements()))
+            shift = N-PMGBase.max_degree(ele)
+            return MixedElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
         else:
-            return ele.reconstruct(degree=N)
+            try:
+                return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
+            except AttributeError:
+                return ele.reconstruct(degree=N)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -211,7 +216,7 @@ class PMGBase(PCSNESBase):
 
         def coarsen_form(form, Nf, Nc, replace_d):
             # Coarsen a form, by replacing the solution, test and trial functions, and
-            # reconstructing each integral with a corsened quadrature degree.
+            # reconstructing each integral with a coarsened quadrature degree.
             # If form is not a Form, then return form.
             return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
                          for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
@@ -776,13 +781,13 @@ class StandaloneInterpolationMatrix(object):
         m = mx;  k = nx;  n = ny*nz*nel;
         lda = (tflag>0)? nx : mx;
 
-        BLASgemm_(&TA1, &notr, &m,&n,&k, &one, A1,&lda, x,&k, &zero, y,&m);
+        BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
 
         p = 0;  s = 0;
         m = mx;  k = ny;  n = my;
         lda = (tflag>0)? ny : my;
         for(PetscBLASInt i=0; i<nz*nel; i++){
-           BLASgemm_(&notr, &TA2, &m,&n,&k, &one, y+p,&m, A2,&lda, &zero, x+s,&m);
+           BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
            p += m*k;
            s += m*n;
         }
@@ -791,7 +796,7 @@ class StandaloneInterpolationMatrix(object):
         m = mx*my;  k = nz;  n = mz;
         lda = (tflag>0)? nz : mz;
         for(PetscBLASInt i=0; i<nel; i++){
-           BLASgemm_(&notr, &TA3, &m,&n,&k, &one, x+p,&m, A3,&lda, &zero, y+s,&m);
+           BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
            p += m*k;
            s += m*n;
         }
@@ -806,7 +811,7 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        prolong_code = f"""
+        kernel_code = f"""
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
@@ -825,10 +830,6 @@ class StandaloneInterpolationMatrix(object):
                    y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
             return;
         }}
-        """
-
-        restrict_code = f"""
-        {kronmxv_code}
 
         void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
         const PetscScalar *restrict w){{
@@ -850,9 +851,9 @@ class StandaloneInterpolationMatrix(object):
         """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(prolong_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(restrict_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel
 

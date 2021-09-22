@@ -82,7 +82,7 @@ class FDMPC(PCBase):
         needs_hdiv = family < {"RTCF", "NCF"}
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
-        self.mesh = V.mesh()
+        self.mesh = V.ufl_domain()
         self.uf = firedrake.Function(V)
         self.uc = firedrake.Function(V)
         self.cell_node_map = get_permuted_map(V)
@@ -118,7 +118,8 @@ class FDMPC(PCBase):
 
         # Set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
-            coef.dat.data[:] = 1.0E0
+            with coef.dat.vec as cvec:
+                cvec.set(1.0E0)
 
         # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
         prealloc = PETSc.Mat().create(comm=A.comm)
@@ -126,16 +127,14 @@ class FDMPC(PCBase):
         prealloc.setSizes(A.getSizes())
         prealloc.setUp()
         self.assemble_kron(prealloc, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        nnz = get_preallocation(prealloc, V.value_size * V.dof_dset.set.size)
 
-        ndof = V.value_size * V.dof_dset.set.size
-        nnz = get_preallocation(prealloc, ndof)
         self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
+        self.Pmat.setBlockSize(V.value_size)
+        self.Pmat.setLGMap(V.dof_dset.lgmap)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
 
-        lgmap = V.dof_dset.lgmap
-        self.Pmat.setBlockSize(V.value_size)
-        self.Pmat.setLGMap(lgmap, lgmap)
         prealloc.destroy()
 
         opc = pc
@@ -545,8 +544,7 @@ class FDMPC(PCBase):
             # and the Piola transform matrix for each side of each facet
             extruded = mesh.cell_set._extruded
             dS_int = firedrake.dS_h(degree=quad_deg) + firedrake.dS_v(degree=quad_deg) if extruded else firedrake.dS(degree=quad_deg)
-            cell = firedrake.hexahedron if extruded else mesh.ufl_cell()  # FIXME
-            ele = BrokenElement(FiniteElement("DGT", cell, 0))
+            ele = BrokenElement(FiniteElement("DGT", mesh.ufl_cell(), 0))
             area = firedrake.FacetArea(mesh)
 
             vol = abs(JacobianDeterminant(mesh))
@@ -756,8 +754,6 @@ class FDMPC(PCBase):
             prolong_kernel: a :class:`pyop2.Kernel` with the tensor product prolongation from
             the FDM space onto V
         """
-        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-
         bsize = V.value_size
         nscal = V.ufl_element().value_size()
         sdim = V.finat_element.space_dimension()
@@ -819,13 +815,13 @@ class FDMPC(PCBase):
         m = mx;  k = nx;  n = ny*nz*nel;
         lda = (tflag>0)? nx : mx;
 
-        BLASgemm_(&TA1, &notr, &m,&n,&k, &one, A1,&lda, x,&k, &zero, y,&m);
+        BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
 
         p = 0;  s = 0;
         m = mx;  k = ny;  n = my;
         lda = (tflag>0)? ny : my;
         for(PetscBLASInt i=0; i<nz*nel; i++){
-           BLASgemm_(&notr, &TA2, &m,&n,&k, &one, y+p,&m, A2,&lda, &zero, x+s,&m);
+           BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
            p += m*k;
            s += m*n;
         }
@@ -834,7 +830,7 @@ class FDMPC(PCBase):
         m = mx*my;  k = nz;  n = mz;
         lda = (tflag>0)? nz : mz;
         for(PetscBLASInt i=0; i<nel; i++){
-           BLASgemm_(&notr, &TA3, &m,&n,&k, &one, x+p,&m, A3,&lda, &zero, y+s,&m);
+           BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
            p += m*k;
            s += m*n;
         }
@@ -842,7 +838,7 @@ class FDMPC(PCBase):
         }
         """
 
-        transfer_code = f"""
+        kernel_code = f"""
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
@@ -881,10 +877,11 @@ class FDMPC(PCBase):
         }}
         """
 
-        restrict_kernel = op2.Kernel(transfer_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        prolong_kernel = op2.Kernel(transfer_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return Afdm, Dfdm, restrict_kernel, prolong_kernel
 
     @staticmethod
@@ -979,9 +976,9 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def glonum_fun(node_map):
         """
-        Return a function that maps each cell to its nodes and the total number of cells.
+        Return a function that maps each topological entity to its nodes and the total number of entities.
 
-        :arg node_map: a :class:`pyop2.Map` mapping cells to their nodes
+        :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
 
         :returns: a 2-tuple with the map and the number of cells owned by this process
         """
@@ -1005,9 +1002,9 @@ class FDMPC(PCBase):
     @lru_cache(maxsize=10)
     def glonum(node_map):
         """
-        Return an array with the nodes of each cell.
+        Return an array with the nodes of each topological entity of a certain kind.
 
-        :arg node_map: a :class:`pyop2.Map` mapping cells to their nodes
+        :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
 
         :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
         """
@@ -1021,7 +1018,7 @@ class FDMPC(PCBase):
             else:
                 nelz = layers[:, 1]-layers[:, 0]-1
                 to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-            return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(numpy.reshape(to_layer, (-1, 1)), node_map.offset)
+            return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
 
     @staticmethod
     @lru_cache(maxsize=10)
@@ -1089,9 +1086,14 @@ class FDMPC(PCBase):
                     labels += bs if type(bs) == tuple else (bs,)
                 comp[bc._indices] = labels
 
-        # TODO add support for weak component BCs
         # The Neumann integral may still be present but it's zero
         J = expand_derivatives(J)
+        # Assume that every facet integral in the Jacobian imposes a
+        # weak Dirichlet BC on all components
+        # TODO add support for weak component BCs
+        # FIXME for variable layers there is inconsistency between
+        # ds_t/ds_b and DirichletBC(V, ubc, "top/bottom").
+        # the labels here are the ones that DirichletBC would use
         for it in J.integrals():
             itype = it.integral_type()
             if itype.startswith("exterior_facet"):
