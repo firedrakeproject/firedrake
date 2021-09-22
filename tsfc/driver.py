@@ -357,9 +357,16 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
     if len(argument_multiindices) == 0:
-        shape = tuple([idx.extent for idx in basis_indices])
-        return_arg = LocalVectorKernelArg(shape, builder.scalar_type)
+        if isinstance(to_element, finat.TensorFiniteElement):
+            assert isinstance(to_element._shape, tuple)
+            basis_shape = _get_shape_from_indices(basis_indices[:-len(to_element._shape)])
+            node_shape = to_element._shape
+        else:
+            basis_shape = _get_shape_from_indices(basis_indices)
+            node_shape = ()
+        return_arg = LocalVectorKernelArg(basis_shape, builder.scalar_type, node_shape=node_shape)
     elif len(argument_multiindices) == 1:
+        raise NotImplementedError
         rshape = tuple([idx.extent for idx in basis_indices])
         cshape = tuple([idx.extent for idx in chain(*argument_multiindices)])
         return_arg = LocalMatrixKernelArg(rshape, cshape, builder.scalar_type)
@@ -506,3 +513,7 @@ def pick_mode(mode):
     else:
         raise ValueError("Unknown mode: {}".format(mode))
     return m
+
+
+def _get_shape_from_indices(indices):
+    return tuple([idx.extent for idx in indices])

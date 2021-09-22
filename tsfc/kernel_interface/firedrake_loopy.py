@@ -5,6 +5,7 @@ from collections import namedtuple
 from itertools import chain, product
 from functools import partial
 
+import finat
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
@@ -189,12 +190,20 @@ class LocalVectorKernelArg(LocalTensorKernelArg):
 
     rank = 1
 
-    def __init__(self, shape, dtype, interior_facet=False, diagonal=False):
-        assert type(shape) == tuple
-        self.shape = shape
+    def __init__(
+        self, basis_shape, dtype, *, node_shape=(), interior_facet=False, diagonal=False
+    ):
+        assert type(basis_shape) == tuple
+
+        self.basis_shape = basis_shape
         self.dtype = dtype
+        self.node_shape = node_shape
         self.interior_facet = interior_facet
         self.diagonal = diagonal
+
+    @property
+    def shape(self):
+        return self.basis_shape + self.node_shape
 
     @property
     def u_shape(self):
@@ -211,6 +220,7 @@ class LocalVectorKernelArg(LocalTensorKernelArg):
     def loopy_arg(self):
         return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
 
+    # TODO Function please
     def make_gem_exprs(self, multiindices):
         if self.diagonal:
             multiindices = multiindices[:1]
@@ -240,12 +250,23 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
 
     rank = 2
 
-    def __init__(self, rshape, cshape, dtype, interior_facet=False):
-        assert type(rshape) == tuple and type(cshape) == tuple
-        self.rshape = rshape
-        self.cshape = cshape
+    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, rnode_shape=(), cnode_shape=(), interior_facet=False):
+        assert type(rbasis_shape) == tuple and type(cbasis_shape) == tuple
+
+        self.rbasis_shape = rbasis_shape
+        self.cbasis_shape = cbasis_shape
         self.dtype = dtype
+        self.rnode_shape = rnode_shape
+        self.cnode_shape = cnode_shape
         self.interior_facet = interior_facet
+
+    @property
+    def rshape(self):
+        return self.rbasis_shape + self.rnode_shape
+
+    @property
+    def cshape(self):
+        return self.cbasis_shape + self.cnode_shape
 
     @property
     def shape(self):
@@ -676,9 +697,37 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
 
     if len(arguments) == 1 or diagonal:
         element, = elements  # elements must contain only one item
-        return LocalVectorKernelArg(element.index_shape, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
+        if isinstance(element, finat.TensorFiniteElement):
+            assert type(element._shape) == tuple
+            basis_shape = element.index_shape[:-len(element._shape)]
+            node_shape = element._shape
+        else:
+            basis_shape = element.index_shape
+            node_shape = ()
+        return LocalVectorKernelArg(basis_shape, scalar_type, node_shape=node_shape, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
+        # TODO Refactor!
         relem, celem = elements
-        return LocalMatrixKernelArg(relem.index_shape, celem.index_shape, scalar_type, interior_facet=interior_facet)
+        if isinstance(relem, finat.TensorFiniteElement):
+            assert type(relem._shape) == tuple
+            rbasis_shape = relem.index_shape[:-len(relem._shape)]
+            rnode_shape = relem._shape
+        else:
+            rbasis_shape = relem.index_shape
+            rnode_shape = ()
+
+        if isinstance(celem, finat.TensorFiniteElement):
+            assert type(celem._shape) == tuple
+            cbasis_shape = celem.index_shape[:-len(celem._shape)]
+            cnode_shape = celem._shape
+        else:
+            cbasis_shape = celem.index_shape
+            cnode_shape = ()
+        return LocalMatrixKernelArg(
+            rbasis_shape, cbasis_shape, scalar_type,
+            rnode_shape=rnode_shape,
+            cnode_shape=cnode_shape,
+            interior_facet=interior_facet
+        )
     else:
         raise AssertionError
