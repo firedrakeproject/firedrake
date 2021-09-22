@@ -233,10 +233,34 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 subspaces.update(split_subspaces[form_data_index])
         subspaces = subspaces.difference(set((None, )))
         # Sort subspaces and prepare for use in assemble.py.
-        subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        #subspaces, subspace_numbers, subspace_parts = make_subspace_numbers_and_parts(subspaces, original_subspaces)
+        _subspaces = set(subspace if subspace.parent is None else subspace.parent for subspace in subspaces)
+        _subspaces = sorted(_subspaces, key=lambda s: s.count())
+        subspace_numbers = []
+        for i, subspace in enumerate(original_subspaces):
+            #if subspace in subspaces_and_parts_dict:
+            if subspace in _subspaces:
+                subspace_numbers.append(i)
+        subspace_parts = [[]  if type(subspace.ufl_element())==MixedElement else None for subspace in _subspaces]
+        for subspace in subspaces:
+            if subspace.parent is not None:
+                ind = _subspaces.index(subspace.parent)
+                subspace_parts[ind].append(subspace.index)
+        subspace_parts = [sorted(part) if part is not None else None for part in subspace_parts]
         # Register enabled (split) subspaces and get associated gem expressions.
-        subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
+        #subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
+        elements = []
+        for i, subspace in enumerate(_subspaces):
+            if subspace_parts[i] is None:
+                elements.append(subspace.ufl_element())
+            else:
+                for part in subspace_parts[i]:
+                    elements.append(subspace.ufl_element().sub_elements()[part])
+        subspace_exprs = builder.set_external_data(elements)
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
+        subspaces = sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(),
+                                                     -1 if s.index is None else s.index))
+
         subspace_expr_map = {s: e for s, e in zip(subspaces, subspace_exprs)}
         # Compile integrals.
         ctx = builder.create_context()
