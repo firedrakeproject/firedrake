@@ -376,22 +376,32 @@ def compile_expression_dual_evaluation(expression, to_element, *,
             rbasis_shape = _get_shape_from_indices(basis_indices)
             rnode_shape = ()
 
+        breakpoint()
         # now cshape
         # both should only have one item in them
         arg_elem, = argument_elements
         arg_multiindices, = argument_multiindices
-        if isinstance(arg_elem, finat.TensorFiniteElement):
-            assert isinstance(arg_elem._shape, tuple)
-            cbasis_shape = _get_shape_from_indices(arg_multiindices[:-len(arg_elem._shape)])
-            cnode_shape = arg_elem._shape
-        else:
-            cbasis_shape = _get_shape_from_indices(arg_multiindices)
+        if arguments[0].ufl_element().family() == "Real":
+            cis_real = True
+            # these are guesses
+            cbasis_shape = (1,)
             cnode_shape = ()
+        else:
+            if isinstance(arg_elem, finat.TensorFiniteElement):
+                assert isinstance(arg_elem._shape, tuple)
+                cbasis_shape = _get_shape_from_indices(arg_multiindices[:-len(arg_elem._shape)])
+                cnode_shape = arg_elem._shape
+            else:
+                cbasis_shape = _get_shape_from_indices(arg_multiindices)
+                cnode_shape = ()
+            cis_real = False
 
         return_arg = LocalMatrixKernelArg(
             rbasis_shape, cbasis_shape, builder.scalar_type,
             rnode_shape=rnode_shape,
-            cnode_shape=cnode_shape
+            cnode_shape=cnode_shape,
+            rreal=False,  # I dont know how to find the UFL family from to_element, not sure if I need to
+            creal=cis_real
         )
     else:
         raise AssertionError

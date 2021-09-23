@@ -290,7 +290,7 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
 
     rank = 2
 
-    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, name="A", rnode_shape=(), cnode_shape=(), interior_facet=False):
+    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, name="A", rnode_shape=(), cnode_shape=(), interior_facet=False, rreal=False, creal=False):
         assert type(rbasis_shape) == tuple and type(cbasis_shape) == tuple
 
         self.rbasis_shape = rbasis_shape
@@ -301,6 +301,10 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
         self.rnode_shape = rnode_shape
         self.cnode_shape = cnode_shape
         self.interior_facet = interior_facet
+
+        # hack
+        self.rreal = rreal
+        self.creal = creal
 
     @property
     def rshape(self):
@@ -756,7 +760,6 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
         basis_shape, node_shape = split_shape(element)
         return LocalVectorKernelArg(basis_shape, scalar_type, node_shape=node_shape, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
-        # TODO Refactor!
         relem, celem = elements
         rbasis_shape, rnode_shape = split_shape(relem)
         cbasis_shape, cnode_shape = split_shape(celem)
