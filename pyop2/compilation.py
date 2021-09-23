@@ -33,6 +33,7 @@
 
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -369,9 +370,17 @@ class MacCompiler(Compiler):
     """
 
     def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-march=native', '-O3', '-ffast-math']
-        if configuration['debug']:
-            opt_flags = ['-O0', '-g']
+        machine = platform.uname().machine
+        opt_flags = ["-O3", "-ffast-math"]
+        if machine == "arm64":
+            # See https://stackoverflow.com/q/65966969
+            opt_flags.append("-mcpu=apple-a14")
+        elif machine == "x86_64":
+            opt_flags.append("-march=native")
+
+        if configuration["debug"]:
+            opt_flags = ["-O0", "-g"]
+
         cc = "mpicc"
         stdargs = ["-std=c99"]
         if cpp:
