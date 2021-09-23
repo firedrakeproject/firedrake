@@ -14,7 +14,7 @@ from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
 
-from tsfc.finatinterface import create_element
+from tsfc.finatinterface import create_element, split_shape
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.kernel_interface.firedrake import check_requirements
 from tsfc.loopy import generate as generate_loopy
@@ -229,12 +229,14 @@ class LocalVectorKernelArg(LocalTensorKernelArg):
     rank = 1
 
     def __init__(
-        self, basis_shape, dtype, *, node_shape=(), interior_facet=False, diagonal=False
+        self, basis_shape, dtype, *, name="A", node_shape=(), interior_facet=False, diagonal=False
     ):
         assert type(basis_shape) == tuple
 
         self.basis_shape = basis_shape
         self.dtype = dtype
+
+        self.name = name
         self.node_shape = node_shape
         self.interior_facet = interior_facet
         self.diagonal = diagonal
@@ -288,12 +290,14 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
 
     rank = 2
 
-    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, rnode_shape=(), cnode_shape=(), interior_facet=False):
+    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, name="A", rnode_shape=(), cnode_shape=(), interior_facet=False):
         assert type(rbasis_shape) == tuple and type(cbasis_shape) == tuple
 
         self.rbasis_shape = rbasis_shape
         self.cbasis_shape = cbasis_shape
         self.dtype = dtype
+
+        self.name = name
         self.rnode_shape = rnode_shape
         self.cnode_shape = cnode_shape
         self.interior_facet = interior_facet
@@ -696,12 +700,7 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
 
-    if isinstance(finat_element, finat.TensorFiniteElement):
-        basis_shape = finat_element.index_shape[:-len(finat_element._shape)]
-        node_shape = finat_element._shape
-    else:
-        basis_shape = finat_element.index_shape
-        node_shape = ()
+    basis_shape, node_shape = split_shape(finat_element)
 
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
@@ -754,32 +753,13 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
 
     if len(arguments) == 1 or diagonal:
         element, = elements  # elements must contain only one item
-        if isinstance(element, finat.TensorFiniteElement):
-            assert type(element._shape) == tuple
-            basis_shape = element.index_shape[:-len(element._shape)]
-            node_shape = element._shape
-        else:
-            basis_shape = element.index_shape
-            node_shape = ()
+        basis_shape, node_shape = split_shape(element)
         return LocalVectorKernelArg(basis_shape, scalar_type, node_shape=node_shape, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
         # TODO Refactor!
         relem, celem = elements
-        if isinstance(relem, finat.TensorFiniteElement):
-            assert type(relem._shape) == tuple
-            rbasis_shape = relem.index_shape[:-len(relem._shape)]
-            rnode_shape = relem._shape
-        else:
-            rbasis_shape = relem.index_shape
-            rnode_shape = ()
-
-        if isinstance(celem, finat.TensorFiniteElement):
-            assert type(celem._shape) == tuple
-            cbasis_shape = celem.index_shape[:-len(celem._shape)]
-            cnode_shape = celem._shape
-        else:
-            cbasis_shape = celem.index_shape
-            cnode_shape = ()
+        rbasis_shape, rnode_shape = split_shape(relem)
+        cbasis_shape, cnode_shape = split_shape(celem)
         return LocalMatrixKernelArg(
             rbasis_shape, cbasis_shape, scalar_type,
             rnode_shape=rnode_shape,

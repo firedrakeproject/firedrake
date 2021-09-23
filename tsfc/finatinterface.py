@@ -330,3 +330,18 @@ def create_base_element(ufl_element, **kwargs):
     if isinstance(finat_element, finat.TensorFiniteElement):
         finat_element = finat_element.base_element
     return finat_element
+
+
+def split_shape(finat_element):
+    """Split a FInAT element's index_shape into its 'basis' and 'node' shapes where the
+    former describes the number and layout of nodes and the latter describes the local
+    shape at each node.
+    """
+    # Only tensor elements have node-local shape
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        basis_shape = finat_element.index_shape[:-len(finat_element._shape)]
+        node_shape = finat_element._shape
+    else:
+        basis_shape = finat_element.index_shape
+        node_shape = ()
+    return basis_shape, node_shape
