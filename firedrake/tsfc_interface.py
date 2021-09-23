@@ -327,7 +327,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         # Construct kernel
         kernel_name = "%s_%s_integral_%s" % (prefix, tsfc_integral_data.integral_type, tsfc_integral_data.subdomain_id)
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
-        kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts,lgmap_temp=lgmap_temp)
+        kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers)
         if kernel is not None:
             print(kernel.external_data_parts)
             print(subspace_parts)
