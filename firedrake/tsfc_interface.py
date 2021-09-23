@@ -214,6 +214,7 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # Loop over `TSFCIntegralData`s and construct a kernel for each.
     kernels = []
     original_subspaces = extract_subspaces(form)
+    print("integral_data_len", len(tsfc_form_data.integral_data))
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
         builder = interface(tsfc_integral_data.info,
@@ -283,6 +284,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             for integral in integrals:
                 subspace_tuple = split_subspaces[form_data_idx]
                 coefficient_tuple = split_coefficients[form_data_idx]
+                print("integral", integral)
+                for ss in subspace_tuple:
+                    print("substuple", ss)
                 # Update quadrature parameters.
                 params = parameters.copy()
                 params.update(integral.metadata())  # integral metadata overrides
@@ -299,12 +303,14 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                         # dummy index was not used.
                         continue
                     subspace_expr = subspace_expr_map[subspace]
+                    print("arg_subsp", subspace_expr)
                     # Apply subspace transformation (i_dummy -> i).
                     expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
                                                      builder.create_element(subspace.ufl_element()), builder.scalar_type)
                 # Apply subspace transformations for projected `Function`s.
                 for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
                     subspace_expr = subspace_expr_map[subspace]
+                    print("fun_subsp", subspace_expr)
                     if type(coeff.ufl_element()) == MixedElement:
                         coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
                     else:
@@ -323,6 +329,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
         kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers, external_data_parts=subspace_parts,lgmap_temp=lgmap_temp)
         if kernel is not None:
+            print(kernel.external_data_parts)
+            print(subspace_parts)
+            #assert tuple(kernel.external_data_parts) == tuple(subspace_parts)
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
@@ -392,6 +401,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
+        print("idx", idx)
         f = _real_mangle(f)
         # Map local function/subspace numbers (as seen inside the
         # compiler) to the global function/subspace numbers
