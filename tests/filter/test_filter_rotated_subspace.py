@@ -128,7 +128,7 @@ def test_subspace_rotated_subspace_poisson_zany():
     print("time consumed:", b - a)
 
 
-#@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_stokes():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb
@@ -180,7 +180,7 @@ def test_subspace_rotated_subspace_stokes():
     #plot_velocity("test_subspace_rotated_subspace_stokes.pdf", uplot, theta, [-5, 27], None, [0, 1.], 20.)
 
 
-#@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=3)
 def test_subspace_rotated_subspace_swe():
     # Modified a demo problem at:
     # https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/06-pde-constrained-optimisation.ipynb

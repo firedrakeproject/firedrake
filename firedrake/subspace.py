@@ -205,6 +205,7 @@ class ScalarSubspace(Subspace):
                     w_i = 0 to deselect the associated basis.
                     w_i = 1 to select.
         """
+        subspace_expr, = subspace_expr
         substitution = tuple(zip(i_dummy, i))
         mapper = MemoizerArg(filtered_replace_indices)
         expressions = tuple(mapper(expression, substitution) for expression in expressions)
@@ -230,6 +231,7 @@ class RotatedSubspace(Subspace):
             \\psi(e) : rotation vector whose elements not associated with
                        topological entity e are set zero.
         """
+        subspace_expr, = subspace_expr
         shape = subspace_expr.shape
         if len(shape) == 1:
             entity_dofs = finat_element.entity_dofs()

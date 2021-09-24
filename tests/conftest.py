@@ -15,7 +15,7 @@ def disable_gc_on_parallel(request):
     but only when run on CI
     """
     from mpi4py import MPI
-    if (MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):
+    if True:#(MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):
         gc.disable()
         assert not gc.isenabled()
         request.addfinalizer(restart_gc)
