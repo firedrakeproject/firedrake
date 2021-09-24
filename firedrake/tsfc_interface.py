@@ -214,7 +214,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
     # Loop over `TSFCIntegralData`s and construct a kernel for each.
     kernels = []
     original_subspaces = extract_subspaces(form)
-    print("integral_data_len", len(tsfc_form_data.integral_data))
     for tsfc_integral_data in tsfc_form_data.integral_data:
         start = time.time()
         builder = interface(tsfc_integral_data.info,
@@ -232,28 +231,22 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             # is associated with a tuple of `Subspace`s; see
             # `split_form_projected`.
             if len(integrals) > 0:
-                subspaces.update(split_subspaces[form_data_index])
-        subspaces = subspaces.difference(set((None, )))
+                subspaces.update(chain(*(subspace.subspaces() for subspace in split_subspaces[form_data_index] if subspace is not None)))
         # Sort subspaces and prepare for use in assemble.py.
-        _subspaces = set(chain(*(subspace.subspaces() for subspace in subspaces)))
-        _subspaces = sorted(_subspaces, key=lambda s: s.count())
+        subspaces = sorted(subspaces, key=lambda s: s.count())
         subspace_numbers = []
         for i, subspace in enumerate(original_subspaces):
-            #if subspace in subspaces_and_parts_dict:
-            if subspace in _subspaces:
+            if subspace in subspaces:
                 subspace_numbers.append(i)
-        _subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in _subspaces])
+        subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
-        subspace_expr_map = {s: e for s, e in zip(chain(*(subspace.split() for subspace in _subspaces)), _subspace_exprs)}
+        subspace_expr_map = {s: e for s, e in zip(chain(*(subspace.split() for subspace in subspaces)), subspace_exprs)}
         # Compile integrals.
         ctx = builder.create_context()
         for form_data_idx, integrals in enumerate(tsfc_integral_data.integrals_tuple):
             for integral in integrals:
                 subspace_tuple = split_subspaces[form_data_idx]
                 coefficient_tuple = split_coefficients[form_data_idx]
-                print("integral", integral)
-                for ss in subspace_tuple:
-                    print("substuple", ss)
                 # Update quadrature parameters.
                 params = parameters.copy()
                 params.update(integral.metadata())  # integral metadata overrides
@@ -273,7 +266,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                         subspace_expr = subspace_expr_map[subspace.split()[0]]
                     else:
                         subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
-                    print("arg_subsp", subspace_expr)
                     # Apply subspace transformation (i_dummy -> i).
                     expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
                                                      builder.create_element(subspace.ufl_element()), builder.scalar_type)
@@ -283,7 +275,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                         subspace_expr = subspace_expr_map[subspace.split()[0]]
                     else:
                         subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
-                    print("fun_subsp", subspace_expr)
                     if type(coeff.ufl_element()) == MixedElement:
                         coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
                     else:
