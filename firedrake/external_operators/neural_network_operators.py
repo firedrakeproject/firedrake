@@ -45,10 +45,11 @@ class PointnetOperator(AbstractExternalOperator):
                                        operator_data.get('inputs_format'))
             # firedrake.Constant are not meant to have data with rank > 2
             params_val = self._reshape_model_parameters(*params_val)
+            self._params_val = params_val
             for param in params_val:
-                cw = Constant(np.zeros(param.shape))
+                cw = Constant(np.zeros((1,))) # np.zeros(param.shape))
                 # Assign and convert (from torch to numpy)
-                cw.dat.data[:] = param
+                #cw.dat.data[:] = param
                 operands += (cw,)
                 # TODO: At the moment the Global Neural Net case is not handled!!
                 local_operands += (cw,)
@@ -86,7 +87,8 @@ class PointnetOperator(AbstractExternalOperator):
 
     # @property
     def operator_params(self):
-        return self.ufl_operands[-self.nparams:]
+        return self._params_val
+        #return self.ufl_operands[-self.nparams:]
 
     @property
     def inputs_format(self):
@@ -173,7 +175,7 @@ class PytorchOperator(PointnetOperator):
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, coefficient=coefficient, arguments=arguments, local_operands=local_operands, dtype=dtype, operator_data=operator_data, params_version=params_version, nparams=nparams)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
-        self.model.double()  # or torch.set_default_dtype(torch.float64)
+        #self.model.double()  # or torch.set_default_dtype(torch.float64)
 
     @utils.cached_property
     def ml_backend(self):
@@ -237,7 +239,7 @@ class PytorchOperator(PointnetOperator):
             return evaluate(self, *args, **kwargs)
         return wrapper
 
-    @_eval_update_weights
+    #@_eval_update_weights
     def _evaluate(self, model_tape=False):
         """
         Evaluate the neural network by performing a forward pass through the network
