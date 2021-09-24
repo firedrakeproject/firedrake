@@ -986,7 +986,7 @@ class _DatMatPayload(object):
                 # Column matrix
                 if x.sizes[1] == 1:
                     v.copy(y)
-                    a = np.zeros(1)
+                    a = np.zeros(1, dtype=ScalarType)
                     if x.comm.rank == 0:
                         a[0] = x.array_r
                     else:
@@ -1002,7 +1002,7 @@ class _DatMatPayload(object):
                 # Row matrix
                 if x.sizes[1] == 1:
                     v.copy(y)
-                    a = np.zeros(1)
+                    a = np.zeros(1, dtype=ScalarType)
                     if x.comm.rank == 0:
                         a[0] = x.array_r
                     else:
@@ -1026,7 +1026,7 @@ class _DatMatPayload(object):
                 # Row matrix
                 if x.sizes[1] == 1:
                     v.copy(z)
-                    a = np.zeros(1)
+                    a = np.zeros(1, dtype=ScalarType)
                     if x.comm.rank == 0:
                         a[0] = x.array_r
                     else:

@@ -34,7 +34,6 @@
 
 import pytest
 import numpy as np
-import random
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
@@ -81,8 +80,7 @@ def x2(indset):
 @pytest.fixture
 def mapd():
     mapd = list(range(nelems))
-    random.shuffle(mapd, lambda: 0.02041724)
-    return mapd
+    return mapd[::-1]
 
 
 @pytest.fixture

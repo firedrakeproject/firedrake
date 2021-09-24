@@ -45,7 +45,7 @@ from pyop2 import petsc_base
 from pyop2.base import par_loop                          # noqa: F401
 from pyop2.base import READ, WRITE, RW, INC, MIN, MAX    # noqa: F401
 from pyop2.base import ALL
-from pyop2.base import Map, MixedMap, Sparsity, Halo      # noqa: F401
+from pyop2.base import Map, MixedMap, PermutedMap, Sparsity, Halo  # noqa: F401
 from pyop2.base import Set, ExtrudedSet, MixedSet, Subset  # noqa: F401
 from pyop2.base import DatView                           # noqa: F401
 from pyop2.base import Kernel                            # noqa: F401
@@ -58,6 +58,7 @@ from pyop2.mpi import collective
 from pyop2.profiling import timed_region
 from pyop2.utils import cached_property, get_petsc_dir
 
+from petsc4py import PETSc
 import loopy
 
 
@@ -131,6 +132,7 @@ class JITModule(base.JITModule):
             return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
         return code.device_code()
 
+    @PETSc.Log.EventDecorator()
     @collective
     def compile(self):
         # If we weren't in the cache we /must/ have arguments

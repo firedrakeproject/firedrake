@@ -83,8 +83,8 @@ class IndexBase(metaclass=ABCMeta):
 
 class Index(Terminal, Scalar):
     _count = itertools.count()
-    __slots__ = ("name", "extent", "merge")
-    __front__ = ("name", "extent", "merge")
+    __slots__ = ("extent", "merge", "name")
+    __front__ = ("extent", "merge", "name")
 
     def __init__(self, extent=None, merge=True, name=None):
         self.name = name or "i%d" % next(Index._count)
@@ -118,11 +118,12 @@ class FixedIndex(Terminal, Scalar):
 
 class RuntimeIndex(Scalar):
     _count = itertools.count()
-    __slots__ = ("name", "children")
+    __slots__ = ("children", "name")
     __back__ = ("name", )
 
-    def __init__(self, lo, hi, constraint, name=None):
-        self.name = name or "r%d" % next(RuntimeIndex._count)
+    def __init__(self, lo, hi, constraint, name):
+        assert name is not None, "runtime indices need a name"
+        self.name = name
         self.children = lo, hi, constraint
 
     @cached_property
@@ -173,17 +174,23 @@ class Symbol(Terminal):
 class Argument(Terminal):
     _count = defaultdict(partial(itertools.count))
 
-    __slots__ = ("shape", "dtype", "name")
-    __front__ = ("shape", "dtype", "name")
+    __slots__ = ("shape", "dtype", "_name", "prefix", "_gen_name")
+    __front__ = ("shape", "dtype", "_name", "prefix")
 
     def __init__(self, shape, dtype, name=None, pfx=None):
         self.dtype = dtype
         self.shape = shape
-        if name is None:
-            if pfx is None:
-                pfx = "v"
-            name = "%s%d" % (pfx, next(Argument._count[pfx]))
-        self.name = name
+        self._name = name
+        pfx = pfx or "v"
+        self.prefix = pfx
+        self._gen_name = name or "%s%d" % (pfx, next(Argument._count[pfx]))
+
+    def get_hash(self):
+        return hash((type(self),) + self._cons_args(self.children) + (self.name,))
+
+    @property
+    def name(self):
+        return self._name or self._gen_name
 
 
 class Literal(Terminal, Scalar):
@@ -218,19 +225,22 @@ class Literal(Terminal, Scalar):
 
 
 class NamedLiteral(Terminal):
-    __slots__ = ("value", "name")
-    __front__ = ("value", "name")
+    __slots__ = ("value", "parent", "suffix")
+    __front__ = ("value", "parent", "suffix")
 
-    def __init__(self, value, name):
+    def __init__(self, value, parent, suffix):
         self.value = value
-        self.name = name
+        self.parent = parent
+        self.suffix = suffix
 
     def is_equal(self, other):
         if type(self) != type(other):
             return False
         if self.shape != other.shape:
             return False
-        if self.name != other.name:
+        if self.parent != other.parent:
+            return False
+        if self.suffix != other.suffix:
             return False
         return tuple(self.value.flat) == tuple(other.value.flat)
 
@@ -244,6 +254,10 @@ class NamedLiteral(Terminal):
     @cached_property
     def dtype(self):
         return self.value.dtype
+
+    @property
+    def name(self):
+        return f"{self.parent.name}_{self.suffix}"
 
 
 class Min(Scalar):

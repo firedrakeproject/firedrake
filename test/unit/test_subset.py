@@ -57,7 +57,7 @@ class TestSubSet:
 
     def test_direct_loop(self, iterset):
         """Test a direct ParLoop on a subset"""
-        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
+        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int32)
         ss = op2.Subset(iterset, indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
@@ -77,8 +77,8 @@ class TestSubSet:
 
     def test_direct_complementary_subsets(self, iterset):
         """Test direct par_loop over two complementary subsets"""
-        even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
-        odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int)
+        even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int32)
+        odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int32)
 
         sseven = op2.Subset(iterset, even)
         ssodd = op2.Subset(iterset, odd)
@@ -91,8 +91,8 @@ class TestSubSet:
 
     def test_direct_complementary_subsets_with_indexing(self, iterset):
         """Test direct par_loop over two complementary subsets"""
-        even = np.arange(0, nelems, 2, dtype=np.int)
-        odd = np.arange(1, nelems, 2, dtype=np.int)
+        even = np.arange(0, nelems, 2, dtype=np.int32)
+        odd = np.arange(1, nelems, 2, dtype=np.int32)
 
         sseven = iterset(even)
         ssodd = iterset(odd)
@@ -104,16 +104,16 @@ class TestSubSet:
         assert (d.data == 1).all()
 
     def test_direct_loop_sub_subset(self, iterset):
-        indices = np.arange(0, nelems, 2, dtype=np.int)
+        indices = np.arange(0, nelems, 2, dtype=np.int32)
         ss = op2.Subset(iterset, indices)
-        indices = np.arange(0, nelems//2, 2, dtype=np.int)
+        indices = np.arange(0, nelems//2, 2, dtype=np.int32)
         sss = op2.Subset(ss, indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sss, d(op2.RW))
 
-        indices = np.arange(0, nelems, 4, dtype=np.int)
+        indices = np.arange(0, nelems, 4, dtype=np.int32)
         ss2 = op2.Subset(iterset, indices)
         d2 = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         op2.par_loop(k, ss2, d2(op2.RW))
@@ -121,16 +121,16 @@ class TestSubSet:
         assert (d.data == d2.data).all()
 
     def test_direct_loop_sub_subset_with_indexing(self, iterset):
-        indices = np.arange(0, nelems, 2, dtype=np.int)
+        indices = np.arange(0, nelems, 2, dtype=np.int32)
         ss = iterset(indices)
-        indices = np.arange(0, nelems//2, 2, dtype=np.int)
+        indices = np.arange(0, nelems//2, 2, dtype=np.int32)
         sss = ss(indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         k = op2.Kernel("static void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sss, d(op2.RW))
 
-        indices = np.arange(0, nelems, 4, dtype=np.int)
+        indices = np.arange(0, nelems, 4, dtype=np.int32)
         ss2 = iterset(indices)
         d2 = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         op2.par_loop(k, ss2, d2(op2.RW))
@@ -139,7 +139,7 @@ class TestSubSet:
 
     def test_indirect_loop(self, iterset):
         """Test a indirect ParLoop on a subset"""
-        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
+        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int32)
         ss = op2.Subset(iterset, indices)
 
         indset = op2.Set(2, "indset")
@@ -167,7 +167,7 @@ class TestSubSet:
 
     def test_indirect_loop_with_direct_dat(self, iterset):
         """Test a indirect ParLoop on a subset"""
-        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
+        indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int32)
         ss = op2.Subset(iterset, indices)
 
         indset = op2.Set(2, "indset")
@@ -185,8 +185,8 @@ class TestSubSet:
 
     def test_complementary_subsets(self, iterset):
         """Test par_loop on two complementary subsets"""
-        even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
-        odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int)
+        even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int32)
+        odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int32)
 
         sseven = op2.Subset(iterset, even)
         ssodd = op2.Subset(iterset, odd)
@@ -216,7 +216,7 @@ static void inc(unsigned int* v1, unsigned int* v2) {
         ss10 = op2.Subset(iterset, [1, 0])
         indset = op2.Set(4)
 
-        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float)
+        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float64)
         map = op2.Map(iterset, indset, 4, [0, 1, 2, 3, 0, 1, 2, 3])
         idmap = op2.Map(iterset, idset, 1, [0, 1])
         sparsity = op2.Sparsity((indset, indset), (map, map))
@@ -253,3 +253,62 @@ static void inc(unsigned int* v1, unsigned int* v2) {
 
         assert (mat01.values == mat.values).all()
         assert (mat10.values == mat.values).all()
+
+
+class TestSetOperations:
+
+    """
+    Set operation tests
+    """
+
+    def test_set_set_operations(self):
+        """Test standard set operations between a set and itself"""
+        a = op2.Set(10)
+        u = a.union(a)
+        i = a.intersection(a)
+        d = a.difference(a)
+        s = a.symmetric_difference(a)
+        assert u is a
+        assert i is a
+        assert d._indices.size == 0
+        assert s._indices.size == 0
+
+    def test_set_subset_operations(self):
+        """Test standard set operations between a set and a subset"""
+        a = op2.Set(10)
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
+        u = a.union(b)
+        i = a.intersection(b)
+        d = a.difference(b)
+        s = a.symmetric_difference(b)
+        assert u is a
+        assert i is b
+        assert (d._indices == [0, 1, 4, 6, 8, 9]).all()
+        assert (s._indices == d._indices).all()
+
+    def test_subset_set_operations(self):
+        """Test standard set operations between a subset and a set"""
+        a = op2.Set(10)
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
+        u = b.union(a)
+        i = b.intersection(a)
+        d = b.difference(a)
+        s = b.symmetric_difference(a)
+        assert u is a
+        assert i is b
+        assert d._indices.size == 0
+        assert (s._indices == [0, 1, 4, 6, 8, 9]).all()
+
+    def test_subset_subset_operations(self):
+        """Test standard set operations between two subsets"""
+        a = op2.Set(10)
+        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
+        c = op2.Subset(a, np.array([2, 4, 6, 8], dtype=np.int32))
+        u = b.union(c)
+        i = b.intersection(c)
+        d = b.difference(c)
+        s = b.symmetric_difference(c)
+        assert (u._indices == [2, 3, 4, 5, 6, 7, 8]).all()
+        assert (i._indices == [2, ]).all()
+        assert (d._indices == [3, 5, 7]).all()
+        assert (s._indices == [3, 4, 5, 6, 7, 8]).all()

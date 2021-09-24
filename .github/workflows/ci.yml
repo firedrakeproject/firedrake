@@ -23,6 +23,7 @@ jobs:
       - name: Install system dependencies
         shell: bash
         run: |
+          sudo apt update
           sudo apt install build-essential mpich libmpich-dev \
               libblas-dev liblapack-dev gfortran
 

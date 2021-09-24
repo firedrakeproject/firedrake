@@ -34,7 +34,6 @@
 
 import pytest
 import numpy
-import random
 from pyop2 import op2, base
 
 from coffee.base import *
@@ -99,15 +98,13 @@ def y(dindset):
 
 @pytest.fixture
 def iter2ind1(iterset, indset):
-    u_map = numpy.array(list(range(nelems)), dtype=numpy.uint32)
-    random.shuffle(u_map, _seed)
+    u_map = numpy.array(list(range(nelems)), dtype=numpy.uint32)[::-1]
     return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
 
 
 @pytest.fixture
 def iter2ind2(iterset, indset):
-    u_map = numpy.array(list(range(nelems)) * 2, dtype=numpy.uint32)
-    random.shuffle(u_map, _seed)
+    u_map = numpy.array(list(range(nelems)) * 2, dtype=numpy.uint32)[::-1]
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
 

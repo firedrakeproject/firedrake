@@ -1,8 +1,7 @@
 from pyop2.codegen.node import traversal, reuse_if_untouched, Memoizer
 from functools import singledispatch
 from pyop2.codegen.representation import (Index, RuntimeIndex, Node,
-                                          FunctionCall, Variable, Argument,
-                                          NamedLiteral)
+                                          FunctionCall, Variable, Argument)
 
 
 def collect_indices(expressions):
@@ -90,7 +89,7 @@ def index_merger(instructions, cache=None):
 
 @singledispatch
 def _rename_node(node, self):
-    """Replace division with multiplication
+    """Rename nodes
 
     :param node: root of expression
     :param self: function for recursive calls
@@ -103,7 +102,7 @@ _rename_node.register(Node)(reuse_if_untouched)
 
 @_rename_node.register(Index)
 def _rename_node_index(node, self):
-    name = self.replace.get(node, node.name)
+    name = self.renamer(node)
     return Index(extent=node.extent, name=name)
 
 
@@ -114,38 +113,25 @@ def _rename_node_func(node, self):
     return FunctionCall(node.name, node.label, node.access, free_indices, *children)
 
 
-@_rename_node.register(RuntimeIndex)
-def _rename_node_rtindex(node, self):
-    children = tuple(map(self, node.children))
-    name = self.replace.get(node, node.name)
-    return RuntimeIndex(*children, name=name)
-
-
-@_rename_node.register(NamedLiteral)
-def _rename_node_namedliteral(node, self):
-    name = self.replace.get(node, node.name)
-    return NamedLiteral(node.value, name)
-
-
 @_rename_node.register(Variable)
 def _rename_node_variable(node, self):
-    name = self.replace.get(node, node.name)
+    name = self.renamer(node)
     return Variable(name, node.shape, node.dtype)
 
 
 @_rename_node.register(Argument)
 def _rename_node_argument(node, self):
-    name = self.replace.get(node, node.name)
+    name = self.renamer(node)
     return Argument(node.shape, node.dtype, name=name)
 
 
-def rename_nodes(instructions, replace):
+def rename_nodes(instructions, renamer):
     """Rename the nodes in the instructions.
 
     :param instructions: Iterable of nodes.
-    :param replace: Dictionary matching old names to new names.
+    :param renamer: Function that maps nodes to new names
     :return: List of instructions with nodes renamed.
     """
     mapper = Memoizer(_rename_node)
-    mapper.replace = replace
+    mapper.renamer = renamer
     return list(map(mapper, instructions))

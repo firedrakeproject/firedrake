@@ -809,7 +809,7 @@ class TestDatAPI:
     def test_dat_int(self, dset):
         "Data type for int data should be numpy.int."
         d = op2.Dat(dset, [1] * dset.size * dset.cdim)
-        assert d.dtype == np.int
+        assert d.dtype == np.asarray(1).dtype
 
     def test_dat_convert_int_float(self, dset):
         "Explicit float type should override NumPy's default choice of int."
@@ -909,7 +909,7 @@ class TestMixedDatAPI:
     def test_mixed_dat_illegal_dtype(self, set):
         """Constructing a MixedDat from Dats of different dtype should fail."""
         with pytest.raises(exceptions.DataValueError):
-            op2.MixedDat((op2.Dat(set, dtype=np.int), op2.Dat(set)))
+            op2.MixedDat((op2.Dat(set, dtype=np.int32), op2.Dat(set, dtype=np.float64)))
 
     def test_mixed_dat_dats(self, dats):
         """Constructing a MixedDat from an iterable of Dats should leave them
@@ -1303,22 +1303,22 @@ class TestGlobalAPI:
     def test_global_float(self):
         "Data type for float data should be numpy.float64."
         g = op2.Global(1, 1.0)
-        assert g.dtype == np.double
+        assert g.dtype == np.asarray(1.0).dtype
 
     def test_global_int(self):
         "Data type for int data should be numpy.int."
         g = op2.Global(1, 1)
-        assert g.dtype == np.int
+        assert g.dtype == np.asarray(1).dtype
 
     def test_global_convert_int_float(self):
         "Explicit float type should override NumPy's default choice of int."
-        g = op2.Global(1, 1, 'double')
+        g = op2.Global(1, 1, dtype=np.float64)
         assert g.dtype == np.float64
 
     def test_global_convert_float_int(self):
         "Explicit int type should override NumPy's default choice of float."
-        g = op2.Global(1, 1.5, 'int')
-        assert g.dtype == np.int
+        g = op2.Global(1, 1.5, dtype=np.int64)
+        assert g.dtype == np.int64
 
     def test_global_illegal_dtype(self):
         "Illegal data type should raise DataValueError."

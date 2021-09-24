@@ -169,6 +169,21 @@ class Arg(object):
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
 
+    def recreate(self, data=None, map=None, access=None, lgmaps=None, unroll_map=None):
+        """Creates a new Dat based on the existing Dat with the changes specified.
+
+        :param data: A data-carrying object, either :class:`Dat` or class:`Mat`
+        :param map:  A :class:`Map` to access this :class:`Arg` or the default
+                     if the identity map is to be used.
+        :param access: An access descriptor of type :class:`Access`
+        :param lgmaps: For :class:`Mat` objects, a tuple of 2-tuples of local to
+            global maps used during assembly."""
+        return type(self)(data=data or self.data,
+                          map=map or self.map,
+                          access=access or self.access,
+                          lgmaps=lgmaps or self.lgmaps,
+                          unroll_map=False if unroll_map is None else unroll_map)
+
     @cached_property
     def _kernel_args_(self):
         return self.data._kernel_args_
@@ -523,6 +538,35 @@ class Set(object):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
 
+    def _check_operands(self, other):
+        if type(other) is Set:
+            if other is not self:
+                raise ValueError("Uable to perform set operations between two unrelated sets: %s and %s." % (self, other))
+        elif type(other) is Subset:
+            if self is not other._superset:
+                raise TypeError("Superset mismatch: self (%s) != other._superset (%s)" % (self, other._superset))
+        else:
+            raise TypeError("Unable to perform set operations between `Set` and %s." % (type(other), ))
+
+    def intersection(self, other):
+        self._check_operands(other)
+        return other
+
+    def union(self, other):
+        self._check_operands(other)
+        return self
+
+    def difference(self, other):
+        self._check_operands(other)
+        if other is self:
+            return Subset(self, [])
+        else:
+            return type(other)(self, np.setdiff1d(np.asarray(range(self.total_size), dtype=IntType), other._indices))
+
+    def symmetric_difference(self, other):
+        self._check_operands(other)
+        return self.difference(other)
+
 
 class GlobalSet(Set):
 
@@ -772,11 +816,56 @@ class Subset(ExtrudedSet):
         return self._indices
 
     @cached_property
+    def owned_indices(self):
+        """Return the indices that correspond to the owned entities of the
+        superset.
+        """
+        return self.indices[self.indices < self.superset.size]
+
+    @cached_property
     def layers_array(self):
         if self._superset.constant_layers:
             return self._superset.layers_array
         else:
             return self._superset.layers_array[self.indices, ...]
+
+    def _check_operands(self, other):
+        if type(other) is Set:
+            if other is not self._superset:
+                raise TypeError("Superset mismatch: self._superset (%s) != other (%s)" % (self._superset, other))
+        elif type(other) is Subset:
+            if self._superset is not other._superset:
+                raise TypeError("Unable to perform set operation between subsets of mismatching supersets (%s != %s)" % (self._superset, other._superset))
+        else:
+            raise TypeError("Unable to perform set operations between `Subset` and %s." % (type(other), ))
+
+    def intersection(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return self
+        else:
+            return type(self)(self._superset, np.intersect1d(self._indices, other._indices))
+
+    def union(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return other
+        else:
+            return type(self)(self._superset, np.union1d(self._indices, other._indices))
+
+    def difference(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return Subset(other, [])
+        else:
+            return type(self)(self._superset, np.setdiff1d(self._indices, other._indices))
+
+    def symmetric_difference(self, other):
+        self._check_operands(other)
+        if other is self._superset:
+            return other.symmetric_difference(self)
+        else:
+            return type(self)(self._superset, np.setxor1d(self._indices, other._indices))
 
 
 class SetPartition(object):
@@ -1548,41 +1637,18 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Zero the data associated with this :class:`Dat`
 
         :arg subset: A :class:`Subset` of entries to zero (optional)."""
+
         # Update dat_version
         self.update_dat_version()
 
-        if hasattr(self, "_zero_parloops"):
-            loops = self._zero_parloops
+        # If there is no subset we can safely zero the halo values.
+        if subset is None:
+            self._data[:] = 0
+            self.halo_valid = True
+        elif subset.superset != self.dataset.set:
+            raise MapValueError("The subset and dataset are incompatible")
         else:
-            loops = {}
-            self._zero_parloops = loops
-
-        iterset = subset or self.dataset.set
-
-        loop = loops.get(iterset, None)
-
-        if loop is None:
-            try:
-                knl = self._zero_kernels[(self.dtype, self.cdim)]
-            except KeyError:
-                import islpy as isl
-                import pymbolic.primitives as p
-
-                inames = isl.make_zero_and_vars(["i"])
-                domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-                x = p.Variable("dat")
-                i = p.Variable("i")
-                insn = loopy.Assignment(x.index(i), 0, within_inames=frozenset(["i"]))
-                data = loopy.GlobalArg("dat", dtype=self.dtype, shape=(self.cdim,))
-                knl = loopy.make_function([domain], [insn], [data], name="zero", target=loopy.CTarget(), lang_version=(2018, 2))
-
-                knl = _make_object('Kernel', knl, 'zero')
-                self._zero_kernels[(self.dtype, self.cdim)] = knl
-            loop = _make_object('ParLoop', knl,
-                                iterset,
-                                self(WRITE))
-            loops[iterset] = loop
-        loop.compute()
+            self.data[subset.owned_indices] = 0
 
     @collective
     def copy(self, other, subset=None):
@@ -1592,28 +1658,17 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :arg subset: A :class:`Subset` of elements to copy (optional)"""
         if other is self:
             return
-        self._copy_parloop(other, subset=subset).compute()
-
-    @collective
-    def _copy_parloop(self, other, subset=None):
-        """Create the :class:`ParLoop` implementing copy."""
-        if not hasattr(self, '_copy_kernel'):
-            import islpy as isl
-            import pymbolic.primitives as p
-            inames = isl.make_zero_and_vars(["i"])
-            domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
-            _other = p.Variable("other")
-            _self = p.Variable("self")
-            i = p.Variable("i")
-            insn = loopy.Assignment(_other.index(i), _self.index(i), within_inames=frozenset(["i"]))
-            data = [loopy.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
-                    loopy.GlobalArg("other", dtype=other.dtype, shape=(other.cdim,))]
-            knl = loopy.make_function([domain], [insn], data, name="copy", target=loopy.CTarget(), lang_version=(2018, 2))
-
-            self._copy_kernel = _make_object('Kernel', knl, 'copy')
-        return _make_object('ParLoop', self._copy_kernel,
-                            subset or self.dataset.set,
-                            self(READ), other(WRITE))
+        if subset is None:
+            # If the current halo is valid we can also copy these values across.
+            if self.halo_valid:
+                other._data[:] = self._data
+                other.halo_valid = True
+            else:
+                other.data[:] = self.data_ro
+        elif subset.superset != self.dataset.set:
+            raise MapValueError("The subset and dataset are incompatible")
+        else:
+            other.data[subset.owned_indices] = self.data_ro[subset.owned_indices]
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -1851,8 +1906,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
     def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.itruediv)
-
-    __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
     def global_to_local_begin(self, access_mode):
@@ -2649,6 +2702,41 @@ class Map(object):
         return self == o
 
 
+class PermutedMap(Map):
+    """Composition of a standard :class:`Map` with a constant permutation.
+
+    :arg map_: The map to permute.
+    :arg permutation: The permutation of the map indices.
+
+    Where normally staging to element data is performed as
+
+    .. code-block::
+
+       local[i] = global[map[i]]
+
+    With a :class:`PermutedMap` we instead get
+
+    .. code-block::
+
+       local[i] = global[map[permutation[i]]]
+
+    This might be useful if your local kernel wants data in a
+    different order to the one that the map provides, and you don't
+    want two global-sized data structures.
+    """
+    def __init__(self, map_, permutation):
+        self.map_ = map_
+        self.permutation = np.asarray(permutation, dtype=Map.dtype)
+        assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
+
+    @cached_property
+    def _wrapper_cache_key_(self):
+        return super()._wrapper_cache_key_ + (tuple(self.permutation),)
+
+    def __getattr__(self, name):
+        return getattr(self.map_, name)
+
+
 class MixedMap(Map, ObjectCached):
     r"""A container for a bag of :class:`Map`\s."""
 
@@ -3350,7 +3438,8 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
-                   user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
+                   user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False,
+                   flop_count=None):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3372,7 +3461,8 @@ class Kernel(Cached):
         return (self._key, )
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
-                 user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False):
+                 user_code="", ldargs=None, cpp=False, requires_zeroed_output_arguments=False,
+                 flop_count=None):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3388,6 +3478,7 @@ class Kernel(Cached):
         self._code = code
         self._initialized = True
         self.requires_zeroed_output_arguments = requires_zeroed_output_arguments
+        self.flop_count = flop_count
 
     @property
     def name(self):
@@ -3400,6 +3491,8 @@ class Kernel(Cached):
 
     @cached_property
     def num_flops(self):
+        if self.flop_count is not None:
+            return self.flop_count
         if not configuration["compute_kernel_flops"]:
             return 0
         if isinstance(self.code, Node):
