@@ -141,12 +141,14 @@ def test_filter_two_form_lagrange():
 
     subdomain = V.boundary_node_subset((1, ))
     Vsub_b = ScalarSubspace(V, Function(V).assign(Constant(1.), subdomain))
-    Vsub_d = ScalarSubspace(V, Function(V).assign(Constant(1.), V.node_set.difference(subdomain)))
+    V0 = ComplementSubspace(Vsub_b)
 
     v_b = Projected(v, Vsub_b)
     u_b = Projected(u, Vsub_b)
-    v_d = v - v_b
-    u_d = u - u_b
+    #v_d = v - v_b
+    #u_d = u - u_b
+    v_d = Projected(v, V0)
+    u_d = Projected(u, V0)
 
     # Mass matrix
     a = inner(grad(u), grad(v)) * dx

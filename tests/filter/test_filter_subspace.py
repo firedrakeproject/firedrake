@@ -26,11 +26,12 @@ def test_filter_poisson():
 
     # Solve with Masked; no DirichletBC
     Vsub = BoundarySubspace(V, (1, 2, 3, 4))
+    V0 = ComplementSubspace(Vsub)
     v_b = Projected(v, Vsub)
     u_b = Projected(u, Vsub)
     g_b = Projected(g, Vsub)
-    v_d = v - v_b 
-    u_d = u - u_b 
+    v_d = v - v_b #Projected(v, V0)
+    u_d = u - u_b #Projected(u, V0)
 
     # Unsymmetrised form:
     # a1 = inner(grad(u), grad(v_d)) * dx + inner(u, v_b) * ds
@@ -114,14 +115,20 @@ def test_filter_stokes():
     up34 = Projected(up, Wsub)
     vq34 = Projected(vq, Wsub)
 
+    W0 = ComplementSubspace(Wsub)
+    up34_ = Projected(up, W0)
+    vq34_ = Projected(vq, W0)
+
     u, p = split(up)
     v, q = split(vq)
     u34, p34 = split(up34)
     v34, q34 = split(vq34)
-    u00, p0 = u - u34, p - p34
-    v00, q0 = v - v34, q - q34
+    #u00, p0 = u - u34, p - p34
+    #v00, q0 = v - v34, q - q34
     u00, p0 = split(up - up34)
     v00, q0 = split(vq - vq34)
+    #u00, p0 = split(up34_)
+    #v00, q0 = split(vq34_)
     v0 = v00 + dot(v34, xprime) * xprime
     u0 = u00 + dot(u34, xprime) * xprime
     v1 = dot(v34, yprime) * yprime

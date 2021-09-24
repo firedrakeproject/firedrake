@@ -1,3 +1,5 @@
+from itertools import chain
+
 import numpy as np
 
 from ufl.form import Form
@@ -14,7 +16,7 @@ from gem.node import MemoizerArg
 from gem.optimise import filtered_replace_indices
 
 
-__all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces']
+__all__ = ['ScalarSubspace', 'RotatedSubspace', 'Subspaces', 'ComplementSubspace']
 
 
 class Subspace(object):
@@ -184,6 +186,28 @@ class IndexedSubspace(object):
         return hash(repr(self))
 
 
+class ComplementSubspace(object):
+    def __init__(self, subspace):
+        self._subspace = subspace
+        self.parent = None
+
+    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+        substitution = tuple(zip(i_dummy, i))
+        mapper = MemoizerArg(filtered_replace_indices)
+        _expressions_base = tuple(mapper(expression, substitution) for expression in expressions)
+        _expressions_cmpl = self._subspace.transform(expressions, subspace_expr, i_dummy, i, finat_element, dtype)
+        return tuple(gem.Sum(_base, gem.Product(gem.Literal(-1.), _cmpl)) for _base, _cmpl in zip(_expressions_base, _expressions_cmpl))
+
+    def subspaces(self):
+        return self._subspace.subspaces()
+
+    def function_space(self):
+        return self._subspace._function_space
+
+    def ufl_element(self):
+        return self.function_space().ufl_element()
+
+
 class ScalarSubspace(Subspace):
     def __init__(self, V, val=None, name=None, dtype=ScalarType):
         Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
@@ -287,7 +311,8 @@ def extract_subspaces(form, cls=object):
     This compares to form.coefficients().
     """
     subspaces_and_objects = extract_indexed_subspaces(form, cls=cls)
-    subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
+    #subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
+    subspaces = set(chain(*(s.subspaces() for s, _ in subspaces_and_objects)))
     return tuple(sorted(subspaces, key=lambda x: x.count()))
 
 
