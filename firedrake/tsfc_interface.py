@@ -242,42 +242,9 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
             #if subspace in subspaces_and_parts_dict:
             if subspace in _subspaces:
                 subspace_numbers.append(i)
-        subspace_parts = [[]  if type(subspace.ufl_element())==MixedElement else None for subspace in _subspaces]
-        for subspace in subspaces:
-            if subspace.parent is not None:
-                ind = _subspaces.index(subspace.parent)
-                subspace_parts[ind].append(subspace.index)
-        subspace_parts = [sorted(part) if part is not None else None for part in subspace_parts]
-        lgmap_temp = []
-        i = 0
-        for s, part in zip(_subspaces, subspace_parts):
-            if part is None:
-                lgmap_temp.append(i)
-                i+=1
-            else:
-                n = len(s.ufl_element().sub_elements())
-                for j in range(n):
-                    if j in part:
-                        lgmap_temp.append(i)
-                    i+=1
-                
-        # Register enabled (split) subspaces and get associated gem expressions.
-        #subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
-        #elements = []
-        #for i, subspace in enumerate(_subspaces):
-        #    if subspace_parts[i] is None:
-        #        elements.append(subspace.ufl_element())
-        #    else:
-        #        for part in subspace_parts[i]:
-        #            elements.append(subspace.ufl_element().sub_elements()[part])
-        #subspace_exprs = builder.set_external_data(elements)
         _subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in _subspaces])
-        subspace_exprs = [_subspace_exprs[i] for i in lgmap_temp]
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
-        subspaces = sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(),
-                                                     -1 if s.index is None else s.index))
-
-        subspace_expr_map = {s: e for s, e in zip(subspaces, subspace_exprs)}
+        subspace_expr_map = {s: e for s, e in zip(chain(*(subspace.split() for subspace in _subspaces)), _subspace_exprs)}
         # Compile integrals.
         ctx = builder.create_context()
         for form_data_idx, integrals in enumerate(tsfc_integral_data.integrals_tuple):
@@ -302,14 +269,20 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                     if subspace is None:
                         # dummy index was not used.
                         continue
-                    subspace_expr = subspace_expr_map[subspace]
+                    if subspace.parent is None:
+                        subspace_expr = subspace_expr_map[subspace.split()[0]]
+                    else:
+                        subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
                     print("arg_subsp", subspace_expr)
                     # Apply subspace transformation (i_dummy -> i).
                     expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
                                                      builder.create_element(subspace.ufl_element()), builder.scalar_type)
                 # Apply subspace transformations for projected `Function`s.
                 for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
-                    subspace_expr = subspace_expr_map[subspace]
+                    if subspace.parent is None:
+                        subspace_expr = subspace_expr_map[subspace.split()[0]]
+                    else:
+                        subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
                     print("fun_subsp", subspace_expr)
                     if type(coeff.ufl_element()) == MixedElement:
                         coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
@@ -329,9 +302,6 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
         kernel_name = kernel_name.replace("-", "_")  # Handle negative subdomain_id
         kernel = builder.construct_kernel(kernel_name, ctx, external_data_numbers=subspace_numbers)
         if kernel is not None:
-            print(kernel.external_data_parts)
-            print(subspace_parts)
-            #assert tuple(kernel.external_data_parts) == tuple(subspace_parts)
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
