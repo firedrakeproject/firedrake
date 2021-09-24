@@ -1,4 +1,5 @@
-from itertools import chain
+import itertools
+import functools
 
 import numpy as np
 
@@ -208,6 +209,35 @@ class ComplementSubspace(object):
         return self.function_space().ufl_element()
 
 
+class DirectSumSubspace(object):
+    """Bag of :class:`.Subspace`s.
+
+    :arg subspaces: the :class:`.Subspace`s.
+    """
+
+    def __init__(self, *subspaces):
+        self._subspaces = tuple(subspaces)
+        self.parent = None
+        self._function_space, = set(s.function_space() for s in subspaces)
+
+    def transform(self, expressions, subspace_exprs, i_dummy, i, finat_element, dtype):
+        assert len(subspace_exprs) == len(self._subspaces)
+        _expressions_list = []
+        for subspace, subspace_expr in zip(self._subspaces, subspace_exprs):
+            _expressions = subspace.transform(expressions, (subspace_expr, ), i_dummy, i, finat_element, dtype)
+            _expressions_list.append(_expressions)
+        return tuple(functools.reduce(lambda a, b: gem.Sum(a, b), _exprs) for _exprs in zip(*_expressions_list))
+
+    def subspaces(self):
+        return self._subspaces
+
+    def function_space(self):
+        return self._function_space
+
+    def ufl_element(self):
+        return self.function_space().ufl_element()
+
+
 class ScalarSubspace(Subspace):
     def __init__(self, V, val=None, name=None, dtype=ScalarType):
         Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
@@ -312,7 +342,7 @@ def extract_subspaces(form, cls=object):
     """
     subspaces_and_objects = extract_indexed_subspaces(form, cls=cls)
     #subspaces = set(s if s.parent is None else s.parent for s, o in subspaces_and_objects)
-    subspaces = set(chain(*(s.subspaces() for s, _ in subspaces_and_objects)))
+    subspaces = set(itertools.chain(*(s.subspaces() for s, _ in subspaces_and_objects)))
     return tuple(sorted(subspaces, key=lambda x: x.count()))
 
 

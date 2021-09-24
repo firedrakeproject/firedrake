@@ -4,7 +4,7 @@ import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function 
 from firedrake.constant import Constant
-from firedrake.subspace import ScalarSubspace, RotatedSubspace, Subspaces
+from firedrake.subspace import ScalarSubspace, RotatedSubspace, Subspaces, DirectSumSubspace
 
 from pyop2.datatypes import ScalarType
 from pyop2.utils import as_tuple
@@ -72,7 +72,8 @@ def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
             for ix in reversed(indices):
                 gsub = gsub.sub(ix)
             f.dat.copy(gsub.dat)
-    return Subspaces(*tuple(g for _, g in gg.items()))
+    #return Subspaces(*tuple(g for _, g in gg.items()))
+    return DirectSumSubspace(*tuple(g for _, g in gg.items()))
 
 
 def BoundarySubspace(V, subdomain):

@@ -14,12 +14,12 @@ def test_filter_one_form_lagrange():
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    Vsub, = BoundarySubspace(V, 1)
+    Vsub = BoundarySubspace(V, 1)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
 
-    expected = np.multiply(rhs0.dat.data, Vsub.dat.data)
+    expected = np.multiply(rhs0.dat.data, Vsub._subspaces[0].dat.data)
 
     assert np.allclose(rhs1.dat.data, expected)
 
@@ -35,10 +35,10 @@ def test_filter_one_form_lagrange_action():
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate(8.0 * pi * pi * cos(2 * pi *x + pi/3) * cos(2 * pi * y + pi/5))
 
-    Vsub, = BoundarySubspace(V, 1)
+    Vsub = BoundarySubspace(V, 1)
 
     fsub = Function(V)
-    fsub.dat.data[:] = f.dat.data[:] * Vsub.dat.data[:]
+    fsub.dat.data[:] = f.dat.data[:] * Vsub._subspaces[0].dat.data[:]
     rhs0 = assemble(inner(fsub, Projected(v, Vsub)) * dx)
     a = inner(Projected(u, Vsub), Projected(v, Vsub)) * dx
     rhs1 = assemble(action(a, f))
