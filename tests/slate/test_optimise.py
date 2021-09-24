@@ -9,14 +9,25 @@ def mesh():
 
 
 @pytest.fixture
-def A(mesh):
-    U = FunctionSpace(mesh, "RT", 1)
-    V = FunctionSpace(mesh, "DG", 0)
-    T = FunctionSpace(mesh, "HDiv Trace", 0)
-    n = FacetNormal(mesh)
-    W = U * V * T
+def dg(mesh):
+    return [FunctionSpace(mesh, "DG", p) for p in range(3)]
+
+
+@pytest.fixture
+def vector_dg1(mesh):
+    return VectorFunctionSpace(mesh, "DG", 1)
+
+
+@pytest.fixture
+def T_hyb(mesh, dg):
+    """Fixture for a tensor of a form with a hybridisation like discretisation."""
+    rt = FunctionSpace(mesh, "RT", 1)
+    hdivt = FunctionSpace(mesh, "HDiv Trace", 0)
+    W = rt * dg[0] * hdivt
+
     u, p, lambdar = TrialFunctions(W)
     w, q, gammar = TestFunctions(W)
+    n = FacetNormal(mesh)
 
     return Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
                   + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
@@ -24,18 +35,25 @@ def A(mesh):
 
 
 @pytest.fixture
-def KF(mesh):
-    V = VectorFunctionSpace(mesh, "DG", 1)
-    U = FunctionSpace(mesh, "DG", 1)
-    T = FunctionSpace(mesh, "DG", 0)
-    W = V * U * T
-    x = SpatialCoordinate(mesh)
-    q = Function(V).project(grad(sin(pi*x[0])*cos(pi*x[1])))
-    p = Function(U).interpolate(-x[0]*exp(-x[1]**2))
-    r = Function(T).assign(42.0)
-    u, phi, eta = TrialFunctions(W)
-    v, psi, nu = TestFunctions(W)
+def dg1_dg1_dg0(dg, vector_dg1):
+    return vector_dg1 * dg[1] * dg[0]
 
+
+@pytest.fixture
+def functions(mesh, dg, vector_dg1):
+    x = SpatialCoordinate(mesh)
+    q = Function(vector_dg1).project(grad(sin(pi*x[0])*cos(pi*x[1])))
+    p = Function(dg[1]).interpolate(-x[0]*exp(-x[1]**2))
+    r = Function(dg[0]).assign(42.0)
+    return [q, p, r]
+
+
+@pytest.fixture
+def KF(dg1_dg1_dg0, functions):
+    """Fixture for a tensor of a form on a 2 and a 1-form with a DG discretisation."""
+    q, p, r = functions
+    u, phi, eta = TrialFunctions(dg1_dg1_dg0)
+    v, psi, nu = TestFunctions(dg1_dg1_dg0)
     K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     F = Tensor(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx)
     return K, K.inv * F
@@ -59,41 +77,44 @@ def TC(mesh):
     return K, AssembledVector(f)
 
 
-def test_push_tensor_blocks_individual(A):
-    """Test Optimisers's ability to handle individual blocks of 2-Tensors."""
-    expressions = [(A+A).blocks[0, 0], (A*A).blocks[0, 0], (-A).blocks[0, 0],
-                   (A.T).blocks[0, 0], (A.inv).blocks[0, 0]]
+#######################################
+# Test block optimisation pass
+#######################################
+def test_push_tensor_blocks_individual(T_hyb):
+    """Test Optimisers's ability to handle individual blocks of Tensors on 2-forms."""
+    expressions = [(T_hyb+T_hyb).blocks[0, 0], (T_hyb*T_hyb).blocks[0, 0], (-T_hyb).blocks[0, 0],
+                   (T_hyb.T).blocks[0, 0], (T_hyb.inv).blocks[0, 0]]
     compare_tensor_expressions(expressions)
 
 
-def test_push_tensor_blocks_mixed(A):
-    """Test Optimisers's ability to handle mixed blocks of 2-Tensors."""
-    expressions = [(A+A).blocks[:2, :2], (A*A).blocks[:2, :2], (-A).blocks[:2, :2],
-                   (A.T).blocks[:2, :2], (A.inv).blocks[:2, :2],
-                   (A+A).blocks[1:3, 1:3], (A*A).blocks[1:3, 1:3],
-                   (-A).blocks[1:3, 1:3], (A.T).blocks[1:3, 1:3], (A.inv).blocks[1:3, 1:3]]
+def test_push_tensor_blocks_mixed(T_hyb):
+    """Test Optimisers's ability to handle mixed blocks of Tensors on 2-forms."""
+    expressions = [(T_hyb+T_hyb).blocks[:2, :2], (T_hyb*T_hyb).blocks[:2, :2], (-T_hyb).blocks[:2, :2],
+                   (T_hyb.T).blocks[:2, :2], (T_hyb.inv).blocks[:2, :2],
+                   (T_hyb+T_hyb).blocks[1:3, 1:3], (T_hyb*T_hyb).blocks[1:3, 1:3],
+                   (-T_hyb).blocks[1:3, 1:3], (T_hyb.T).blocks[1:3, 1:3], (T_hyb.inv).blocks[1:3, 1:3]]
     compare_tensor_expressions(expressions)
 
 
-def test_push_tensor_blocks_on_blocks(A):
-    """Test Optimisers's ability to handle blocks of blocks of 2-Tensors."""
-    expressions = [(A+A).blocks[:2, :2].blocks[0, 0], (A*A).blocks[:2, :2].blocks[0, 0],
-                   (-A).blocks[:2, :2].blocks[0, 0], (A.T).blocks[:2, :2].blocks[0, 0],
-                   (A.inv).blocks[:2, :2].blocks[0, 0]]
+def test_push_tensor_blocks_on_blocks(T_hyb):
+    """Test Optimisers's ability to handle blocks of blocks of Tensors on 2-forms."""
+    expressions = [(T_hyb+T_hyb).blocks[:2, :2].blocks[0, 0], (T_hyb*T_hyb).blocks[:2, :2].blocks[0, 0],
+                   (-T_hyb).blocks[:2, :2].blocks[0, 0], (T_hyb.T).blocks[:2, :2].blocks[0, 0],
+                   (T_hyb.inv).blocks[:2, :2].blocks[0, 0]]
     # test for blocks with too few indices too
-    expressions += [(A+A).blocks[:2].blocks[0, 0]]
+    expressions += [(T_hyb+T_hyb).blocks[:2].blocks[0, 0]]
     compare_tensor_expressions(expressions)
 
 
 def test_push_vector_block_individual(KF):
-    """Test Optimisers's ability to handle individual blocks of 1-Tensors."""
+    """Test Optimisers's ability to handle individual blocks of Tensors on 1-forms."""
     K, F = KF
     expressions = [(F+F).blocks[0], (K*F).blocks[0], (-F).blocks[0]]
     compare_vector_expressions(expressions)
 
 
 def test_push_vector_block_mixed(KF):
-    """Test Optimisers's ability to handle mixed blocks of 1-Tensors."""
+    """Test Optimisers's ability to handle mixed blocks of Tensors on 1-forms"""
     K, F = KF
     expressions = [(F+F).blocks[:2], (K*F).blocks[:2], (-F).blocks[:2],
                    (F+F).blocks[1:3], (K*F).blocks[1:3], (-F).blocks[1:3]]
@@ -101,7 +122,7 @@ def test_push_vector_block_mixed(KF):
 
 
 def test_push_vector_blocks_on_blocks(KF):
-    """Test Optimisers's ability to handle blocks of blocks of 1-Tensors."""
+    """Test Optimisers's ability to handle blocks of blocks of Tensors on 1-forms."""
     K, F = KF
     expressions = [(F+F).blocks[:2].blocks[0], (K*F).blocks[:2].blocks[0],
                    (-F).blocks[:2].blocks[0]]
@@ -135,6 +156,9 @@ def test_push_block_aggressive_unaryop_nesting():
     compare_vector_expressions(expressions)
 
 
+#######################################
+# Helper functions
+#######################################
 def compare_tensor_expressions(expressions):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False}}).M.values
