@@ -240,7 +240,12 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                 subspace_numbers.append(i)
         subspace_exprs = builder.set_external_data([subspace.ufl_element() for subspace in subspaces])
         # Define subspace(firedrake) -> subspace_expr(gem) map (this is used below).
-        subspace_expr_map = {s: e for s, e in zip(chain(*(subspace.split() for subspace in subspaces)), subspace_exprs)}
+        subspace_expr_map = {}
+        i = 0
+        for subspace in subspaces:
+            n = len(subspace.split())
+            subspace_expr_map[subspace] = subspace_exprs[i:i+n]
+            i += n
         # Compile integrals.
         ctx = builder.create_context()
         for form_data_idx, integrals in enumerate(tsfc_integral_data.integrals_tuple):
@@ -263,18 +268,18 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                         # dummy index was not used.
                         continue
                     if subspace.parent is None:
-                        subspace_expr = subspace_expr_map[subspace.split()[0]]
+                        subspace_expr = subspace_expr_map[subspace][0]
                     else:
-                        subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
+                        subspace_expr = subspace_expr_map[subspace.parent][subspace.index]
                     # Apply subspace transformation (i_dummy -> i).
                     expressions = subspace.transform(expressions, subspace_expr, i_dummy, i,
                                                      builder.create_element(subspace.ufl_element()), builder.scalar_type)
                 # Apply subspace transformations for projected `Function`s.
                 for i_extra, subspace, coeff in zip(_extra_multiindices, subspace_tuple[nargs:], coefficient_tuple):
                     if subspace.parent is None:
-                        subspace_expr = subspace_expr_map[subspace.split()[0]]
+                        subspace_expr = subspace_expr_map[subspace][0]
                     else:
-                        subspace_expr = subspace_expr_map[subspace.parent.split()[subspace.index]]
+                        subspace_expr = subspace_expr_map[subspace.parent][subspace.index]
                     if type(coeff.ufl_element()) == MixedElement:
                         coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
                     else:
