@@ -259,8 +259,11 @@ def test_real_space_assign():
     f.assign(2)
     g = Function(V)
     g.assign(2*f + f**3)
+    h = Function(V)
+    h.assign(0.0)
     assert np.allclose(f.dat.data_ro, 2.0)
     assert np.allclose(g.dat.data_ro, 12.0)
+    assert np.allclose(h.dat.data_ro, 0.0)
 
 
 @pytest.mark.skipcomplex
