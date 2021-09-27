@@ -30,8 +30,11 @@ def test_filter_poisson():
     v_b = Projected(v, Vsub)
     u_b = Projected(u, Vsub)
     g_b = Projected(g, Vsub)
-    v_d = v - v_b #Projected(v, V0)
-    u_d = u - u_b #Projected(u, V0)
+    #v_d = v - v_b #Projected(v, V0)
+    #u_d = u - u_b #Projected(u, V0)
+    v_d = Projected(v, V0)
+    u_d = Projected(u, V0)
+
 
     # Unsymmetrised form:
     # a1 = inner(grad(u), grad(v_d)) * dx + inner(u, v_b) * ds
@@ -125,10 +128,10 @@ def test_filter_stokes():
     v34, q34 = split(vq34)
     #u00, p0 = u - u34, p - p34
     #v00, q0 = v - v34, q - q34
-    u00, p0 = split(up - up34)
-    v00, q0 = split(vq - vq34)
-    #u00, p0 = split(up34_)
-    #v00, q0 = split(vq34_)
+    #u00, p0 = split(up - up34)
+    #v00, q0 = split(vq - vq34)
+    u00, p0 = split(up34_)
+    v00, q0 = split(vq34_)
     v0 = v00 + dot(v34, xprime) * xprime
     u0 = u00 + dot(u34, xprime) * xprime
     v1 = dot(v34, yprime) * yprime
@@ -232,15 +235,22 @@ def test_filter_stokes_rot():
     
     normal = FacetNormal(mesh)
     V4 = BoundaryComponentSubspace(W.sub(0), (3, 4), normal)
+    S_ = ComplementSubspace(V4)
 
     vq4 = Projected(vq, V4)
     up4 = Projected(up, V4)
 
+    vq4_ = Projected(vq, S_)
+    up4_ = Projected(up, S_)
+
     v4, q4 = split(vq4)
     u4, p4 = split(up4)
 
-    v0, q0 = v - v4, q - q4
-    u0, p0 = u - u4, p - p4
+    #v0, q0 = v - v4, q - q4
+    #u0, p0 = u - u4, p - p4
+    v0, q0 = split(vq4_)
+    u0, p0 = split(up4_)
+
 
     bcs = [DirichletBC(W.sub(0), Function(V).interpolate(flux), (1, 2)), ]
 

@@ -287,7 +287,7 @@ class SplitFormProjectedArgument(MultiFunction):
         assert isinstance(a, (Argument, Function))
         if isinstance(a, Function):
             return o
-        elif o.subspace() is self.subspaces[a.number()]:
+        elif self.subspaces[a.number()] is not None and o.subspace() == self.subspaces[a.number()]:
             return a
         else:
             shape = o.ufl_shape

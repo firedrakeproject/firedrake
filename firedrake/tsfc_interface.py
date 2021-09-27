@@ -126,6 +126,7 @@ class TSFCKernel(Cached):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
+        import numpy#fix form signature
         return md5((form.signature() + name
                     + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
@@ -371,7 +372,6 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
-        print("idx", idx)
         f = _real_mangle(f)
         # Map local function/subspace numbers (as seen inside the
         # compiler) to the global function/subspace numbers

@@ -208,6 +208,23 @@ class ComplementSubspace(object):
     def ufl_element(self):
         return self.function_space().ufl_element()
 
+    def __eq__(self, other):
+        if other is self:
+            return True
+        elif type(other) is not type(self):
+            return False
+        else:
+            return other._subspace == self._subspace
+
+    def __str__(self):
+        return "ComplementSubspace[%s]" % self._subspace
+
+    def __repr__(self):
+        return "ComplementSubspace(%s)" % repr(self._subspace)
+
+    def __hash__(self):
+        return hash(repr(self))
+
 
 class DirectSumSubspace(object):
     """Bag of :class:`.Subspace`s.
@@ -236,6 +253,23 @@ class DirectSumSubspace(object):
 
     def ufl_element(self):
         return self.function_space().ufl_element()
+
+    def __eq__(self, other):
+        if other is self:
+            return True
+        elif type(other) is not type(self):
+            return False
+        else:
+            return other._subspaces == self._subspaces
+
+    def __str__(self):
+        return "DirectSumSubspace[%s]" % "+".join([str(s) for s in self._subspaces])
+
+    def __repr__(self):
+        return "DirectSumSubspace(%s)" % ", ".join([repr(s) for s in self._subspaces])
+
+    def __hash__(self):
+        return hash(repr(self))
 
 
 class ScalarSubspace(Subspace):
