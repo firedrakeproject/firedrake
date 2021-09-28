@@ -189,16 +189,17 @@ class PMGBase(PCSNESBase):
         parent = get_parent(fdm)
         assert parent is not None
 
-        # Have we already done this?
-        # FIXME this is triggering weird gmg erros
-        # what if we have nested p-FAS/p-MG with different coarsening schedules?
-        cctx = fctx._coarse
-        if cctx is not None:
-            return cctx.J.arguments()[0].function_space().dm
-
         test, trial = fctx.J.arguments()
         fV = test.function_space()
         cele = self.coarsen_element(fV.ufl_element())
+
+        # Have we already done this?
+        cctx = fctx._coarse
+        if cctx is not None:
+            cV = cctx.J.arguments()[0].function_space()
+            if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()):
+                return cV.dm
+
         cV = firedrake.FunctionSpace(fV.mesh(), cele)
         cdm = cV.dm
 
