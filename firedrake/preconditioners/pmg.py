@@ -334,12 +334,13 @@ class PMGBase(PCSNESBase):
                 return fine_nullspace
 
         I, _ = self.create_interpolation(cdm, fdm)
+        ises = cV._ises
         cctx._nullspace = coarsen_nullspace(cV, I, fctx._nullspace)
-        cctx.set_nullspace(cctx._nullspace, transpose=False, near=False)
+        cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
         cctx._nullspace_T = coarsen_nullspace(cV, I, fctx._nullspace_T)
-        cctx.set_nullspace(cctx._nullspace_T, transpose=True, near=False)
+        cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
         cctx._near_nullspace = coarsen_nullspace(cV, I, fctx._near_nullspace)
-        cctx.set_nullspace(cctx._near_nullspace, transpose=False, near=True)
+        cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         return cdm
 
     @staticmethod
