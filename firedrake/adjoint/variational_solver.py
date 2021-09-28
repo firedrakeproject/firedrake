@@ -12,11 +12,21 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            from firedrake import derivative, adjoint, TrialFunction
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+            try:
+                # Some forms (e.g. SLATE tensors) are not currently
+                # differentiable.
+                dFdu = derivative(self.F,
+                                  self.u,
+                                  TrialFunction(self.u.function_space()))
+                self._ad_adj_F = adjoint(dFdu)
+            except TypeError:
+                self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper
@@ -37,6 +47,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
+            self._ad_dFdm_cache = {}
 
         return wrapper
 
@@ -59,6 +70,8 @@ class NonlinearVariationalSolverMixin:
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
+                                                       problem._ad_adj_F,
+                                                       dFdm_cache=self._ad_dFdm_cache,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
