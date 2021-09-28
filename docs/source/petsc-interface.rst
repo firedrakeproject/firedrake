@@ -348,22 +348,32 @@ DMPlex then we must first establish a mapping between
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
 For a $d$-dimensional mesh, we seek to establish offsets to recover
-a $d$-tuple of coordinates. That is, we seek $d$ vertex-wise
-values and no values for entities of higher dimension.
+$d$-tuple coordinates for the degrees of freedom.
 
-In 2D, for example, this corresponds to the array
+For a linear mesh, we seek $d$ values at each vertex and no values for
+entities of higher dimension. In 2D, for example, this corresponds to the array
 
 .. math::
 
-   (d, 0, 0)
+   (d, 0, 0).
+
+For an order $p$ Lagrange mesh, it is a little more complicated. In
+the 2D triangular case, we require the following entities:
+
+.. math::
+
+   (d, d(p-1), d(p-1)(p-2)/2).
 
 Accordingly, set
 
 .. code-block:: python3
 
     dim = mesh.topological_dimension()
+    gdim = mesh.geometrical_dimension()
     entity_dofs = np.zeros(dim+1, dtype=np.int32)
-    entity_dofs[0] = mesh.geometrical_dimension()
+    entity_dofs[0] = gdim
+    entity_dofs[1] = gdim*(p-1)
+    entity_dofs[2] = gdim*((p-1)*(p-2))//2
 
 We then use Firedrake's helper function for creating a PETSc
 section to establish the mapping:
@@ -380,14 +390,15 @@ section to establish the mapping:
     coords_local.array[:] = np.reshape(mesh.coordinates.dat.data_ro_with_halos, coords_local.array.shape)
     plex.setCoordinatesLocal(coords_local)
 
-We can then extract coordinates for vertex ``i`` (of the
-DMPlex numbering) by
+We can then extract coordinates for node ``i`` belonging to
+entity ``d`` (according to the DMPlex numbering) by
 
 .. code-block:: python3
 
-    offset = coord_section.getOffset(i)//dim
+    dofs = coord_section.getDof(d)
+    offset = coord_section.getOffset(d)//dim + i
     coord = mesh.coordinates.dat.data_ro_with_halos[offset]
-    print(f"Vertex {i} has coordinates {coord}")
+    print(f"Node {i} belonging to entity {d} has coordinates {coord}")
 
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
