@@ -26,11 +26,11 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    #layers = None
-    #"""No layers on unstructured mesh"""
+    parent = None
+    """Parent of an indexed mixed function subspace."""
 
-    #variable_layers = False
-    #"""No variable layers on unstructured mesh"""
+    index = None
+    """Index of an indexed mixed function subspace."""
 
     @abc.abstractmethod
     def function_space(self):
@@ -90,8 +90,6 @@ class Subspace(AbstractSubspace):
             self._data = CoordinatelessFunction(V.topological,
                                                 val=val, name=name, dtype=dtype)
         self._function_space = V
-        self.parent = None
-        self.index = None
         self._repr = "Subspace(%s, %s)" % (repr(self._function_space), repr(self._count))
 
     def count(self):
@@ -308,7 +306,6 @@ class IndexedSubspace(AbstractSubspace):
 class ComplementSubspace(AbstractSubspace):
     def __init__(self, subspace):
         self._subspace = subspace
-        self.parent = None
 
     def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
         substitution = tuple(zip(i_dummy, i))
@@ -352,7 +349,6 @@ class DirectSumSubspace(AbstractSubspace):
 
     def __init__(self, *subspaces):
         self._subspaces = tuple(subspaces)
-        self.parent = None
         self._function_space, = set(s.function_space() for s in subspaces)
 
     def transform(self, expressions, subspace_exprs, i_dummy, i, finat_element, dtype):
