@@ -26,95 +26,11 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name):
-        """Initialise an abstract mesh topology.
+    #layers = None
+    #"""No layers on unstructured mesh"""
 
-        :arg name: name of the mesh
-        """
-
-        utils._init()
-
-        self.name = name
-
-        self.topology_dm = None
-        r"The PETSc DM representation of the mesh topology."
-
-        # A cache of shared function space data on this mesh
-        self._shared_data_cache = defaultdict(dict)
-
-        # Cell subsets for integration over subregions
-        self._subsets = {}
-
-        self._grown_halos = False
-
-        # A set of weakrefs to meshes that are explicitly labelled as being
-        # parallel-compatible for interpolation/projection/supermeshing
-        # To set, do e.g.
-        # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
-        self._parallel_compatible = None
-
-    layers = None
-    """No layers on unstructured mesh"""
-
-    variable_layers = False
-    """No variable layers on unstructured mesh"""
-
-    @property
-    def comm(self):
-        pass
-
-    def mpi_comm(self):
-        """The MPI communicator this mesh is built on (an mpi4py object)."""
-        return self.comm
-
-    def init(self):
-        """Finish the initialisation of the mesh."""
-        if hasattr(self, '_callback'):
-            self._callback(self)
-
-    def function_space(self):
-        """The underlying mesh topology object."""
-        return self
-
-    @property
-    def topological(self):
-        """Alias of topology.
-
-        This is to ensure consistent naming for some multigrid codes."""
-        return self
-
-    @property
-    def _topology_dm(self):
-        """Alias of topology_dm"""
-        from warnings import warn
-        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
-        return self.topology_dm
-
-    def ufl_cell(self):
-        """The UFL :class:`~ufl.classes.Cell` associated with the mesh.
-
-        .. note::
-
-            By convention, the UFL cells which specifically
-            represent a mesh topology have geometric dimension equal their
-            topological dimension. This is true even for immersed manifold
-            meshes.
-
-        """
-        return self._ufl_mesh.ufl_cell()
-
-    def ufl_mesh(self):
-        """The UFL :class:`~ufl.classes.Mesh` associated with the mesh.
-
-        .. note::
-
-            By convention, the UFL cells which specifically
-            represent a mesh topology have geometric dimension equal their
-            topological dimension. This convention will be reflected in this
-            UFL mesh and is true even for immersed manifold meshes.
-
-        """
-        return self._ufl_mesh
+    #variable_layers = False
+    #"""No variable layers on unstructured mesh"""
 
     @abc.abstractmethod
     def function_space(self):
@@ -147,7 +63,7 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
 # -- Base subspaces that carry data.
 
 
-class Subspace(object):
+class Subspace(AbstractSubspace):
     """Abstract class for Firedrake subspaces.
 
     :arg V: the :class:`~.functionspaceimpl.WithGeometry`.
@@ -354,7 +270,7 @@ class RotatedSubspace(Subspace):
 # -- Wrapper subspaces.
 
 
-class IndexedSubspace(object):
+class IndexedSubspace(AbstractSubspace):
     """Representation of indexed subspace.
 
     Convenient when splitting a form according to indices;
@@ -389,7 +305,7 @@ class IndexedSubspace(object):
         return hash(repr(self))
 
 
-class ComplementSubspace(object):
+class ComplementSubspace(AbstractSubspace):
     def __init__(self, subspace):
         self._subspace = subspace
         self.parent = None
@@ -428,7 +344,7 @@ class ComplementSubspace(object):
         return hash(repr(self))
 
 
-class DirectSumSubspace(object):
+class DirectSumSubspace(AbstractSubspace):
     """Bag of :class:`.Subspace`s.
 
     :arg subspaces: the :class:`.Subspace`s.
@@ -505,40 +421,3 @@ def extract_indexed_subspaces(form, cls=object):
                    if isinstance(o, FiredrakeProjected) and isinstance(o.ufl_operands[0], cls))
     else:
         raise TypeError("Unexpected type: %s" % str(type(form)))
-
-
-def sort_indexed_subspaces(subspaces):
-    return sorted(subspaces, key=lambda s: (s.parent.count() if s.parent else s.count(),
-                                            -1 if s.index is None else s.index))
-
-
-def make_subspace_numbers_and_parts(subspaces, original_subspaces):
-    """Sort subspaces and make subspace_numbers and subspace_parts.
-
-    :arg subspaces: a set of `(Indexed)Subspace`s found in the TSFCIntegralData.
-    :arg original_subspaces: a tuple of sorted original subspaces found in the TSFCFormData.
-    :returns: a tuple of sorted subspaces, subspace_numbers, and subspace_parts, where:
-        subspace_numbers: which `Subspace`s are used in the TSFCIntegralData;
-        this compares to `tsfc.Kernel.coefficient_numbers`.
-        subspace_parts  : which components are used if mixed (otherwise None);
-        this compares to `tsfc.Kernel.coefficient_parts` (, which will be introduced soon).
-    """
-    subspaces_and_parts_dict = {}
-    for subspace in subspaces:
-        if subspace.parent:
-            subspaces_and_parts_dict.setdefault(subspace.parent, set()).update((subspace.index, ))
-        else:
-            subspaces_and_parts_dict[subspace] = None
-    subspace_numbers = []
-    subspace_parts = []
-    for i, subspace in enumerate(original_subspaces):
-        if subspace in subspaces_and_parts_dict:
-            subspace_numbers.append(i)
-            parts = subspaces_and_parts_dict[subspace]
-            if parts is None:
-                subspace_parts.append(None)
-            else:
-                parts = sorted(parts)
-                subspace_parts.append(parts)
-    subspaces = sort_indexed_subspaces(subspaces)
-    return subspaces, subspace_numbers, subspace_parts
