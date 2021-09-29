@@ -147,7 +147,7 @@ setup(name='PyOP2',
       install_requires=install_requires,
       dependency_links=dep_links,
       test_requires=test_requires,
-      packages=['pyop2', 'pyop2.codegen'],
+      packages=['pyop2', 'pyop2.codegen', 'pyop2.types'],
       package_data={
           'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx', 'codegen/c/*.c']},
       scripts=glob('scripts/*'),
