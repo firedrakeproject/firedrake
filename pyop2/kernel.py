@@ -128,3 +128,23 @@ class Kernel(caching.Cached):
 
     def __eq__(self, other):
         return self.cache_key == other.cache_key
+
+
+class PyKernel(Kernel):
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return None
+
+    def __init__(self, code, name=None, **kwargs):
+        self._func = code
+        self._name = name
+
+    def __getattr__(self, attr):
+        """Return None on unrecognised attributes"""
+        return None
+
+    def __call__(self, *args):
+        return self._func(*args)
+
+    def __repr__(self):
+        return 'Kernel("""%s""", %r)' % (self._func, self._name)

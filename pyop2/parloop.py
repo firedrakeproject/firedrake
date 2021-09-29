@@ -1,8 +1,10 @@
+import abc
 import collections
 import copy
 import ctypes
 import enum
 import itertools
+import operator
 import os
 import types
 
@@ -461,15 +463,12 @@ ALL = IterationRegion.ALL
 """Iterate over all cells of an extruded mesh."""
 
 
-class ParLoop:
+class AbstractParLoop(abc.ABC):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
-
     .. note ::
-
         Users should not directly construct :class:`ParLoop` objects, but
         use :func:`pyop2.op2.par_loop` instead.
-
     An optional keyword argument, ``iterate``, can be used to specify
     which region of an :class:`ExtrudedSet` the parallel loop should
     iterate over.
@@ -522,6 +521,13 @@ class ParLoop:
 
         self.arglist = self.prepare_arglist(iterset, *self.args)
 
+    def prepare_arglist(self, iterset, *args):
+        """Prepare the argument list for calling generated code.
+        :arg iterset: The :class:`Set` iterated over.
+        :arg args: A list of :class:`Args`, the argument to the :fn:`par_loop`.
+        """
+        return ()
+
     @utils.cached_property
     def num_flops(self):
         iterset = self.iterset
@@ -534,6 +540,16 @@ class ParLoop:
             elif region not in [ON_TOP, ON_BOTTOM]:
                 size = layers - 1
         return size * self._kernel.num_flops
+
+    def log_flops(self, flops):
+        pass
+
+    @property
+    @mpi.collective
+    def _jitmodule(self):
+        """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
+        Return None if the child class should deal with this in another way."""
+        return None
 
     @utils.cached_property
     def _parloop_event(self):
@@ -582,6 +598,16 @@ class ParLoop:
                         m.handle.setLGMap(*lgmaps)
             self.reduction_end()
             self.local_to_global_end()
+
+    @mpi.collective
+    def _compute(self, part, fun, *arglist):
+        """Executes the kernel over all members of a MPI-part of the iteration space.
+        :arg part: The :class:`SetPartition` to compute over
+        :arg fun: The :class:`JITModule` encapsulating the compiled
+             code (may be ignored by the backend).
+        :arg arglist: The arguments to pass to the compiled code (may
+             be ignored by the backend, depending on the exact implementation)"""
+        raise RuntimeError("Must select a backend")
 
     @mpi.collective
     def global_to_local_begin(self):
@@ -643,7 +669,6 @@ class ParLoop:
     @mpi.collective
     def update_arg_data_state(self):
         r"""Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
-
         This marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
             access = arg.access
@@ -700,15 +725,13 @@ class ParLoop:
         interior facets."""
         return self._iteration_region
 
+
+class ParLoop(AbstractParLoop):
+
     def log_flops(self, flops):
         PETSc.Log.logFlops(flops)
 
     def prepare_arglist(self, iterset, *args):
-        """Prepare the argument list for calling generated code.
-
-        :arg iterset: The :class:`Set` iterated over.
-        :arg args: A list of :class:`Args`, the argument to the :fn:`par_loop`.
-        """
         arglist = iterset._kernel_args_
         for arg in args:
             arglist += arg._kernel_args_
@@ -727,9 +750,6 @@ class ParLoop:
 
     @utils.cached_property
     def _jitmodule(self):
-        """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
-
-        Return None if the child class should deal with this in another way."""
         return JITModule(self.kernel, self.iterset, *self.args,
                          iterate=self.iteration_region,
                          pass_layer_arg=self._pass_layer_arg)
@@ -740,16 +760,116 @@ class ParLoop:
 
     @mpi.collective
     def _compute(self, part, fun, *arglist):
-        """Executes the kernel over all members of a MPI-part of the iteration space.
-
-        :arg part: The :class:`SetPartition` to compute over
-        :arg fun: The :class:`JITModule` encapsulating the compiled
-             code (may be ignored by the backend).
-        :arg arglist: The arguments to pass to the compiled code (may
-             be ignored by the backend, depending on the exact implementation)"""
         with self._compute_event:
             self.log_flops(part.size * self.num_flops)
             fun(part.offset, part.offset + part.size, *arglist)
+
+
+class PyParLoop(AbstractParLoop):
+    """A stub implementation of "Python" parallel loops.
+
+    This basically executes a python function over the iteration set,
+    feeding it the appropriate data for each set entity.
+
+    Example usage::
+
+    .. code-block:: python
+
+       s = op2.Set(10)
+       d = op2.Dat(s)
+       d2 = op2.Dat(s**2)
+
+       m = op2.Map(s, s, 2, np.dstack(np.arange(4),
+                                      np.roll(np.arange(4), -1)))
+
+       def fn(x, y):
+           x[0] = y[0]
+           x[1] = y[1]
+
+       d.data[:] = np.arange(4)
+
+       op2.par_loop(fn, s, d2(op2.WRITE), d(op2.READ, m))
+
+       print d2.data
+       # [[ 0.  1.]
+       #  [ 1.  2.]
+       #  [ 2.  3.]
+       #  [ 3.  0.]]
+
+      def fn2(x, y):
+          x[0] += y[0]
+          x[1] += y[0]
+
+      op2.par_loop(fn, s, d2(op2.INC), d(op2.READ, m[1]))
+
+      print d2.data
+      # [[ 1.  2.]
+      #  [ 3.  4.]
+      #  [ 5.  6.]
+      #  [ 3.  0.]]
+    """
+    def __init__(self, kernel, *args, **kwargs):
+        if not isinstance(kernel, types.FunctionType):
+            raise ValueError("Expecting a python function, not a %r" % type(kernel))
+        super().__init__(Kernel(kernel), *args, **kwargs)
+
+    def _compute(self, part, *arglist):
+        if part.set._extruded:
+            raise NotImplementedError
+        subset = isinstance(self.iterset, Subset)
+
+        def arrayview(array, access):
+            array = array.view()
+            array.setflags(write=(access is not Access.READ))
+            return array
+
+        # Just walk over the iteration set
+        for e in range(part.offset, part.offset + part.size):
+            args = []
+            if subset:
+                idx = self.iterset._indices[e]
+            else:
+                idx = e
+            for arg in self.args:
+                if arg._is_global:
+                    args.append(arrayview(arg.data._data, arg.access))
+                elif arg._is_direct:
+                    args.append(arrayview(arg.data._data[idx, ...], arg.access))
+                elif arg._is_indirect:
+                    args.append(arrayview(arg.data._data[arg.map.values_with_halo[idx], ...], arg.access))
+                elif arg._is_mat:
+                    if arg.access not in {Access.INC, Access.WRITE}:
+                        raise NotImplementedError
+                    if arg._is_mixed_mat:
+                        raise ValueError("Mixed Mats must be split before assembly")
+                    shape = tuple(map(operator.attrgetter("arity"), arg.map_tuple))
+                    args.append(np.zeros(shape, dtype=arg.data.dtype))
+                if args[-1].shape == ():
+                    args[-1] = args[-1].reshape(1)
+            self._kernel(*args)
+            for arg, tmp in zip(self.args, args):
+                if arg.access is Access.READ:
+                    continue
+                if arg._is_global:
+                    arg.data._data[:] = tmp[:]
+                elif arg._is_direct:
+                    arg.data._data[idx, ...] = tmp[:]
+                elif arg._is_indirect:
+                    arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
+                elif arg._is_mat:
+                    if arg.access is Access.INC:
+                        arg.data.addto_values(arg.map[0].values_with_halo[idx],
+                                              arg.map[1].values_with_halo[idx],
+                                              tmp)
+                    elif arg.access is Access.WRITE:
+                        arg.data.set_values(arg.map[0].values_with_halo[idx],
+                                            arg.map[1].values_with_halo[idx],
+                                            tmp)
+
+        for arg in self.args:
+            if arg._is_mat and arg.access is not Access.READ:
+                # Queue up assembly of matrix
+                arg.data.assemble()
 
 
 def check_iterset(args, iterset):
@@ -848,8 +968,7 @@ def par_loop(kernel, iterset, *args, **kwargs):
     passed to the kernel as a vector.
     """
     if isinstance(kernel, types.FunctionType):
-        from pyop2 import pyparloop
-        return pyparloop.ParLoop(kernel, iterset, *args, **kwargs).compute()
+        return PyParLoop(kernel, iterset, *args, **kwargs).compute()
     return ParLoop(kernel, iterset, *args, **kwargs).compute()
 
 

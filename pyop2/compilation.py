@@ -48,7 +48,6 @@ from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import debug, progress, INFO
 from pyop2.exceptions import CompilationError
-from pyop2.base import JITModule
 
 
 def _check_hashes(x, y, datatype):
@@ -466,6 +465,7 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
+    from pyop2.parloop import JITModule
     if isinstance(jitmodule, str):
         class StrCode(object):
             def __init__(self, code, argtypes):
