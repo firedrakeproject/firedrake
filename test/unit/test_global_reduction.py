@@ -451,9 +451,7 @@ static void k(double* g, double* x)
     def test_inc_reused_loop(self, set):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         k = """void k(unsigned int* g) { *g += 1; }"""
-        loop = op2.ParLoop(op2.Kernel(k, "k"),
-                       set,
-                       g(op2.INC))
+        loop = op2.ParLoop(op2.Kernel(k, "k"), set, g(op2.INC))
         loop.compute()
         assert_allclose(g.data, set.size)
         loop.compute()
