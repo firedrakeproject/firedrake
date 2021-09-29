@@ -5,8 +5,8 @@ on:
   push:
     branches:
       - master
-  # And all pull requests
-  pull_request:
+  # Disable docs build on pull requests since the docs will not build with the PyOP2 branch.
+  # Make sure to remove this diff prior to merging.
 
 
 jobs:
