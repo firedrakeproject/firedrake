@@ -8,7 +8,7 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.precedence import parstr
 
-from firedrake.subspace import Subspace, Subspaces, ComplementSubspace, DirectSumSubspace
+from firedrake.subspace import Subspace, ComplementSubspace, DirectSumSubspace
 
 
 __all__ = ['Projected']
@@ -71,13 +71,10 @@ class FiredrakeProjected(Operator):
 
 def Projected(form_argument, subspace):
     """Return `FiredrakeProjected` objects."""
-    if isinstance(subspace, Subspaces):
-        ms = tuple(Projected(form_argument, s) for s in subspace)
-        return functools.reduce(lambda a, b: a + b, ms)
-    elif isinstance(subspace, (Subspace, ComplementSubspace, DirectSumSubspace)):
+    if isinstance(subspace, (Subspace, ComplementSubspace, DirectSumSubspace)):
         return FiredrakeProjected(form_argument, subspace)
     else:
-        raise TypeError("Expecting `Subspace` or `Subspaces`, not %s." % subspace.__class__.__name__)
+        raise TypeError("Expecting `Subspace`, not %s." % subspace.__class__.__name__)
 
 
 # -- Propagate FiredrakeProjected to directly wrap FormArguments

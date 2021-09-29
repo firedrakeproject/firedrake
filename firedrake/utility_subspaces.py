@@ -4,7 +4,7 @@ import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function 
 from firedrake.constant import Constant
-from firedrake.subspace import ScalarSubspace, RotatedSubspace, Subspaces, DirectSumSubspace
+from firedrake.subspace import ScalarSubspace, RotatedSubspace, DirectSumSubspace
 
 from pyop2.datatypes import ScalarType
 from pyop2.utils import as_tuple
@@ -72,7 +72,6 @@ def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
             for ix in reversed(indices):
                 gsub = gsub.sub(ix)
             f.dat.copy(gsub.dat)
-    #return Subspaces(*tuple(g for _, g in gg.items()))
     return DirectSumSubspace(*tuple(g for _, g in gg.items()))
 
 
@@ -114,7 +113,7 @@ def _boundary_subspace_functions(V, subdomain):
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace_hermite(s1, subdomain)
         s0.assign(Constant(1.), subset=subset_all.difference(subset_corners).intersection(subset_value).union(subset_corners))
-        return Subspaces(ScalarSubspace(V, s0), RotatedSubspace(V, s1))
+        return (ScalarSubspace(V, s0), RotatedSubspace(V, s1))
     elif V.ufl_element().family() == 'Morley':
         raise NotImplementedError("Morley not implemented.")
     elif V.ufl_element().family() == 'Argyris':
@@ -123,7 +122,7 @@ def _boundary_subspace_functions(V, subdomain):
         raise NotImplementedError("Bell not implemented.")
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return Subspaces(ScalarSubspace(V, f0), )
+        return (ScalarSubspace(V, f0), )
 
 
 def _boundary_component_subspace_functions(V, subdomain, thetas):
@@ -164,8 +163,7 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s0 = Function(V)
         s0.assign(Constant(1.), subset=subset_corners)
-        #return Subspaces(RotatedSubspace(V, s1))
-        return Subspaces(ScalarSubspace(V, s0), RotatedSubspace(V, s1))
+        return (ScalarSubspace(V, s0), RotatedSubspace(V, s1))
     else:
         raise NotImplementedError("Currently only implemented for vector Lagrange element.")
 
