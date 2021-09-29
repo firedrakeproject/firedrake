@@ -39,10 +39,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_equal
 
-from pyop2 import op2
-from pyop2 import exceptions
-from pyop2 import sequential
-from pyop2 import base
+from pyop2 import exceptions, op2
 
 
 @pytest.fixture
@@ -358,7 +355,7 @@ class TestExtrudedSetAPI:
         e = op2.ExtrudedSet(set, 5)
         k = op2.Kernel('static void k() { }', 'k')
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(k, e, dat(op2.READ, m_iterset_toset))
+            op2.ParLoop(k, e, dat(op2.READ, m_iterset_toset))
 
 
 class TestSubsetAPI:
@@ -508,7 +505,7 @@ class TestMixedSetAPI:
     def test_mixed_set_repr(self, mset):
         "MixedSet repr should produce a MixedSet object when eval'd."
         from pyop2.op2 import Set, MixedSet  # noqa: needed by eval
-        assert isinstance(eval(repr(mset)), base.MixedSet)
+        assert isinstance(eval(repr(mset)), op2.MixedSet)
 
     def test_mixed_set_str(self, mset):
         "MixedSet should have the expected string representation."
@@ -718,7 +715,7 @@ class TestMixedDataSetAPI:
     def test_mixed_dset_repr(self, mdset):
         "MixedDataSet repr should produce a MixedDataSet object when eval'd."
         from pyop2.op2 import Set, DataSet, MixedDataSet  # noqa: needed by eval
-        assert isinstance(eval(repr(mdset)), base.MixedDataSet)
+        assert isinstance(eval(repr(mdset)), op2.MixedDataSet)
 
     def test_mixed_dset_str(self, mdset):
         "MixedDataSet should have the expected string representation."
@@ -1000,7 +997,7 @@ class TestMixedDatAPI:
         "MixedDat repr should produce a MixedDat object when eval'd."
         from pyop2.op2 import Set, DataSet, MixedDataSet, Dat, MixedDat  # noqa: needed by eval
         from numpy import dtype  # noqa: needed by eval
-        assert isinstance(eval(repr(mdat)), base.MixedDat)
+        assert isinstance(eval(repr(mdat)), op2.MixedDat)
 
     def test_mixed_dat_str(self, mdat):
         "MixedDat should have the expected string representation."
@@ -1220,7 +1217,7 @@ class TestMatAPI:
 
     def test_mat_illegal_name(self, sparsity):
         "Mat name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Mat(sparsity, name=2)
 
     def test_mat_dtype(self, mat):
@@ -1663,7 +1660,7 @@ class TestParLoopAPI:
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1, dat(op2.READ, map))
+            op2.ParLoop(kernel, set1, dat(op2.READ, map))
 
     def test_illegal_mat_iterset(self, sparsity):
         """ParLoop should reject a Mat argument using a different iteration

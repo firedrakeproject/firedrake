@@ -66,7 +66,7 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
 
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path=None):
-        from parloop import Arg
+        from pyop2.parloop import Arg
         return Arg(data=self, access=access)
 
     def __iter__(self):

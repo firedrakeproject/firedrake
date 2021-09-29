@@ -22,10 +22,10 @@ from . import (
     profiling,
     utils
 )
-from .kernel import Kernel
+from .kernel import Kernel, PyKernel
 from .types import (
     Access,
-    Global, Dat, Mat, Map, MixedDat,
+    Global, Dat, DatView, Mat, Map, MixedDat, AbstractDat,
     Set, MixedSet, ExtrudedSet, Subset
 )
 
@@ -190,7 +190,7 @@ class Arg:
 
     @utils.cached_property
     def _is_dat_view(self):
-        return isinstance(self.data, types.DatView)
+        return isinstance(self.data, DatView)
 
     @utils.cached_property
     def _is_mat(self):
@@ -210,7 +210,7 @@ class Arg:
 
     @utils.cached_property
     def _is_dat(self):
-        return isinstance(self.data, Dat)
+        return isinstance(self.data, AbstractDat)
 
     @utils.cached_property
     def _is_mixed_dat(self):
@@ -811,7 +811,7 @@ class PyParLoop(AbstractParLoop):
     def __init__(self, kernel, *args, **kwargs):
         if not isinstance(kernel, types.FunctionType):
             raise ValueError("Expecting a python function, not a %r" % type(kernel))
-        super().__init__(Kernel(kernel), *args, **kwargs)
+        super().__init__(PyKernel(kernel), *args, **kwargs)
 
     def _compute(self, part, *arglist):
         if part.set._extruded:

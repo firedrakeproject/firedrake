@@ -34,7 +34,9 @@
 
 import pytest
 import numpy
-from pyop2 import op2, base
+from pyop2 import op2
+import pyop2.kernel
+import pyop2.parloop
 
 from coffee.base import *
 
@@ -280,7 +282,7 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    cache = base.JITModule._cache
+    cache = pyop2.parloop.JITModule._cache
 
     @pytest.fixture
     def a(cls, diterset):
@@ -470,7 +472,7 @@ class TestKernelCache:
     Kernel caching tests.
     """
 
-    cache = base.Kernel._cache
+    cache = pyop2.kernel.Kernel._cache
 
     def test_kernels_same_code_same_name(self):
         """Kernels with same code and name should be retrieved from cache."""
