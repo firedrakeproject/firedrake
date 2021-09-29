@@ -19,6 +19,7 @@ import weakref
 
 import ctypes
 from pyop2 import op2
+import pyop2.types
 import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
@@ -55,7 +56,7 @@ class LocalMatPack(LocalPack, MatPack):
                        True: "MatSetValues"}
 
 
-class LocalMat(op2.Mat):
+class LocalMat(pyop2.types.AbstractMat):
     pack = LocalMatPack
 
     def __init__(self, dset):
@@ -75,7 +76,7 @@ class LocalDatPack(LocalPack, DatPack):
             return None
 
 
-class LocalDat(op2.Dat):
+class LocalDat(pyop2.types.AbstractDat):
     def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
