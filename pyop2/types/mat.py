@@ -1035,7 +1035,7 @@ def _DatMat(sparsity, dat=None):
     return A
 
 
-class _DatMatPayload(object):
+class _DatMatPayload:
 
     def __init__(self, sparsity, dat=None, dset=None):
         from pyop2.types.dat import Dat
@@ -1159,7 +1159,7 @@ def _GlobalMat(global_=None, comm=None):
     return A
 
 
-class _GlobalMatPayload(object):
+class _GlobalMatPayload:
 
     def __init__(self, global_=None, comm=None):
         from pyop2.types.glob import Global

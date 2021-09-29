@@ -25,7 +25,7 @@ from . import (
 from .kernel import Kernel, PyKernel
 from .types import (
     Access,
-    Global, Dat, DatView, Mat, Map, MixedDat, AbstractDat,
+    Global, Dat, DatView, Mat, Map, MixedDat, AbstractDat, AbstractMat,
     Set, MixedSet, ExtrudedSet, Subset
 )
 
@@ -194,7 +194,7 @@ class Arg:
 
     @utils.cached_property
     def _is_mat(self):
-        return isinstance(self.data, Mat)
+        return isinstance(self.data, AbstractMat)
 
     @utils.cached_property
     def _is_mixed_mat(self):
