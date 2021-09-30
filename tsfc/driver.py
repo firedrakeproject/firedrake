@@ -376,7 +376,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
             rbasis_shape = _get_shape_from_indices(basis_indices)
             rnode_shape = ()
 
-        breakpoint()
         # now cshape
         # both should only have one item in them
         arg_elem, = argument_elements
