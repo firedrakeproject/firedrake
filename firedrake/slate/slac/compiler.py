@@ -99,7 +99,7 @@ class SlateKernel(TSFCKernel):
         self._initialized = True
 
 
-def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
+def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -117,8 +117,10 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
     # Update default parameters with passed parameters
     # The deepcopy is needed because parameters is a nested dict
     params = copy.deepcopy(parameters)
-    if tsfc_parameters is not None:
-        params["form_compiler"].update(tsfc_parameters)
+    if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
+        params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
+    if compiler_parameters:
+        params["form_compiler"].update(compiler_parameters)
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
