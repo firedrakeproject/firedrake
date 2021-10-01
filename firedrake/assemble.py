@@ -266,6 +266,8 @@ def reconstruct_node_from_operands(expr, operands):
     if isinstance(expr, ufl.Action):
         left, right = operands
         return ufl.Action(left, right)
+    # if isinstance(expr, ufl.ExternalOperator):
+    #    import ipdb; ipdb.set_trace()
     return expr
 
 
@@ -278,7 +280,8 @@ def base_form_operands(expr):
         return [expr.left(), expr.right()]
     if isinstance(expr, ufl.Form):
         return expr.external_operators()
-    #if isinstance(expr, ufl.ExternalOperator):
+    if isinstance(expr, ufl.ExternalOperator):
+        return list(e for e in expr.external_operators() if e != expr)
         # TODO: At the moment assemble nothing instead of only assembling BaseForm
         #return tuple(expr.ufl_operands() + expr.argument_slots())
     return []
@@ -344,9 +347,8 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         if args and mat_type!="matfree":
             # Retrieve the Form's children
             external_operators = expr.external_operators()
-            result_coefficients = args # tuple(e.result_coefficient() for e in external_operators)
             # Substitute the external operators by their output
-            expr = ufl.replace(expr, dict(zip(external_operators, result_coefficients)))
+            expr = ufl.replace(expr, dict(zip(external_operators, args)))
 
         res = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
@@ -394,7 +396,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
             res = PETSc.Mat().create()
             # TODO Figure out what goes here
             res = petsc_mat.matMult(rhs.M.handle)
-            return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+            return matrix.AssembledMatrix(rhs, bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
@@ -422,12 +424,15 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
             return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
-
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.ExternalOperator):
         opts = _AssemblyOpts(diagonal, assembly_type, form_compiler_parameters,
                              mat_type, sub_mat_type, appctx, options_prefix)
+        # Replace external operators in the operands of the external operator expr by their result
+        if args:
+            children = base_form_operands(expr)
+            expr = ufl.replace(expr, dict(zip(children, args)))
         return expr.assemble(assembly_opts=opts)
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
