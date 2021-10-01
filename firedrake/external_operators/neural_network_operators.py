@@ -4,7 +4,7 @@ import numpy as np
 from ufl.referencevalue import ReferenceValue
 from ufl.log import error
 
-from firedrake.external_operators import AbstractExternalOperator
+from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.function import Function
 from firedrake.constant import Constant
 from firedrake import utils
@@ -245,7 +245,7 @@ class PytorchOperator(PointnetOperator):
         return wrapper
 
     @_eval_update_weights
-    def _evaluate(self, model_tape=False):
+    def _evaluate(self, *args, **kwargs):
         """
         Evaluate the neural network by performing a forward pass through the network
         The first argument is considered as the input of the network, if one want to correlate different
@@ -255,6 +255,7 @@ class PytorchOperator(PointnetOperator):
                     or
                     - construct another pointwise operator that will do this job and pass it in as argument
         """
+        model_tape = kwargs.get('model_tape', False)
         model = self.model
 
         # Explictly set the eval mode does matter for
@@ -300,6 +301,19 @@ class PytorchOperator(PointnetOperator):
         grad_W = self._reshape_model_parameters(*grad_W)
         cst_fct_spaces = tuple(ctrl._ad_function_space(self.function_space().mesh()) for ctrl in controls)
         return tuple(Function(fct_space, val=grad_Wi).vector() for grad_Wi, fct_space in zip(grad_W, cst_fct_spaces))
+
+    @assemble_method(0, (0,))
+    def _assemble(self, *args, **kwargs):
+        return self._evaluate(*args, **kwargs)
+
+    @assemble_method(1, (0, 1))
+    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
+        result = self._evaluate()
+        integral_types = set(['cell'])
+        J = self._matrix_builder((), assembly_opts, integral_types)
+        with result.dat.vec as vec:
+            J.petscmat.setDiagonal(vec)
+        return J
 
     # --- Update parameters ---
 
