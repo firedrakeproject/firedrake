@@ -673,3 +673,24 @@ def test_copy_function():
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
     assert np.isclose(rf(interpolate(-one, V)), -J)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_consecutive_nonlinear_solves():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    uic = Constant(2.0)
+    u1 = Function(V).assign(uic)
+    u0 = Function(u1)
+    v = TestFunction(V)
+    F = v * u1**2 * dx - v*u0 * dx
+    problem = NonlinearVariationalProblem(F, u1)
+    solver = NonlinearVariationalSolver(problem)
+    for i in range(3):
+        u0.assign(u1)
+        solver.solve()
+    J = assemble(u1**16*dx)
+    rf = ReducedFunctional(J, Control(uic))
+    h = Constant(0.01)
+    assert taylor_test(rf, uic, h) > 1.9

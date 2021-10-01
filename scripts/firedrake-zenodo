@@ -108,7 +108,7 @@ group.add_argument("--list-meta-records", action="store_true",
 parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
                     help="Output to the named bibtex file rather than firedrake-zenodo.bib")
 parser.add_argument("--title", "-t", action="store", nargs=1,
-                    help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
+                    help="""Short description of the reason for this release.  Will be formatted as 'Software used in `TITLE''""")
 parser.add_argument("--info-file", action="store", nargs=1,
                     help="""File containing additional information to be added to the Zenodo meta-record (e.g. DOIs linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
 parser.add_argument("--additional-dois", action="store", nargs='+',
@@ -560,7 +560,7 @@ with deposit:write scope.""")
 
     metadata = {
         "metadata": {
-            "title": "Software used in '{}'".format(title),
+            "title": "Software used in `{}'".format(title),
             "upload_type": "software",
             "creators": [{"name": "firedrake-zenodo"}],
             "version": "{}".format(tag),
@@ -723,10 +723,10 @@ if args.meta_release:
                                update_record=new_version_of)
     record = record.json()
     log.info("Created Zenodo meta-release.")
-    log.info("Tag is {}".format(tag))
+    log.info("Tag is `{}`".format(tag))
     log.info("DOI is {}".format(record["doi"]))
     log.info("Zenodo URL is {}".format(record["links"]["record_html"]))
-    log.info("BibTeX\n\n{}".format(format_bibtex(record)))
+    log.info("BibTeX\n\n```bibtex\n{}\n```".format(format_bibtex(record)))
     sys.exit(0)
 
 

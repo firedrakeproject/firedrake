@@ -695,7 +695,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     if isinstance(expr, slate.TensorBase):
         if diagonal:
             raise NotImplementedError("Diagonal + slate not supported")
-        kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
+        kernels = slac.compile_expression(expr, compiler_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
@@ -793,11 +793,13 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
             o = m.cell_sizes
             args.append(o.dat(op2.READ, get_map(o)))
 
-        for n in coeff_map:
+        for n, split_map in coeff_map:
             c = coefficients[n]
-            for c_ in c.split():
+            split_c = c.split()
+            for c_ in (split_c[i] for i in split_map):
                 m_ = get_map(c_)
                 args.append(c_.dat(op2.READ, m_))
+
         if needs_cell_facets:
             assert integral_type == "cell"
             extra_args.append(m.cell_to_facets(op2.READ))
