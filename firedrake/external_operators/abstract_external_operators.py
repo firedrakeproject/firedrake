@@ -123,22 +123,68 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     def _ad_floating_active(self):
         self.result_coefficient()._ad_floating_active
 
-    def _compute_derivatives(self):
-        """apply the derivatives on operator_data"""
-
-    """
-    def _evaluate(self):
-        raise NotImplementedError('The %s class requires an _evaluate method' % type(self).__name__)
-
-    def _evaluate_action(self, *args, **kwargs):
-        raise NotImplementedError('The %s class requires an _evaluate_action method' % type(self).__name__)
-
-    def _evaluate_adjoint_action(self, *args, **kwargs):
-        raise NotImplementedError('The %s class should have an _evaluate_adjoint_action method when needed' % type(self).__name__)
-     """
-
     def assemble_method(derivs, args=None):
-        r""" Decorator function to specify assemble functions that an
+        r"""Decorator helper function for the user to specify his assemble functions.
+
+            `derivs`: derivative multi-index or number of derivatives taken.
+            `args`: tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
+            without arguments.
+
+        More specifically, an ExternalOperator subclass needs to be equipped with methods specifying how to assemble the operator, its Jacobian, etc. (depending on what is needed). The external operator assembly procedure is fully determined by the argument slots and the derivative multi-index of the external operator. The assemble methods need to be decorated with `assemble_method`.
+
+        The derivative multi-index `derivs` and the argument slots `args` will enable to map the assemble functions to the associated external operator objects (operator, Jacobian, Jacobian action, ...):
+
+            -> derivs: tells us if we assemble the operator, its Jacobian or its hessian
+            -> args: tells us if adjoint or action has been taken
+
+            Example: Let N(u, m; v*) be an external operator, (uhat, mhat) arguments, and (uu, mm, vv) coefficients, we have:
+
+             UFL expression                    | External operators               | derivs |  args
+       ---------------------------------------------------------------------------|--------|------------
+        N                                      | N(u, m; v*)                      | (0, 0) | (0,)
+                                               |                                  |        |
+        dNdu = derivative(N, u, uhat)          |                                  |        |
+        dNdm = derivative(N, m, mhat)          |                                  |        |
+                                               |                                  |        |
+        dNdu                                   | dN/du(u, m; uhat, v*)            | (1, 0) | (0, 1)
+        dNdm                                   | dN/dm(u, m; mhat, v*)            | (0, 1) | (0, 1)
+        action(dNdu, uu)                       | dN/du(u, m; uu, v*)              | (1, 0) | (0, None)
+        action(dNdm, mm)                       | dN/dm(u, m; mm, v*)              | (0, 1) | (0, None)
+                                                                                  |        |
+        adjoint(dNdu)                          | dN/du^{*}(u, m; v*, uhat)        | (1, 0) | (1, 0)
+        adjoint(dNdm)                          | dN/dm^{*}(u, m; v*, mhat)        | (0, 1) | (1, 0)
+        action(adjoint(dNdu))                  | dN/du^{*}(u, m; vv, uhat)        | (1, 0) | (1, None)
+        action(adjoint(dNdm))                  | dN/dm^{*}(u, m; vv, mhat)        | (0, 1) | (1, None)
+                                               |                                  |        |
+        d2Ndu = derivative(dNdu, u, uhat)      |                                  |        |
+                                               |                                  |        |
+        action(d2Ndu, uu)                      | d2N/dudu(u, m; uu, uhat, v*)     | (2, 0) | (0, 1, None)
+        adjoint(action(d2Ndu, uu))             | d2N/dudu^{*}(u, m; v*, uhat, uu) | (2, 0) | (None, 1, 0)
+        action(adjoint(action(d2Ndu, uu)), vv) | d2N/dudu^{*}(u, m; vv, uhat, uu) | (2, 0) | (None, 1, None)
+
+        Here are examples on how to specify the implementation of:
+
+        - N:
+            ```
+            @assemble_method((0, 0), (0,))
+            # or @assemble_method(0, (0,))
+            def N(self, *args, *kwargs):
+                ...
+            ```
+
+        - dN/du:
+            ```
+            @assemble_method((1, 0), (0, 1))
+            def dNdu(self, *args, **kwargs):
+                ...
+            ```
+
+        - Action of dN/du:
+            ```
+            @assemble_method((1, 0), (0, None))
+            def dNdu_action(self, *args, **kwargs):
+                ...
+            ```
         """
         # Checks
         if not isinstance(derivs, (tuple, int)) or not isinstance(args, tuple):
@@ -165,51 +211,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
     #     such as PointexprOperator/PointsolveOperator/NeuralnetOperator
-
-    """
-    @utils.cached_property
-    def _make_assembly_dict(self):
-        r""
-            Construct a mapping keyed by a pair `(derivs, args)` where `derivs` is the number of derivatives taken
-            and `args` a tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
-            without arguments.
-
-            derivs: tells us if we assemble the operator, its Jacobian or its hessian
-                     -> Don't need the derivatives multi-index  but just the number of derivatives
-
-            args: tells us if adjoint or action has been taken
-
-            Example: Let N(u, m; v*) be an external operator, (uhat, mhat) Arguments, and (uu, mm, vv) Coefficients, we have:
-
-                    External operators             |    (derivs, args)      |  Assembly functions
-                -----------------------------------|------------------------|-----------------------------
-                 N(u, m; v*)                       | (0, (0,))              |  _assemble
-                                                   |                        |
-                 dN/du(u, m; uhat, v*)             | (1, (0, 1))            |  _assemble_jacobian
-                 dN/dm(u, m; mhat, v*)             | (1, (0, 1))            |  _assemble_jacobian
-                 dN/du(u, m; uu, v*)               | (1, (0, None))         |  _assemble_jacobian_action
-                 dN/dm(u, m; mm, v*)               | (1, (0, None))         |  _assemble_jacobian_action
-                                                   |                        |
-                 dN/du^{*}(u, m; v*, uhat)         | (1, (1, 0))            |  _assemble_jacobian_adjoint
-                 dN/dm^{*}(u, m; v*, mhat)         | (1, (1, 0))            |  _assemble_jacobian_adjoint
-                 dN/du^{*}(u, m; vv, uhat)         | (1, (1, None))         |  _assemble_jacobian_adjoint_action
-                 dN/dm^{*}(u, m; vv, uhat)         | (1, (1, None))         |  _assemble_jacobian_adjoint_action
-                                                   |                        |
-                 d2N/dudu(u, m; uu, uhat, v*)      | (2, (0, 1, None))      |  _assemble_hessian_action
-                 d2N/dudu^{*}(u, m; v*, uhat, uu)  | (2, (None, 1, 0))      |  _assemble_hessian_action_adjoint
-                 d2N/dudu^{*}(u, m; vv, uhat, uu)  | (2, (None, 1, None))   |  _assemble_hessian_action_adjoint_action
-                                                   |                        |
-        ""
-        assembly_dict = {(0, (0,)): '_assemble',
-                         (1, (0, 1)): '_assemble_jacobian',
-                         (1, (0, None)): '_assemble_jacobian_action',
-                         (1, (1, 0)): '_assemble_jacobian_adjoint',
-                         (1, (1, None)): '_assemble_jacobian_adjoint_action',
-                         (2, (0, 1, None)): 'assemble_hessian_action',
-                         (2, (None, 1, 0)): 'assemble_hessian_action_adjoint',
-                         (2, (None, 1, None)): 'assemble_hessian_action_adjoint_action'}
-        return assembly_dict
-    """
 
     def assemble(self, *args, assembly_opts=None, **kwargs):
         """Assembly procedure"""
@@ -266,47 +267,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     def _assemble(self, *args, **kwargs):
         """Assemble N"""
         raise NotImplementedError('You need to implement _assemble for `%s`' % type(self).__name__)
-
-    """
-    def _assemble_jacobian(self, *args, **kwargs):
-        ""Assemble TODO: Tells that still need to work out what is the i-th in dN/doperands_i""
-        raise NotImplementedError('You need to implement _assemble_jacobian for `%s`' % type(self).__name__)
-
-    def _assemble_jacobian_action(self, *args, **kwargs):
-        raise NotImplementedError('You need to implement _assemble_jacobian_action for `%s`' % type(self).__name__)
-
-    def _assemble_jacobian_adjoint(self, *args, **kwargs):
-        raise NotImplementedError('You need to implement _assemble_jacobian_adjoint for `%s`' % type(self).__name__)
-
-    def _assemble_jacobian_adjoint_action(self, *args, **kwargs):
-        raise NotImplementedError('You need to implement _assemble_jacobian_adjoint_action for `%s`' % type(self).__name__)
-
-    def _assemble_hessian_action():
-        raise NotImplementedError('You need to implement _assemble_hessian_action for `%s`' % type(self).__name__)
-
-    def _assemble_hessian_action_adjoint():
-        raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint for `%s`' % type(self).__name__)
-
-    def _assemble_hessian_action_adjoint_action():
-        raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint_action for `%s`' % type(self).__name__)
-    """
-
-    """
-    def evaluate(self, *args, **kwargs):
-        ""define the evaluation method for the ExternalOperator object""
-        action_coefficients = self.action_coefficients()
-        if any(self.is_type_global):  # Check if at least one operand is global
-            x = tuple(e for e, _ in action_coefficients)
-            if len(x) != sum(self.derivatives):
-                raise ValueError('Global external operators cannot be evaluated, you need to take the action!')
-            is_adjoint = action_coefficients[-1][1] if len(action_coefficients) > 0 else False
-            if is_adjoint:
-                return self._evaluate_adjoint_action(x)
-            # If there are local operands (i.e. if not all the operands are global)
-            # `_evaluate_action` needs to take care of handling them correctly
-            return self._evaluate_action(x, *args, **kwargs)
-        return self._evaluate(*args, **kwargs)
-    """
 
     # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
