@@ -9,8 +9,6 @@ def mesh():
 
 class PointexprActionOperator(PointexprOperator):
 
-    #def __init__(self, *args, **kwargs):
-        #PointexprOperator.__init__(self, *args, **kwargs)
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data):
 
@@ -183,15 +181,14 @@ def test_scalar_check_equality(mesh):
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    check_error = False
-    #try:
+    # check_error = False
+    # try:
     #    solve(F2 == 0, u2)
-    #except:
-        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-        # it leads to a ConvergenceError
+    # except:
+    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+    #     it leads to a ConvergenceError
     #    check_error = True
-    #assert check_error
-    print('\n\n\n Matfree !!')
+    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -230,14 +227,14 @@ def test_vector_check_equality(mesh):
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    #check_error = False
-    #try:
+    # check_error = False
+    # try:
     #    solve(F2 == 0, u2)
-    #except:
-        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-        # it leads to a ConvergenceError
+    # except:
+    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+    #     it leads to a ConvergenceError
     #    check_error = True
-    #assert check_error
+    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -280,14 +277,14 @@ def test_tensor_check_equality(mesh):
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
 
     # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    check_error = False
-    try:
-        solve(F2 == 0, u2)
-    except:
-        # Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-        # it leads to a ConvergenceError
-        check_error = True
-    assert check_error
+    # check_error = False
+    # try:
+    #    solve(F2 == 0, u2)
+    # except:
+    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
+    #     it leads to a ConvergenceError
+    #    check_error = True
+    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -358,3 +355,47 @@ def _test_action_arguments(Ja, Ja_action, u_hat, g):
     assert dp.action_coefficients() == ()
     assert dp_action.arguments() == ()
     assert dp_action.action_coefficients() == ((g, False),)
+
+
+def test_multiple_external_operators(mesh):
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(-2*cos(x)*sin(y))
+
+    # N1(u, f; v*)
+    p = point_expr(lambda x, y: x - 0.5*y, function_space=V)
+    # N1 = u - 0.5*f
+    N1 = p(u, f)
+
+    # N2(u; v*)
+    p = point_expr(lambda x: x, function_space=V)
+    # N2 = u
+    N2 = p(u)
+
+    # N3(N2, f; v*)
+    p = point_expr(lambda x, y: x + y, function_space=V)
+    # N3 = u + f
+    N3 = p(N2, f)
+
+    # -- Use several external operators and compose external operators -- #
+
+    w = Function(V)
+    F = (inner(grad(w), grad(v)) + inner(3*w, v) + inner(0.5*f, v)) * dx
+    solve(F == 0, w)
+
+    F2 = (inner(grad(u), grad(v)) + inner(N1, v) + inner(N2, v) + inner(N3, v)) * dx
+    solve(F2 == 0, u)
+
+    assert assemble((w-u)**2*dx)/assemble(w**2*dx) < 1e-9
+
+    # -- Use the same external operator multiple times -- #
+
+    u.assign(0)
+    F3 = (inner(grad(u), grad(v)) + inner(N2, v) + inner(2*N2, v) + inner(0.5*f, v)) * dx
+    solve(F3 == 0, u)
+
+    assert assemble((w-u)**2*dx)/assemble(w**2*dx) < 1e-9
