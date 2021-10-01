@@ -18,6 +18,7 @@ import gem
 from gem.node import MemoizerArg
 from gem.optimise import filtered_replace_indices
 
+from tsfc.finatinterface import create_element
 
 __all__ = ['ScalarSubspace', 'RotatedSubspace', 'ComplementSubspace']
 
@@ -48,7 +49,7 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """The linear transfomation.
 
         expressions with dummy indices are transformed into ones with true indices.
@@ -139,7 +140,7 @@ class Subspace(AbstractSubspace):
             return self._components[i]
         return self._split[i]
 
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Apply linear transformation.
 
         :arg expressions: a tuple of gem expressions written in terms of i_dummy.
@@ -147,7 +148,6 @@ class Subspace(AbstractSubspace):
             associated with finat_element.
         :arg i_dummy: the multiindex of the expressions.
         :arg i: the multiindex of the return variable.
-        :arg finat_element: FInAT element.
         :arg dtype: data type (= KernelBuilder.scalar_type).
 
         A non-projected (default) function is written as a
@@ -197,7 +197,7 @@ class ScalarSubspace(Subspace):
     def __init__(self, V, val=None, name=None, dtype=ScalarType):
         Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
 
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Basic subspace.
 
         Linear combination of weighted basis:
@@ -225,7 +225,7 @@ class RotatedSubspace(Subspace):
     def __init__(self, V, val=None, name=None, dtype=ScalarType):
         Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
 
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Rotation subspace.
 
         .. math::
@@ -242,6 +242,7 @@ class RotatedSubspace(Subspace):
         """
         subspace_expr, = subspace_expr
         shape = subspace_expr.shape
+        finat_element = create_element(self.ufl_element())
         if len(shape) == 1:
             entity_dofs = finat_element.entity_dofs()
         else:
@@ -278,14 +279,17 @@ class IndexedSubspace(AbstractSubspace):
         self.parent = parent
         self.index = index
 
+    def split(self):
+        raise RuntimeError("Unable to split an IndexSubspace.")
+
     def function_space(self):
         return self.parent.function_space().split()[self.index]
 
     def ufl_element(self):
         return self.function_space().ufl_element()
 
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
-        return self.parent.transform(expressions, subspace_expr, i_dummy, i, finat_element, dtype)
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
+        return self.parent.split()[self.index].transform(expressions, subspace_expr, i_dummy, i, dtype)
 
     def subspaces(self):
         return self.parent.subspaces()
@@ -307,11 +311,20 @@ class ComplementSubspace(AbstractSubspace):
     def __init__(self, subspace):
         self._subspace = subspace
 
-    def transform(self, expressions, subspace_expr, i_dummy, i, finat_element, dtype):
+    @utils.cached_property
+    def _split(self):
+        return tuple(type(self)(s) for s in self._subspace.split())
+
+    def split(self):
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        return self._split
+
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         substitution = tuple(zip(i_dummy, i))
         mapper = MemoizerArg(filtered_replace_indices)
         _expressions_base = tuple(mapper(expression, substitution) for expression in expressions)
-        _expressions_cmpl = self._subspace.transform(expressions, subspace_expr, i_dummy, i, finat_element, dtype)
+        _expressions_cmpl = self._subspace.transform(expressions, subspace_expr, i_dummy, i, dtype)
         return tuple(gem.Sum(_base, gem.Product(gem.Literal(-1.), _cmpl)) for _base, _cmpl in zip(_expressions_base, _expressions_cmpl))
 
     def subspaces(self):
@@ -351,11 +364,20 @@ class DirectSumSubspace(AbstractSubspace):
         self._subspaces = tuple(subspaces)
         self._function_space, = set(s.function_space() for s in subspaces)
 
-    def transform(self, expressions, subspace_exprs, i_dummy, i, finat_element, dtype):
+    @utils.cached_property
+    def _split(self):
+        return tuple(type(self)(*ss) for ss in zip(*(s.split() for s in self._subspaces)))
+
+    def split(self):
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        return self._split
+
+    def transform(self, expressions, subspace_exprs, i_dummy, i, dtype):
         assert len(subspace_exprs) == len(self._subspaces)
         _expressions_list = []
         for subspace, subspace_expr in zip(self._subspaces, subspace_exprs):
-            _expressions = subspace.transform(expressions, (subspace_expr, ), i_dummy, i, finat_element, dtype)
+            _expressions = subspace.transform(expressions, (subspace_expr, ), i_dummy, i, dtype)
             _expressions_list.append(_expressions)
         return tuple(functools.reduce(lambda a, b: gem.Sum(a, b), _exprs) for _exprs in zip(*_expressions_list))
 
