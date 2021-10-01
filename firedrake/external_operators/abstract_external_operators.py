@@ -1,9 +1,6 @@
-from abc import ABCMeta
-from functools import wraps
-
 from ufl import conj
 from ufl.core.external_operator import ExternalOperator
-from ufl.argument import Argument, BaseArgument
+from ufl.argument import BaseArgument
 from ufl.coefficient import Coefficient
 from ufl.referencevalue import ReferenceValue
 from ufl.operators import transpose, inner
@@ -32,7 +29,7 @@ class RegisteringAssemblyMethods(type):
                 cls._assembly_registry.update({e: val})
 
 
-class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metaclass=RegisteringAssemblyMethods):#ABCMeta):
+class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metaclass=RegisteringAssemblyMethods):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
@@ -49,9 +46,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             fspace = functionspaceimpl.FunctionSpace(function_space.mesh().topology, fspace.ufl_element())
             fspace = functionspaceimpl.WithGeometry(fspace, function_space.mesh())
 
-
         # Check?
-        #if len(self.argument_slots())-1 != sum(self.derivatives):
+        # if len(self.argument_slots())-1 != sum(self.derivatives):
         #    import ipdb; ipdb.set_trace()
         #    raise ValueError('Expecting number of items in the argument slots (%s) to be equal to the number of derivatives taken + 1 (%s)' % (len(argument_slots), sum(derivatives) + 1) )
 
@@ -59,13 +55,12 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             result_coefficient = Function(fspace, val, name, dtype)
             self._val = result_coefficient.topological
         elif not isinstance(result_coefficient, (Coefficient, ReferenceValue)):
-            raise TypeError('Expecting a Coefficient and not %s', type(coefficient))
+            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
         self._result_coefficient = result_coefficient
 
         if len(argument_slots) == 0:
             # Make v*
-            v_star = ufl_expr.Coargument(fspace, 0)
-            #v_star = ufl_expr.Argument(fspace.dual(), 0)
+            v_star = ufl_expr.Argument(fspace.dual(), 0)
             argument_slots = (v_star,)
         self._argument_slots = argument_slots
 
@@ -143,21 +138,24 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
      """
 
     def assemble_method(derivs, args=None):
-        r""" Decorator function to specify assemble functions that an 
-        
+        r""" Decorator function to specify assemble functions that an
         """
         # Checks
-        labels = ('Jacobian', 'Jacobian_action', 'Jacobian_adjoint_action')
-        if derivs not in labels:
-            if not isinstance(derivs, tuple) or not isinstance(args, tuple):# or len(derivs) != len(args):
-                  raise ValueError("Expecting `assemble_method` to take in either:\n\t 1) `(derivs, args)`, where `derivs` and `args` are tuples of same size\n\t or\n\t 2) One of the following labels: %s" % (labels,))
-            if not all(isinstance(d, int) for d in derivs) or any(d < 0 for d in derivs):
-                 raise ValueError("Expecting a derivative multi-index with nonnegative indices and not %s" % str(derivs))
-            if any((not isinstance(a, int) and a is not None) for a in args) or any(isinstance(a, int) and a < 0 for a in args): 
-                raise ValueError("Expecting an argument tuple with nonnegative integers or None objects and not %s" % str(args)) 
-            registry = (derivs, args)
+        if not isinstance(derivs, (tuple, int)) or not isinstance(args, tuple):
+            raise ValueError("Expecting `assemble_method` to take `(derivs, args)`, where `derivs` can be a derivative multi-index or an integer and `args` is a tuple")
+        if isinstance(derivs, int):
+            if derivs < 0:
+                raise ValueError("Expecting a nonnegative integer and not %s" % str(derivs))
         else:
-            registry = (derivs,)
+            if not all(isinstance(d, int) for d in derivs) or any(d < 0 for d in derivs):
+                raise ValueError("Expecting a derivative multi-index with nonnegative indices and not %s" % str(derivs))
+        if any((not isinstance(a, int) and a is not None) for a in args) or any(isinstance(a, int) and a < 0 for a in args):
+            raise ValueError("Expecting an argument tuple with nonnegative integers or None objects and not %s" % str(args))
+
+        # Set the registry
+        registry = (derivs, args)
+
+        # Set the decorator mechanism to record the available methods
         def decorator(assemble):
             if not hasattr(assemble, '_registry'):
                 assemble._registry = ()
@@ -165,21 +163,13 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             return assemble
         return decorator
 
-    # TODO: Should we have a default function assemble_jacobian ? 
-    #       Or a decorator syntax for Jacobian: 
-    #           e.g. @assemble_method('Jacobian')  ?
     #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
     #     such as PointexprOperator/PointsolveOperator/NeuralnetOperator
-    # TODO: Should we have a specific syntax so that we only write derivatives: e.g. adjoint((1,0)) ?
-    """
-    @assemble_method((1, 0), (0, 1))
-    def dN_du(self, *args, **kwargs):
-        return args
-    """
 
+    """
     @utils.cached_property
     def _make_assembly_dict(self):
-        r"""
+        r""
             Construct a mapping keyed by a pair `(derivs, args)` where `derivs` is the number of derivatives taken
             and `args` a tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
             without arguments.
@@ -209,7 +199,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                  d2N/dudu^{*}(u, m; v*, uhat, uu)  | (2, (None, 1, 0))      |  _assemble_hessian_action_adjoint
                  d2N/dudu^{*}(u, m; vv, uhat, uu)  | (2, (None, 1, None))   |  _assemble_hessian_action_adjoint_action
                                                    |                        |
-        """
+        ""
         assembly_dict = {(0, (0,)): '_assemble',
                          (1, (0, 1)): '_assemble_jacobian',
                          (1, (0, None)): '_assemble_jacobian_action',
@@ -219,6 +209,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                          (2, (None, 1, 0)): 'assemble_hessian_action_adjoint',
                          (2, (None, 1, None)): 'assemble_hessian_action_adjoint_action'}
         return assembly_dict
+    """
 
     def assemble(self, *args, assembly_opts=None, **kwargs):
         """Assembly procedure"""
@@ -233,7 +224,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             raise ValueError(err_msg)
 
         # Make key for assembly dict
-        #derivs = sum(self.derivatives)
         derivs = self.derivatives
         arguments = tuple(arg.number() if isinstance(arg, BaseArgument) else None for arg in self.argument_slots())
         key = (derivs, arguments)
@@ -250,26 +240,22 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
         # Get assemble function
         assembly_registry = self._assembly_registry
-        assemble = assembly_registry.get(key)
-
-        if assemble is None:
-            # TODO: Handle other keywords: Jacobian_adjoint... (hint: use make_dict function above)
-            if sum(derivs) == 0:
-                assemble = getattr(type(self), '_assemble', None)
-            elif sum(derivs) == 1:
-                assemble = assembly_registry.get(('Jacobian',))
-            if assemble is None:
-                # Raise an error if an implementation is needed
+        try:
+            assemble = assembly_registry[key]
+        except KeyError:
+            try:
+                assemble = assembly_registry[(sum(key[0]), key[1])]
+            except KeyError:
                 raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
                                            + ' has an implementation for %s !') % (type(self).__name__, str(key)))
 
         # --- Assemble ---
-        # TODO: Returns matrix or function: is it relevant here ?
         result = assemble(self, *args, assembly_opts=assembly_opts, **kwargs)
 
         # Compatibility check
-        # Assembled external op
         if len(self.arguments()) == 1:
+            # TODO: Check result.function_space() == self.arguments()[0].function_space().dual()
+            # Will also catch the case where wrong fct space
             if not isinstance(result, Function):
                 raise ValueError('External operators with one argument must result in a firedrake.Function object!')
         elif len(self.arguments()) == 2:
@@ -305,11 +291,9 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         raise NotImplementedError('You need to implement _assemble_hessian_action_adjoint_action for `%s`' % type(self).__name__)
     """
 
+    """
     def evaluate(self, *args, **kwargs):
-        """define the evaluation method for the ExternalOperator object"""
-
-        import ipdb; ipdb.set_trace()
-
+        ""define the evaluation method for the ExternalOperator object""
         action_coefficients = self.action_coefficients()
         if any(self.is_type_global):  # Check if at least one operand is global
             x = tuple(e for e, _ in action_coefficients)
@@ -322,9 +306,11 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             # `_evaluate_action` needs to take care of handling them correctly
             return self._evaluate_action(x, *args, **kwargs)
         return self._evaluate(*args, **kwargs)
+    """
 
-    #TODO: Do we want to cache this ?
+    # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
+        # TODO: Add doc (especialy for integral_types)
         return _make_matrix(self, bcs, opts, integral_types)
 
     def copy(self, deepcopy=False):
@@ -399,6 +385,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             e_master = self._extop_master
             for ext in e_master.coefficient_dict.values():
                 if ext.derivatives == deriv_multiindex:
+                    # import ipdb; ipdb.set_trace()
                     return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
                                                       derivatives=deriv_multiindex,
                                                       name=name,
