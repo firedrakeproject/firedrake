@@ -1,6 +1,6 @@
 import ufl
 import ufl.argument
-from ufl.duals import is_primal, is_dual
+from ufl.duals import is_dual
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -87,11 +87,6 @@ class Coargument(ufl.argument.Coargument):
     :kwarg part: optional index (mostly ignored).
     """
 
-    def __new__(cls, *args, **kwargs):
-        if args[0] and is_primal(args[0]):
-            return Argument(*args, **kwargs)
-        return super().__new__(cls, *args, **kwargs)
-
     def __init__(self, function_space, number, part=None):
         super(Coargument, self).__init__(function_space.ufl_function_space(),
                                          number, part=part)
@@ -114,6 +109,10 @@ class Coargument(ufl.argument.Coargument):
 
     def make_dat(self):
         return self.function_space().make_dat()
+
+    def _analyze_form_arguments(self):
+        # Returns the argument found in the Coargument object
+        self._arguments = (Argument(self._ufl_function_space, 0),)
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
