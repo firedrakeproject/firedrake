@@ -8,7 +8,7 @@ import types
 from ufl.core.expr import Expr
 from ufl.log import error
 
-from firedrake.external_operators import AbstractExternalOperator
+from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.function import Function
 from firedrake.constant import Constant
 
@@ -507,7 +507,7 @@ class PointsolveOperator(AbstractExternalOperator):
         self.dat.data[:] = res
         return self.result_coefficient()
 
-    def _evaluate(self):
+    def _evaluate(self, *args, **kwargs):
         r"""
         Let f(x, y_1, ..., y_k) = 0, where y_1, ..., y_k are parameters. We look for the solution x of this equation.
         This method returns the solution x satisfying this equation or its derivatives: \frac{\partial x}{\partial y_i},
@@ -573,6 +573,19 @@ class PointsolveOperator(AbstractExternalOperator):
         res = self._vectorized_newton(new_f, solver_params_x0, args=vals, **solver_params)
         self.dat.data[:] = res.squeeze()
         return self.result_coefficient()
+
+    @assemble_method(0, (0,))
+    def _assemble(self, *args, **kwargs):
+        return self._evaluate(*args, **kwargs)
+
+    @assemble_method(1, (0, 1))
+    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
+        result = self._evaluate()
+        integral_types = set(['cell'])
+        J = self._matrix_builder((), assembly_opts, integral_types)
+        with result.dat.vec as vec:
+            J.petscmat.setDiagonal(vec)
+        return J
 
 
 # Helper function #
