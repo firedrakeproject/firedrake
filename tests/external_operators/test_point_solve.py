@@ -98,15 +98,21 @@ def test_compute_derivatives(mesh):
     a = Function(V).assign(0)
     b = Function(V).assign(1)
 
+    v = TestFunction(V)
+
     x0 = Function(P).assign(1.1)
-    p = point_solve(lambda x, y, m1, m2: x - y**2 + m1*m2, function_space=P, solver_params={'x0': x0})
+    p = point_solve(lambda x, y, m1, m2: x - y**2 + m1*m2, function_space=V, solver_params={'x0': x0})
     p2 = p(b, a, a)
-    dp2db = p2._ufl_expr_reconstruct_(b, a, a, derivatives=(1, 0, 0))
-    a3 = dp2db*dx
 
-    a4 = 2*b*dx  # dp2/db
+    vstar, = p2.arguments()
+    vhat = TrialFunction(V)
 
-    assert np.isclose(assemble(a3), assemble(a4))
+    dp2db = p2._ufl_expr_reconstruct_(b, a, a, derivatives=(1, 0, 0), argument_slots=(vstar, vhat))
+    a3 = action(vhat * v * dx, dp2db)
+    a4 = 2 * b * vhat * v * dx  # dp2/db
+
+    residual = assemble(a3 - a4)
+    assert residual.petscmat.norm() < 1e-7
 
 
 def test_scalar_check_equality(mesh):
