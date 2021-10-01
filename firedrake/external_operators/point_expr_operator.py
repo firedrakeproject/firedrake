@@ -2,7 +2,7 @@ from functools import partial
 import types
 import sympy as sp
 
-from ufl.algorithms.apply_derivatives import VariableRuleset
+# from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
 from ufl.log import error
 
@@ -52,64 +52,43 @@ class PointexprOperator(AbstractExternalOperator):
 
     # --- Symbolic computations ---
 
-    def _compute_derivatives(self):
+    def _symbolic_differentiation(self):
         symb = sp.symbols('s:%d' % len(self.ufl_operands))
         r = sp.diff(self.expr(*symb), *zip(symb, self.derivatives))
         return sp.lambdify(symb, r, dummify=True)
 
     # --- Evaluation ---
 
+    @assemble_method(0, (0,))
     def _assemble(self, *args, **kwargs):
         return self._evaluate(*args, **kwargs)
-        """
-        operands = self.ufl_operands
-        expr = as_ufl(self.expr(*operands))
-        #operator = self._compute_derivatives()
-        #expr = as_ufl(operator(*operands))
-        if expr.ufl_shape == () and expr != 0:
-            var = VariableRuleset(self.ufl_operands[0])
-            expr = expr*var._Id
-        elif expr == 0:
-            return self.assign(expr)
-        return self.interpolate(expr)
-        """
 
-    """
-    @assemble_method((1, 0), (0, None))
-    @assemble_method((0, 1), (0, 1))#adjoint((1,0)))
-    def dN_dm(self, *args, **kwargs):
-        import ipdb; ipdb.set_trace()
-        print('args: ', args)
-        return args
-    """
-
-    @assemble_method((1,), (0, None))
+    @assemble_method(1, (0, None))
     def dN_dm(self, *args, **kwargs):
         from firedrake.assemble import assemble
         uhat = self.argument_slots()[-1]
         dNdu = self._evaluate()
-        res = assemble(dNdu * uhat)
-        #import ipdb; ipdb.set_trace()
-        return res
+        return assemble(dNdu * uhat)
 
-    @assemble_method('Jacobian')
+    @assemble_method(1, (0, 1))
     def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
         result = self._evaluate()
 
         # Construct the Jacobian matrix
         integral_types = set(['cell'])
-        Jacobian = self._matrix_builder((), assembly_opts, integral_types)
+        J = self._matrix_builder((), assembly_opts, integral_types)
         with result.dat.vec as vec:
-            Jacobian.petscmat.setDiagonal(vec)
-        return Jacobian
+            J.petscmat.setDiagonal(vec)
+        return J
 
     def _evaluate(self, *args, **kwargs):
         operands = self.ufl_operands
-        operator = self._compute_derivatives()
+        operator = self._symbolic_differentiation()
         expr = as_ufl(operator(*operands))
         if expr.ufl_shape == () and expr != 0:
-            var = VariableRuleset(self.ufl_operands[0])
-            expr = expr*var._Id
+            return self.interpolate(expr)
+            # var = VariableRuleset(self.ufl_operands[0])
+            # expr = expr*var._Id
         elif expr == 0:
             return self.assign(expr)
         return self.interpolate(expr)
