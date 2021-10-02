@@ -83,13 +83,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         function_space = functionspaceimpl.FunctionSpace(mesh.topology, ufl_function_space.ufl_element())
         return functionspaceimpl.WithGeometry(function_space, mesh)
 
-    def add_dependencies(self, derivatives, args):
-        """Reconstruct the external operator's dependency. More specifically, it reconstructs the external operators produced during form compiling and update adequately `coefficient_dict`"""
-        v = list(self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=d, argument_slots=a)
-                 for d, a in zip(derivatives, args))
-        self._extop_master.coefficient_dict.update({e.derivatives: e for e in v})
-        return self
-
     @property
     def dat(self):
         return self.result_coefficient().dat
@@ -342,39 +335,40 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         if deriv_multiindex != self.derivatives:
             # If we are constructing a derivative
             corresponding_coefficient = None
-            e_master = self._extop_master
-            for ext in e_master.coefficient_dict.values():
-                if ext.derivatives == deriv_multiindex:
-                    # import ipdb; ipdb.set_trace()
-                    return ext._ufl_expr_reconstruct_(*operands, function_space=function_space,
-                                                      derivatives=deriv_multiindex,
-                                                      name=name,
-                                                      result_coefficient=result_coefficient,
-                                                      argument_slots=argument_slots,
-                                                      operator_data=operator_data,
-                                                      add_kwargs=add_kwargs)
         else:
             corresponding_coefficient = result_coefficient or self._result_coefficient
 
-        reconstruct_op = type(self)(*operands, function_space=function_space or self._extop_master.ufl_function_space(),
-                                    derivatives=deriv_multiindex,
-                                    name=name or self.name(),
-                                    result_coefficient=corresponding_coefficient,
-                                    argument_slots=argument_slots or self.argument_slots(),
-                                    operator_data=operator_data or self.operator_data,
-                                    **add_kwargs)
+        return type(self)(*operands, function_space=function_space or self.argument_slots()[0].ufl_function_space(),
+                          derivatives=deriv_multiindex,
+                          name=name or self.name(),
+                          result_coefficient=corresponding_coefficient,
+                          argument_slots=argument_slots or self.argument_slots(),
+                          operator_data=operator_data or self.operator_data,
+                          **add_kwargs)
+    """
+    def _ufl_compute_hash_(self):
+        # Can we always hash self.operator_data ?
+        hash_operator_data = hash(self.operator_data)
+        return ExternalOperator._ufl_compute_hash_(self, hash_operator_data)
 
-        if deriv_multiindex != self.derivatives:
-            # If we are constructing a derivative
-            self._extop_master.coefficient_dict.update({deriv_multiindex: reconstruct_op})
-            reconstruct_op._extop_master = self._extop_master
-        elif deriv_multiindex != (0,)*len(operands):
-            reconstruct_op._extop_master = self._extop_master
-        # else:
-        #    reconstruct_op.coefficient_dict = self.coefficient_dict
-        #    reconstruct_op._extop_master = self._extop_master
-
-        return reconstruct_op
+    def __eq__(self, other):
+        print('\n here: ')
+        import ipdb; ipdb.set_trace()
+        if not isinstance(other, AbstractExternalOperator):
+            return False
+        if self is other:
+            return True
+        import ipdb; ipdb.set_trace()
+        return (type(self) == type(other) and
+                # What about Interpolation/ExternalOperator inside operands that
+                # get evaluated and turned into Coefficients ?
+                all(type(a) == type(b) for a, b in zip(self.ufl_operands, other.ufl_operands)) and
+                # all(type(a) == type(b) and a.function_space() == b.function_space()
+                #    for a, b in zip(self.ufl_operands, other.ufl_operands)) and
+                self.derivatives == other.derivatives and
+                self.function_space() == other.function_space()) and
+                self.operator_data == other.operator_data)
+    """
 
     def __repr__(self):
         "Default repr string construction for AbstractExternalOperator operators."

@@ -62,26 +62,6 @@ def test_derivation_wrt_externaloperator(mesh):
     assert apply_derivatives(Gateaux_dL) == dL_dp
 
 
-def test_add_dependencies(mesh):
-
-    V = FunctionSpace(mesh, "CG", 1)
-
-    u = Function(V)
-    w = Function(V)
-
-    e2 = TestAbstractExternalOperator(u, w, grad(u), div(w), function_space=V)
-    der = [(0, 0, 0, 1), (1, 0, 0, 1), (2, 0, 1, 1)]
-    args = [(), (), ()]
-    e2.add_dependencies(der, args)
-    de2 = tuple(e2.coefficient_dict.values())
-
-    assert sorted(e2.coefficient_dict.keys()) == der
-    assert der == sorted(e.derivatives for e in de2)
-    assert de2[0]._extop_master == e2
-    assert de2[1]._extop_master == e2
-    assert de2[2]._extop_master == e2
-
-
 def test_assemble_methods(mesh):
 
     V = FunctionSpace(mesh, "CG", 1)

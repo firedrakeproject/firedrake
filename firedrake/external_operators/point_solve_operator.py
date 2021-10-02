@@ -426,7 +426,7 @@ class PointsolveOperator(AbstractExternalOperator):
 
     def _compute_derivatives(self, f):
         deriv_index = (0,) + self.derivatives
-        ufl_space = self._extop_master.ufl_function_space()
+        ufl_space = self.argument_slots()[0].ufl_function_space()
         symb = (self._sympy_create_symbols(ufl_space.shape, 0),)
         symb += tuple(self._sympy_create_symbols(e.ufl_shape, i+1) for i, e in enumerate(self.ufl_operands))
         shape = f.ufl_shape
