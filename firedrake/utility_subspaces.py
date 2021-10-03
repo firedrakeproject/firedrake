@@ -4,7 +4,7 @@ import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function 
 from firedrake.constant import Constant
-from firedrake.subspace import ScalarSubspace, RotatedSubspace, DirectSumSubspace
+from firedrake.subspace import ScalarSubspace, RotatedSubspace, NodalHermiteSubspace, DirectSumSubspace
 
 from pyop2.datatypes import ScalarType
 from pyop2.utils import as_tuple
@@ -113,7 +113,7 @@ def _boundary_subspace_functions(V, subdomain):
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace_hermite(s1, subdomain)
         s0.assign(Constant(1.), subset=subset_all.difference(subset_corners).intersection(subset_value).union(subset_corners))
-        return (ScalarSubspace(V, s0), RotatedSubspace(V, s1))
+        return (ScalarSubspace(V, s0), NodalHermiteSubspace(V, s1))
     elif V.ufl_element().family() == 'Morley':
         raise NotImplementedError("Morley not implemented.")
     elif V.ufl_element().family() == 'Argyris':

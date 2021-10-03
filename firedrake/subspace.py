@@ -243,6 +243,53 @@ class RotatedSubspace(Subspace):
         subspace_expr, = subspace_expr
         shape = subspace_expr.shape
         finat_element = create_element(self.ufl_element())
+        #if len(shape) != 2:
+        #    raise TypeError(f"{type(self)} is only for VectorElements, not for {self.ufl_element()}.")
+        if len(shape) == 1:
+            entity_dofs = finat_element.entity_dofs()
+        else:
+            entity_dofs = finat_element.base_element.entity_dofs()
+        _expressions = []
+        for expression in expressions:
+            _expression = gem.Zero()
+            for dim in entity_dofs:
+                for _, dofs in entity_dofs[dim].items():
+                    if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
+                        continue
+                    # Avoid pytools/persistent_dict.py TypeError: unsupported type for persistent hash keying: <class 'complex'>
+                    #ind = np.zeros(shape, dtype=dtype)
+                    ind = np.zeros(shape, dtype=RealType)
+                    for dof in dofs:
+                        for ndind in np.ndindex(shape[1:]):
+                            ind[(dof, ) + ndind] = 1.
+                    temp = gem.IndexSum(gem.Product(gem.Product(gem.Literal(ind)[i_dummy], subspace_expr[i_dummy]), expression), i_dummy)
+                    _expression = gem.Sum(_expression, gem.Product(gem.Product(gem.Literal(ind)[i], subspace_expr[i]), temp))
+            _expressions.append(_expression)
+        return tuple(_expressions)
+
+
+class NodalHermiteSubspace(Subspace):
+    def __init__(self, V, val=None, name=None, dtype=ScalarType):
+        Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
+
+    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
+        """Rotation subspace.
+
+        .. math::
+
+            u = \\sum [ u_i * \\sum [ \\psi(e)_i * \\sum [ \\psi(e)_k * \\phi(e)_k ] ] ]
+                   i             e                    k
+
+            u        : function
+            u_i      : ith coefficient
+            \\phi(e) : basis vector whose elements not associated with
+                       topological entity e are set zero.
+            \\psi(e) : rotation vector whose elements not associated with
+                       topological entity e are set zero.
+        """
+        subspace_expr, = subspace_expr
+        shape = subspace_expr.shape
+        finat_element = create_element(self.ufl_element())
         if len(shape) == 1:
             entity_dofs = finat_element.entity_dofs()
         else:
