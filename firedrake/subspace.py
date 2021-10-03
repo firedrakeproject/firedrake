@@ -194,9 +194,6 @@ class Subspace(AbstractSubspace):
 
 
 class ScalarSubspace(Subspace):
-    def __init__(self, V, val=None, name=None, dtype=ScalarType):
-        Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
-
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Basic subspace.
 
@@ -222,9 +219,6 @@ class ScalarSubspace(Subspace):
 
 
 class RotatedSubspace(Subspace):
-    def __init__(self, V, val=None, name=None, dtype=ScalarType):
-        Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
-
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Rotation subspace.
 
