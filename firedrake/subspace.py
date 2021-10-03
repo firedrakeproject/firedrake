@@ -27,21 +27,23 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
+    def __init__(self, V, active_indices=None):
+        self._function_space = V
+        self.active_indices = active_indices
+
     parent = None
     """Parent of an indexed mixed function subspace."""
 
     index = None
     """Index of an indexed mixed function subspace."""
 
-    @abc.abstractmethod
     def function_space(self):
         """The base FunctionSpace of this Subspace."""
-        pass
+        return self._function_space
 
-    @abc.abstractmethod
     def ufl_element(self):
         """The ufl element of the function space."""
-        pass
+        return self.function_space().ufl_element()
 
     @abc.abstractmethod
     def subspaces(self):
@@ -75,7 +77,7 @@ class Subspace(AbstractSubspace):
 
     _globalcount = 0
 
-    def __init__(self, V, val=None, name=None, dtype=ScalarType, count=None):
+    def __init__(self, V, val=None, name=None, dtype=ScalarType, count=None, active_indices=None):
         self._count = count or Subspace._globalcount
         if self._count >= Subspace._globalcount:
             Subspace._globalcount = self._count + 1
@@ -90,17 +92,11 @@ class Subspace(AbstractSubspace):
         else:
             self._data = CoordinatelessFunction(V.topological,
                                                 val=val, name=name, dtype=dtype)
-        self._function_space = V
+        AbstractSubspace.__init__(self, V, active_indices=active_indices)
         self._repr = "Subspace(%s, %s)" % (repr(self._function_space), repr(self._count))
 
     def count(self):
         return self._count
-
-    def function_space(self):
-        return self._function_space
-
-    def ufl_element(self):
-        return self.function_space().ufl_element()
 
     @property
     def topological(self):
@@ -316,18 +312,13 @@ class IndexedSubspace(AbstractSubspace):
     Convenient when splitting a form according to indices;
     see `split_form`.
     """
-    def __init__(self, parent, index):
+    def __init__(self, parent, index, active_indices=None):
+        AbstractSubspace.__init__(self, parent.function_space().split()[index], active_indices=active_indices)
         self.parent = parent
         self.index = index
 
     def split(self):
         raise RuntimeError("Unable to split an IndexSubspace.")
-
-    def function_space(self):
-        return self.parent.function_space().split()[self.index]
-
-    def ufl_element(self):
-        return self.function_space().ufl_element()
 
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         return self.parent.split()[self.index].transform(expressions, subspace_expr, i_dummy, i, dtype)
@@ -349,7 +340,8 @@ class IndexedSubspace(AbstractSubspace):
 
 
 class ComplementSubspace(AbstractSubspace):
-    def __init__(self, subspace):
+    def __init__(self, subspace, active_indices=None):
+        AbstractSubspace.__init__(self, subspace.function_space(), active_indices=active_indices)
         self._subspace = subspace
 
     @utils.cached_property
@@ -370,12 +362,6 @@ class ComplementSubspace(AbstractSubspace):
 
     def subspaces(self):
         return self._subspace.subspaces()
-
-    def function_space(self):
-        return self._subspace._function_space
-
-    def ufl_element(self):
-        return self.function_space().ufl_element()
 
     def __eq__(self, other):
         if other is self:
@@ -401,9 +387,10 @@ class DirectSumSubspace(AbstractSubspace):
     :arg subspaces: the :class:`.Subspace`s.
     """
 
-    def __init__(self, *subspaces):
+    def __init__(self, *subspaces, active_indices=None):
         self._subspaces = tuple(subspaces)
-        self._function_space, = set(s.function_space() for s in subspaces)
+        V, = set(s.function_space() for s in subspaces)
+        AbstractSubspace.__init__(self, V, active_indices=active_indices)
 
     @utils.cached_property
     def _split(self):
@@ -424,12 +411,6 @@ class DirectSumSubspace(AbstractSubspace):
 
     def subspaces(self):
         return self._subspaces
-
-    def function_space(self):
-        return self._function_space
-
-    def ufl_element(self):
-        return self.function_space().ufl_element()
 
     def __eq__(self, other):
         if other is self:
