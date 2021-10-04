@@ -502,7 +502,7 @@ class LocalLoopyKernelBuilder(object):
     def collect_tsfc_coefficients(self, tsfc_coefficients, kinfo, wrapper_coefficients, action=False):
         kernel_data = []
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        tsfc_coefficients = [tsfc_coefficients[i] for i,_ in kinfo.coefficient_map]
         added_coefficients = []
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients or action:
@@ -731,8 +731,8 @@ class LocalLoopyKernelBuilder(object):
                                                    address_space=loopy.AddressSpace.LOCAL,
                                                    target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
-
-            if not slate_tensor.assembled:
+           
+            if isinstance(slate_tensor, slate.Tensor):
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
@@ -740,14 +740,12 @@ class LocalLoopyKernelBuilder(object):
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
 
-            else:
-                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
-                coeff = tuple(coefficients[c] for c in f)
+            elif isinstance(slate_tensor, slate.AssembledVector):
+                f = slate_tensor._function
+                coeff = coefficients[f]
                 offset = 0
-                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
-                names = []
-                for (im, c) in zip(ismixed, coeff):
-                    names += [name for (name, ext) in c.values()] if im else [c[0]]
+                ismixed = (type(f.ufl_element()) == MixedElement)
+                names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
@@ -821,7 +819,7 @@ class LocalLoopyKernelBuilder(object):
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
-                    <> converged = sum_r < 0.00000000001{{dep=sumr, id=converged}}
+                    <> converged = sum_r < 0.00000000000000001{{dep=sumr, id=converged}}
                     p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
                     <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
@@ -829,11 +827,11 @@ class LocalLoopyKernelBuilder(object):
                         {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> projector_is_zero = abs(p_on_Ap) < 0.00000001 {{id=zeroproj, dep=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 0.00000000000000001 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
-                        <> alpha = 0.01* rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
+                        <> alpha = rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
                         x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
                         r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
                         <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
