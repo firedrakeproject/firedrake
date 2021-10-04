@@ -161,9 +161,11 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     Citations().register("Gibson2018")
 
     orig_expr = slate_expr
+    print("not optimised", slate_expr)
     # Optimise slate expr, e.g. push blocks as far inward as possible
     if compiler_parameters["slate_compiler"]["optimise"]:
         slate_expr = optimise(slate_expr, compiler_parameters["slate_compiler"])
+        print("optimised", slate_expr)
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
@@ -176,7 +178,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=slate_loopy_name)
     
-    if tsfc_parameters["optimise_slate"]:
+    if compiler_parameters["slate_compiler"]["optimise"]:
         # here we reuse the loopy kernel and call tsfc kernels from within
         name = "slate_loopy"
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "when_needed", slate_expr, compiler_parameters["form_compiler"])
@@ -188,6 +190,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
+    print(loopy_merged)
     loopykernel = op2.Kernel(loopy_merged,
                              name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
