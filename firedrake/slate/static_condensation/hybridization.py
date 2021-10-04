@@ -31,7 +31,7 @@ def plot_mixed_operator(a, name):
     fig=plt.figure()
     c=1
     from firedrake import assemble
-    A=assemble(a, mat_type="aij",  form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": True, "visual_debug": False}).M.handle
+    A=assemble(a, mat_type="aij",  form_compiler_parameters={"slate_compiler":{"optimise": False, "replace_mul": False}}).M.handle
     A_np=petsctopy(A)
     print("condition number:", np.linalg.cond(A_np))
     print("positive definite?:", np.all(np.linalg.eigvals(A_np) >= 0))
@@ -73,9 +73,11 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, assemble)
+                               DirichletBC)
         from firedrake.assemble import allocate_matrix
         from ufl.algorithms.replace import replace
+        from firedrake.assemble import (allocate_matrix,
+                                        create_assembly_callable)
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix() + "hybridization_"
@@ -232,20 +234,26 @@ class HybridizationPC(SCBase):
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
+        local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
+
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
         # Assemble the Schur complement operator and right-hand side
         local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
-
-        plot_mixed_operator(Atilde, "A")
+        self.schur_rhs = Function(TraceSpace)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                schur_rhs,
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params,
+                                                assembly_type="residual")
 
         self.schur_rhs = Function(TraceSpace)
         if local_matfree:
-            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
         else:
-            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
         self._assemble_Srhs = create_assembly_callable(
             schur_rhs,
             tensor=self.schur_rhs,
@@ -265,7 +273,7 @@ class HybridizationPC(SCBase):
                                                     form_compiler_parameters=self.ctx.fc_params,
                                                     mat_type=mat_type) 
 
-        with timed_region("HybridOperatorAssembly"):
+        with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -485,7 +493,7 @@ class HybridizationPC(SCBase):
         # plot_mixed_operator(schur_comp, "schur_comp")
         raise CheckSchurComplement(self.broken_solution, "hi")
 
-        with timed_region("HybridProject"):
+        with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]
