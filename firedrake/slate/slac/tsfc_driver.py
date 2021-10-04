@@ -28,7 +28,7 @@ particular integral type.
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
+def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True, diagonal=False):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types

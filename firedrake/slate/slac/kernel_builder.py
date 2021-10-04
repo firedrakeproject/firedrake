@@ -390,7 +390,7 @@ class LocalLoopyKernelBuilder(object):
 
     coordinates_arg = "coords"
     cell_facets_arg = "cell_facets"
-    local_facet_array_arg = "facet_array"
+    local_facet_array_arg = "facet"
     layer_arg = "layer"
     layer_count = "layer_count"
     cell_size_arg = "cell_sizes"
@@ -416,7 +416,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -428,8 +428,10 @@ class LocalLoopyKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = None
+        self.bag = SlateWrapperBag({})
         self.kernel_counter = count()
+        self.slate_loopy_name = slate_loopy_name
+        self.matfree_solve_knls = []
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
@@ -464,7 +466,7 @@ class LocalLoopyKernelBuilder(object):
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
-    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, wrapper_coefficients, kinfo):
+    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, kinfo):
         """ Collect the kernel data aka the parameters fed into the subkernel,
             that are coordinates, orientations, cell sizes and cofficients.
         """
@@ -482,15 +484,37 @@ class LocalLoopyKernelBuilder(object):
             kernel_data.append((mesh.cell_sizes,
                                 self.cell_size_arg))
 
+        # Append coefficients from the expression
+        if self.bag.coefficients:
+            kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
+                                                            kinfo,
+                                                            self.bag.coefficients))
+        
+        # Append coefficients for action
+        if self.bag.action_coefficients:
+            kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
+                                                            kinfo,
+                                                            self.bag.action_coefficients,
+                                                            True))
+        return kernel_data
+
+
+    def collect_tsfc_coefficients(self, tsfc_coefficients, kinfo, wrapper_coefficients, action=False):
+        kernel_data = []
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i, _ in kinfo.coefficient_map]
+        tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        added_coefficients = []
         for c, cinfo in wrapper_coefficients.items():
-            if c in tsfc_coefficients:
+            if c in tsfc_coefficients or action:
                 if isinstance(cinfo, tuple):
-                    kernel_data.extend([(c, cinfo[0])])
+                    if cinfo[0] not in added_coefficients:
+                        kernel_data.extend([(c, cinfo[0])])
+                        added_coefficients.append(cinfo[0])
                 else:
                     for c_, info in cinfo.items():
-                        kernel_data.extend([(c_, info[0])])
+                        if info[0] not in added_coefficients:
+                            kernel_data.extend([((c, c_), info[0])])
+                            added_coefficients.append(info)
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
@@ -500,10 +524,50 @@ class LocalLoopyKernelBuilder(object):
             aka they have to be subarrayrefed.
         """
         arguments = []
+        offset = 0
+        last_mixed_c = None
         for c, name in kernel_data:
-            extent = self.extent(c)
-            idx = self.bag.index_creator(extent)
-            arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
+            # FIXME we are subarrayreffing into a mixed coefficient here
+            # kernel data does not have the right structure for that at the moment
+            # using last_mixed_c is a (bad) result of that, the code should be better when
+            # kernel data is restructured
+            if isinstance(c, tuple):  # then the coeff is coming from a mixed background
+                mixed_c, split_c = c
+                def arg_function_spaces(coeff):
+                    return (coeff.ufl_function_space(),)
+                def shapes(coeff):
+                    shapes = OrderedDict()
+                    for i, fs in enumerate(arg_function_spaces(coeff)):
+                        shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
+                                        for V in fs)
+                    return shapes
+                def shape(coeff):
+                    return tuple(sum(shapelist) for shapelist in shapes(coeff).values())
+                shp2 = shape(split_c)
+                if name == "S1":
+                    shp2 = (8,)
+                shp, = shp2 if shp2 else (1,)
+                idx = self.bag.index_creator((shp,))
+                offset_index = (pym.Sum((offset, idx[0])),)
+                c = pym.Subscript(pym.Variable(name), offset_index)
+                if last_mixed_c == mixed_c:
+                    # reset offset whenyou encounter the second part
+                    # of the split mixed coeff
+                    # FIXME this obvs does not work when you have a mixed FS of more componentes
+                    offset = 0
+                    last_mixed_c = None
+                else:
+                    # set offset when you encounter the first part
+                    # of the split mixed coeff
+                    offset += shp
+                    last_mixed_c = mixed_c
+                # We need to subarrayref into part of the temorary
+                # to get the correct part of the mixed coefficient
+                arguments.append(SubArrayRef(idx, c))
+            else:
+                extent = self.extent(c)
+                idx = self.bag.index_creator(extent)
+                arguments.append(SubArrayRef(idx, pym.Subscript(pym.Variable(name), idx)))
         return arguments
 
     def layer_integral_predicates(self, tensor, integral_type):
@@ -567,34 +631,95 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self):
+    def collect_coefficients(self, new_coeffs=None, names=None, action_node=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
         """
-        coeffs = self.expression.coefficients()
+        # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
+        # the coefficient in the right way. (Its space is FunctionSpace instead of
+        # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
+        coeffs = self.expression.coefficients() if not action_node else action_node.coefficients()
         coeff_dict = OrderedDict()
+        new_coeff_dict = OrderedDict()
+        new = False
+
+        # FIXME the coefficient business here is awful
+
         for i, c in enumerate(coeffs):
+            try:
+                # check if the coefficient is in names,
+                # if yes it will be replaced later
+                prefix = names[c._ufl_function_space]
+                new = True
+            except:
+                # otherwise check if the splitted functionspace
+                # is in names
+                for fs in c._ufl_function_space.split():
+                    try:
+                        prefix = names[fs]
+                        new = True
+                    except:
+                        pass
+                # if the coefficient is not in names, it's not going to replaced
+                # so using the normal naming convention for the coefficient
+                if not new:
+                    prefix = "w_{}".format(i)
             element = c.ufl_element()
             if type(element) == MixedElement:
                 mixed = OrderedDict()
-                for j, c_ in enumerate(c.split()):
-                    name = "w_{}_{}".format(i, j)
-                    info = (name, self.extent(c_))
-                    mixed.update({c_: info})
-                coeff_dict[c] = mixed
+                try:
+                    # try to split the coefficient
+                    # for some reason there are coefficients defined on mixed function space
+                    # which cannot be split, I assume they are somehow already indexed
+                    loop = c.split()
+                    for j, c_ in enumerate(loop):
+                        if new:
+                            name = prefix
+                        else:
+                            name = prefix+"_{}".format(j)
+                        info = (name, self.extent(c_))
+                        mixed.update({c_: info})
+                    if new:
+                        new_coeff_dict[c] = mixed
+                    else:
+                        coeff_dict[c] = mixed
+                except:
+                    # if the coefficient is not splitable
+                    # generate a coefficient for an argument on a mixed fs
+                    # then try to split that coefficient and link to the correct substitue
+                    # FIXME this might not be the right order, unclear how to deduct this from anything
+                    args = self.expression.arguments()
+                    from ufl import Coefficient
+                    missing_coeff = Coefficient(args[0].function_space())
+                    for j,c_ in enumerate((c,)+(missing_coeff,)):
+                        if new:
+                            name = prefix
+                        else:
+                            name = "w_{}_{}".format(i, j)
+                        info = (name, self.extent(c_))
+                        mixed.update({c_: info})
+                    if new:
+                        new_coeff_dict[c] = mixed
+                    else:
+                        coeff_dict[c] = mixed
             else:
-                name = "w_{}".format(i)
-                coeff_dict[c] = (name, self.extent(c))
-        return coeff_dict
+                # if we don't deal with a mixed coefficient we can just append it
+                name = prefix
+                if new:
+                    new_coeff_dict[c] = (name, self.extent(c))
+                else:
+                    coeff_dict[c] = (name, self.extent(c))
+        return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2terminal, coefficients):
+    def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
             :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
         """
-
+        from gem import Variable as gVar
+        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
@@ -603,15 +728,17 @@ class LocalLoopyKernelBuilder(object):
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
                                                    shape=gem_tensor.shape,
-                                                   address_space=loopy.AddressSpace.LOCAL)
+                                                   address_space=loopy.AddressSpace.LOCAL,
+                                                   target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
 
             if not slate_tensor.assembled:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
-                inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
-                                              within_inames=frozenset(inames)))
+                inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
+                                              within_inames=frozenset(inames),
+                                              within_inames_is_final=True))
 
             else:
                 f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
@@ -630,15 +757,14 @@ class LocalLoopyKernelBuilder(object):
                     name = names[i] if ismixed else names
                     var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
                     c = pym.Subscript(pym.Variable(name), indices)
-                    inits.append(loopy.Assignment(var, c, id="init%d" % len(inits),
-                                                  within_inames=frozenset(inames)))
+                    inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
+                                                  within_inames=frozenset(inames),
+                                                  within_inames_is_final=True))
                     offset += shp
 
         return inits, tensor2temp
 
-    def slate_call(self, prg, temporaries):
-        name, = prg.callables_table.keys()
-        kernel = prg.callables_table[name].subkernel
+    def slate_call(self, kernel, temporaries):
         output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
         reads = [output_var]
@@ -653,39 +779,213 @@ class LocalLoopyKernelBuilder(object):
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return insn
 
-    def generate_wrapper_kernel_args(self, tensor2temp):
+    def generate_matfsolve_call(self, ctx, insn, expr):
+        """
+            Matrix-free solve. Currently implemented as CG. WIP.
+        """
+
+        dtype = self.tsfc_parameters["scalar_type"]
+        args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
+        
+        # Map from local kernel arg name to global arg name
+        # FIXME maybe we don't need this local to global anymore with the new loopy
+        str2name = {}
+        local_names = ["A", "output", "b"]
+        for c, arg in enumerate(args):
+            if arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
+                            self.cell_size_arg, self.cell_orientations_arg]:
+                local_names.insert(c, arg.name)
+            str2name[local_names[c]] = arg.name
+
+        child1, child2 = expr.children
+        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x"
+        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
+        str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
+    
+        name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 0.00000000001)
+        shape = expr.shape
+        corner_case = self.generate_code_for_converged_pre_iteration()
+
+        # NOTE The last line in the loop to convergence is another WORKAROUND
+        # bc the initialisation of A_on_p in the action call does not get inlined properly either
+        knl = loopy.make_function(
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,iiii_3, j_0]: 
+                    0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
+                    and 0<=i_5<n and 0<=i_6<=100*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n}""" ,
+                ["""
+                    x[i_0] = -{b}[i_0] {{id=x0}} 
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
+                    <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
+                    <> sum_r = 0.  {{dep=residual0, id=sumr0}}
+                    sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
+                    <> converged = sum_r < 0.00000000001{{dep=sumr, id=converged}}
+                    p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
+                    <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
+                    rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
+                    for i_6
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
+                        <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
+                        p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 0.00000001 {{id=zeroproj, dep=ponAp}}
+                    """.format(**str2name),
+                        corner_case,
+                        """
+                        <> alpha = 0.01* rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
+                        x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
+                        r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
+                        <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
+                        rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id=rkp1_normk}}
+                    """.format(**str2name),
+                        stop_criterion,
+                        """<> beta = rkp1_norm / rk_norm {{dep=cond, id=beta}}
+                        rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
+                        p[i_15] = beta * p[i_15] - r[i_15] {{dep=rk_normk, id=projectork}}
+                        {A_on_p}[i_17] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
+                    end
+                    {output}[i_16] = x[i_16] {{dep=Aonp0, id=out}}
+                """.format(**str2name)],
+                [*args,
+                loopy.TemporaryVariable("x", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+                loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+                loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+                loopy.TemporaryVariable("p", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+                target=loopy.CTarget(),
+                name=name,
+                lang_version=(2018, 2))
+
+        knl = loopy.fix_parameters(knl, n=shape[0])
+
+        # update gem to pym mapping
+        # by linking the actions of the matrix-free solve kernel
+        # to the their pymbolic variables
+        _ = ctx.pymbolic_variable(expr._Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
+        _ = ctx.pymbolic_variable(expr._Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        
+        call = insn.copy(expression=pym.Call(pym.Variable(name),
+                                             reads))
+        
+        self.matfree_solve_knls.append(knl)
+        return call, (name, knl), output_arg, ctx
+
+    def generate_code_for_converged_pre_iteration(self):
+        import pyop2
+        if pyop2.configuration["simd_width"]:
+            assert "not vectorised yet"
+        # note that depends_on and id need to match the instructions in the kernel,
+        # which uses the stop criterion
+        return loopy.CInstruction("",
+                            "if (projector_is_zero) break;",
+                            depends_on="zeroproj",
+                            id="cornercase")
+
+    def generate_code_for_stop_criterion(self, var_name, stop_value):
+        """ This method is workaround need since Loo.py does not support while loops yet.
+            FIXME whenever while loops become available
+
+            The workaround uses a Loo.py CInstruction. The Loo.py Cinstruction allows to write C code
+            so that the code (defined via its second argument) will appear unaltered in the final
+            produced code for the kernel. Meaning, there are no transformations happening on this
+            bit of code.
+            First example where this becomes a problem is in a kernel containing the Cinstruction,
+            which gets inlined in another kernel. In that case the variables in the instruction
+            are not renamed properly in the inlining process.
+            Another example is, that the variable in the code of the Cinstruction does not get
+            vectorised when prompted.
+
+            Inlining and vectorisation are made available through this ugly bit of code.
+        """
+        import pyop2
+        # not sure where I can get the prefix, which the variable has in a vectorised kernel,
+        # dynamically from variable_name = var_name
+        condition = " < " + str(stop_value)
+        if pyop2.configuration["simd_width"]:
+            # vectorisation of the stop criterion
+            variable = variable_name+ "["+str(0)+"]" + condition
+            for i in range(int(pyop2.configuration["simd_width"])-1):
+                variable += "&& " + variable_name + "["+str(i+1)+"]" + condition
+        else:
+            variable = var_name + condition
+        # note that depends_on and id need to match the instructions in the kernel,
+        # which uses the stop criterion
+        return loopy.CInstruction("",
+                            "if (" + variable +") break;",
+                            read_variables=[var_name],
+                            depends_on="rkp1_normk",
+                            id="cond")
+
+    def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
+        child1, child2 = expr.children
+        reads1, reads2 = insn.expression.parameters
+        
+        # Generate kernel args
+        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
+                                     target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+
+        args = self.generate_wrapper_kernel_args(append_args=[arg2], prepend_args=[output_arg, arg1])
+        
+        # Generate call parameters
+        reads = []
+        for c, arg in enumerate(args):
+            var_reads = pym.Variable(arg.name)
+            idx_reads = self.bag.index_creator(arg.shape)
+            reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
+        return args, reads, output_arg
+
+    def generate_wrapper_kernel_args(self, temporaries=[], templated_subkernels=None, append_args=[], prepend_args=[]):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
-                                dtype=self.tsfc_parameters["scalar_type"])]
+                                dtype=self.tsfc_parameters["scalar_type"],
+                                dim_tags=None, strides=loopy.auto, order="C",
+                                target=loopy.CTarget(), is_input=True, is_output=False)]
 
         if self.bag.needs_cell_orientations:
             ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
             args.append(loopy.GlobalArg(self.cell_orientations_arg,
                                         shape=ori_extent,
-                                        dtype=self.tsfc_parameters["scalar_type"]))
+                                        dtype=self.tsfc_parameters["scalar_type"],
+                                        target=loopy.CTarget(),
+                                        is_input=True, is_output=False))
 
         if self.bag.needs_cell_sizes:
             siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
             args.append(loopy.GlobalArg(self.cell_size_arg,
                                         shape=siz_extent,
-                                        dtype=self.tsfc_parameters["scalar_type"]))
+                                        dtype=self.tsfc_parameters["scalar_type"],
+                                        is_input=True, is_output=False))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
                     arg = loopy.GlobalArg(name, shape=extent,
-                                          dtype=self.tsfc_parameters["scalar_type"])
-                    args.append(arg)
+                                          dtype=self.tsfc_parameters["scalar_type"],
+                                          target=loopy.CTarget(),
+                                          is_input=True, is_output=False,
+                                          dim_tags=None, strides=loopy.auto, order="C")
+                    if arg not in args:
+                        args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
-                                      dtype=self.tsfc_parameters["scalar_type"])
-                args.append(arg)
+                                      dtype=self.tsfc_parameters["scalar_type"],
+                                      target=loopy.CTarget(),
+                                      is_input=True, is_output=True,
+                                      dim_tags=None, strides=loopy.auto, order="C")
+                if arg not in args:
+                    args.append(arg)
 
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
             args.append(loopy.GlobalArg(self.cell_facets_arg, shape=(self.num_facets, 2),
-                                        dtype=np.int8))
+                                        dtype=np.int8, is_input=True, is_output=False,
+                                        target=loopy.CTarget(),
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
             args.append(
                 loopy.TemporaryVariable(self.local_facet_array_arg,
@@ -693,15 +993,28 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=np.uint32,
                                         address_space=loopy.AddressSpace.LOCAL,
                                         read_only=True,
-                                        initializer=np.arange(self.num_facets, dtype=np.uint32),))
+                                        initializer=np.arange(self.num_facets, dtype=np.uint32),
+                                        target=loopy.CTarget(),
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
         if self.bag.needs_mesh_layers:
-            args.append(loopy.GlobalArg(self.layer_count, shape=(),
+            args.append(loopy.GlobalArg(self.layer_count, shape=(1,),
+                                        dtype=np.int32, is_input=True, is_output=False,
+                                        target=loopy.CTarget()))
+            args.append(loopy.ValueArg(self.layer_arg,
                         dtype=np.int32))
-            args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
-        for tensor_temp in tensor2temp.values():
-            args.append(tensor_temp)
+        for tensor_temp in temporaries:
+            if tensor_temp.name not in [arg.name for arg in args]:
+                args.append(tensor_temp)
+
+        for append in append_args:
+            if append.name not in [arg.name for arg in args]:
+                args.append(append)
+        
+        for prepend in prepend_args:
+            if prepend.name not in [arg.name for arg in args]:
+                args.insert(0, prepend)
 
         return args
 
@@ -726,9 +1039,9 @@ class LocalLoopyKernelBuilder(object):
 
                 # Prepare lhs and args for call to tsfc kernel
                 output_var = pym.Variable(loopy_tensor.name)
-                reads.append(output_var)
                 output = self.generate_lhs(slate_tensor, output_var)
-                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
+                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, kinfo)
+                reads.append(output)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
                 # Generate predicates for different integral types
@@ -752,28 +1065,79 @@ class LocalLoopyKernelBuilder(object):
                                              within_inames=frozenset(inames_dep),
                                              predicates=predicates, id=key)
 
-                yield insn, kinfo.kernel.code
+                code = kinfo.kernel.code
+                code = match_kernel_argnames(insn, code)
+                yield insn, {kinfo.kernel.name: code}
+
+        if not cxt_kernels:
+            yield (None, None)
+
+
+    def update_bag_with_coefficients(self, coeffs, new_coeffs, name):
+        bag = self.bag.copy(name=name)
+        bag.coefficients = coeffs
+        bag.action_coefficients = new_coeffs
+        return bag
+
+
+def match_kernel_argnames(insn, code):
+    # FIXME we should do this before generating the knl
+    knl_name, = code.callables_table
+    knl = code.callables_table[knl_name].subkernel
+    last_arg = None
+    for c, arg in enumerate(insn.expression.parameters):
+        if not isinstance(arg, pym.Variable):
+            name_call = arg.subscript.aggregate.name
+            name_code = knl.args[c].name
+            if last_arg:
+                if name_call == last_arg.name:
+                    # In this case we are dealing with coefficients coming from a mixed background.
+                    # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
+                    # but we pass them as one temporary which contains them both, so we need to adjust the shape
+                    wrongly_shaped_arg = knl.arg_dict[name_call].copy()
+                    wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
+                    knl.arg_dict[name_call] = wrongly_shaped_arg
+            last_arg = knl.arg_dict[name_code]
+    return code
 
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs):
+    def __init__(self, coeffs, prefix="", new_coeffs={}, name=""):
         self.coefficients = coeffs
+        self.action_coefficients = new_coeffs
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
-        self.index_creator = IndexCreator()
+        self.index_creator = IndexCreator(prefix)
+        self.name = name
+
+    def copy(self, prefix=None, name=None):
+        new = SlateWrapperBag(self.coefficients)
+        new.action_coefficients = self.action_coefficients
+        new.inames = self.inames
+        new.needs_cell_orientations = self.needs_cell_orientations
+        new.needs_cell_sizes = self.needs_cell_sizes
+        new.needs_cell_facets = self.needs_cell_facets
+        new.needs_mesh_layers = self.needs_mesh_layers
+        new.call_name_generator = self.call_name_generator
+        new.index_creator = self.index_creator
+        if prefix:
+            new.index_creator.rename(prefix)
+        new.name = name
+        return new
 
 
 class IndexCreator(object):
-    def __init__(self):
+    
+    def __init__(self, forced_prefix):
+        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
         self.inames = OrderedDict()  # pym variable -> extent
-        self.namer = UniqueNameGenerator(forced_prefix="i_")
 
-    def __call__(self, extents):
+    def __call__(self, extents, namer=""):
         """Create new indices with specified extents.
 
         :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors
@@ -807,10 +1171,16 @@ class IndexCreator(object):
         for ext in extents:
             name = self.namer()
             indices.append(pym.Variable(name))
-            self.inames[name] = int(ext)
+            if not name in self.inames.keys():
+                self.inames[name] = int(ext)
+            else:
+                assert self.inames[name] == ext, "Why do you suddenly want a different extent for this index?"
         return tuple(indices)
 
     @property
     def domains(self):
         """ISL domains for the currently known indices."""
         return create_domains(self.inames.items())
+
+    def rename(self, forced_prefix):
+        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)

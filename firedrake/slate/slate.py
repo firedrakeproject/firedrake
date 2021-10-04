@@ -40,7 +40,8 @@ from firedrake.formmanipulation import ExtractSubBlock
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-           'Reciprocal']
+           'Reciprocal', 'Action',
+           'TensorShell', 'BlockAssembledVector']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -64,6 +65,7 @@ class BlockIndexer(object):
     __slots__ = ['tensor', 'block_cache']
 
     def __init__(self, tensor):
+        assert isinstance(tensor, Tensor), "Slate can only express blocks on terminal tensors."
         self.tensor = tensor
         self.block_cache = {}
 
@@ -197,7 +199,8 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def rank(self):
         """Returns the rank information of the tensor object."""
-        return len(self.arguments())
+        from firedrake import Argument
+        return len(tuple(filter(lambda x: isinstance(x, Argument), self.arguments())))
 
     @abstractmethod
     def coefficients(self):
@@ -252,7 +255,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def solve(self, B, decomposition=None):
+    def solve(self, B, decomposition=None, matfree=False):
         """Solve a system of equations with
         a specified right-hand side.
 
@@ -265,7 +268,7 @@ class TensorBase(object, metaclass=ABCMeta):
             available matrix decompositions are outlined in
             :class:`Factorization`.
         """
-        return Solve(self, B, decomposition=decomposition)
+        return Solve(self, B, decomposition=decomposition, matfree=matfree)
 
     @cached_property
     def blocks(self):
@@ -1091,8 +1094,7 @@ class BinaryOp(TensorOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Mul: '*',
-               Solve: '\\'}
+               Mul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -1193,6 +1195,164 @@ class Mul(BinaryOp):
         """
         return self._args
 
+class Action(BinaryOp):
+    """Abstract Slate class representing the interior product or two tensors,
+    where the second tensor has one dimesion less than the first tensor.
+    This includes an action of Matrix on a Vector. The difference
+    to a product is that the higher dimensional tensor is never stored in a
+    temporary."
+
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
+
+    def __init__(self, A, b, pick_op):
+        """Constructor for the Mul class."""
+        if A.shape[pick_op] != b.shape[0]:
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
+                             % (A.shape, b.shape))
+
+        fsA = A.arg_function_spaces[-pick_op]
+        fsB = b.arg_function_spaces[0]
+
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
+        super(Action, self).__init__(A, b)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        if pick_op == 0:
+            self._args = A.arguments()[1:] + b.arguments()[1:]
+        else:
+            self._args = A.arguments()[:-1] + b.arguments()[1:]
+        self.pick_op = pick_op
+        self.tensor = A
+        self.coeff = b
+        self.ufl_coefficient = None
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        A, B = self.operands
+        if self.pick_op == 1:
+            return A.arg_function_spaces[:-1] + B.arg_function_spaces[1:]
+        else:
+            return A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
+
+    def _output_string(self, prec):
+        """Returns a string representation."""
+        return "(%s * (%s))" % self.operands
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from multiplying two tensors A and B.
+        """
+        return self._args
+
+    def action(self):
+        if isinstance(self.tensor, Factorization):
+            self.tensor, = self.tensor.children
+        import ufl.algorithms as ufl_alg
+
+        # Pick first or last argument (will be replaced)
+        arguments = self.tensor.arguments()
+        u = arguments[self.pick_op]
+        if hasattr(self.coeff, "_function"):
+            coeff = self.coeff._function
+        else:
+            cfs, = self.coeff.arguments()
+            coeff = Coefficient(cfs.ufl_function_space())
+        self.ufl_coefficient = coeff
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
+
+    def update_action(self):
+        import ufl.algorithms as ufl_alg
+
+        # Pick first or last argument (will be replaced)
+        arguments = self.tensor.arguments()
+        u = arguments[self.pick_op]
+        cfs, = self.coeff.arguments()
+        coeff = Coefficient(cfs.ufl_function_space())
+        self.ufl_coefficient = coeff
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        op1, op2 = self.operands
+        return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
+
+
+class TensorShell(TensorBase):
+    """A representation of tensorial expressions which are never explicitly locally assembled.
+    TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
+    translation to a backend. This class wraps the relevant information of the associated expression.
+
+    :arg A: An optimised (*), non-terminal Slate expression, i.e. and object of type TensorOp
+            (*) optimised = The Slate expression only contains up to rank-1 Tensors
+    """
+
+    operands = ()
+
+    def __init__(self, A):
+        super(TensorShell, self).__init__()
+        self.tensor = A
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        return self.tensor.arg_function_spaces
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        return self.tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed.
+        """
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        return par("{{%s} -> {}}" % self.tensor._output_string(prec=self.prec))
+
+    @cached_property
+    def shape(self):
+        return self.tensor.shape
+    
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.tensor.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return self.tensor.ufl_domains()
+
+    def subdomain_data(self):
+        return self.tensor.subdomain_data()
+    
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.tensor)
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        return "TensorShell(%r)" % self.tensor
+
 
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
@@ -1204,9 +1364,10 @@ class Solve(BinaryOp):
     :arg decomposition: A string denoting the type of matrix decomposition
         to used. The factorizations available are detailed in the
         :class:`Factorization` documentation.
+    :arg matfree: True when the local solve operates matrix-free.
     """
 
-    def __new__(cls, A, B, decomposition=None):
+    def __new__(cls, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
@@ -1226,24 +1387,50 @@ class Solve(BinaryOp):
         # For matrices smaller than 5x5, exact formulae can be used
         # to evaluate the inverse. Otherwise, this class will trigger
         # a factorization method in the code-generation.
-        if A.shape < (5, 5):
-            return A.inv * B
+        # if A.shape < (5, 5):
+        #     return A.inv * B
 
         return super().__new__(cls)
 
-    def __init__(self, A, B, decomposition=None):
+    def __init__(self, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
         """Constructor for the Solve class."""
 
         # LU with partial pivoting is a stable default.
         decomposition = decomposition or "PartialPivLU"
 
+        # If we have a matfree solve on a transposed Tensor
+        # we need to drop the Transpose
+        # because otherwise it will generate a matrix temporary
+        # instead we change which argument of the tensor will be replaced
+        # within the actions used in the matrix-free solve kernel
+        if isinstance(A, Transpose) and matfree:
+            A, = A.children
+            pick_op = 0
+        else:
+            pick_op = 1
+
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal else A
+        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal and not matfree else A
 
         super(Solve, self).__init__(A_factored, B)
 
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
+        self._matfree = matfree
+
+        if matfree:
+            # keep track of the actions, which we need for the local matrixfree solve
+            if Aonx:
+                self._Aonx = Aonx
+            else:
+                arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self._Aonx = Action(A, arbitrary_coeff_x, pick_op)
+            if Aonp:
+                self._Aonp = Aonp
+            else:
+                arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self._Aonp = Action(A, arbitrary_coeff_p, pick_op)
+            # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):
@@ -1258,6 +1445,59 @@ class Solve(BinaryOp):
         """
         return self._args
 
+    def is_matfree(self):
+        return self._matfree
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        op1, op2 = self.operands
+        if self._matfree:
+            return (type(self), op1, op2, self._matfree, self._Aonx, self._Aonp)
+        else:
+            return (type(self), op1, op2, self._matfree)
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the inverse of a tensor."""
+        return "(%s).solve(%s)" % self.operands
+
+
+class Diagonal(UnaryOp):
+    """An abstract Slate class representing the diagonal of a tensor.
+
+    .. warning::
+
+       This class will raise an error if the tensor is not square.
+    """
+
+    def __init__(self, A):
+        """Constructor for the Diagonal class."""
+        assert A.rank == 2, "The tensor must be rank 2."
+        assert A.shape[0] == A.shape[1], (
+            "The diagonal can only be computed on square tensors."
+        )
+
+        super(Diagonal, self).__init__(A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return (tensor.arg_function_spaces[::-1][0],)
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        tensor, = self.operands
+        return (tensor.arguments()[::-1][0],)
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the diagonal of a tensor."""
+        tensor, = self.operands
+        return "(%s).diag" % tensor
 
 class DiagonalTensor(UnaryOp):
     """An abstract Slate class representing the diagonal of a tensor.
@@ -1311,7 +1551,7 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],
+    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal, TensorShell],
     [Add],
     [Mul],
     [Solve],

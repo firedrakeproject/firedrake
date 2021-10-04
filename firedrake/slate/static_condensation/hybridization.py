@@ -17,6 +17,38 @@ from firedrake.parameters import parameters
 
 __all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
+def petsctopy(petscmat):
+    n,m=petscmat.getSize()
+    aa = np.zeros((n,m))
+    for i in range(n):
+        for j in range(m):
+            aa[i,j] = petscmat.getValues(i,j)
+    return aa
+def plot_mixed_operator(a, name):
+    print(name+"\n")
+    import matplotlib.pyplot as plt
+    import scipy as sc
+    fig=plt.figure()
+    c=1
+    from firedrake import assemble
+    A=assemble(a, mat_type="aij",  form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": True, "visual_debug": False}).M.handle
+    A_np=petsctopy(A)
+    print("condition number:", np.linalg.cond(A_np))
+    print("positive definite?:", np.all(np.linalg.eigvals(A_np) >= 0))
+    print("neg definite?:", np.all(np.linalg.eigvals(A_np) <= 0))
+    # print("eigenvalues:", np.linalg.eigvals(A_np))
+    print("symmetric?:", np.allclose(A_np, A_np.T, rtol=0.0001))
+    np.save(name+'.npy', A_np)
+    
+    plt.imshow(A_np)
+    plt.colorbar()
+    # plt.axis('off')
+    plt.savefig(name, dpi=150)
+
+class CheckSchurComplement(Exception):
+    def __init__(self, expr, m):
+        self.expression = expr
+        self.message = m
 
 class HybridizationPC(SCBase):
 
@@ -205,28 +237,35 @@ class HybridizationPC(SCBase):
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
         # Assemble the Schur complement operator and right-hand side
-        self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = functools.partial(assemble,
-                                                schur_rhs,
-                                                tensor=self.schur_rhs,
-                                                form_compiler_parameters=self.ctx.fc_params,
-                                                assembly_type="residual")
+        local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
 
+        plot_mixed_operator(Atilde, "A")
+
+        self.schur_rhs = Function(TraceSpace)
+        if local_matfree:
+            self.ctx.fc_params.update({"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
+        else:
+            self.ctx.fc_params.update({"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+        self._assemble_Srhs = create_assembly_callable(
+            schur_rhs,
+            tensor=self.schur_rhs,
+            form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
+        
+        # plot_mixed_operator(schur_comp, "schur_comp")
+
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
-        self._assemble_S = functools.partial(assemble,
-                                             schur_comp,
-                                             tensor=self.S,
-                                             bcs=trace_bcs,
-                                             form_compiler_parameters=self.ctx.fc_params,
-                                             mat_type=mat_type,
-                                             assembly_type="residual")
+                                 appctx=self.get_appctx(pc)) # this generates an ImplicitMatrix and assembles action and actionT
+        self._assemble_S = create_assembly_callable(schur_comp,
+                                                    tensor=self.S,
+                                                    bcs=trace_bcs,
+                                                    form_compiler_parameters=self.ctx.fc_params,
+                                                    mat_type=mat_type) 
 
-        with PETSc.Log.Event("HybridOperatorAssembly"):
+        with timed_region("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -277,7 +316,8 @@ class HybridizationPC(SCBase):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake import assemble
+        from firedrake.assemble import (allocate_matrix,
+                                        create_assembly_callable)
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -301,6 +341,11 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
+        if not local_matfree:
+            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
+        else:
+            self.ctx.fc_params.update({"slate_compiler":{"optimise": True, "replace_mul": True}})
+
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
         if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
@@ -311,20 +356,20 @@ class HybridizationPC(SCBase):
                 S = Shat * S
                 rhs = Shat * rhs
 
-        u_rec = S.solve(rhs, decomposition="PartialPivLU")
+        u_rec = S.solve(rhs)
+
         self._sub_unknown = functools.partial(assemble,
-                                              u_rec,
-                                              tensor=u,
-                                              form_compiler_parameters=self.ctx.fc_params,
-                                              assembly_type="residual")
+                                            u_rec,
+                                            tensor=u,
+                                            form_compiler_parameters=self.ctx.fc_params,
+                                            assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU")
+                                matfree=local_matfree)
         self._elim_unknown = functools.partial(assemble,
-                                               sigma_rec,
-                                               tensor=sigma,
-                                               form_compiler_parameters=self.ctx.fc_params,
-                                               assembly_type="residual")
+                                                sigma_rec,
+                                                tensor=sigma,
+                                                form_compiler_parameters=self.ctx.fc_params)
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
@@ -372,6 +417,33 @@ class HybridizationPC(SCBase):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
+        def run_cg(name, b):
+            A = np.load(name+".npy")
+            import matplotlib.pyplot as plt
+            from scipy.sparse.linalg import cg
+            from scipy.sparse import csr_matrix
+            fdat = b.dat.data
+            f = np.concatenate((fdat[0], fdat[1]))
+            print(f)
+            print(A)
+            plt.figure()
+            plt.plot(f)
+            plt.show()
+            jacobimat = np.diag(np.diag(A))
+            print(jacobimat)
+            sol = cg(csr_matrix(A), f, f)
+            print(sol)
+
+            plt.figure()
+            plt.plot(sol[0])
+            plt.show()
+
+        print("DATA", self.schur_rhs.dat.data)
+        # run_cg("A", self.broken_residual)
+
+        # raise CheckSchurComplement(self.schur_rhs, "hi")
+        
+
     def sc_solve(self, pc):
         """Solve the condensed linear system for the
         condensed field.
@@ -391,6 +463,9 @@ class HybridizationPC(SCBase):
                     acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
                     self.trace_ksp.solve(b, x_trace)
+        
+        # plot_mixed_operator(schur_comp, "schur_comp")
+        # raise CheckSchurComplement(self.trace_solution, "hin")
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -406,7 +481,11 @@ class HybridizationPC(SCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
-        with PETSc.Log.Event("HybridProject"):
+
+        # plot_mixed_operator(schur_comp, "schur_comp")
+        raise CheckSchurComplement(self.broken_solution, "hi")
+
+        with timed_region("HybridProject"):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.split()[self.pidx]
             unbroken_pressure = self.unbroken_solution.split()[self.pidx]
