@@ -131,7 +131,7 @@ try:
     if "openblas" in _blas_lib_path:
         _method_name = "openblas_set_num_threads"
     elif "libmkl" in _blas_lib_path:
-        _method_name = "mkl_set_num_threads"
+        _method_name = "MKL_Set_Num_Threads"
 
     if _method_name:
         try:
