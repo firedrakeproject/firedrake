@@ -270,12 +270,12 @@ def _slate2gem_solve(expr, self):
     if expr.is_matfree():
         name = f"S{len(self.var2terminal)}"
         assert expr not in self.var2terminal.values()
+        self.var2terminal[name] = expr
         var = Solve(*map(self, expr.children), name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
         self.var2terminal[var] = expr
         # FIXME something is happening to the solve action node hash
         # so that gem node cannot be found in var2terminal even though it is there
         # so we save solve node by name for now
-        self.var2terminal[name] = expr
         return var
     else:
         return Solve(*map(self, expr.children))
@@ -442,14 +442,10 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
-    calls_and_kernels = tuple((c, k) for terminal in terminal_tensors
-                              for c, k in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
-    if calls_and_kernels:  # tsfc may not give a kernel back
-        tsfc_calls, tsfc_kernels = zip(*calls_and_kernels)
-    else:
-        tsfc_calls = ()
-        tsfc_kernels = ()
+    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
+    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
+                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
+                                    for terminal in terminal_tensors)))
 
     # Munge instructions
     insns = inits
