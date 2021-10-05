@@ -130,3 +130,65 @@ def test_slate_hybridization_nested_schur():
 
     assert sigma_err < 1e-11
     assert u_err < 1e-11
+
+
+class DGLaplacian(AuxiliaryOperatorPC):
+    def form(self, pc, u, v):
+        W = u.function_space()
+        n = FacetNormal(W.mesh())
+        alpha = Constant(3**3)
+        gamma = Constant(4**3)
+        h = CellSize(W.mesh())
+        h_avg = (h('+') + h('-'))/2
+        a_dg = -(inner(grad(u), grad(v))*dx
+                 - inner(jump(u, n), avg(grad(v)))*dS
+                 - inner(avg(grad(u)), jump(v, n), )*dS
+                 + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS
+                 - inner(u*n, grad(v))*ds
+                 - inner(grad(u), v*n)*ds
+                 + (gamma/h)*inner(u, v)*ds)
+        bcs = None
+        return (a_dg, bcs)
+
+
+def test_mixed_poisson_approximated_schur():
+    # NOTE With the setup in this test, using the approximated schur complemement
+    # defined as DGLaplacian as a preconditioner to the schur complement in the
+    # reconstruction calls reduces the condition number of the local solve from
+    # 16.77 to 5.95
+    a, L, W = setup_poisson()
+
+    # Compare hybridized solution with non-hybridized
+    w = Function(W)
+    bcs = []
+
+    w = Function(W)
+    params = {'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'mat_type': 'matfree',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'approx_schur': {'ksp_type': 'preonly',
+                                                 'pc_type': 'python',
+                                                 'pc_python_type': __name__ + ".DGLaplacian"}}}
+
+    solve(a == L, w, bcs=bcs, solver_parameters=params)
+    sigma_h, u_h = w.split()
+
+    w2 = Function(W)
+    aij_params = {'ksp_type': 'preonly',
+                  'pc_type': 'python',
+                  'mat_type': 'matfree',
+                  'pc_python_type': 'firedrake.HybridizationPC',
+                  'hybridization': {'ksp_type': 'preonly',
+                                    'pc_type': 'lu'}}
+    solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
+    _sigma, _u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, _sigma)
+    u_err = errornorm(u_h, _u)
+
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8

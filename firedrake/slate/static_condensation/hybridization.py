@@ -213,10 +213,15 @@ class HybridizationPC(SCBase):
         K1 = Tensor(split_trace_op[(0, id1)])
         list_split_trace_ops = [K0, K1]
 
+        # Get the schur complement approximation
+        test, trial = A11.arguments()
+        schur_approx = self.get_user_schur_approx(pc, test, trial)
+
         # Build schur complement operator and right hand side
         nested = PETSc.Options(prefix).getBool("nested_schur", False)
         schur_rhs, schur_comp = self.build_schur(Atilde, K, list_split_mixed_ops,
-                                                 list_split_trace_ops, nested=nested)
+                                                 list_split_trace_ops, nested=nested,
+                                                 schur_approx=schur_approx)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -285,9 +290,9 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops)
+        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops, schur_approx)
 
-    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops):
+    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops, schur_approx=None):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -316,10 +321,13 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        M = D - C * A.inv * B
+        schur = D - C * A.inv * B
+        schur = schur_approx.inv * schur if schur_approx else schur
         R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
-                        decomposition="PartialPivLU")
+        rhs = f - C * A.inv * g - R * lambdar
+        rhs = schur_approx.inv * rhs if schur_approx else rhs
+
+        u_rec = schur.solve(rhs, decomposition="PartialPivLU")
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
@@ -334,7 +342,7 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
 
-    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False):
+    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None):
         """The Schur complement in the operators of the trace solve contains
         the inverse on a mixed system.  Users may want this inverse to be treated
         with another schur complement.
@@ -362,6 +370,8 @@ class HybridizationPC(SCBase):
 
             # inner schur complement
             S = (A11 - A10 * A00.inv * A01)
+            # preconditioning
+            S = schur_approx.inv * S if schur_approx else S
             # K * block1
             K_Ainv_block1 = [K0, -K0 * A00.inv * A01 + K1]
             # K * block1 * block2
@@ -376,6 +386,25 @@ class HybridizationPC(SCBase):
             schur_rhs = K * Atilde.inv * AssembledVector(self.broken_residual)
             schur_comp = K * Atilde.inv * K.T
         return schur_rhs, schur_comp
+
+    def get_user_schur_approx(self, pc, test, trial):
+        """Retrieve a user-defined AuxiliaryOperator from the PETSc Options,
+        which is an approximation to the Schur complement and its inverse is used
+        to precondition the local solve in the reconstruction calls (e.g.).
+        """
+        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
+        sentinel = object()
+        usercode = PETSc.Options().getString(prefix_schur + 'pc_python_type', default=sentinel)
+
+        if usercode != sentinel:
+            (modname, funname) = usercode.rsplit('.', 1)
+            mod = __import__(modname)
+            fun = getattr(mod, funname)
+            if isinstance(fun, type):
+                fun = fun()
+            return Tensor(fun.form(pc, test, trial)[0])
+        else:
+            return None
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
