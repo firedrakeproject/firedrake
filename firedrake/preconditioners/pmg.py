@@ -32,8 +32,10 @@ class PMGBase(PCSNESBase):
     and the coarse solve by ``pmg_mg_coarse_``. Geometric multigrid
     or any other solver in firedrake may be applied to the coarse problem.
 
-    Other PETSc options inspected by this class in particular are:
-    - 'pmg_coarse_degree': to specify the degree of the coarse level
+    Other PETSc options inspected by this class are:
+    - 'pmg_coarse_degree': polynomial degree of the coarse level
+    - 'pmg_coarse_mat_type': can be either 'aij' or 'matfree'
+    - 'pmg_coarse_form_compiler_mode': can be 'spectral' (default), 'vanilla', 'coffee', or 'tensor'
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
@@ -140,7 +142,10 @@ class PMGBase(PCSNESBase):
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
+        mode = ctx._problem.form_compiler_parameters.get("mode", "spectral")
         self.coarse_degree = PETSc.Options(options_prefix).getInt("coarse_degree", default=1)
+        self.coarse_mat_type = PETSc.Options(options_prefix).getString("coarse_mat_type", default=ctx.mat_type)
+        self.coarse_form_compiler_mode = PETSc.Options(options_prefix).getString("coarse_form_compiler_mode", default=mode)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -264,12 +269,19 @@ class PMGBase(PCSNESBase):
             elif isinstance(val, Form):
                 cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
 
+        cmat_type = fctx.mat_type
+        cpmat_type = fctx.pmat_type
+        if Nc == self.coarse_degree:
+            cmat_type = self.coarse_mat_type
+            cpmat_type = self.coarse_mat_type
+            fcp["mode"] = self.coarse_form_compiler_mode
+
         # Coarsen the problem and the _SNESContext
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
                                                          form_compiler_parameters=fcp,
                                                          is_linear=fproblem.is_linear)
 
-        cctx = type(fctx)(cproblem, fctx.mat_type, fctx.pmat_type,
+        cctx = type(fctx)(cproblem, cmat_type, cpmat_type,
                           appctx=cappctx,
                           pre_jacobian_callback=fctx._pre_jacobian_callback,
                           pre_function_callback=fctx._pre_function_callback,
@@ -324,7 +336,7 @@ class PMGBase(PCSNESBase):
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(coarse_V)
-                    with wc.dat.vec as xc:
+                    with wc.dat.vec_wo as xc:
                         mat.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
                 vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
