@@ -56,6 +56,7 @@ class BlockMatrix(object):
             y.array[start::stride] = yi.array_r
 
 
+@PETSc.Log.EventDecorator()
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
     Construct the mixed mass matrix of two function spaces,

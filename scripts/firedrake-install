@@ -145,9 +145,6 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
 
 branches = {}
 
-jenkins = "JENKINS_URL" in os.environ
-ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
-
 
 def resolve_doi_branches(doi):
     import requests
@@ -621,13 +618,27 @@ elif options.get("with_blas") is not None:
     else:
         petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
 elif osname == "Darwin":
-    brew_prefix = check_output(['brew', '--prefix'])[:-1]
-    mac_blas = brew_prefix+"/opt/openblas"
-    petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
-    petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
-    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
+    brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
+    brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
+    gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
+    brew_gcc_libdir = brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
+    brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
+    petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
+    petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
+    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
 
-petsc_options = list(petsc_options) + shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", ""))
+for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+    if option.startswith("--with-hdf5-dir"):
+        petsc_options.discard("--download-hdf5")
+        os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+    petsc_options.add(option)
+if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
+    del os.environ["HDF5_DIR"]
+    log.info("""\nWarning: HDF5_DIR environment variable set, but ignored;
+use PETSC_CONFIGURE_OPTIONS="--with-hdf5-dir=$HDF5_DIR"
+to have PETSc built against $HDF5_DIR.
+""")
+petsc_options = list(petsc_options)
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -760,16 +771,23 @@ def git_update(name, url=None):
         git_sha = check_output(["git", "rev-parse", "HEAD"])
         # Ensure remotes get updated if and when we move repositories.
         if url:
-            plain_url = split_requirements_url(url)[1]
+            _, plain_url, branch = split_requirements_url(url)
             current_url = check_output(["git", "remote", "-v"]).split()[1]
+            current_branch = check_output(["git", "branch", "--show-current"]).strip()
             protocol = "https" if current_url.startswith("https") else "ssh"
             new_url = git_url(plain_url, protocol)
             # Ensure we only change from bitbucket to github and not the reverse.
-            if new_url != current_url and "bitbucket.org" in current_url \
-               and ("github.com/firedrakeproject" in plain_url
-                    or "github.com/dolfin-adjoint" in plain_url):
+            if (new_url != current_url
+                and ("bitbucket.org" in current_url)
+                and ("github.com/firedrakeproject" in plain_url
+                     or "github.com/dolfin-adjoint" in plain_url)):
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
+            # Ensure we only switch loopy branch if loopy is on firedrake and not on a feature branch.
+            elif name == "loopy" and current_branch != branch and current_branch == "firedrake":
+                log.info("Updating loopy branch to main")
+                check_call(["git", "checkout", "-q", branch])
+
         check_call(["git", "pull", "--recurse-submodules"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
@@ -1012,14 +1030,18 @@ def build_and_install_h5py():
                 check_call(["git", "checkout", "firedrake"])
                 changed = True
         changed |= git_update("h5py")
+        # If h5py installation fails for some reason, we end up having a
+        # situation where h5py is not installed, but h5py directory is
+        # up-to-date, so we need to handle this here.
+        changed |= not is_installed("h5py")
     else:
         git_clone(url)
         changed = True
 
     petsc_dir, petsc_arch = get_petsc_dir()
-    hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
+    hdf5_dir = os.environ.get("HDF5_DIR", "%s/%s" % (petsc_dir, petsc_arch))
     if changed or args.rebuild:
-        log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
+        log.info("Linking h5py against HDF5_DIR=%s\n" % hdf5_dir)
         with environment(HDF5_DIR=hdf5_dir,
                          HDF5_MPI="ON",
                          **blas):
@@ -1198,10 +1220,10 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip_install(["sphinx"])
-    run_pip_install(["sphinxcontrib-bibtex"])
-    run_pip_install(["bibtexparser"])
-    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
+    run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinxcontrib-bibtex"])
+    run_pip(["install", "-U", "bibtexparser"])
+    run_pip(["install", "-U", "sphinxcontrib-youtube"])
 
 
 def clean_obsolete_packages():
@@ -1345,11 +1367,11 @@ if mode == "install" or not args.update_script:
         if args.with_blas is None and mode == "install":
             required_packages.append("libopenblas-dev")
 
-        if args.documentation_dependencies:
-            required_packages.append("graphviz")
-
     else:
         log.warning("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+
+    if args.documentation_dependencies:
+        required_packages.append("graphviz")
 
     if args.show_dependencies:
         log.info("\n************************************************")
@@ -1414,8 +1436,7 @@ if mode == "install" or not args.update_script:
                     brew_install(package)
 
             if args.with_blas is None and mode == "install":
-                blas_location = brew_prefix+"/opt/openblas"
-                config["with_blas"] = blas_location
+                config["with_blas"] = brew_blas_prefix
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
@@ -1536,14 +1557,19 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    if jenkins and ci_testing_firedrake:
-        check_call(["ln", "-s", "../../../", "firedrake"])
+    if "Build Firedrake" in os.environ.get("GITHUB_WORKFLOW", ""):
+        # When building Firedrake in CI, don't clone Firedrake again.
+        check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
 
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
+
+    # Force Cython to install first to work around pip dependency issues.
+    run_pip_install(["Cython>=0.22"])
+    run_pip_install(["pybind11"])
 
     # Pre-install requested packages
     if args.pip_packages is not None:
@@ -1580,10 +1606,6 @@ if mode == "install":
     if args.honour_petsc_dir:
         packages.remove("petsc")
 
-    # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython>=0.22"])
-    run_pip_install(["pybind11"])
-
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
         with environment(**compiler_env):
@@ -1592,8 +1614,6 @@ if mode == "install":
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
-    os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
-    os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
@@ -1643,6 +1663,12 @@ else:
         git_update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
@@ -1706,8 +1732,6 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
-        os.environ["HDF5_DIR"] = os.path.join(petsc_dir, petsc_arch)
-        os.environ["NETCDF4_DIR"] = os.path.join(petsc_dir, petsc_arch)
 
         # If petsc built mpich then we now need to set the compiler environment variables.
         if not compiler_env:

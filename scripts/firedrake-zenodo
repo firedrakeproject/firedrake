@@ -103,10 +103,12 @@ group.add_argument("--bibtex", action="store", nargs=1,
                    help="Retrieve the BibTeX entries corresponding to the release tag provided.", dest="release_tag")
 group.add_argument("--create-meta-release", action="store", nargs="?", const="firedrake-meta-release.json",
                    help="Create meta-record with data from specified file.", dest="meta_release")
+group.add_argument("--list-meta-records", action="store_true",
+                   help="List all known meta records")
 parser.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake-zenodo.bib"],
                     help="Output to the named bibtex file rather than firedrake-zenodo.bib")
 parser.add_argument("--title", "-t", action="store", nargs=1,
-                    help="""Short description of the reason for this release.  Will be formatted as 'Software used in "TITLE"'""")
+                    help="""Short description of the reason for this release.  Will be formatted as 'Software used in `TITLE''""")
 parser.add_argument("--info-file", action="store", nargs=1,
                     help="""File containing additional information to be added to the Zenodo meta-record (e.g. DOIs linking to your simulation code, or an archive of your simulation code and any necessary data).  Will be uploaded to Zenodo using the provided name.""")
 parser.add_argument("--additional-dois", action="store", nargs='+',
@@ -333,6 +335,27 @@ def zenodo_records():
             raise LookupError("Unable to get zenodo records: %s" % response.json())
 
 
+def zenodo_metarecords():
+    response = requests.get(f"{ZENODO_URL}/records", params={"q": 'creators.name:"firedrake-zenodo"',
+                                                             "size": 400,
+                                                             "sort": "mostrecent",
+                                                             "page": 1})
+    i = 1
+    while True:
+        if i > 20:
+            raise RuntimeError("More than 8000 meta records on zenodo?")
+        i += 1
+        if response.status_code == 200:
+            result = response.json()
+            yield from result["hits"]["hits"]
+            if result["links"].get("next") is not None:
+                response = requests.get(result["links"]["next"])
+            else:
+                break
+        else:
+            raise LookupError("Unable to get zenodo records: %s" % response.json())
+
+
 def match(records, possible_tags):
     """Find zenodo records corresponding to tagged component releases.
 
@@ -537,7 +560,7 @@ with deposit:write scope.""")
 
     metadata = {
         "metadata": {
-            "title": "Software used in '{}'".format(title),
+            "title": "Software used in `{}'".format(title),
             "upload_type": "software",
             "creators": [{"name": "firedrake-zenodo"}],
             "version": "{}".format(tag),
@@ -672,6 +695,19 @@ def decode_info_file(encoded):
     return (name, data)
 
 
+if args.list_meta_records:
+    records = list(zenodo_metarecords())
+    log.info("Information on all known Zenodo meta-records")
+    log.info(f"There are {len(records)} records known on Zenodo")
+    log.info("********************************************\n")
+    for record in records:
+        meta = record['metadata']
+        log.info(f"{meta['publication_date']} https://doi.org/{meta['doi']}")
+        log.info(f"{meta['title']}")
+        log.info("")
+    sys.exit(0)
+
+
 if args.meta_release:
     with open(args.meta_release, "r") as f:
         data = json.loads(f.read())
@@ -687,10 +723,10 @@ if args.meta_release:
                                update_record=new_version_of)
     record = record.json()
     log.info("Created Zenodo meta-release.")
-    log.info("Tag is {}".format(tag))
+    log.info("Tag is `{}`".format(tag))
     log.info("DOI is {}".format(record["doi"]))
     log.info("Zenodo URL is {}".format(record["links"]["record_html"]))
-    log.info("BibTeX\n\n{}".format(format_bibtex(record)))
+    log.info("BibTeX\n\n```bibtex\n{}\n```".format(format_bibtex(record)))
     sys.exit(0)
 
 

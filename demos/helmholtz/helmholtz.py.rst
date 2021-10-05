@@ -82,9 +82,10 @@ holding the solution::
   u = Function(V)
 
 Since we know that the Helmholtz equation is
-symmetric, we instruct PETSc to employ the conjugate gradient method::
+symmetric, we instruct PETSc to employ the conjugate gradient method
+and do not worry about preconditioning for the purposes of this demo ::
 
-  solve(a == L, u, solver_parameters={'ksp_type': 'cg'})
+  solve(a == L, u, solver_parameters={'ksp_type': 'cg', 'pc_type': 'none'})
 
 For more details on how to specify solver parameters, see the section
 of the manual on :doc:`solving PDEs <../solving-interface>`.

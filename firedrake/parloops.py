@@ -9,10 +9,12 @@ from ufl.domain import join_domains
 from pyop2 import READ, WRITE, RW, INC, MIN, MAX
 import pyop2
 import loopy
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 import coffee.base as ast
 
 from firedrake.logging import warning
 from firedrake import constant
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType_c
 try:
     from cachetools import LRUCache
@@ -126,8 +128,8 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             raise KeyError("No cache")
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
+        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=loopy.CTarget(),
+                                  seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
         knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
         if kernel_cache is not None:
             return kernel_cache.setdefault(key, knl)
@@ -172,6 +174,7 @@ def _form_string_kernel(body, measure, args, **kwargs):
                         "par_loop_kernel", **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets

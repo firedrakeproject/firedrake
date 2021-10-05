@@ -104,6 +104,25 @@ hybridisation
 Sum Factorisation
 =================
 
-Our final notebook takes a look under the hood at the sorts of
+In this notebook, we take a look under the hood at the sorts of
 performance optimisation that Firedrake's compilers can generate. In
 this case, we focus on `sum factorisation for tensor product elements <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/10-sum-factorisation.ipynb>`__.
+
+Solving adjoint problems
+========================
+
+In some cases, it can be useful to extract adjoint solution data
+which is written to tape by `dolfin-adjoint`. This notebook shows
+how to do that: `solving adjoint equations using firedrake-adjoint <https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/11-extract-adjoint-solutions.ipynb>`__.
+
+Running on HPC
+==============
+
+When it comes to running Firedrake on a high performance computer
+there are a range of different techniques to get the best performance
+from your code. The `HPC demonstration
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/blob/master/docs/notebooks/12-HPC_demo.ipynb>`__
+notebook builds up a multigrid solver for an elliptic problem
+specifically designed for solving very large problems using Firedrake on
+HPC.
+

@@ -3,9 +3,10 @@ import numpy
 import sympy
 
 from pyop2 import op2
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
-
 from pyop2.sequential import generate_single_cell_wrapper
+
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -94,6 +95,7 @@ def init_X(fiat_cell, parameters):
     return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
 
+@PETSc.Log.EventDecorator()
 def to_reference_coordinates(ufl_coordinate_element, parameters):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
@@ -148,6 +150,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters):
     return body
 
 
+@PETSc.Log.EventDecorator()
 def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 

@@ -7,7 +7,7 @@ from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
-from tsfc.finatinterface import create_base_element, as_fiat_cell
+from tsfc.finatinterface import create_element, create_base_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
 
 import gem
@@ -16,11 +16,13 @@ import finat
 import firedrake
 from firedrake import utils
 from firedrake.adjoint import annotate_interpolate
+from firedrake.petsc import PETSc
 
 __all__ = ("interpolate", "Interpolator")
 
 
-def interpolate(expr, V, subset=None, access=op2.WRITE):
+@PETSc.Log.EventDecorator()
+def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: an :class:`.Expression`.
@@ -29,6 +31,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
+    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
@@ -51,7 +54,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE):
        performance by using an :class:`Interpolator` instead.
 
     """
-    return Interpolator(expr, V, subset=subset, access=access).interpolate()
+    return Interpolator(expr, V, subset=subset, access=access).interpolate(ad_block_tag=ad_block_tag)
 
 
 class Interpolator(object):
@@ -86,6 +89,7 @@ class Interpolator(object):
         self.expr = expr
         self.V = V
 
+    @PETSc.Log.EventDecorator()
     @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
@@ -145,6 +149,7 @@ class Interpolator(object):
                     return assembled_interpolator
 
 
+@PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
@@ -230,7 +235,13 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
-        to_element = create_base_element(V.ufl_element())
+        if not isinstance(expr, firedrake.Expression):
+            to_element = create_element(V.ufl_element())
+            if V.ufl_element().mapping() == "symmetries":
+                raise NotImplementedError("Cannot interpolate into tensor spaces with symmetry yet")
+        else:
+            # compile_python_kernel code pathway expects base element
+            to_element = create_base_element(V.ufl_element())
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -281,15 +292,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     if not isinstance(expr, firedrake.Expression):
         kernel = compile_expression_dual_evaluation(expr, to_element,
                                                     domain=source_mesh,
-                                                    parameters=parameters,
-                                                    coffee=False)
+                                                    parameters=parameters)
         ast = kernel.ast
         oriented = kernel.oriented
         needs_cell_sizes = kernel.needs_cell_sizes
         coefficients = kernel.coefficients
         first_coeff_fake_coords = kernel.first_coefficient_fake_coords
         name = kernel.name
-        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True)
+        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+                            flop_count=kernel.flop_count)
     elif hasattr(expr, "eval"):
         to_pts = []
         for dual in to_element.fiat_equivalent.dual_basis():
@@ -439,7 +450,7 @@ def rebuild_dg(element, expr, rt_var_name):
 def rebuild_te(element, expr, rt_var_name):
     return finat.TensorFiniteElement(rebuild(element.base_element,
                                              expr, rt_var_name),
-                                     element.shape,
+                                     element._shape,
                                      transpose=element._transpose)
 
 
@@ -456,6 +467,9 @@ def composed_map(map1, map2):
     Requires that `map1.toset == map2.iterset`.
     Only currently implemented for `map1.arity == 1`
     """
+    if map2 is None:
+        # Real function space case
+        return None
     if map1.toset != map2.iterset:
         raise ValueError("Cannot compose a map where the intermediate sets do not match!")
     if map1.arity != 1:
@@ -500,6 +514,7 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
+@PETSc.Log.EventDecorator()
 def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
     function provided."""
