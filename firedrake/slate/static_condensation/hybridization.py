@@ -9,10 +9,11 @@ from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
-from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
 from pyop2.utils import as_tuple
 from firedrake.formmanipulation import split_form
 
+from firedrake.parameters import parameters
 
 __all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
@@ -302,6 +303,14 @@ class HybridizationPC(SCBase):
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
+        if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
+            Shat = self.schur_builder.inner_S_approx_inv_hat
+            if self.schur_builder.preonly_S:
+                S = Shat
+            else:
+                S = Shat * S
+                rhs = Shat * rhs
+
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
@@ -392,7 +401,8 @@ class HybridizationPC(SCBase):
 
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
-        self._sub_unknown()
+        with PETSc.Log.Event("RecoverFirstElim"):
+            self._sub_unknown()
         # Recover the eliminated unknown
         self._elim_unknown()
 
@@ -451,6 +461,63 @@ class SchurComplementBuilder(object):
     Schur complement of the trace system solve. The Schur complements are then nested.
     For details see defition of :meth:`build_schur`. No fieldsplit options are set so all
     local inverses are calculated explicitly.
+
+    .. code-block:: text
+
+        'localsolve': {'ksp_type': 'preonly',
+                       'pc_type': 'fieldsplit',
+                       'pc_fieldsplit_type': 'schur',
+                       'fieldsplit_1': {'ksp_type': 'default',
+                                        'pc_type': 'python',
+                                        'pc_python_type': __name__ + '.DGLaplacian'}}
+
+    The inverse of the Schur complement inside the Schur decomposition of the mixed matrix inverse
+    is approximated by a default solver (LU in the matrix-explicit case) which is preconditioned
+    by a user-defined operator, e.g. a DG Laplacian, see :meth:`build_inner_S_inv`.
+    So :math:`P_S * S * x = P_S * b`.
+
+    .. code-block:: text
+
+        'localsolve': {'ksp_type': 'preonly',
+                        'pc_type': 'fieldsplit',
+                        'pc_fieldsplit_type': 'schur',
+                        'fieldsplit_1': {'ksp_type': 'default',
+                                        'pc_type': 'python',
+                                        'pc_python_type': __name__ + '.DGLaplacian',
+                                        'aux_ksp_type': 'preonly'}
+                                        'aux_pc_type': 'jacobi'}}}}
+
+    The inverse of the Schur complement inside the Schur decomposition of the mixed matrix inverse
+    is approximated by a default solver (LU in the matrix-explicit case) which is preconditioned
+    by a user-defined operator, e.g. a DG Laplacian. The inverse of the preconditioning matrix is
+    approximated through the inverse of only the diagonal of the provided operator, see
+    :meth:`build_Sapprox_inv`. So :math:`diag(P_S).inv * S * x = diag(P_S).inv * b`.
+
+    .. code-block:: text
+
+        'localsolve': {'ksp_type': 'preonly',
+                       'pc_type': 'fieldsplit',
+                       'pc_fieldsplit_type': 'schur',
+                       'fieldsplit_0': {'ksp_type': 'default',
+                                        'pc_type': 'jacobi'}
+
+    The inverse of the :math:`A_{00}` block of the mixed matrix is approximated by a default solver
+    (LU in the matrix-explicit case) which is preconditioned by the diagonal matrix of :math:`A_{00},
+    see :meth:`build_A00_inv`. So :math:`diag(A_{00}).inv * A_{00} * x = diag(A_{00}).inv * b`.
+
+    .. code-block:: text
+
+        'localsolve': {'ksp_type': 'preonly',
+                       'pc_type': 'fieldsplit',
+                       'pc_fieldsplit_type': 'None',
+                       'fieldsplit_0':  ...
+                       'fieldsplit_1':  ...
+
+    All the options for ``fieldsplit_`` are still valid if ``'pc_fieldsplit_type': 'None'.`` In this case
+    the mixed matrix inverse which appears inside the Schur complement of the trace system solve
+    is calculated explicitly, but the local inverses of :math:`A_{00}` and the Schur complement
+    in the reconstructions calls are still treated according to the options in ``fieldsplit_``.
+
     """
 
     def __init__(self, prefix, Atilde, K, pc, vidx, pidx):
@@ -463,11 +530,12 @@ class SchurComplementBuilder(object):
         self.prefix = prefix + "localsolve_"
 
         # prefixes
-        self._retrieve_options()
+        self._retrieve_options(pc)
 
         # build all required inverses
         self.A00_inv_hat = self.build_A00_inv()
         self.inner_S = self.build_inner_S()
+        self.inner_S_approx_inv_hat = self.build_Sapprox_inv()
         self.inner_S_inv_hat = self.build_inner_S_inv()
 
     def _split_mixed_operator(self):
@@ -502,21 +570,69 @@ class SchurComplementBuilder(object):
                        and get_option("pc_type") == "fieldsplit"
                        and get_option("pc_fieldsplit_type") == "schur")
 
+        # Get preconditioning options for A00
+        fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
+        self._check_options([(fs0+"ksp_type", {"preonly", "default"}), (fs0+"pc_type", {"jacobi"})])
+        self.preonly_A00 = get_option(fs0+"_ksp_type") == "preonly"
+        self.jacobi_A00 = get_option(fs0+"_pc_type") == "jacobi"
+
+        # Get preconditioning options for the Schur complement
+        self._check_options([(fs1+"ksp_type", {"preonly", "default"}), (fs1+"pc_type", {"jacobi", "python"})])
+        self.preonly_S = get_option(fs1+"_ksp_type") == "preonly"
+        self.jacobi_S = get_option(fs1+"_pc_type") == "jacobi"
+
+        # Get user supplied operator and its options
+        self.schur_approx = (self.retrieve_user_S_approx(pc, get_option(fs1+"_pc_python_type"))
+                             if get_option(fs1+"_pc_type") == "python"
+                             else None)
+        self._check_options([(fs1+"aux_ksp_type", {"preonly", "default"}), (fs1+"aux_pc_type", {"jacobi"})])
+        self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
+        self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
+
+        if self.jacobi_Shat or self.jacobi_A00:
+            assert parameters["slate_compiler"]["optimise"], ("Local systems should only get preconditioned with "
+                                                              "a preconditioning matrix if the Slate optimiser replaces "
+                                                              "inverses by solves.")
 
     def build_inner_S(self):
         """Build the inner Schur complement."""
         _, A01, A10, A11 = self.list_split_mixed_ops
         return A11 - A10 * self.A00_inv_hat * A01
 
-    def inv(self, A):
+    def inv(self, A, P, prec, preonly=False):
         """ Calculates the inverse of an operator A.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with the preconditioner P
+            if prec is True.
+            The inverse of A may be just approximated with the inverse of P
+            if prec and replace.
         """
-        return A.inv
+        return (P if prec and preonly else
+                (P*A).inv * P if prec else
+                A.inv)
 
     def build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with the preconditioner P.
         """
-        return self.inv(self.inner_S)
+        A = self.inner_S
+        P = self.inner_S_approx_inv_hat
+        prec = bool(self.schur_approx) or self.jacobi_S
+        return self.inv(A, P, prec, self.preonly_S)
+
+    def build_Sapprox_inv(self):
+        """ Calculates the inverse of preconditioner to the Schur complement,
+            which can be either the schur complement approximation provided by the user
+            or jacobi.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with jacobi.
+        """
+        prec = (bool(self.schur_approx) and self.jacobi_Shat) or self.jacobi_S
+        A = self.schur_approx if self.schur_approx else self.inner_S
+        P = DiagonalTensor(A).inv
+        preonly = self.preonly_Shat if self.schur_approx else True
+        return self.inv(A, P, prec, preonly)
 
     def build_A00_inv(self):
         """ Calculates the inverse of :math:`A_{00}`, the (0,0)-block of the mixed matrix Atilde.
@@ -524,7 +640,25 @@ class SchurComplementBuilder(object):
             which is potentially preconditioned with jacobi.
         """
         A, _, _, _ = self.list_split_mixed_ops
-        return self.inv(A)
+        P = DiagonalTensor(A).inv
+        return self.inv(A, P, self.jacobi_A00, self.preonly_A00)
+
+    def retrieve_user_S_approx(self, pc, usercode):
+        """Retrieve a user-defined :class:firedrake.preconditioners.AuxiliaryOperator from the PETSc Options,
+        which is an approximation to the Schur complement and its inverse is used
+        to precondition the local solve in the reconstruction calls (e.g.).
+        """
+        _, _, _, A11 = self.list_split_mixed_ops
+        test, trial = A11.arguments()
+        if usercode != "":
+            (modname, funname) = usercode.rsplit('.', 1)
+            mod = __import__(modname)
+            fun = getattr(mod, funname)
+            if isinstance(fun, type):
+                fun = fun()
+            return Tensor(fun.form(pc, test, trial)[0])
+        else:
+            return None
 
     def build_schur(self, rhs):
         """The Schur complement in the operators of the trace solve contains
