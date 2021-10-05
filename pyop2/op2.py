@@ -39,15 +39,18 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, info, warning, error, critical, set_log_level
 from pyop2.mpi import MPI, COMM_WORLD, collective
 
-from pyop2.sequential import par_loop, Kernel  # noqa: F401
-from pyop2.sequential import READ, WRITE, RW, INC, MIN, MAX  # noqa: F401
-from pyop2.base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL  # noqa: F401
-from pyop2.sequential import Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet  # noqa: F401
-from pyop2.sequential import Map, MixedMap, PermutedMap, Sparsity, Halo  # noqa: F401
-from pyop2.sequential import Global, GlobalDataSet        # noqa: F401
-from pyop2.sequential import Dat, MixedDat, DatView, Mat  # noqa: F401
-from pyop2.sequential import ParLoop as SeqParLoop
-from pyop2.pyparloop import ParLoop as PyParLoop
+from .types import (
+    Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
+    Map, MixedMap, PermutedMap, Sparsity, Halo,
+    Global, GlobalDataSet,
+    Dat, MixedDat, DatView, Mat
+)
+from .types.access import READ, WRITE, RW, INC, MIN, MAX
+
+from pyop2.parloop import par_loop, ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
+from pyop2.kernel import Kernel
+
+from pyop2.parloop import ParLoop as SeqParLoop, PyParLoop
 
 import types
 import loopy

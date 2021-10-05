@@ -19,7 +19,7 @@ import operator
 
 from pyop2.codegen.node import traversal, Node, Memoizer, reuse_if_untouched
 
-from pyop2.base import READ, WRITE
+from pyop2.types.access import READ, WRITE
 from pyop2.datatypes import as_ctypes
 
 from pyop2.codegen.optimise import index_merger, rename_nodes
