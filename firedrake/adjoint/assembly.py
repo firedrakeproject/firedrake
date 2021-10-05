@@ -13,6 +13,7 @@ def annotate_assemble(assemble):
         to *attach the form to the assembled object*. This lets the automatic annotation work,
         even when the user calls the lower-level :py:data:`solve(A, x, b)`.
         """
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         with stop_annotating():
             output = assemble(*args, **kwargs)
@@ -39,7 +40,7 @@ def annotate_assemble(assemble):
                     block_extops.add_output(block_variable)
 
             output = create_overloaded_object(output)
-            block = AssembleBlock(form)
+            block = AssembleBlock(form, ad_block_tag=ad_block_tag)
             tape.add_block(block)
 
             block.add_output(output.block_variable)

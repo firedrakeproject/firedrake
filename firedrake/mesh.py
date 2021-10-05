@@ -13,7 +13,6 @@ import abc
 from mpi4py import MPI
 from firedrake.utils import IntType, RealType
 from pyop2 import op2
-from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.utils import as_tuple, tuplify
 
@@ -451,6 +450,27 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
+    @property
+    @abc.abstractmethod
+    def entity_orientations(self):
+        """2D array of entity orientations
+
+        `entity_orientations` has the same shape as `cell_closure`.
+        Each row of this array contains orientations of the entities
+        in the closure of the associated cell. Here, for each cell in the mesh,
+        orientation of an entity, say e, encodes how the the canonical
+        representation of the entity defined by Cone(e) compares to
+        that of the associated entity in the reference FInAT (FIAT) cell. (Note
+        that `cell_closure` defines how each cell in the mesh is mapped to
+        the FInAT (FIAT) reference cell and each entity of the FInAT (FIAT)
+        reference cell has a canonical representation based on the entity ids of
+        the lower dimensional entities.) Orientations of vertices are always 0.
+        See :class:`FIAT.reference_element.Simplex` and
+        :class:`FIAT.reference_element.UFCQuadrilateral` for example computations
+        of orientations.
+        """
+        pass
+
     @abc.abstractmethod
     def _facets(self, kind):
         pass
@@ -495,15 +515,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof (may be None).
         """
         return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, offsets)
+                                       entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -836,6 +857,10 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
+    @utils.cached_property
+    def entity_orientations(self):
+        return dmcommon.entity_orientations(self, self.cell_closure)
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
@@ -898,9 +923,9 @@ class MeshTopology(AbstractMeshTopology):
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
-            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
@@ -1052,6 +1077,10 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
+    @utils.cached_property
+    def entity_orientations(self):
+        return self._base_mesh.entity_orientations
+
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
@@ -1063,15 +1092,25 @@ class ExtrudedMeshTopology(MeshTopology):
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof.
         """
+        if entity_permutations is None:
+            # FInAT entity_permutations not yet implemented
+            entity_dofs = eutils.flat_entity_dofs(entity_dofs)
+            return super().make_cell_node_list(global_numbering, entity_dofs, None, offsets)
+        assert sorted(entity_dofs.keys()) == sorted(entity_permutations.keys()), "Mismatching dimension tuples"
+        for key in entity_dofs.keys():
+            assert sorted(entity_dofs[key].keys()) == sorted(entity_permutations[key].keys()), "Mismatching entity tuples"
+        assert all(v in {0, 1} for _, v in entity_permutations), "Vertical dim index must be in [0, 1]"
         entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-        return super().make_cell_node_list(global_numbering, entity_dofs, offsets)
+        entity_permutations = eutils.flat_entity_permutations(entity_permutations)
+        return super().make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1265,6 +1304,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         return dmcommon.closure_ordering(swarm, vertex_numbering,
                                          cell_numbering, entity_per_cell)
+
+    entity_orientations = None
 
     def _facets(self, kind):
         """Raises an AttributeError since cells in a
@@ -1941,7 +1982,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords):
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices
     defined by a list of coordinates.
@@ -1949,15 +1990,47 @@ def VertexOnlyMesh(mesh, vertexcoords):
     :arg mesh: The unstructured mesh in which to immerse the vertex only
         mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+    :kwarg missing_points_behaviour: optional string argument for what to do
+        when vertices which are outside of the mesh are discarded. If ``'warn'``,
+        will print a warning. If ``'error'`` will raise a ValueError. Note that
+        setting this will cause all MPI ranks to check that they have the same
+        list of vertices (else the test is not possible): this operation scales
+        with number of vertices and number of ranks.
 
     .. note::
 
-        The vertex only mesh uses the same communicator as the input `mesh`.
+        The vertex only mesh uses the same communicator as the input ``mesh``.
 
     .. note::
 
-        Meshes created from a coordinates `firedrake.Function` and immersed
+        Meshes created from a coordinates :py:class:`~.Function` and immersed
         manifold meshes are not yet supported.
+
+    .. note::
+
+        This should also only be used for meshes which have not had their
+        coordinates field modified as, at present, this does not update the
+        coordinates field of the underlying DMPlex. Such meshes may cause
+        unexpected behavioir or hangs when running in parallel.
+
+    .. note::
+        When running in parallel, ``vertexcoords`` are strictly confined
+        to the local ``mesh`` cells of that rank. This means that if rank
+        A has ``vertexcoords`` {X} that are not found in the mesh cells
+        owned by rank A but are found in the mesh cells owned by rank B,
+        **and rank B has not been supplied with those** ``vertexcoords``,
+        then the ``vertexcoords`` {X} will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same
+           ``vertexcoords`` or by
+        #. ensuring that ``vertexcoords`` are already found in cells
+           owned by the ``mesh`` partition of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
+
     """
 
     import firedrake.functionspace as functionspace
@@ -1998,6 +2071,42 @@ def VertexOnlyMesh(mesh, vertexcoords):
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
     swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+
+    if missing_points_behaviour:
+
+        def compare_arrays(x, y, datatype):
+            x, eqx = x
+            y, eqy = y
+            if not (eqx and eqy):
+                return (None, False)
+            elif x.shape != y.shape:
+                return (None, False)
+            else:
+                return (x, np.allclose(x, y))
+
+        op = MPI.Op.Create(compare_arrays, commute=True)
+
+        # check all ranks have the same vertexcoords so that check is valid
+        # NOTE this operation scales with number of vertices and ranks
+        _, allequal = mesh.comm.allreduce((vertexcoords, True), op=op)
+        op.Free()
+        if not allequal:
+            raise ValueError("Cannot check for missing points if different vertices on each MPI rank!")
+
+        # Check for missing points
+        nlocal = len(swarm.getField("parentcellnum"))
+        swarm.restoreField("parentcellnum")
+        nglobal = mesh.comm.allreduce(nlocal, op=MPI.SUM)
+        ninput = len(vertexcoords)
+        if nglobal < ninput:
+            msg = f"{ninput - nglobal} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
+            if missing_points_behaviour == 'error':
+                raise ValueError(msg)
+            elif missing_points_behaviour == 'warn':
+                from warnings import warn
+                warn(msg)
+            else:
+                raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     dmcommon.label_pic_parent_cell_info(swarm, mesh)
 
@@ -2047,7 +2156,7 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     :arg plex: the DMPlex within with the DMSwarm should be
         immersed.
-    :arg coords: an `ndarray` of (npoints, coordsdim) shape.
+    :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
     :kwarg fields: An optional list of named data which can be stored
         for each point in the DMSwarm. The format should be::
 
@@ -2056,11 +2165,12 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
          (fieldnameN, blocksizeN, dtypeN)]
 
         For example, the swarm coordinates themselves are stored in a
-        field named `DMSwarmPIC_coor` which, were it not created
+        field named ``DMSwarmPIC_coor`` which, were it not created
         automatically, would be initialised with
         ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
         All fields must have the same number of points. For more
-        information see https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html
+        information see `the DMSWARM API reference
+        <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2072,13 +2182,29 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         In complex mode the "DMSwarmPIC_coor" field is still saved as a
         real number unlike the coordinates of a DMPlex which become
         complex (though usually with zeroed imaginary parts).
+
+    .. note::
+        When running in parallel, ``coords`` are strictly confined to
+        the local DMPlex cells of that rank. This means that if rank A
+        has ``coords`` {X} that are not found in the DMPlex cells of rank
+        A but are found in the DMPlex cells of rank B, **and rank B has
+        not been supplied with those** ``coords`` then the ``coords`` {X}
+        will be lost.
+
+        This can be avoided by either
+
+        #. making sure that all ranks are supplied with the same list of
+          ``coords`` or by
+        #. ensuring that ``coords`` are already localised for to the
+           DMPlex cells of the given rank.
+
+        For more see `this github issue
+        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
     """
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
-    npoints, coordsdim = coords.shape
-    if coordsdim == 1:
-        raise NotImplementedError("You can't yet use a 1D DMPlex as DMSwarm cellDM.")
+    _, coordsdim = coords.shape
 
     # Create a DMSWARM
     swarm = PETSc.DMSwarm().create(comm=plex.comm)

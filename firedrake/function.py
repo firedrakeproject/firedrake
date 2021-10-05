@@ -357,13 +357,14 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, subset=None):
+    def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset)
+        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
@@ -406,6 +407,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -424,6 +427,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -442,6 +447,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
@@ -460,6 +467,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat /= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat /= expr.dat
@@ -659,7 +668,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.sequential import generate_single_cell_wrapper
+    from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
     mesh = function.ufl_domain()

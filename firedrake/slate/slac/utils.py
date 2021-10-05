@@ -15,7 +15,7 @@ from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.transform.callable import merge
-import itertools
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 class RemoveRestrictions(MultiFunction):
@@ -167,6 +167,7 @@ def _slate2gem(expr, self):
 
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
+@_slate2gem.register(sl.BlockAssembledVector)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
     name = f"T{len(self.var2terminal)}"
@@ -290,13 +291,17 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
-    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
-                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
-                                    for terminal in terminal_tensors)))
+    terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
+    calls_and_kernels = tuple((c, k) for terminal in terminal_tensors
+                              for c, k in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+    if calls_and_kernels:  # tsfc may not give a kernel back
+        tsfc_calls, tsfc_kernels = zip(*calls_and_kernels)
+    else:
+        tsfc_calls = ()
+        tsfc_kernels = ()
 
     # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp)
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
@@ -307,8 +312,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns, args, name=name,
-                                     seq_dependencies=True, target=lp.CTarget(),
-                                     lang_version=(2018, 2))
+                                     seq_dependencies=True, target=lp.CTarget())
 
     # Generate program from kernel, so that one can register kernels
     from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_

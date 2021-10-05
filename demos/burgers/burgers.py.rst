@@ -102,7 +102,8 @@ of :class:`~.File` objects::
   outfile.write(project(u, V_out, name="Velocity"))
 
 Finally, we loop over the timesteps solving the equation each time and
-outputting each result::
+outputting each result. Firedrake's default solver parameters are used,
+which amount to applying a full LU decomposition as a preconditioner. ::
 
   t = 0.0
   end = 0.5

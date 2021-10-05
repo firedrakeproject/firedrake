@@ -16,6 +16,8 @@ import collections
 
 import ufl
 from ufl import Form, conj
+from firedrake.constant import Constant
+from firedrake.function import Function
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
@@ -126,7 +128,8 @@ class TSFCKernel(Cached):
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
+        :arg number_map: a map from local coefficient numbers
+                         to the split global coefficient numbers.
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
@@ -144,7 +147,8 @@ class TSFCKernel(Cached):
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
-                                                    requires_zeroed_output_arguments=True),
+                                                    requires_zeroed_output_arguments=True,
+                                                    flop_count=kernel.flop_count),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -212,9 +216,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         pass
 
     kernels = []
-    # A map from all form coefficients to their number.
-    coefficient_numbers = dict((c, n)
-                               for (n, c) in enumerate(form.coefficients()))
+    coefficient_numbers = form.coefficient_numbering()
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -226,8 +228,10 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     for idx, f in iterable:
         f = _real_mangle(f)
         # Map local coefficient numbers (as seen inside the
-        # compiler) to the global coefficient numbers
-        number_map = dict((n, coefficient_numbers[c])
+        # compiler) to the split global coefficient numbers
+        number_map = dict((n, (coefficient_numbers[c], tuple(range(len(c.split())))))
+                          if isinstance(c, Function) or isinstance(c, Constant)
+                          else (n, (coefficient_numbers[c], (0,)))
                           for (n, c) in enumerate(f.coefficients()))
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,

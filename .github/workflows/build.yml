@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: "Build Firedrake"  
+    name: "Build Firedrake"
     # The type of runner that the job will run on
     runs-on: self-hosted
     # The docker container to use.
@@ -68,3 +68,132 @@ jobs:
         run: |
           cd ..
           rm -rf build
+  docker_env:
+    name: "Build Docker environment container"  
+    # The type of runner that the job will run on
+    needs: build
+    if: ${{ github.ref == 'refs/heads/master' }}
+    runs-on: self-hosted
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push firedrake-env
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: docker/Dockerfile.env
+          tags: firedrakeproject/firedrake-env:latest
+  docker_vanilla:
+    name: "Build Docker vanilla container"
+    # The type of runner that the job will run on
+    needs: docker_env
+    runs-on: self-hosted
+    env:
+      PETSC_CONFIGURE_OPTIONS: --with-make-np=12 --download-mpich-device=ch3:sock
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push firedrake-vanilla
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          no-cache: true
+          build-args: PETSC_CONFIGURE_OPTIONS
+          file: docker/Dockerfile.vanilla
+          tags: firedrakeproject/firedrake-vanilla:latest
+  docker_firedrake:
+    name: "Build full Firedrake Docker container"
+    # The type of runner that the job will run on
+    needs: docker_vanilla
+    runs-on: self-hosted
+    env:
+      PETSC_CONFIGURE_OPTIONS: --with-make-np=12 --download-mpich-device=ch3:sock
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push firedrake
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          no-cache: true
+          build-args: PETSC_CONFIGURE_OPTIONS
+          file: docker/Dockerfile.firedrake
+          tags: firedrakeproject/firedrake:latest
+  docker_jupyter:
+    name: "Build tutorial notebooks Docker container"
+    # The type of runner that the job will run on
+    needs: docker_firedrake
+    runs-on: self-hosted
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push firedrake
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          no-cache: true
+          build-args: PETSC_CONFIGURE_OPTIONS
+          file: docker/Dockerfile.jupyter
+          tags: firedrakeproject/firedrake-notebooks:latest
+  docker_complex:
+    name: "Build Docker complex container"
+    # The type of runner that the job will run on
+    needs: docker_env
+    runs-on: self-hosted
+    env:
+      PETSC_CONFIGURE_OPTIONS: --with-make-np=12 --download-mpich-device=ch3:sock
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push firedrake-complex
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          no-cache: true
+          build-args: PETSC_CONFIGURE_OPTIONS
+          file: docker/Dockerfile.complex
+          tags: firedrakeproject/firedrake-complex:latest

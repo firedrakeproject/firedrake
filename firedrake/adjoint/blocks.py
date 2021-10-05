@@ -102,10 +102,12 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
+    def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J, solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
+        self.adj_F = adj_F
+        self._dFdm_cache = dFdm_cache
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
@@ -149,6 +151,79 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        dJdu = adj_inputs[0]
+
+        F_form = self._create_F_form()
+
+        dFdu_form = self.adj_F
+        dJdu = dJdu.copy()
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdu_form)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdu_form = replace(dFdu_form, replace_map)
+
+        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
+        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
+        self.adj_sol = adj_sol
+        if self.adj_cb is not None:
+            self.adj_cb(adj_sol)
+        if self.adj_bdy_cb is not None and compute_bdy:
+            self.adj_bdy_cb(adj_sol_bdy)
+
+        r = {}
+        r["form"] = F_form
+        r["adj_sol"] = adj_sol
+        r["adj_sol_bdy"] = adj_sol_bdy
+        return r
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        if not self.linear and self.func == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            return None
+        F_form = prepared["form"]
+        adj_sol = prepared["adj_sol"]
+        adj_sol_bdy = prepared["adj_sol_bdy"]
+        c = block_variable.output
+        c_rep = block_variable.saved_output
+
+        if isinstance(c, firedrake.Function):
+            trial_function = firedrake.TrialFunction(c.function_space())
+        elif isinstance(c, firedrake.Constant):
+            mesh = self.compat.extract_mesh_from_form(F_form)
+            trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
+        elif isinstance(c, firedrake.DirichletBC):
+            tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
+            return [tmp_bc]
+        elif isinstance(c, self.compat.MeshType):
+            # Using CoordianteDerivative requires us to do action before
+            # differentiating, might change in the future.
+            F_form_tmp = firedrake.action(F_form, adj_sol)
+            X = firedrake.SpatialCoordinate(c_rep)
+            dFdm = firedrake.derivative(-F_form_tmp, X, firedrake.TestFunction(c._ad_function_space()))
+
+            dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+            return dFdm
+
+        # dFdm_cache works with original variables, not block saved outputs.
+        if c in self._dFdm_cache:
+            dFdm = self._dFdm_cache[c]
+        else:
+            dFdm = -firedrake.derivative(self.lhs, c, trial_function)
+            dFdm = firedrake.adjoint(dFdm)
+            self._dFdm_cache[c] = dFdm
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdm)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdm = replace(dFdm, replace_map)
+
+        dFdm = dFdm * adj_sol
+        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+
+        return dFdm
+
 
 class ProjectBlock(SolveVarFormBlock):
     def __init__(self, v, V, output, bcs=[], *args, **kwargs):
@@ -173,8 +248,8 @@ class MeshInputBlock(Block):
     Block which links a MeshGeometry to its coordinates, which is a firedrake
     function.
     """
-    def __init__(self, mesh):
-        super().__init__()
+    def __init__(self, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(mesh)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -193,8 +268,8 @@ class MeshInputBlock(Block):
 
 
 class FunctionSplitBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
 
@@ -223,8 +298,8 @@ class FunctionSplitBlock(Block, Backend):
 
 
 class FunctionMergeBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
         for output in func._ad_outputs:
@@ -264,8 +339,8 @@ class MeshOutputBlock(Block):
     """
     Block which is called when the coordinates of a mesh are changed.
     """
-    def __init__(self, func, mesh):
-        super().__init__()
+    def __init__(self, func, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -437,7 +512,7 @@ class InterpolateBlock(Block, Backend):
     Arguments after a semicolon are linear (i.e. operation I is linear)
     """
     def __init__(self, interpolator, *functions, **kwargs):
-        super().__init__()
+        super().__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
 
         self.expr = interpolator.expr
         self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
@@ -727,7 +802,7 @@ class SupermeshProjectBlock(Block, Backend):
       Step 2. solve linear system.
     """
     def __init__(self, source, target_space, target, bcs=[], **kwargs):
-        super(SupermeshProjectBlock, self).__init__()
+        super(SupermeshProjectBlock, self).__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
         import firedrake.supermeshing as supermesh
 
         # Process args and kwargs
