@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.assemble import preassemble_base_form
 from firedrake.utils import ScalarType
 import ufl
 
@@ -152,6 +153,11 @@ def test_zero_form(M, f, one):
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
+
+def test_preassemble_form(M, a, f):
+
+    expr = action(action(M, M), f)
+    assert preassemble_base_form(expr) == action(M, action(M, f))
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
