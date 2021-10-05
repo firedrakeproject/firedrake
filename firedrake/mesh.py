@@ -13,7 +13,6 @@ import abc
 from mpi4py import MPI
 from firedrake.utils import IntType, RealType
 from pyop2 import op2
-from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.utils import as_tuple, tuplify
 
@@ -924,9 +923,9 @@ class MeshTopology(AbstractMeshTopology):
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
-            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
