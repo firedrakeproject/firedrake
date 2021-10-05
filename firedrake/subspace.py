@@ -129,6 +129,14 @@ class Subspace(AbstractSubspace):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return self._split
 
+    @utils.cached_property
+    def _components(self):
+        if self.function_space().value_size == 1:
+            return (self, )
+        else:
+            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+                         for i in range(self.function_space().value_size))
+
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
