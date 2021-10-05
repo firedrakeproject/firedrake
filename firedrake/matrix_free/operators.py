@@ -6,6 +6,7 @@ from mpi4py import MPI
 import numpy
 
 from firedrake.ufl_expr import adjoint, action
+from firedrake.cofunction import Cofunction
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.petsc import PETSc
@@ -108,7 +109,9 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
-        from firedrake import function
+        from firedrake import function#, cofunction
+        # Need a cofunction since y receives the assembled result of Ax
+        #self._y = cofunction.Cofunction(test_space)
         self._y = function.Function(test_space)
         self._x = function.Function(trial_space)
 

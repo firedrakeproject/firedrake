@@ -5,7 +5,7 @@ import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
-from firedrake import function, cofunction, dmhooks
+from firedrake import cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
@@ -335,7 +335,7 @@ class _SNESContext(object):
             us = problem.u.split()
             V = F.arguments()[0].function_space()
             # Exposition:
-            # We are going to make a new solution Function on the sub
+            # We are going to make a new solution Cofunction on the sub
             # mixed space defined by the relevant fields.
             # But the form may refer to the rest of the solution
             # anyway.
@@ -344,11 +344,11 @@ class _SNESContext(object):
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
-                subu = function.Function(V, val=val)
+                subu = cofunction.Cofunction(V, val=val)
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                subu = function.Function(V, val=val)
+                subu = cofunction.Cofunction(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             # Permutation from field indexing to indexing of pieces
@@ -368,9 +368,9 @@ class _SNESContext(object):
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
-            # to solve for, it points to a new Function (which wraps
+            # to solve for, it points to a new Cofunction (which wraps
             # the original pieces). For the rest, it points to the
-            # pieces from the original Function.
+            # pieces from the original Cofunction.
             # IOW, we've reinterpreted our original mixed solution
             # function as being made up of some spaces we're still
             # solving for, and some spaces that have just become
@@ -418,6 +418,7 @@ class _SNESContext(object):
             ctx._pre_function_callback(X)
 
         ctx._assemble_residual()
+        #print('\n\n\t Residual: ', F.norm(), '\n\n')
 
         if ctx._post_function_callback is not None:
             with ctx._F.dat.vec as F_:
@@ -457,6 +458,7 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
+        #print('\n\n\t Jacobian: ', J.norm(), '\n\n')
 
         if ctx._post_jacobian_callback is not None:
             ctx._post_jacobian_callback(X, J)
@@ -554,5 +556,4 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        #return function.Function(self.F.arguments()[0].function_space())
         return cofunction.Cofunction(self.F.arguments()[0].function_space())
