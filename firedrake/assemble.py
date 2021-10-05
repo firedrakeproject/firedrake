@@ -156,15 +156,15 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
             stack.extend(unvisted_children)
         else:
             visited[e] = base_form_assembly_visitor(e, tensor, bcs, diagonal,
-                                           assembly_type,
-                                           form_compiler_parameters,
-                                           mat_type, sub_mat_type,
-                                           appctx, options_prefix,
-                                           visited,
-                                           *(visited[arg] for arg in operands))
+                                                    assembly_type,
+                                                    form_compiler_parameters,
+                                                    mat_type, sub_mat_type,
+                                                    appctx, options_prefix,
+                                                    visited,
+                                                    *(visited[arg] for arg in operands))
     return visited[expr]
 
-#def preassemble_base_form(expr, visited=None):
+
 def restructure_base_form(expr, visited=None):
     r"""Perform a preorder traversal to simplify and optimize the DAG.
 
@@ -205,7 +205,7 @@ def restructure_base_form(expr, visited=None):
 
     So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
 
-             Action             Action               Action                 
+             Action             Action               Action
              /    \    (1)      /     \      (2)     /     \               (4)                                dFdN
            Action  w  ---->  dFdN   Action  ---->  dFdN   dNdu(u; w, v*)  ---->  dFdN(..., dNdu(u; w, v*)) =    |
            /    \                    /    \                                                                  dNdu(u; w, v*)
@@ -214,7 +214,6 @@ def restructure_base_form(expr, visited=None):
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     the dag rotation (i.e. (1) and (2)) in expr.
     """
-    #from tsfc
     visited = visited or {}
     if expr in visited:
         return visited[expr]
@@ -231,14 +230,13 @@ def restructure_base_form(expr, visited=None):
         if isinstance(left, ufl.Form) and is_rank_1(right):
             v_rep = left.arguments()[-1]
             visited[expr] = ufl.replace(left, {v_rep: right})
-            #import ipdb; ipdb.set_trace()
             return visited[expr]
         # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
         if isinstance(left, ufl.Action) and is_rank_2(left):
             operands = [left.left(), ufl.action(left.right(), right)]
         if isinstance(left, ufl.ExternalOperator) and is_rank_1(right):
             arg = left.arguments()[-1]
-            visited[expr] = ufl.replace(left,{arg: right})
+            visited[expr] = ufl.replace(left, {arg: right})
             return visited[expr]
 
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.ExternalOperator):
@@ -249,7 +247,7 @@ def restructure_base_form(expr, visited=None):
         return visited[expr]
 
     # Visit/update the children
-    #operands = list(preassemble_base_form(op, visited) for op in operands)
+    # operands = list(preassemble_base_form(op, visited) for op in operands)
     operands = list(restructure_base_form(op, visited) for op in operands)
     # Need to reconstruct the DAG as we traverse it!
     #  -> ufl.replace does not apply on most of the base form objects
@@ -283,7 +281,7 @@ def base_form_operands(expr):
     if isinstance(expr, ufl.ExternalOperator):
         return list(e for e in expr.external_operators() if e != expr)
         # TODO: At the moment assemble nothing instead of only assembling BaseForm
-        #return tuple(expr.ufl_operands() + expr.argument_slots())
+        # return tuple(expr.ufl_operands() + expr.argument_slots())
     return []
 
 
@@ -322,10 +320,8 @@ def preassemble_base_form(expr):
     return expr
 
 
-def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
-                      form_compiler_parameters,
-                      mat_type, sub_mat_type,
-                      appctx, options_prefix, visited, *args):
+def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type, form_compiler_parameters,
+                               mat_type, sub_mat_type, appctx, options_prefix, visited, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         if mat_type != "matfree":
             # For "matfree", Form evaluation is delayed
@@ -333,10 +329,10 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
 
         if not isinstance(expr, ufl.form.Form):
             res = assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
-                                      form_compiler_parameters,
-                                      mat_type, sub_mat_type,
-                                      appctx, options_prefix,
-                                      visited)
+                                     form_compiler_parameters,
+                                     mat_type, sub_mat_type,
+                                     appctx, options_prefix,
+                                     visited)
 
             # Ugly: Temporary debug approach
             if hasattr(tensor, 'petscmat'):
@@ -344,16 +340,16 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                 res.petscmat.copy(tensor.petscmat)
             return res
 
-        if args and mat_type!="matfree":
+        if args and mat_type != "matfree":
             # Retrieve the Form's children
             external_operators = expr.external_operators()
             # Substitute the external operators by their output
             expr = ufl.replace(expr, dict(zip(external_operators, args)))
 
         res = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
-                             form_compiler_parameters,
-                             mat_type, sub_mat_type,
-                             appctx, options_prefix)
+                            form_compiler_parameters,
+                            mat_type, sub_mat_type,
+                            appctx, options_prefix)
 
         if isinstance(res, firedrake.Function):
             res = firedrake.Cofunction(res.function_space(), val=res.vector())
@@ -396,7 +392,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
             res = PETSc.Mat().create()
             # TODO Figure out what goes here
             res = petsc_mat.matMult(rhs.M.handle)
-            return matrix.AssembledMatrix(rhs, bcs, res,
+            return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
