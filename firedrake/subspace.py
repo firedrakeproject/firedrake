@@ -27,9 +27,9 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, V, active_indices=None):
+    def __init__(self, V, nonzero_indices=None):
         self._function_space = V
-        self.active_indices = active_indices
+        self.nonzero_indices = nonzero_indices
 
     parent = None
     """Parent of an indexed mixed function subspace."""
@@ -52,9 +52,25 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
-        """The linear transfomation.
+        """Apply linear transformation.
 
-        expressions with dummy indices are transformed into ones with true indices.
+        :arg expressions: a tuple of gem expressions written in terms of i_dummy.
+        :arg subspace_expr: GEM expression representing local subspace data array
+            associated with finat_element.
+        :arg i_dummy: the multiindex of the expressions.
+        :arg i: the multiindex of the return variable.
+        :arg dtype: data type (= KernelBuilder.scalar_type).
+
+        A non-projected (default) function is written as a
+        linear combination of basis functions:
+
+        .. math::
+
+            u = \\sum_i [ u_i * \\phi_i ]
+
+            u      : function
+            u_i    : ith coefficient
+            \\phi_i: ith basis
         """
         pass
 
@@ -77,7 +93,7 @@ class Subspace(AbstractSubspace):
 
     _globalcount = 0
 
-    def __init__(self, V, val=None, name=None, dtype=ScalarType, count=None, active_indices=None):
+    def __init__(self, V, val=None, name=None, dtype=ScalarType, count=None, nonzero_indices=None):
         self._count = count or Subspace._globalcount
         if self._count >= Subspace._globalcount:
             Subspace._globalcount = self._count + 1
@@ -92,7 +108,7 @@ class Subspace(AbstractSubspace):
         else:
             self._data = CoordinatelessFunction(V.topological,
                                                 val=val, name=name, dtype=dtype)
-        AbstractSubspace.__init__(self, V, active_indices=active_indices)
+        AbstractSubspace.__init__(self, V, nonzero_indices=nonzero_indices)
         self._repr = "Subspace(%s, %s)" % (repr(self._function_space), repr(self._count))
 
     def count(self):
@@ -113,14 +129,6 @@ class Subspace(AbstractSubspace):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return self._split
 
-    @utils.cached_property
-    def _components(self):
-        if self.function_space().value_size == 1:
-            return (self, )
-        else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
-
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -135,29 +143,6 @@ class Subspace(AbstractSubspace):
         if len(self.function_space()) == 1:
             return self._components[i]
         return self._split[i]
-
-    def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
-        """Apply linear transformation.
-
-        :arg expressions: a tuple of gem expressions written in terms of i_dummy.
-        :arg subspace_expr: GEM expression representing local subspace data array
-            associated with finat_element.
-        :arg i_dummy: the multiindex of the expressions.
-        :arg i: the multiindex of the return variable.
-        :arg dtype: data type (= KernelBuilder.scalar_type).
-
-        A non-projected (default) function is written as a
-        linear combination of basis functions:
-
-        .. math::
-
-            u = \\sum_i [ u_i * \\phi_i ]
-
-            u      : function
-            u_i    : ith coefficient
-            \\phi_i: ith basis
-        """
-        raise NotImplementedError("Subclasses must implement `transform` method.")
 
     def subspaces(self):
         return (self, )
@@ -259,9 +244,6 @@ class RotatedSubspace(Subspace):
 
 
 class NodalHermiteSubspace(Subspace):
-    def __init__(self, V, val=None, name=None, dtype=ScalarType):
-        Subspace.__init__(self, V, val=val, name=name, dtype=dtype)
-
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Rotation subspace.
 
@@ -312,8 +294,8 @@ class IndexedSubspace(AbstractSubspace):
     Convenient when splitting a form according to indices;
     see `split_form`.
     """
-    def __init__(self, parent, index, active_indices=None):
-        AbstractSubspace.__init__(self, parent.function_space().split()[index], active_indices=active_indices)
+    def __init__(self, parent, index):
+        AbstractSubspace.__init__(self, parent.function_space().split()[index])
         self.parent = parent
         self.index = index
 
@@ -340,8 +322,8 @@ class IndexedSubspace(AbstractSubspace):
 
 
 class ComplementSubspace(AbstractSubspace):
-    def __init__(self, subspace, active_indices=None):
-        AbstractSubspace.__init__(self, subspace.function_space(), active_indices=active_indices)
+    def __init__(self, subspace, nonzero_indices=None):
+        AbstractSubspace.__init__(self, subspace.function_space(), nonzero_indices=nonzero_indices)
         self._subspace = subspace
 
     @utils.cached_property
@@ -387,10 +369,10 @@ class DirectSumSubspace(AbstractSubspace):
     :arg subspaces: the :class:`.Subspace`s.
     """
 
-    def __init__(self, *subspaces, active_indices=None):
+    def __init__(self, *subspaces, nonzero_indices=None):
         self._subspaces = tuple(subspaces)
         V, = set(s.function_space() for s in subspaces)
-        AbstractSubspace.__init__(self, V, active_indices=active_indices)
+        AbstractSubspace.__init__(self, V, nonzero_indices=nonzero_indices)
 
     @utils.cached_property
     def _split(self):
