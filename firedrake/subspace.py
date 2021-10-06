@@ -29,6 +29,14 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
 
     def __init__(self, V, nonzero_indices=None):
         self._function_space = V
+        if len(V) == 1:
+            assert nonzero_indices is None, "nonzero_indices must be None for non-mixed function space."
+        else:
+            if nonzero_indices is None:
+                nonzero_indices = tuple(range(len(V)))
+            else:
+                assert isinstance(nonzero_indices, tuple), "nonzero_indices must be tuple for mixed function space."
+                nonzero_indices = tuple(nonzero_indices)
         self.nonzero_indices = nonzero_indices
 
     parent = None

@@ -81,17 +81,22 @@ class ExtractSubBlock(MultiFunction):
         t.update(extract_type(A, Argument))
         t.update(extract_type(A, Function))
         t = tuple(t)
-        if len(t) != 1:
+        try:
+            t, = t
+        except ValueError:
             raise RuntimeError("`FiredrakeProjected` must act on one and only one Argument/Function.")
-        t = t[0]
         if not isinstance(t, Argument):
             # Only split subspace if argument.
             return o
         if o in self._arg_cache:
             return self._arg_cache[o]
         subspace = o.subspace()
-        indexed_subspace = IndexedSubspace(subspace, self.blocks[t.number()])
-        return self._arg_cache.setdefault(o, FiredrakeProjected(A, indexed_subspace))
+        index = self.blocks[t.number()]
+        if index not in subspace.nonzero_indices:
+            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        else:
+            indexed_subspace = IndexedSubspace(subspace, index)
+            return self._arg_cache.setdefault(o, FiredrakeProjected(A, indexed_subspace))
 
     def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
         argument, = arguments
