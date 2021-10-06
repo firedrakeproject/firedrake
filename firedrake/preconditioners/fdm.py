@@ -139,8 +139,7 @@ class FDMPC(PCBase):
         self.assemble_kron(prealloc, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
         nnz = get_preallocation(prealloc, V.value_size * V.dof_dset.set.size)
 
-        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), nnz=nnz, comm=A.comm)
-        self.Pmat.setBlockSize(V.value_size)
+        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), V.value_size, nnz=nnz, comm=A.comm)
         self.Pmat.setLGMap(V.dof_dset.lgmap)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
