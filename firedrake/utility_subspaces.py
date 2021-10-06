@@ -67,7 +67,10 @@ def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
         else:
             ff = constructor(Wsub, subdomain, extra)
         for f in ff:
-            g = gg.setdefault(f.__class__.__name__, type(f)(W))
+            if indices:
+                g = gg.setdefault(f.__class__.__name__, type(f)(W, nonzero_indices=(indices[-1], )))
+            else:
+                g = gg.setdefault(f.__class__.__name__, type(f)(W))
             gsub = g
             for ix in reversed(indices):
                 gsub = gsub.sub(ix)

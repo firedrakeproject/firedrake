@@ -83,6 +83,14 @@ class AbstractSubspace(object, metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def is_zero(self, index):
+        pass
+
+    @abc.abstractmethod
+    def is_identity(self, index):
+        pass
+
+    @abc.abstractmethod
     def __eq__(self):
         pass
 
@@ -162,6 +170,12 @@ class Subspace(AbstractSubspace):
 
     def subspaces(self):
         return (self, )
+
+    def is_zero(self, index):
+        return index not in self.nonzero_indices
+
+    def is_identity(self, index):
+        return False
 
     def __eq__(self, other):
         if other is self:
@@ -324,6 +338,12 @@ class IndexedSubspace(AbstractSubspace):
     def subspaces(self):
         return self.parent.subspaces()
 
+    def is_zero(self, index):
+        raise RuntimeError("is_zero method is not to be called on IndexedSubspace.")
+
+    def is_identity(self, index):
+        raise RuntimeError("is_identity method is not to be called on IndexedSubspace.")
+
     def __eq__(self, other):
         return self.parent == other.parent and self.index == other.index
 
@@ -338,8 +358,8 @@ class IndexedSubspace(AbstractSubspace):
 
 
 class ComplementSubspace(AbstractSubspace):
-    def __init__(self, subspace, nonzero_indices=None):
-        AbstractSubspace.__init__(self, subspace.function_space(), nonzero_indices=nonzero_indices)
+    def __init__(self, subspace):
+        AbstractSubspace.__init__(self, subspace.function_space(), nonzero_indices=subspace.nonzero_indices)
         self._subspace = subspace
 
     @utils.cached_property
@@ -360,6 +380,12 @@ class ComplementSubspace(AbstractSubspace):
 
     def subspaces(self):
         return self._subspace.subspaces()
+
+    def is_zero(self, index):
+        return False
+
+    def is_identity(self, index):
+        return index not in self.nonzero_indices
 
     def __eq__(self, other):
         if other is self:
@@ -385,9 +411,10 @@ class DirectSumSubspace(AbstractSubspace):
     :arg subspaces: the :class:`.Subspace`s.
     """
 
-    def __init__(self, *subspaces, nonzero_indices=None):
+    def __init__(self, *subspaces):
         self._subspaces = tuple(subspaces)
         V, = set(s.function_space() for s in subspaces)
+        nonzero_indices, = set(s.nonzero_indices for s in subspaces)
         AbstractSubspace.__init__(self, V, nonzero_indices=nonzero_indices)
 
     @utils.cached_property
@@ -409,6 +436,12 @@ class DirectSumSubspace(AbstractSubspace):
 
     def subspaces(self):
         return self._subspaces
+
+    def is_zero(self, index):
+        return index not in self.nonzero_indices
+
+    def is_identity(self, index):
+        return False
 
     def __eq__(self, other):
         if other is self:

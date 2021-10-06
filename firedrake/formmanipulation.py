@@ -92,8 +92,10 @@ class ExtractSubBlock(MultiFunction):
             return self._arg_cache[o]
         subspace = o.subspace()
         index = self.blocks[t.number()]
-        if index not in subspace.nonzero_indices:
+        if subspace.is_zero(index):
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        elif subspace.is_identity(index):
+            return A
         else:
             indexed_subspace = IndexedSubspace(subspace, index)
             return self._arg_cache.setdefault(o, FiredrakeProjected(A, indexed_subspace))
