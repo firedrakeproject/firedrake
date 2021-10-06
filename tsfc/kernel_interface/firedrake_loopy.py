@@ -108,11 +108,14 @@ class ConstantKernelArg(KernelArg):
     intent = Intent.IN
 
     def __init__(self, name, shape, dtype):
-        super().__init__(name=name, shape=shape, dtype=dtype)
+        self.name = name
+        self.shape = shape
+        self.dtype = dtype
 
     @property
-    def loopy_shape(self):
-        return self.shape
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
+        
 
 
 class CoefficientKernelArg(KernelArg):
@@ -149,6 +152,7 @@ class CoefficientKernelArg(KernelArg):
 class CellOrientationsKernelArg(KernelArg):
 
     name = "cell_orientations"
+    rank = 1
     intent = Intent.IN
     dtype = numpy.int32
 
@@ -156,9 +160,13 @@ class CellOrientationsKernelArg(KernelArg):
         self.interior_facet = interior_facet
 
     @property
+    def shape(self):
+        return (2,) if self.interior_facet else (1,)
+
+
+    @property
     def loopy_arg(self):
-        raise NotImplementedError
-    #     return lp.GlobalArg(self.name, self.dtype, shape=
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
 
 
 class CellSizesKernelArg(KernelArg):
