@@ -14,7 +14,7 @@ from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
 
-from tsfc.finatinterface import create_element, split_shape
+from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.kernel_interface.firedrake import check_requirements
 from tsfc.loopy import generate as generate_loopy
@@ -37,36 +37,51 @@ class Intent(enum.IntEnum):
 class KernelArg(abc.ABC):
     """Class encapsulating information about kernel arguments."""
 
-    name: str
-    shape: tuple
-    rank: int
-    dtype: numpy.dtype
-    intent: Intent
-    interior_facet: bool
+    # name: str
+    # shape: tuple
+    # rank: int
+    # dtype: numpy.dtype
+    # intent: Intent
+    # interior_facet: bool
 
-    def __init__(self, *, name=None, shape=None, rank=None, dtype=None,
-                 intent=None, interior_facet=None):
-        if name is not None:
-            self.name = name
-        if shape is not None:
-            self.shape = shape
-        if rank is not None:
-            self.rank = rank
-        if dtype is not None:
-            self.dtype = dtype
-        if intent is not None:
-            self.intent = intent
-        if interior_facet is not None:
-            self.interior_facet = interior_facet
+    # def __init__(self, *, name=None, shape=None, rank=None, dtype=None,
+    #              intent=None, interior_facet=None):
+    #     if name is not None:
+    #         self.name = name
+    #     if shape is not None:
+    #         self.shape = shape
+    #     if rank is not None:
+    #         self.rank = rank
+    #     if dtype is not None:
+    #         self.dtype = dtype
+    #     if intent is not None:
+    #         self.intent = intent
+    #     if interior_facet is not None:
+    #         self.interior_facet = interior_facet
 
-    @property
-    def loopy_shape(self):
-        lp_shape = numpy.prod(self.shape, dtype=int)
-        return (lp_shape,) if not self.interior_facet else (2*lp_shape,)
+    # @property
+    # def loopy_shape(self):
+    #     lp_shape = numpy.prod(self.shape, dtype=int)
+    #     return (lp_shape,) if not self.interior_facet else (2*lp_shape,)
+
+    @abc.abstractproperty
+    def loopy_arg(self):
+        ...
+        # return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
+
+
+class DualEvaluationOutputKernelArg:
+
+    name = "A"
+    intent = Intent.OUT
+
+    def __init__(self, shape, dtype):
+        self.shape = shape
+        self.dtype = dtype
 
     @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self.loopy_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
 
 
 class CoordinatesKernelArg(KernelArg):
@@ -75,15 +90,16 @@ class CoordinatesKernelArg(KernelArg):
     rank = 1
     intent = Intent.IN
 
-    def __init__(self, basis_shape, node_shape, dtype, interior_facet=False):
-        self.basis_shape = basis_shape
-        self.node_shape = node_shape
+    def __init__(self, finat_element, dtype, interior_facet=False):
+        self.finat_element = finat_element
         self.dtype = dtype
         self.interior_facet = interior_facet
 
     @property
-    def shape(self):
-        return self.basis_shape + self.node_shape
+    def loopy_arg(self):
+        lp_shape = numpy.prod(self.finat_element.index_shape, dtype=int)
+        lp_shape = (lp_shape,) if not self.interior_facet else (2*lp_shape,)
+        return lp.GlobalArg(self.name, self.dtype, shape=lp_shape)
 
 
 class ConstantKernelArg(KernelArg):
@@ -104,16 +120,15 @@ class CoefficientKernelArg(KernelArg):
     rank = 1
     intent = Intent.IN
 
-    def __init__(self, name, basis_shape, dtype, *, node_shape=(), interior_facet=False):
+    def __init__(self, name, finat_element, dtype, *, interior_facet=False):
         self.name = name
-        self.basis_shape = basis_shape
+        self.finat_element = finat_element
         self.dtype = dtype
-        self.node_shape = node_shape
         self.interior_facet = interior_facet
 
     @property
     def shape(self):
-        return self.basis_shape + self.node_shape
+        return self.finat_element.index_shape
 
     @property
     def u_shape(self):
@@ -134,57 +149,57 @@ class CoefficientKernelArg(KernelArg):
 class CellOrientationsKernelArg(KernelArg):
 
     name = "cell_orientations"
-    rank = 1
-    shape = (1,)
-    basis_shape = (1,)
-    node_shape = ()
     intent = Intent.IN
     dtype = numpy.int32
 
     def __init__(self, interior_facet=False):
-        super().__init__(interior_facet=interior_facet)
+        self.interior_facet = interior_facet
+
+    @property
+    def loopy_arg(self):
+        raise NotImplementedError
+    #     return lp.GlobalArg(self.name, self.dtype, shape=
 
 
 class CellSizesKernelArg(KernelArg):
 
     name = "cell_sizes"
-    rank = 1
     intent = Intent.IN
 
-    def __init__(self, basis_shape, node_shape, dtype, interior_facet=False):
-        self.basis_shape = basis_shape
-        self.node_shape = node_shape
-        super().__init__(dtype=dtype, interior_facet=interior_facet)
+    def __init__(self, finat_element, dtype, interior_facet=False):
+        self.finat_element = finat_element
+        self.dtype = dtype
+
+    @property
+    def loopy_arg(self):
+        raise NotImplementedError
+        # return lp.GlobalArg(self.name, self.dtype, shape=
 
 
 class ExteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (1,)
-    basis_shape = (1,)
-    node_shape = ()
     rank = 1
     intent = Intent.IN
     dtype = numpy.uint32
 
     @property
-    def loopy_shape(self):
-        return self.shape
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
 
 
 class InteriorFacetKernelArg(KernelArg):
 
     name = "facet"
     shape = (2,)
-    basis_shape = (2,)  # this is a guess
-    node_shape = ()
     rank = 1
     intent = Intent.IN
     dtype = numpy.uint32
 
     @property
-    def loopy_shape(self):
-        return self.shape
+    def loopy_arg(self):
+        return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
 
 
 class TabulationKernelArg(KernelArg):
@@ -193,12 +208,14 @@ class TabulationKernelArg(KernelArg):
     intent = Intent.IN
 
     def __init__(self, name, shape, dtype, interior_facet=False):
-        super().__init__(
-            name=name,
-            shape=shape,
-            dtype=dtype,
-            interior_facet=interior_facet
-        )
+        self.name = name
+        self.shape = shape
+        self.dtype = dtype
+        self.interior_facet = interior_facet
+
+    @property
+    def loopy_arg(self):
+        raise NotImplementedError
 
 
 class LocalTensorKernelArg(KernelArg):
@@ -229,21 +246,18 @@ class LocalVectorKernelArg(LocalTensorKernelArg):
     rank = 1
 
     def __init__(
-        self, basis_shape, dtype, *, name="A", node_shape=(), interior_facet=False, diagonal=False
+        self, finat_element, dtype, *, name="A", interior_facet=False, diagonal=False
     ):
-        assert type(basis_shape) == tuple
-
-        self.basis_shape = basis_shape
+        self.finat_element = finat_element
         self.dtype = dtype
 
         self.name = name
-        self.node_shape = node_shape
         self.interior_facet = interior_facet
         self.diagonal = diagonal
 
     @property
     def shape(self):
-        return self.basis_shape + self.node_shape
+        return self.finat_element.index_shape
 
     @property
     def u_shape(self):
@@ -290,29 +304,21 @@ class LocalMatrixKernelArg(LocalTensorKernelArg):
 
     rank = 2
 
-    def __init__(self, rbasis_shape, cbasis_shape, dtype, *, name="A", rnode_shape=(), cnode_shape=(), interior_facet=False, rreal=False, creal=False):
-        assert type(rbasis_shape) == tuple and type(cbasis_shape) == tuple
-
-        self.rbasis_shape = rbasis_shape
-        self.cbasis_shape = cbasis_shape
+    def __init__(self, relem, celem, dtype, *, name="A", interior_facet=False):
+        self.relem = relem
+        self.celem = celem
         self.dtype = dtype
 
         self.name = name
-        self.rnode_shape = rnode_shape
-        self.cnode_shape = cnode_shape
         self.interior_facet = interior_facet
-
-        # hack
-        self.rreal = rreal
-        self.creal = creal
 
     @property
     def rshape(self):
-        return self.rbasis_shape + self.rnode_shape
+        return self.relem.index_shape
 
     @property
     def cshape(self):
-        return self.cbasis_shape + self.cnode_shape
+        return self.celem.index_shape
 
     @property
     def shape(self):
@@ -704,21 +710,20 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
 
-    basis_shape, node_shape = split_shape(finat_element)
+    # basis_shape, node_shape = split_shape(finat_element)
 
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
-        kernel_arg = CellSizesKernelArg(dtype, basis_shape, node_shape, interior_facet)
+        kernel_arg = CellSizesKernelArg(finat_element, dtype, interior_facet)
     elif name == "coords":
         kernel_arg = CoordinatesKernelArg(
-            basis_shape, node_shape, dtype, interior_facet=interior_facet
+            finat_element, dtype, interior_facet=interior_facet
         )
     else:
         kernel_arg = CoefficientKernelArg(
             name,
-            basis_shape,
+            finat_element,
             dtype,
-            node_shape=node_shape,
             interior_facet=interior_facet
         )
     return kernel_arg, expression
@@ -752,21 +757,16 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
         except ValueError:
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
-        elements = (element, )
+        elements = (element,)
 
 
     if len(arguments) == 1 or diagonal:
-        element, = elements  # elements must contain only one item
-        basis_shape, node_shape = split_shape(element)
-        return LocalVectorKernelArg(basis_shape, scalar_type, node_shape=node_shape, interior_facet=interior_facet, diagonal=diagonal)
+        finat_element, = elements
+        return LocalVectorKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
-        relem, celem = elements
-        rbasis_shape, rnode_shape = split_shape(relem)
-        cbasis_shape, cnode_shape = split_shape(celem)
+        rfinat_element, cfinat_element = elements
         return LocalMatrixKernelArg(
-            rbasis_shape, cbasis_shape, scalar_type,
-            rnode_shape=rnode_shape,
-            cnode_shape=cnode_shape,
+            rfinat_element, cfinat_element, scalar_type,
             interior_facet=interior_facet
         )
     else:

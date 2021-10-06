@@ -279,6 +279,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg parameters: parameters object
     :returns: Loopy-based ExpressionKernel object.
     """
+    from tsfc.kernel_interface.firedrake_loopy import DualEvaluationOutputKernelArg
+
     if parameters is None:
         parameters = default_parameters()
     else:
@@ -307,9 +309,8 @@ def compile_expression_dual_evaluation(expression, to_element, *,
 
     builder = interface(parameters["scalar_type"])
     arguments = extract_arguments(expression)
-    assert len(arguments) in {0, 1}  # sanity check - could it ever be more?
-    argument_elements = tuple(builder.create_element(arg.ufl_element()) for arg in arguments)
-    argument_multiindices = tuple(elem.get_indices() for elem in argument_elements)
+    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
@@ -353,58 +354,12 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
-    from tsfc.kernel_interface.firedrake_loopy import LocalVectorKernelArg, LocalMatrixKernelArg
-
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
-    if len(argument_multiindices) == 0:
-        if isinstance(to_element, finat.TensorFiniteElement):
-            assert isinstance(to_element._shape, tuple)
-            basis_shape = _get_shape_from_indices(basis_indices[:-len(to_element._shape)])
-            node_shape = to_element._shape
-        else:
-            basis_shape = _get_shape_from_indices(basis_indices)
-            node_shape = ()
-        return_arg = LocalVectorKernelArg(basis_shape, builder.scalar_type, node_shape=node_shape)
-    elif len(argument_multiindices) == 1:
-        # rshape first
-        if isinstance(to_element, finat.TensorFiniteElement):
-            assert isinstance(to_element._shape, tuple)
-            rbasis_shape = _get_shape_from_indices(basis_indices[:-len(to_element._shape)])
-            rnode_shape = to_element._shape
-        else:
-            rbasis_shape = _get_shape_from_indices(basis_indices)
-            rnode_shape = ()
-
-        # now cshape
-        # both should only have one item in them
-        arg_elem, = argument_elements
-        arg_multiindices, = argument_multiindices
-        if arguments[0].ufl_element().family() == "Real":
-            cis_real = True
-            # these are guesses
-            cbasis_shape = (1,)
-            cnode_shape = ()
-        else:
-            if isinstance(arg_elem, finat.TensorFiniteElement):
-                assert isinstance(arg_elem._shape, tuple)
-                cbasis_shape = _get_shape_from_indices(arg_multiindices[:-len(arg_elem._shape)])
-                cnode_shape = arg_elem._shape
-            else:
-                cbasis_shape = _get_shape_from_indices(arg_multiindices)
-                cnode_shape = ()
-            cis_real = False
-
-        return_arg = LocalMatrixKernelArg(
-            rbasis_shape, cbasis_shape, builder.scalar_type,
-            rnode_shape=rnode_shape,
-            cnode_shape=cnode_shape,
-            rreal=False,  # I dont know how to find the UFL family from to_element, not sure if I need to
-            creal=cis_real
-        )
-    else:
-        raise AssertionError
-    return_expr, = return_arg.make_gem_exprs([return_indices])
+    return_shape = tuple(i.extent for i in return_indices)
+    return_var = gem.Variable('A', return_shape)
+    return_arg = DualEvaluationOutputKernelArg(return_shape, builder.scalar_type)
+    return_expr = gem.Indexed(return_var, return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
@@ -545,7 +500,3 @@ def pick_mode(mode):
     else:
         raise ValueError("Unknown mode: {}".format(mode))
     return m
-
-
-def _get_shape_from_indices(indices):
-    return tuple([idx.extent for idx in indices])
