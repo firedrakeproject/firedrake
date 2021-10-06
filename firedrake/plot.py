@@ -833,7 +833,7 @@ class FunctionPlotter:
         sub_triangles = int(math.log(num_sample_points, 4))
         tri = refiner.refine_triangulation(False, sub_triangles)
         triangles = tri.get_masked_triangles()
-        self._reference_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
+        self._reference_points = np.column_stack((tri.x, tri.y))
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
