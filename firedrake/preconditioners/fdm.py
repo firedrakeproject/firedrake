@@ -19,6 +19,14 @@ from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.logging import warning
 import firedrake
 import numpy
+from firedrake_citations import Citations
+
+Citations().add("Brubeck2021", """@article{Brubeck2021,
+  title={A scalable and robust preconditioner for high-order FEM based on the fast diagonalization method},
+  author={Brubeck, Pablo D and Farrell, Patrick E},
+  journal={arXiv preprint arXiv:2107.14758},
+  year={2021}
+}""")
 
 __all__ = ("FDMPC",)
 
@@ -64,6 +72,7 @@ class FDMPC(PCBase):
     _prefix = "fdm_"
 
     def initialize(self, pc):
+        Citations().register("Brubeck2021")
         A, P = pc.getOperators()
 
         # Read options
@@ -154,13 +163,14 @@ class FDMPC(PCBase):
         self.update(pc)
 
     def update(self, pc):
-        [assemble_coef() for assemble_coef in self.assembly_callables]
+        for assemble_coef in self.assembly_callables:
+            assemble_coef()
         self.Pmat.zeroEntries()
         self._assemble_Pmat()
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def apply(self, pc, x, y, transpose=False):
-        with self.uc.dat.vec as xc:
+        with self.uc.dat.vec_wo as xc:
             xc.set(0.0E0)
 
         with self.uf.dat.vec_wo as xf:
@@ -171,15 +181,17 @@ class FDMPC(PCBase):
                      self.uf.dat(op2.READ, self.cell_node_map),
                      self.weight.dat(op2.READ, self.cell_node_map))
 
-        [bc.zero(self.uc) for bc in self.bcs]
+        for bc in self.bcs:
+            bc.zero(self.uc)
 
-        with self.uc.dat.vec as x_, self.uf.dat.vec as y_:
+        with self.uc.dat.vec_ro as x_, self.uf.dat.vec_wo as y_:
             if transpose:
                 self.pc.applyTranspose(x_, y_)
             else:
                 self.pc.apply(x_, y_)
 
-        [bc.zero(self.uf) for bc in self.bcs]
+        for bc in self.bcs:
+            bc.zero(self.uf)
 
         op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.WRITE, self.cell_node_map),
@@ -210,13 +222,13 @@ class FDMPC(PCBase):
 
         :arg A: the :class:`PETSc.Mat` to assemble
         :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
-        :arg Gq: a :class:`firedrake.Function` with the second order coefficients of the form
+        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
         :arg Bq: a :class:`firedrake.Function` with the zero-th order coefficients of the form
         :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
         :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
-        :arg eta: the SIPG penalty parameter as a `float`
+        :arg eta: the SIPG penalty parameter as a ``float``
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `FDMPC.get_bc_flags`
-        :arg needs_hdiv: a `bool` indicating whether the function space V is H(div)-conforming
+        :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
         """
         Gq = coefficients.get("Gq", None)
         Bq = coefficients.get("Bq", None)

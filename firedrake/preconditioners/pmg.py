@@ -142,7 +142,8 @@ class PMGBase(PCSNESBase):
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
-        mode = ctx._problem.form_compiler_parameters.get("mode", "spectral")
+        fcp = ctx._problem.form_compiler_parameters
+        mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
         self.coarse_degree = PETSc.Options(options_prefix).getInt("coarse_degree", default=1)
         self.coarse_mat_type = PETSc.Options(options_prefix).getString("coarse_mat_type", default=ctx.mat_type)
         self.coarse_form_compiler_mode = PETSc.Options(options_prefix).getString("coarse_form_compiler_mode", default=mode)
@@ -274,6 +275,8 @@ class PMGBase(PCSNESBase):
         if Nc == self.coarse_degree:
             cmat_type = self.coarse_mat_type
             cpmat_type = self.coarse_mat_type
+            if fcp is None:
+                fcp = dict()
             fcp["mode"] = self.coarse_form_compiler_mode
 
         # Coarsen the problem and the _SNESContext
@@ -901,14 +904,16 @@ class StandaloneInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0.0E0)
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
         op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
                      self.uc.dat(op2.INC, self.Vc_map),
                      self.uf.dat(op2.READ, self.Vf_map),
                      self.weight.dat(op2.READ, self.Vf_map))
 
-        [bc.zero(self.uc) for bc in self.Vc_bcs]
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
 
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
