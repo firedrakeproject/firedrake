@@ -82,13 +82,14 @@ class FDMPC(PCBase):
 
         dm = pc.getDM()
         V = get_function_space(dm)
-        use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
+        use_tensorproduct, N, ndim, sub_families, _ = tensor_product_space_query(V)
 
-        if not use_tensorproduct or (family < {"RTCE", "NCE"}):
+        needs_hdiv = sub_families < {"RTCF", "NCF"}
+        needs_hcurl = sub_families < {"RTCE", "NCE"}
+        if not use_tensorproduct or needs_hcurl:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
-        needs_interior_facet = not (family <= {"Q", "Lagrange"})
-        needs_hdiv = family < {"RTCF", "NCF"}
+        needs_interior_facet = not (sub_families <= {"Q", "Lagrange"})
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
         self.mesh = V.ufl_domain()
@@ -469,6 +470,8 @@ class FDMPC(PCBase):
             Piola = Finv.T
         elif mapping == 'contravariant piola':
             Piola = Jacobian(mesh) / JacobianDeterminant(mesh)
+            if ndim < gdim:
+                Piola *= 1-2*mesh.cell_orientations()
         else:
             raise NotImplementedError("Unrecognized element mapping %s" % mapping)
 

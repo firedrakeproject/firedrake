@@ -509,7 +509,7 @@ def tensor_product_space_query(V):
     RTCF(N), RTCE(N), NCF(N), or NCE(N) on quads or hexes.
 
     :arg V: FunctionSpace
-    :returns: 4-tuple of (use_tensorproduct, degree, topological_dimension, family, variant)
+    :returns: 4-tuple of (use_tensorproduct, degree, topological_dimension, sub_families, variant)
     """
     from FIAT import reference_element
     ndim = V.ufl_domain().topological_dimension()
@@ -532,7 +532,7 @@ def tensor_product_space_query(V):
         pass
 
     if isinstance(ele, TensorProductElement):
-        family = set(e.family() for e in ele.sub_elements())
+        sub_families = set(e.family() for e in ele.sub_elements())
         try:
             # variant = None defaults to spectral
             # We must allow tensor products between None and spectral
@@ -543,33 +543,33 @@ def tensor_product_space_query(V):
             use_tensorproduct = False
     elif isinstance(ele, EnrichedElement):
         if all(isinstance(sub, HDivElement) for sub in ele._elements):
-            family = {"NCF"}
+            sub_families = {"NCF"}
         elif all(isinstance(sub, HCurlElement) for sub in ele._elements):
-            family = {"NCE"}
+            sub_families = {"NCE"}
         else:
-            family = {"unknown"}
+            sub_families = {"unknown"}
         variant = None
     else:
-        family = {ele.family()}
+        sub_families = {ele.family()}
         variant = ele.variant()
 
-    isCG = family <= {"Q", "Lagrange"}
-    isDG = family <= {"DQ", "Discontinuous Lagrange"}
-    isHdiv = family < {"RTCF", "NCF"}
-    isHcurl = family < {"RTCE", "NCE"}
+    isCG = sub_families <= {"Q", "Lagrange"}
+    isDG = sub_families <= {"DQ", "Discontinuous Lagrange"}
+    isHdiv = sub_families < {"RTCF", "NCF"}
+    isHcurl = sub_families < {"RTCE", "NCE"}
     isspectral = variant is None or variant == "spectral"
     use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv or isHcurl)
 
-    return use_tensorproduct, N, ndim, family, variant
+    return use_tensorproduct, N, ndim, sub_families, variant
 
 
 def get_permuted_map(V):
     # Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
-    use_tensorproduct, N, ndim, family, _ = tensor_product_space_query(V)
-    if use_tensorproduct and family < {"RTCF", "NCF"}:
+    use_tensorproduct, N, ndim, sub_families, _ = tensor_product_space_query(V)
+    if use_tensorproduct and sub_families < {"RTCF", "NCF"}:
         pshape = [N]*ndim
         pshape[0] = -1
-    elif use_tensorproduct and family < {"RTCE", "NCE"}:
+    elif use_tensorproduct and sub_families < {"RTCE", "NCE"}:
         pshape = [N+1]*ndim
         pshape[0] = -1
     else:
@@ -587,31 +587,31 @@ def get_line_element(V):
     # Return the Line elements for Q, DQ, RTCF/E, NCF/E
     from FIAT.reference_element import UFCInterval
     from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-    use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
+    use_tensorproduct, N, ndim, sub_families, variant = tensor_product_space_query(V)
     assert use_tensorproduct
     cell = UFCInterval()
-    if family <= {"Q", "Lagrange"}:
+    if sub_families <= {"Q", "Lagrange"}:
         if variant == "equispaced":
             element = lagrange.Lagrange(cell, N)
         else:
             element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
         element = [element]*ndim
-    elif family <= {"DQ", "Discontinuous Lagrange"}:
+    elif sub_families <= {"DQ", "Discontinuous Lagrange"}:
         if variant == "equispaced":
             element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
         else:
             element = gauss_legendre.GaussLegendre(cell, N)
         element = [element]*ndim
-    elif family < {"RTCF", "NCF"}:
+    elif sub_families < {"RTCF", "NCF"}:
         cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
         dg = gauss_legendre.GaussLegendre(cell, N-1)
         element = [cg] + [dg]*(ndim-1)
-    elif family < {"RTCE", "NCE"}:
+    elif sub_families < {"RTCE", "NCE"}:
         cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
         dg = gauss_legendre.GaussLegendre(cell, N-1)
         element = [dg] + [cg]*(ndim-1)
     else:
-        raise ValueError("Don't know how to get line element for %r" % family)
+        raise ValueError("Don't know how to get line element for %s" % V.ufl_element())
     return element
 
 
@@ -619,27 +619,27 @@ def get_line_nodes(V):
     # Return the Line nodes for Q, DQ, RTCF/E, NCF/E
     from FIAT.reference_element import UFCInterval
     from FIAT import quadrature
-    use_tensorproduct, N, ndim, family, variant = tensor_product_space_query(V)
+    use_tensorproduct, N, ndim, sub_families, variant = tensor_product_space_query(V)
     assert use_tensorproduct
     cell = UFCInterval()
-    if variant == "equispaced" and family <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
+    if variant == "equispaced" and sub_families <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
         return [cell.make_points(1, 0, N+1)]*ndim
-    elif family <= {"Q", "Lagrange"}:
+    elif sub_families <= {"Q", "Lagrange"}:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
-    elif family <= {"DQ", "Discontinuous Lagrange"}:
+    elif sub_families <= {"DQ", "Discontinuous Lagrange"}:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
         return [rule.get_points()]*ndim
-    elif family < {"RTCF", "NCF"}:
+    elif sub_families < {"RTCF", "NCF"}:
         cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
         return [cg.get_points()] + [dg.get_points()]*(ndim-1)
-    elif family < {"RTCE", "NCE"}:
+    elif sub_families < {"RTCE", "NCE"}:
         cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
         dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
         return [dg.get_points()] + [cg.get_points()]*(ndim-1)
     else:
-        raise ValueError("Don't know how to get line nodes for %r" % family)
+        raise ValueError("Don't know how to get line nodes for %s" % V.ufl_element())
 
 
 class StandaloneInterpolationMatrix(object):
