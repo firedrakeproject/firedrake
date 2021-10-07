@@ -5,7 +5,7 @@ from pyop2.sparsity import get_preallocation
 
 from ufl import FiniteElement, VectorElement, TensorElement, BrokenElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl import as_tensor, diag_vector, dot, dx, indices, inner, inv
+from ufl import as_tensor, diag_vector, dot, dx, indices, inner
 from ufl import grad, diff, replace, variable
 from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
@@ -139,7 +139,7 @@ class FDMPC(PCBase):
         self.assemble_kron(prealloc, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
         nnz = get_preallocation(prealloc, V.value_size * V.dof_dset.set.size)
 
-        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), V.value_size, nnz=nnz, comm=A.comm)
+        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), A.getBlockSize(), nnz=nnz, comm=A.comm)
         self.Pmat.setLGMap(V.dof_dset.lgmap)
         self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
@@ -238,7 +238,7 @@ class FDMPC(PCBase):
 
         bsize = V.value_size
         ndim = V.ufl_domain().topological_dimension()
-        ncomp = V.ufl_element().value_size()
+        ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
 
         index_cell, nel = self.glonum_fun(V.cell_node_map())
@@ -342,6 +342,8 @@ class FDMPC(PCBase):
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         needs_interior_facet = any(Dk is not None for Dk in Dfdm)
         if needs_interior_facet:
+            if ndim < V.ufl_domain().geometric_dimension():
+                raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
             index_facet, local_facet_data, nfacets = self.get_interior_facet_maps(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             kstart = 1 if needs_hdiv else 0
@@ -452,6 +454,7 @@ class FDMPC(PCBase):
         gdim = mesh.geometric_dimension()
         ndim = mesh.topological_dimension()
         Finv = JacobianInverse(mesh)
+
         if cell_average:
             family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
             degree = 0
@@ -485,26 +488,18 @@ class FDMPC(PCBase):
         beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
 
         # transform the second order coefficient alpha (physical gradient) to obtain G (reference gradient)
-        if gdim == ndim:
-            if Piola is None:
-                if len(alpha.ufl_shape) == 2:
-                    G = dot(dot(Finv, alpha), Finv.T)
-                elif len(alpha.ufl_shape) == 4:
-                    i1, i2, i3, i4, j2, j4 = indices(6)
-                    G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
-                else:
-                    raise ValueError("I don't know what to do with the homogeneity tensor")
+        if Piola is None:
+            if len(alpha.ufl_shape) == 2:
+                G = dot(dot(Finv, alpha), Finv.T)
+            elif len(alpha.ufl_shape) == 4:
+                i1, i2, i3, i4, j2, j4 = indices(6)
+                G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
             else:
-                if len(alpha.ufl_shape) == 4:
-                    i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                    G = as_tensor(Piola[j1, i1] * Finv[i2, j2] * Piola[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
-                else:
-                    raise ValueError("I don't know what to do with the homogeneity tensor")
+                raise ValueError("I don't know what to do with the homogeneity tensor")
         else:
-            # immersed manifold mesh
-            F = Jacobian(mesh)
-            if len(alpha.ufl_shape) == 2 and Piola is None:
-                G = inv(dot(dot(F.T, inv(alpha)), F))
+            if len(alpha.ufl_shape) == 4:
+                i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
+                G = as_tensor(Piola[j1, i1] * Finv[i2, j2] * Piola[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
             else:
                 raise ValueError("I don't know what to do with the homogeneity tensor")
 
