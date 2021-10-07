@@ -149,7 +149,8 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         other.data = np.copy(self.data_ro)
 
     @mpi.collective
-    def zero(self):
+    def zero(self, subset=None):
+        assert subset is None
         self._data[...] = 0
 
     @mpi.collective
