@@ -288,9 +288,12 @@ def compile_local_form(form, prefix, parameters, interface, coffee, diagonal):
                         coefficient_expr = builder.coefficient_map[builder.coefficient_split[coeff][subspace.index]]
                     else:
                         coefficient_expr = builder.coefficient_map[coeff]
-                    i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
-                    # Apply subspace transformation (i_extra -> i_coeff).
-                    expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff, builder.scalar_type)
+                    if subspace.parent is not None and subspace.parent.is_identity(subspace.index):
+                        i_coeff = i_extra
+                    else:
+                        i_coeff = tuple(gem.Index(extent=ix.extent) for ix in i_extra)
+                        # Apply subspace transformation (i_extra -> i_coeff).
+                        expressions = subspace.transform(expressions, subspace_expr, i_extra, i_coeff, builder.scalar_type)
                     # Finally contract with the true function.
                     expressions = tuple(gem.IndexSum(gem.Product(gem.Indexed(coefficient_expr, i_coeff), expression), i_coeff)
                                         for expression in expressions)

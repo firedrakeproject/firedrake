@@ -356,6 +356,8 @@ def split_form_projected_argument(form, subspace_tuple):
             for idx, subsubsubform in subsubsubforms:
                 assert all(idx[i] == 0 for i in range(nargs))
                 assert all(form.arguments()[i] == subsubsubform.arguments()[i] for i in range(nargs))
+                if s.is_zero(idx[nargs]):
+                    continue
                 subforms.append(subsubsubform)
                 if type(s.ufl_element()) == MixedElement:
                     subspaces.append(subspace_tuple + (IndexedSubspace(s, idx[nargs]), ))

@@ -172,7 +172,10 @@ class Subspace(AbstractSubspace):
         return (self, )
 
     def is_zero(self, index):
-        return index not in self.nonzero_indices
+        if self.nonzero_indices is None:
+            return False
+        else:
+            return index not in self.nonzero_indices
 
     def is_identity(self, index):
         return False
@@ -248,8 +251,8 @@ class RotatedSubspace(Subspace):
         subspace_expr, = subspace_expr
         shape = subspace_expr.shape
         finat_element = create_element(self.ufl_element())
-        #if len(shape) != 2:
-        #    raise TypeError(f"{type(self)} is only for VectorElements, not for {self.ufl_element()}.")
+        if len(shape) != 2:
+            raise TypeError(f"{type(self)} is only for VectorElements, not for {self.ufl_element()}.")
         if len(shape) == 1:
             entity_dofs = finat_element.entity_dofs()
         else:
@@ -438,7 +441,10 @@ class DirectSumSubspace(AbstractSubspace):
         return self._subspaces
 
     def is_zero(self, index):
-        return index not in self.nonzero_indices
+        if self.nonzero_indices is None:
+            return False
+        else:
+            return index not in self.nonzero_indices
 
     def is_identity(self, index):
         return False
