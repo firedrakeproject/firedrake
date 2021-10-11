@@ -9,12 +9,11 @@ from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
-from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
 from pyop2.utils import as_tuple
-
+from firedrake.parameters import parameters
 
 __all__ = ['HybridizationPC']
-
 
 class HybridizationPC(SCBase):
 
@@ -219,9 +218,14 @@ class HybridizationPC(SCBase):
 
         # Build schur complement operator and right hand side
         nested = PETSc.Options(prefix).getBool("nested_schur", False)
+        diagonal = PETSc.Options(prefix).getBool("diagonal_prec_schur", False)
+        if diagonal:
+            assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
+                                                              a preconditioning matrix if the Slate optimiser replaces \
+                                                              inverses by solves "
         schur_rhs, schur_comp = self.build_schur(Atilde, K, list_split_mixed_ops,
                                                  list_split_trace_ops, nested=nested,
-                                                 schur_approx=schur_approx)
+                                                 schur_approx=schur_approx, diagonal=diagonal)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -290,9 +294,9 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops, schur_approx)
+        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops, schur_approx=schur_approx, diagonal=diagonal)
 
-    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops, schur_approx=None):
+    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops, schur_approx=None, diagonal=False):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -312,6 +316,10 @@ class HybridizationPC(SCBase):
         A, B, C, D = list_split_mixed_ops
         K_0, K_1 = list_split_trace_ops
 
+        # precondition A with diagonal
+        P = DiagonalTensor(A).inv
+        Ahat = (P*A).inv * P if diagonal else A.inv
+
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
         split_sol = self.broken_solution.split()
@@ -321,10 +329,10 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        schur = D - C * A.inv * B
+        schur = D - C * Ahat * B
         schur = schur_approx.inv * schur if schur_approx else schur
-        R = K_1.T - C * A.inv * K_0.T
-        rhs = f - C * A.inv * g - R * lambdar
+        R = K_1.T - C * Ahat * K_0.T
+        rhs = f - C * Ahat * g - R * lambdar
         rhs = schur_approx.inv * rhs if schur_approx else rhs
 
         u_rec = schur.solve(rhs, decomposition="PartialPivLU")
@@ -342,7 +350,7 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
 
-    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None):
+    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None, diagonal=False):
         """The Schur complement in the operators of the trace solve contains
         the inverse on a mixed system.  Users may want this inverse to be treated
         with another schur complement.
@@ -368,16 +376,21 @@ class HybridizationPC(SCBase):
             split_broken_res = [AssembledVector(broken_residual[self.vidx]),
                                 AssembledVector(broken_residual[self.pidx])]
 
+            # precondition A00 with diagonal
+            P = DiagonalTensor(A00).inv
+            Ahat = (P*A00).inv * P if diagonal else A00.inv
+
             # inner schur complement
-            S = (A11 - A10 * A00.inv * A01)
+            S = (A11 - A10 * Ahat * A01)
             # preconditioning
             S = schur_approx.inv * S if schur_approx else S
+            
             # K * block1
-            K_Ainv_block1 = [K0, -K0 * A00.inv * A01 + K1]
+            K_Ainv_block1 = [K0, -K0 * Ahat * A01 + K1]
             # K * block1 * block2
-            K_Ainv_block2 = [K_Ainv_block1[0] * A00.inv, K_Ainv_block1[1] * S.inv]
+            K_Ainv_block2 = [K_Ainv_block1[0] * Ahat, K_Ainv_block1[1] * S.inv]
             # K * block1 * block2 * block3
-            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * A00.inv, K_Ainv_block2[1]]
+            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * Ahat, K_Ainv_block2[1]]
             # K * block1 * block2 * block3 * broken residual
             schur_rhs = (K_Ainv_block3[0] * split_broken_res[0] + K_Ainv_block3[1] * split_broken_res[1])
             # K * block1 * block2 * block3 * K.T

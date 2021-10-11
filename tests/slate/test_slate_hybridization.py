@@ -192,3 +192,38 @@ def test_mixed_poisson_approximated_schur():
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
+def test_slate_hybridization_diagonal_prec_schur():
+     a, L, W = setup_poisson()
+
+     # Compare hybridized solution with non-hybridized
+     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+     w = Function(W)
+     params = {'mat_type': 'matfree',
+               'ksp_type': 'preonly',
+               'pc_type': 'python',
+               'pc_python_type': 'firedrake.HybridizationPC',
+               'hybridization': {'ksp_type': 'preonly',
+                                 'pc_type': 'lu',
+                                 'diagonal_prec_schur': 'true',
+                                 }}
+     solve(a == L, w, solver_parameters=params)
+     sigma_h, u_h = w.split()
+
+     # (Non-hybrid) Need to slam it with preconditioning due to the
+     # system's indefiniteness
+     w2 = Function(W)
+     solve(a == L, w2,
+           solver_parameters={'mat_type': 'matfree',
+                              'ksp_type': 'preonly',
+                              'pc_type': 'python',
+                              'pc_python_type': 'firedrake.HybridizationPC',
+                              'hybridization': {'ksp_type': 'preonly',
+                                                'pc_type': 'lu'}})
+     nh_sigma, nh_u = w2.split()
+
+     # Return the L2 error
+     sigma_err = errornorm(sigma_h, nh_sigma)
+     u_err = errornorm(u_h, nh_u)
+
+     assert sigma_err < 1e-11
+     assert u_err < 1e-11
