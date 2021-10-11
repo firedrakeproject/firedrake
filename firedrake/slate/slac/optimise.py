@@ -223,8 +223,12 @@ def _push_mul_inverse(expr, self, state):
     with a coefficient into a Solve via A.inv*b = A.solve(b)
     or b*A^{-1}= (A.T.inv*b.T).T = A.T.solve(b.T).T ."""
     child, = expr.children
-    return (Solve(child, state.coeff) if state.pick_op
-            else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
+    if expr.diagonal:
+        # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
+        return expr * state.coeff if state.pick_op else state.coeff * expr
+    else:
+        return (Solve(child, state.coeff) if state.pick_op
+                else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
 
 
 @_push_mul.register(Transpose)
