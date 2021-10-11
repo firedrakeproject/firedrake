@@ -89,6 +89,8 @@ parameters["type_check_safe_par_loops"] = False
 
 parameters.add(Parameters("slate_compiler"))
 parameters["slate_compiler"]["optimise"] = True
+# Should a Slate multiplication be replaced by an action?
+parameters["slate_compiler"]["replace_mul"] = False
 
 
 def disable_performance_optimisations():

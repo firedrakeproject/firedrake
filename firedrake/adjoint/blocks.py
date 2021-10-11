@@ -157,7 +157,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dJdu = dJdu.copy()
 
         # Replace the form coefficients with checkpointed values.
-        dFdu_form = self._replace_form(dFdu_form)
+        replace_map = self._replace_map(dFdu_form)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdu_form = replace(dFdu_form, replace_map)
 
         compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)

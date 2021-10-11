@@ -19,8 +19,8 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2 import base as pyop2
-from pyop2 import sequential as seq
+import pyop2.types
+import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -56,7 +56,7 @@ class LocalMatPack(LocalPack, MatPack):
                        True: "MatSetValues"}
 
 
-class LocalMat(pyop2.Mat):
+class LocalMat(pyop2.types.AbstractMat):
     pack = LocalMatPack
 
     def __init__(self, dset):
@@ -76,7 +76,7 @@ class LocalDatPack(LocalPack, DatPack):
             return None
 
 
-class LocalDat(pyop2.Dat):
+class LocalDat(pyop2.types.AbstractDat):
     def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
@@ -184,7 +184,7 @@ def matrix_funptr(form, state):
             arg.position = len(args)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        mod = pyop2.parloop.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
 
@@ -276,7 +276,7 @@ def residual_funptr(form, state):
             arg.position = len(args)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        mod = pyop2.parloop.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
 
