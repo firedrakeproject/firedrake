@@ -212,6 +212,13 @@ def _slate2gem_inverse(expr, self):
         return Inverse(self(tensor))
 
 
+@_slate2gem.register(sl.Reciprocal)
+def _slate2gem_reciprocal(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+
+
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
     return Solve(*map(self, expr.children))
