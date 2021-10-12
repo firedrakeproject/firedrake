@@ -331,3 +331,11 @@ def test_reciprocal(function_space):
     ref = assemble(mass, diagonal=True).dat.data
     for r, d in zip([1./d for d in ref], res):
         assert np.allclose(r, d, rtol=1e-14)
+
+    # test inverse of matrix built from diagonal
+    # for a Slate expression on a mass matrix
+    A = Tensor(mass)
+    res = assemble(DiagonalTensor(A+A).inv).M.values
+    ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
+    for r, d in zip(res, np.diag(ref)):
+        assert np.allclose(r, d, rtol=1e-14)
