@@ -39,7 +39,8 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor']
+           'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
+           'Reciprocal']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -947,6 +948,37 @@ class UnaryOp(TensorOp):
         return "%s(%r)" % (type(self).__name__, tensor)
 
 
+class Reciprocal(UnaryOp):
+    """An abstract Slate class representing the reciprocal of a vector.
+    """
+
+    def __init__(self, A):
+        """Constructor for the Inverse class."""
+        assert A.rank == 1, "The tensor must be rank 1."
+
+        super(Reciprocal, self).__init__(A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        tensor, = self.operands
+        return tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the inverse of a tensor."""
+        tensor, = self.operands
+        return "(%s).reciprocal" % tensor
+
+
 class Inverse(UnaryOp):
     """An abstract Slate class representing the inverse of a tensor.
 
@@ -1279,7 +1311,7 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor],
+    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],
     [Add],
     [Mul],
     [Solve],
