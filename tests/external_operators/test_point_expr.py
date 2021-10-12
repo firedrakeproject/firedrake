@@ -179,16 +179,6 @@ def test_scalar_check_equality(mesh):
     tau2 = ps(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-
-    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    # check_error = False
-    # try:
-    #    solve(F2 == 0, u2)
-    # except:
-    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-    #     it leads to a ConvergenceError
-    #    check_error = True
-    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -225,16 +215,6 @@ def test_vector_check_equality(mesh):
     tau2 = ps(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-
-    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    # check_error = False
-    # try:
-    #    solve(F2 == 0, u2)
-    # except:
-    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-    #     it leads to a ConvergenceError
-    #    check_error = True
-    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -275,16 +255,6 @@ def test_tensor_check_equality(mesh):
     tau2 = ps(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-
-    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator ps
-    # check_error = False
-    # try:
-    #    solve(F2 == 0, u2)
-    # except:
-    #     Should lead to a ValueError but as the error is raised in self.evaluate() in the assembly,
-    #     it leads to a ConvergenceError
-    #    check_error = True
-    # assert check_error
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -295,66 +265,40 @@ def test_tensor_check_equality(mesh):
 
 def test_assemble_action(mesh):
 
-    from ufl.algorithms.ad import expand_derivatives
-    V = VectorFunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = Function(V).assign(1.)
+    w = Function(V).assign(2.)
     v = TestFunction(V)
 
     # External operators
     p = point_expr(lambda x: x, function_space=V)
     p = p(u)
 
-    p_action = action_point_expr(lambda x: x, function_space=V)
-    p_action = p_action(u)
-
+    # Set the Form
     u_hat = TrialFunction(V)
+    F = inner(p, v)*dx
 
-    # Compute Jacobian
-    a = inner(p, v)*dx
-    Ja = derivative(a, u, u_hat)
-    Ja = expand_derivatives(Ja)
+    # Symbolically define the Jacobian and its action on `w`
+    J = derivative(F, u, u_hat)
+    J_action = action(J, w)
 
-    a_action = inner(p_action, v)*dx
-    Ja_action = derivative(a_action, u, u_hat)
-    Ja_action = expand_derivatives(Ja_action)
+    # Compute the Jacobian Matrix
+    J = assemble(J)
+    # Compute the Jacobian action on `w`
+    J_action = assemble(J_action)
 
-    # Assemble Ja and Ja_action
-    assemble(Ja)
+    # Numerically compute the Jacobian action from `J` and `w`
+    Jw = Cofunction(V)
+    with w.dat.vec_ro as w_vec:
+        with Jw.dat.vec as Jw_vec:
+            J.petscmat.mult(w_vec, Jw_vec)
 
-    # Check that an error is raised when we try to assemble the jacobian of the Global ExternalOperator
-    check_error = False
-    try:
-        assemble(Ja_action)
-    except ValueError:
-        check_error = True
-    assert check_error
-
-    assemble(Ja_action, mat_type="matfree")
-
-    # Check action arguments and arguments
-    _test_action_arguments(Ja, Ja_action, u_hat, Function(V))
-
-
-def _test_action_arguments(Ja, Ja_action, u_hat, g):
-
-    dp, = Ja.external_operators()
-    dp_action, = Ja_action.external_operators()
-
-    assert dp.arguments() == ()
-    assert dp.action_coefficients() == ()
-    assert dp_action.arguments() == ((u_hat, False),)
-    assert dp_action.action_coefficients() == ()
-
-    # Take the action
-    Ja = action(Ja, g)
-    Ja_action = action(Ja_action, g)
-    dp, = Ja.external_operators()
-    dp_action, = Ja_action.external_operators()
-
-    assert dp.arguments() == ()
-    assert dp.action_coefficients() == ()
-    assert dp_action.arguments() == ()
-    assert dp_action.action_coefficients() == ((g, False),)
+    # Compute the error
+    with Jw.dat.vec_ro as v_vec:
+        with J_action.dat.vec_ro as w_vec:
+            error = v_vec - w_vec
+            error.abs()
+            assert error.norm() < 1e-9
 
 
 def test_multiple_external_operators(mesh):
