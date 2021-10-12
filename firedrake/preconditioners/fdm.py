@@ -21,12 +21,14 @@ import firedrake
 import numpy
 from firedrake_citations import Citations
 
-Citations().add("Brubeck2021", """@article{Brubeck2021,
-  title={A scalable and robust preconditioner for high-order FEM based on the fast diagonalization method},
-  author={Brubeck, Pablo D and Farrell, Patrick E},
+Citations().add("Brubeck2021", """
+@article{Brubeck2021,
+  title={A scalable and robust vertex-star relaxation for high-order FEM},
+  author={Brubeck, P. D. and Farrell, P. E.},
   journal={arXiv preprint arXiv:2107.14758},
   year={2021}
-}""")
+}
+""")
 
 __all__ = ("FDMPC",)
 
