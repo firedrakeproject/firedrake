@@ -425,7 +425,7 @@ def prolongation_transfer_kernel_aij(Pk, P1):
     expr = TestFunction(P1)
     to_element = create_element(Pk.ufl_element())
 
-    kernel = compile_expression_dual_evaluation(expr, to_element)
+    kernel = compile_expression_dual_evaluation(expr, to_element, Pk.ufl_element())
     ast = kernel.ast
     name = kernel.name
     flop_count = kernel.flop_count
@@ -587,7 +587,7 @@ class StandaloneInterpolationMatrix(object):
         from tsfc import compile_expression_dual_evaluation
         from tsfc.finatinterface import create_element
         to_element = create_element(Vf.ufl_element())
-        kernel = compile_expression_dual_evaluation(expr, to_element)
+        kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
         ast = kernel.ast
         name = kernel.name
         flop_count = kernel.flop_count
