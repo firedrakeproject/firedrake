@@ -209,20 +209,13 @@ def convert_mixedelement(element, **kwargs):
 
 
 @convert.register(ufl.VectorElement)
-def convert_vectorelement(element, **kwargs):
-    scalar_elem, deps = _create_element(element.sub_elements()[0], **kwargs)
-    shape = (element.num_sub_elements(),)
-    shape_innermost = kwargs["shape_innermost"]
-    return (finat.TensorFiniteElement(scalar_elem, shape, not shape_innermost),
-            deps | {"shape_innermost"})
-
-
 @convert.register(ufl.TensorElement)
 def convert_tensorelement(element, **kwargs):
-    scalar_elem, deps = _create_element(element.sub_elements()[0], **kwargs)
+    inner_elem, deps = _create_element(element.sub_elements()[0], **kwargs)
     shape = element.reference_value_shape()
+    shape = shape[:len(shape) - len(inner_elem.value_shape)]
     shape_innermost = kwargs["shape_innermost"]
-    return (finat.TensorFiniteElement(scalar_elem, shape, not shape_innermost),
+    return (finat.TensorFiniteElement(inner_elem, shape, not shape_innermost),
             deps | {"shape_innermost"})
 
 
