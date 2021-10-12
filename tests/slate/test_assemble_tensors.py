@@ -317,3 +317,16 @@ def test_diagonal(mass, matrix_mixed_facet):
     ref3 = np.concatenate(assemble(matrix_mixed_facet+matrix_mixed_facet, diagonal=True).dat.data)
     for r, d in zip(res3, np.diag(ref3)):
         assert np.allclose(r, d, rtol=1e-14)
+
+
+@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
+def test_reciprocal(function_space):
+    # test reciprocal of vector built from diagonal
+    # note: reciprocal does not commute with addition so one can only test DG
+    u = TrialFunction(function_space)
+    v = TestFunction(function_space)
+    mass = inner(u, v) * dx
+    res = assemble(Reciprocal(Tensor(mass, diagonal=True))).dat.data
+    ref  = assemble(mass, diagonal=True).dat.data
+    for r, d in zip([1./d for d in ref], res):
+        assert np.allclose(r, d, rtol=1e-14)
