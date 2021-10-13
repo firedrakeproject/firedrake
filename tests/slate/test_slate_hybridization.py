@@ -224,7 +224,9 @@ def test_mixed_poisson_approximated_schur():
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
-def test_slate_hybridization_diagonal_prec_schur():
+
+
+def test_slate_hybridization_jacobi_prec_schur():
      a, L, W = setup_poisson()
 
      # Compare hybridized solution with non-hybridized
@@ -236,8 +238,13 @@ def test_slate_hybridization_diagonal_prec_schur():
                'pc_python_type': 'firedrake.HybridizationPC',
                'hybridization': {'ksp_type': 'preonly',
                                  'pc_type': 'lu',
-                                 'diagonal_prec_schur': 'true',
-                                 }}
+                                 'nested_schur': 'true',
+                                 'approx_schur': {'ksp_type': 'preonly',
+                                                  'pc_type': 'python',
+                                                  'pc_python_type': __name__ + ".DGLaplacian",
+                                                  'aux_pc_type': 'jacobi'},
+                                 'approx_A00': {'ksp_type': 'preonly',
+                                                'pc_type': 'jacobi'}}}
      solve(a == L, w, solver_parameters=params)
      sigma_h, u_h = w.split()
 
