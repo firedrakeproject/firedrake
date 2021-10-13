@@ -636,10 +636,9 @@ def get_petsc_options():
         petsc_options.add(option)
     if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
         del os.environ["HDF5_DIR"]
-        log.info("""\nWarning: HDF5_DIR environment variable set, but ignored;
-    use PETSC_CONFIGURE_OPTIONS="--with-hdf5-dir=$HDF5_DIR"
-    to have PETSc built against $HDF5_DIR.
-    """)
+        log.info("\nWarning: HDF5_DIR environment variable set, but ignored; "
+                 "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
+                 "to have PETSc built against $HDF5_DIR.")
     return list(petsc_options)
 
 
