@@ -1,16 +1,12 @@
-from ufl import conj
 from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
 from ufl.coefficient import Coefficient
 from ufl.referencevalue import ReferenceValue
-from ufl.operators import transpose, inner
 
 import firedrake.ufl_expr as ufl_expr
-import firedrake.assemble
 from firedrake.assemble import _make_matrix
 from firedrake.function import Function
 from firedrake.matrix import MatrixBase
-from firedrake.constant import Constant
 from firedrake import utils, functionspaceimpl
 from firedrake.adjoint import ExternalOperatorsMixin
 
@@ -39,34 +35,36 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data=None):
-        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+
+        # Check function space
+        if not isinstance(function_space, functionspaceimpl.WithGeometry):
+            raise NotImplementedError("Can't make a Function defined on a " + str(type(function_space)))
+
+        # -- ExternalOperator inheritance -- #
+        ufl_function_space = function_space.ufl_function_space()
+        ExternalOperator.__init__(self, *operands, function_space=ufl_function_space, derivatives=derivatives,
                                   argument_slots=argument_slots)
-        fspace = self.ufl_function_space()
-        if not isinstance(fspace, functionspaceimpl.WithGeometry):
-            fspace = functionspaceimpl.FunctionSpace(function_space.mesh().topology, fspace.ufl_element())
-            fspace = functionspaceimpl.WithGeometry(fspace, function_space.mesh())
 
-        # Check?
-        # if len(self.argument_slots())-1 != sum(self.derivatives):
-        #    import ipdb; ipdb.set_trace()
-        #    raise ValueError('Expecting number of items in the argument slots (%s) to be equal to the number of derivatives taken + 1 (%s)' % (len(argument_slots), sum(derivatives) + 1) )
-
+        # Produce the resulting Coefficient: Is that really needed?
         if result_coefficient is None:
-            result_coefficient = Function(fspace, val, name, dtype)
+            result_coefficient = Function(function_space, val, name, dtype)
             self._val = result_coefficient.topological
         elif not isinstance(result_coefficient, (Coefficient, ReferenceValue)):
             raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
         self._result_coefficient = result_coefficient
 
+        # -- Argument slots -- #
         if len(argument_slots) == 0:
             # Make v*
-            v_star = ufl_expr.Argument(fspace.dual(), 0)
+            v_star = ufl_expr.Argument(function_space.dual(), 0)
             argument_slots = (v_star,)
         self._argument_slots = argument_slots
 
+        # Do we need these features ?
         self._val = val
         self._name = name
 
+        # -- Operator data -- #
         self.operator_data = operator_data
 
     def name(self):
@@ -74,14 +72,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     def function_space(self):
         return self.result_coefficient().function_space()
-
-    def _make_function_space_args(self, k, y, adjoint=False):
-        """Make the function space of the Gateaux derivative: dN[x] = \frac{dN}{dOperands[k]} * y(x) if adjoint is False
-        and of \frac{dN}{dOperands[k]}^{*} * y(x) if adjoint is True"""
-        ufl_function_space = ExternalOperator._make_function_space_args(self, k, y, adjoint=adjoint)
-        mesh = self.function_space().mesh()
-        function_space = functionspaceimpl.FunctionSpace(mesh.topology, ufl_function_space.ufl_element())
-        return functionspaceimpl.WithGeometry(function_space, mesh)
 
     @property
     def dat(self):
@@ -202,9 +192,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             return assemble
         return decorator
 
-    #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
-    #     such as PointexprOperator/PointsolveOperator/NeuralnetOperator
-
     def assemble(self, *args, assembly_opts=None, **kwargs):
         """Assembly procedure"""
 
@@ -238,6 +225,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
             assemble = assembly_registry[key]
         except KeyError:
             try:
+                # User can provide the sum of derivatives instead of the multi-index
+                #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
                 assemble = assembly_registry[(sum(key[0]), key[1])]
             except KeyError:
                 raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
@@ -283,46 +272,6 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                           derivatives=self.derivatives,
                           operator_data=self.operator_data)
 
-    # Computing the action of the adjoint derivative may require different procedures
-    # depending on wrt what is taken the derivative
-    # E.g. the neural network case: where the adjoint derivative computation leads us
-    # to compute the gradient wrt the inputs of the network or the weights.
-    def evaluate_adj_component_control(self, x, idx):
-        r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
-            This method computes the action of (dN/dm)^{*} on x where m is the control
-        """
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        """
-        # This chunk of code assume that GLOBAL refers to being global with respect to the control as well
-        if self.is_type_global[idx]:
-            function_space = self._make_function_space_args(idx, x, adjoint=True)
-            dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives,
-                                               function_space=function_space)
-            result = dNdq._evaluate_adjoint_action(x)
-            return result.vector()
-        """
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq = dNdq._evaluate()
-        dNdq_adj = conj(transpose(dNdq))
-        result = firedrake.assemble(dNdq_adj)
-        if isinstance(self.ufl_operands[idx], Constant):
-            return result.vector().inner(x)
-        return result.vector() * x
-
-    def evaluate_adj_component_state(self, x, idx):
-        r"""Starting from the residual form: F(N(u, m), u(m), m) = 0
-            This method computes the action of (dN/du)^{*} on x where u is the state
-        """
-        derivatives = tuple(dj + int(idx == j) for j, dj in enumerate(self.derivatives))
-        if self.is_type_global[idx]:
-            new_args = self.argument_slots() + ((x, True),)
-            function_space = self._make_function_space_args(idx, x, adjoint=True)
-            return self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives,
-                                               function_space=function_space, argument_slots=new_args)
-        dNdq = self._ufl_expr_reconstruct_(*self.ufl_operands, derivatives=derivatives)
-        dNdq_adj = conj(transpose(dNdq))
-        return inner(dNdq_adj, x)
-
     @utils.cached_property
     def _split(self):
         return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
@@ -338,7 +287,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         else:
             corresponding_coefficient = result_coefficient or self._result_coefficient
 
-        return type(self)(*operands, function_space=function_space or self.argument_slots()[0].ufl_function_space(),
+        return type(self)(*operands, function_space=function_space or self.function_space(),
                           derivatives=deriv_multiindex,
                           name=name or self.name(),
                           result_coefficient=corresponding_coefficient,

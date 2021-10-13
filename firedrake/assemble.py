@@ -303,7 +303,7 @@ def preprocess_form(form, fc_params):
     :returns: The resulting preprocessed :class:`~ufl.classes.Form`.
 
     This function preprocess the form, mainly by expanding the derivatives, in order to determine
-    if we are dealing with a :class:`~ufl.classes.Form` or a :class:`~ufl.classes.BaseForm` object.
+    if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
     This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
     we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
     """
