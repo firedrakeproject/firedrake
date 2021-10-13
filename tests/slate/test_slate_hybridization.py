@@ -132,6 +132,38 @@ def test_slate_hybridization_nested_schur():
     assert u_err < 1e-11
 
 
+def test_slate_hybridization_diag_schur():
+    a, L, W = setup_poisson()
+
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'nested_schur': 'true',
+                                'diag_schur': 'true'}}
+    solve(a == L, w, solver_parameters=params)
+    sigma_h, u_h = w.split()
+
+    w2 = Function(W)
+    solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
+                                         'pc_type': 'python',
+                                         'mat_type': 'matfree',
+                                         'pc_python_type': 'firedrake.HybridizationPC',
+                                         'hybridization': {'ksp_type': 'preonly',
+                                                           'pc_type': 'lu'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-11
+    assert u_err < 1e-11
+
+
 class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()

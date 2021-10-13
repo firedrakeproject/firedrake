@@ -217,6 +217,7 @@ class HybridizationPC(SCBase):
         schur_approx = self.get_user_schur_approx(pc, test, trial)
 
         # Build schur complement operator and right hand side
+        diag = PETSc.Options(prefix).getBool("diag_schur", False)
         nested = PETSc.Options(prefix).getBool("nested_schur", False)
         diagonal = PETSc.Options(prefix).getBool("diagonal_prec_schur", False)
         if diagonal:
@@ -225,7 +226,7 @@ class HybridizationPC(SCBase):
                                                               inverses by solves "
         schur_rhs, schur_comp = self.build_schur(Atilde, K, list_split_mixed_ops,
                                                  list_split_trace_ops, nested=nested,
-                                                 schur_approx=schur_approx, diagonal=diagonal)
+                                                 schur_approx=schur_approx, diag=diag)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -350,7 +351,8 @@ class HybridizationPC(SCBase):
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
 
-    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None, diagonal=False):
+    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None, diagonal=False,
+                    diag=False):
         """The Schur complement in the operators of the trace solve contains
         the inverse on a mixed system.  Users may want this inverse to be treated
         with another schur complement.
@@ -365,6 +367,16 @@ class HybridizationPC(SCBase):
                         [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
                         --------------------        -----------------       -------------------
                         block1                      block2                  block3
+
+        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+
+        If the diag options is specified only the block diagonal block
+        of the Schur complement decomposition is considered, so
+
+        .. code-block:: text
+
+                A.inv = [[A00.inv, 0    ]
+                        [0,        S.inv]]
 
         with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
@@ -385,16 +397,20 @@ class HybridizationPC(SCBase):
             # preconditioning
             S = schur_approx.inv * S if schur_approx else S
             
-            # K * block1
-            K_Ainv_block1 = [K0, -K0 * Ahat * A01 + K1]
-            # K * block1 * block2
-            K_Ainv_block2 = [K_Ainv_block1[0] * Ahat, K_Ainv_block1[1] * S.inv]
-            # K * block1 * block2 * block3
-            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * Ahat, K_Ainv_block2[1]]
-            # K * block1 * block2 * block3 * broken residual
-            schur_rhs = (K_Ainv_block3[0] * split_broken_res[0] + K_Ainv_block3[1] * split_broken_res[1])
-            # K * block1 * block2 * block3 * K.T
-            schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
+            if diag:
+                schur_rhs = K0 * Ahat * split_broken_res[0] + K1 * S.inv * split_broken_res[1]
+                schur_comp = K0 * Ahat * K0.T + K1 * S.inv * K1.T
+            else:
+                # K * block1
+                K_Ainv_block1 = [K0, -K0 * Ahat * A01 + K1]
+                # K * block1 * block2
+                K_Ainv_block2 = [K_Ainv_block1[0] * Ahat, K_Ainv_block1[1] * S.inv]
+                # K * block1 * block2 * block3
+                K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * Ahat, K_Ainv_block2[1]]
+                # K * block1 * block2 * block3 * broken residual
+                schur_rhs = (K_Ainv_block3[0] * split_broken_res[0] + K_Ainv_block3[1] * split_broken_res[1])
+                # K * block1 * block2 * block3 * K.T
+                schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
         else:
             schur_rhs = K * Atilde.inv * AssembledVector(self.broken_residual)
             schur_comp = K * Atilde.inv * K.T
