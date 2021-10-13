@@ -139,8 +139,9 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                        appctx, options_prefix, visited=None):
 
     # Preprocess and restructure the DAG
-    expr = preassemble_base_form(expr)
+    expr = preassemble_base_form(expr, mat_type, form_compiler_parameters)
 
+    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
     stack = [expr]
     visited = visited or {}
     while stack:
@@ -160,9 +161,17 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                                                     form_compiler_parameters,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
-                                                    visited,
                                                     *(visited[arg] for arg in operands))
-    return visited[expr]
+
+    # Update tensor with the assembled result value
+    assembled_base_form = visited[expr]
+    # Doesn't need to update `tensor` with `assembled_base_form`
+    # for assembled 1-form (Cofunction) because both underlying
+    # Dat objects are the same (they automatically update).
+    if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+        assembled_base_form.petscmat.copy(tensor.petscmat)
+    return assembled_base_form
 
 
 def restructure_base_form(expr, visited=None):
@@ -279,7 +288,7 @@ def base_form_operands(expr):
     if isinstance(expr, ufl.Form):
         return expr.external_operators()
     if isinstance(expr, ufl.ExternalOperator):
-        return list(e for e in expr.external_operators() if e != expr)
+        return list(e for e in expr.external_operators() if e is not expr)
         # TODO: At the moment assemble nothing instead of only assembling BaseForm
         # return tuple(expr.ufl_operands() + expr.argument_slots())
     return []
@@ -314,31 +323,18 @@ def preprocess_form(form, fc_params):
     return ufl.algorithms.preprocess_form(form, complex_mode)
 
 
-def preassemble_base_form(expr):
+def preassemble_base_form(expr, mat_type, form_compiler_parameters):
+    if isinstance(expr, ufl.form.Form) and mat_type != "matfree":
+        # For "matfree", Form evaluation is delayed
+        expr = preprocess_form(expr, form_compiler_parameters)
     expr = restructure_base_form(expr)
     expr = restructure_base_form(expr)
     return expr
 
 
 def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type, form_compiler_parameters,
-                               mat_type, sub_mat_type, appctx, options_prefix, visited, *args):
+                               mat_type, sub_mat_type, appctx, options_prefix, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        if mat_type != "matfree":
-            # For "matfree", Form evaluation is delayed
-            expr = preprocess_form(expr, form_compiler_parameters)
-
-        if not isinstance(expr, ufl.form.Form):
-            res = assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
-                                     form_compiler_parameters,
-                                     mat_type, sub_mat_type,
-                                     appctx, options_prefix,
-                                     visited)
-
-            # Ugly: Temporary debug approach
-            if hasattr(tensor, 'petscmat'):
-                # Tensor takes the value of res
-                res.petscmat.copy(tensor.petscmat)
-            return res
 
         if args and mat_type != "matfree":
             # Retrieve the Form's children
@@ -353,7 +349,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type, form_
 
         if isinstance(res, firedrake.Function):
             res = firedrake.Cofunction(res.function_space(), val=res.vector())
-
         return res
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1):
