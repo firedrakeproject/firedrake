@@ -12,6 +12,7 @@ from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
 from pyop2.utils import as_tuple
 from firedrake.parameters import parameters
+from firedrake.formmanipulation import split_form
 
 __all__ = ['HybridizationPC']
 
@@ -40,7 +41,6 @@ class HybridizationPC(SCBase):
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC, assemble)
         from firedrake.assemble import allocate_matrix
-        from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -198,41 +198,9 @@ class HybridizationPC(SCBase):
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
-        # Split forms
-        split_mixed_op = dict(split_form(Atilde.form))
-        id0, id1 = (self.vidx, self.pidx)
-        A00 = Tensor(split_mixed_op[(id0, id0)])
-        A01 = Tensor(split_mixed_op[(id0, id1)])
-        A10 = Tensor(split_mixed_op[(id1, id0)])
-        A11 = Tensor(split_mixed_op[(id1, id1)])
-        list_split_mixed_ops = [A00, A01, A10, A11]
-
-        split_trace_op = dict(split_form(K.form))
-        K0 = Tensor(split_trace_op[(0, id0)])
-        K1 = Tensor(split_trace_op[(0, id1)])
-        list_split_trace_ops = [K0, K1]
-
-        # Get options for Schur complement decomposition
-        diag = PETSc.Options(prefix).getBool("diag_schur", False)
-        nested = PETSc.Options(prefix).getBool("nested_schur", False)
-
-        # Get preconditioning options for local solvers
-        test, trial = A11.arguments()
-        schur_approx = self.get_user_schur_approx(pc, test, trial)
-        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
-        jacobi_Shat = PETSc.Options(prefix_schur).getBool("aux_pc_type_jacobi", False)
-        prefix_A00 = pc.getOptionsPrefix() + "hybridization_approx_A00_"
-        jacobi_A00 = PETSc.Options(prefix_A00).getBool("pc_type_jacobi", False)
-        if jacobi_Shat or jacobi_A00:
-            assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
-                                                              a preconditioning matrix if the Slate optimiser replaces \
-                                                              inverses by solves "
-        
         # Build schur complement operator and right hand side
-        schur_rhs, schur_comp = self.build_schur(Atilde, K, list_split_mixed_ops,
-                                                 list_split_trace_ops, nested=nested,
-                                                 schur_approx=schur_approx, diag=diag,
-                                                 jacobi_Shat=jacobi_Shat, jacobi_A00=jacobi_A00)
+        schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
+        schur_rhs, schur_comp = schur_builder.build_schur(self.broken_residual)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -301,18 +269,16 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops, schur_approx=schur_approx,
-                                   jacobi_A00=jacobi_A00, jacobi_Shat=jacobi_Shat)
+        self._reconstruction_calls(schur_builder)
 
-    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops, schur_approx=None,
-                              jacobi_A00=False, jacobi_Shat=None):
+    def _reconstruction_calls(self, schur_builder):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
-        :arg split_mixed_op: a ``dict`` of split forms that make up the broken
-                             mixed operator from the original problem.
-        :arg split_trace_op: a ``dict`` of split forms that make up the trace
-                             contribution in the hybridized mixed system.
+        :arg schur_builder: A SchurComplementBuilder object. This object has been
+                            used to construct the operator for the trace system solve.
+                            Some of the work done in the process can be reused for
+                            the reconstruction calls.
         """
         from firedrake import assemble
 
@@ -322,11 +288,13 @@ class HybridizationPC(SCBase):
         # TODO: When PyOP2 is able to write into mixed dats,
         # the reconstruction expressions can simplify into
         # one clean expression.
-        A, B, C, D = list_split_mixed_ops
-        K_0, K_1 = list_split_trace_ops
 
-        # precondition A with diagonal
-        Ahat = self._precondition_A00_approx(A, jacobi_A00)
+        # reuse work from trace operator build
+        A, B, C, _ = schur_builder.list_split_mixed_ops
+        K_0, K_1 = schur_builder.list_split_trace_ops
+        Ahat = schur_builder.A00_inv_hat
+        Shat = schur_builder.inner_S_inv_hat
+        S = schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
@@ -337,15 +305,13 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        schur = D - C * Ahat * B
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
-        if schur_approx:
-            schur_approx_inv = self._precondition_schur_approx(schur_approx, jacobi_Shat)
-            schur = schur_approx_inv * schur
-            rhs = schur_approx_inv * rhs
+        if schur_builder.schur_approx:
+            S = Shat * S
+            rhs = Shat * rhs
 
-        u_rec = schur.solve(rhs, decomposition="PartialPivLU")
+        u_rec = S.solve(rhs, decomposition="PartialPivLU")
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
@@ -359,118 +325,6 @@ class HybridizationPC(SCBase):
                                                tensor=sigma,
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
-
-    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False, schur_approx=None,
-                    diag=False, jacobi_Shat=False, jacobi_A00=False):
-        """The Schur complement in the operators of the trace solve contains
-        the inverse on a mixed system.  Users may want this inverse to be treated
-        with another schur complement.
-
-        Let the mixed matrix Atilde be called A here,
-        then the "nested" options rewrites with a Schur decomposition
-        as the following.
-
-        .. code-block:: text
-
-                A.inv = [[I, -A00.inv * A01]    *   [[A00.inv, 0    ]   *   [[I,             0]
-                        [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
-                        --------------------        -----------------       -------------------
-                        block1                      block2                  block3
-
-        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
-
-        If the diag options is specified only the block diagonal block
-        of the Schur complement decomposition is considered, so
-
-        .. code-block:: text
-
-                A.inv = [[A00.inv, 0    ]
-                        [0,        S.inv]]
-
-        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
-        """
-
-        if nested:
-            A00, A01, A10, _ = list_split_mixed_ops
-            K0, K1 = list_split_trace_ops
-            broken_residual = self.broken_residual.split()
-            split_broken_res = [AssembledVector(broken_residual[self.vidx]),
-                                AssembledVector(broken_residual[self.pidx])]
-
-            # precondition A00 with diagonal
-            P = DiagonalTensor(A00).inv
-            Ahat = (P*A00).inv * P if jacobi_A00 else A00.inv
-
-            Shat = self._inner_schur_inverse(list_split_mixed_ops, schur_approx, jacobi_Shat, Ahat)
-            
-            if diag:
-                schur_rhs = K0 * Ahat * split_broken_res[0] + K1 * Shat * split_broken_res[1]
-                schur_comp = K0 * Ahat * K0.T + K1 * Shat* K1.T
-            else:
-                # K * block1
-                K_Ainv_block1 = [K0, -K0 * Ahat * A01 + K1]
-                # K * block1 * block2
-                K_Ainv_block2 = [K_Ainv_block1[0] * Ahat, K_Ainv_block1[1] * Shat]
-                # K * block1 * block2 * block3
-                K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * Ahat, K_Ainv_block2[1]]
-                # K * block1 * block2 * block3 * broken residual
-                schur_rhs = (K_Ainv_block3[0] * split_broken_res[0] + K_Ainv_block3[1] * split_broken_res[1])
-                # K * block1 * block2 * block3 * K.T
-                schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
-        else:
-            schur_rhs = K * Atilde.inv * AssembledVector(self.broken_residual)
-            schur_comp = K * Atilde.inv * K.T
-        return schur_rhs, schur_comp
-
-    def _inner_schur_inverse(self, list_split_mixed_ops, schur_approx, jacobi_Shat, Ahat):
-        _, A01, A10, A11 = list_split_mixed_ops
-
-        # inner schur complement
-        S = (A11 - A10 * Ahat * A01)
-
-        if schur_approx:
-            # Calculate the inverse of the user-supplied operator for preconditioning
-            schur_approx_inv = self._preconditioned_schur_approx(schur_approx, jacobi_Shat)
-
-            # Calculate inverse of schur complement through a solve
-            # which is preconditioned with user-supplied operator
-            Sinv = (schur_approx_inv*S).inv * schur_approx_inv
-        else:
-            # just inverse S
-            Sinv = S.inv
-        return Sinv
-
-    def _preconditioned_schur_approx(self, schur_approx, jacobi_Shat):
-        # Calculate inverse of the user-supplied operator for preconditioning
-        # potentially through a solve which is preconditioned with jacobi
-        S_diag = DiagonalTensor(schur_approx).inv
-        return ((S_diag*schur_approx).inv * S_diag if schur_approx and jacobi_Shat
-                else schur_approx.inv)
-    
-    def _precondition_A00_approx(self, A, jacobi_A00):
-        # Calculate inverse of A00
-        # potentially through a solve which is preconditioned with jacobi  
-        P = DiagonalTensor(A).inv
-        return (P*A).inv * P if jacobi_A00 else A.inv
-
-    def get_user_schur_approx(self, pc, test, trial):
-        """Retrieve a user-defined AuxiliaryOperator from the PETSc Options,
-        which is an approximation to the Schur complement and its inverse is used
-        to precondition the local solve in the reconstruction calls (e.g.).
-        """
-        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
-        sentinel = object()
-        usercode = PETSc.Options().getString(prefix_schur + 'pc_python_type', default=sentinel)
-
-        if usercode != sentinel:
-            (modname, funname) = usercode.rsplit('.', 1)
-            mod = __import__(modname)
-            fun = getattr(mod, funname)
-            if isinstance(fun, type):
-                fun = fun()
-            return Tensor(fun.form(pc, test, trial)[0])
-        else:
-            return None
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
@@ -582,3 +436,182 @@ class HybridizationPC(SCBase):
             self.trace_ksp.view(viewer)
             viewer.printfASCII("Locally reconstructing solutions.\n")
             viewer.printfASCII("Projecting broken flux into HDiv space.\n")
+
+
+class SchurComplementBuilder(object):
+
+    def __init__(self, prefix, Atilde, K,  pc, vidx, pidx):
+        # set options, operators and order of sub-operators
+        self.Atilde = Atilde
+        self.K = K
+        self.vidx = vidx
+        self.pidx = pidx
+        self._split_mixed_operator()
+        self._retrieve_options(pc, prefix)
+
+        # get user supplied operator
+        self.schur_approx = self._retrieve_user_S_approx(pc)
+
+        # build all required inverses
+        self.A00_inv_hat = self._build_A00_inv()
+        self.inner_S = self._build_inner_S()
+        self.inner_S_approx_inv_hat = self._build_Sapprox_inv()
+        self.inner_S_inv_hat = self._build_inner_S_inv()
+    
+    def _split_mixed_operator(self):
+        split_mixed_op = dict(split_form(self.Atilde.form))
+        id0, id1 = (self.vidx, self.pidx)
+        A00 = Tensor(split_mixed_op[(id0, id0)])
+        A01 = Tensor(split_mixed_op[(id0, id1)])
+        A10 = Tensor(split_mixed_op[(id1, id0)])
+        A11 = Tensor(split_mixed_op[(id1, id1)])
+        self.list_split_mixed_ops = [A00, A01, A10, A11]
+
+        split_trace_op = dict(split_form(self.K.form))
+        K0 = Tensor(split_trace_op[(0, id0)])
+        K1 = Tensor(split_trace_op[(0, id1)])
+        self.list_split_trace_ops = [K0, K1]
+    
+    def _retrieve_options(self, pc, prefix):
+        # Get options for Schur complement decomposition
+        self.diag = PETSc.Options(prefix).getBool("diag_schur", False)
+        self.nested = PETSc.Options(prefix).getBool("nested_schur", False)
+
+        # Get preconditioning options for local solvers
+        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
+        self.jacobi_Shat = PETSc.Options(prefix_schur).getBool("aux_pc_type_jacobi", False)
+        prefix_A00 = pc.getOptionsPrefix() + "hybridization_approx_A00_"
+        self.jacobi_A00 = PETSc.Options(prefix_A00).getBool("pc_type_jacobi", False)
+        if self.jacobi_Shat or self.jacobi_A00:
+            assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
+                                                              a preconditioning matrix if the Slate optimiser replaces \
+                                                              inverses by solves "
+    
+    def _build_inner_S(self):
+        """Build the inner Schur complement."""
+        _, A01, A10, A11 = self.list_split_mixed_ops
+        return A11 - A10 * self.A00_inv_hat * A01
+
+    def inv(self, A, P, prec):
+        """ Calculates the inverse of an operator A.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with pc
+            if prec is True.
+        """
+        return (P*A).inv * P if prec else A.inv
+
+    def _build_inner_S_inv(self):
+        """ Calculates the inverse of the schur complement.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with pc.
+        """
+        A = self.inner_S
+        P = self.inner_S_approx_inv_hat
+        prec = self.schur_approx
+        return self.inv(A, P, prec)
+
+    def _build_Sapprox_inv(self):
+        """ Calculates the inverse of the schur complement approximation (!) provided by the user.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with jacobi.
+        """
+        if self.schur_approx:
+            A = self.schur_approx
+            P = DiagonalTensor(A).inv
+            prec = self.schur_approx and self.jacobi_Shat
+            return self.inv(A, P, prec)
+        else:
+            return None
+
+    def _build_A00_inv(self):
+        """ Calculates the inverse of A00, the (0,0)-block of the mixed matrix Atilde.
+            The inverse is potentially approximared through a solve
+            which is potentially preconditioned with jacobi.
+        """
+        A, _, _, _ = self.list_split_mixed_ops
+        P = DiagonalTensor(A).inv
+        return self.inv(A, P, self.jacobi_A00)
+
+    def _retrieve_user_S_approx(self, pc):
+        """Retrieve a user-defined AuxiliaryOperator from the PETSc Options,
+        which is an approximation to the Schur complement and its inverse is used
+        to precondition the local solve in the reconstruction calls (e.g.).
+        """
+        _, _, _, A11 = self.list_split_mixed_ops
+        test, trial = A11.arguments()
+
+        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
+        sentinel = object()
+        usercode = PETSc.Options().getString(prefix_schur + 'pc_python_type', default=sentinel)
+
+        if usercode != sentinel:
+            (modname, funname) = usercode.rsplit('.', 1)
+            mod = __import__(modname)
+            fun = getattr(mod, funname)
+            if isinstance(fun, type):
+                fun = fun()
+            return Tensor(fun.form(pc, test, trial)[0])
+        else:
+            return None
+
+    def build_schur(self, rhs):
+        """The Schur complement in the operators of the trace solve contains
+        the inverse on a mixed system.  Users may want this inverse to be treated
+        with another schur complement.
+
+        Let the mixed matrix Atilde be called A here,
+        then the "nested" options rewrites with a Schur decomposition
+        as the following.
+
+        .. code-block:: text
+
+                A.inv = [[I, -A00.inv * A01]    *   [[A00.inv, 0    ]   *   [[I,             0]
+                        [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
+                        --------------------        -----------------       -------------------
+                        block1                      block2                  block3
+
+        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+
+        If the diag options is specified only the block diagonal block
+        of the Schur complement decomposition is considered, so
+
+        .. code-block:: text
+
+                A.inv = [[A00.inv, 0    ]
+                        [0,        S.inv]]
+                        ------------------
+                        block4
+
+        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+        """
+
+        if self.nested:
+            _, A01, A10, _ = self.list_split_mixed_ops
+            K0, K1 = self.list_split_trace_ops
+            broken_residual = rhs.split()
+            R = [AssembledVector(broken_residual[self.vidx]),
+                                AssembledVector(broken_residual[self.pidx])]
+
+            if self.diag:
+                # K * block4
+                schur_rhs = (K0 * self.A00_inv_hat * R[0] +
+                             K1 * self.inner_S_inv_hat * R[1])
+                schur_comp = (K0 * self.A00_inv_hat * K0.T +
+                              K1 * self.inner_S_inv_hat * K1.T)
+            else:
+                # K * block1
+                K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
+                # K * block1 * block2
+                K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
+                                 K_Ainv_block1[1] * self.inner_S_inv_hat]
+                # K * block1 * block2 * block3
+                K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * self.A00_inv_hat,
+                                 K_Ainv_block2[1]]
+                # K * block1 * block2 * block3 * broken residual
+                schur_rhs = (K_Ainv_block3[0] * R[0] + K_Ainv_block3[1] * R[1])
+                # K * block1 * block2 * block3 * K.T
+                schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
+        else:
+            schur_rhs = self.K * self.Atilde.inv * AssembledVector(rhs)
+            schur_comp = self.K * self.Atilde.inv * self.K.T
+        return schur_rhs, schur_comp
