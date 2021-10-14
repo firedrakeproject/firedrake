@@ -2,6 +2,30 @@ import pytest
 from firedrake import *
 
 
+def test_reconstruct_degree():
+    meshes = [UnitSquareMesh(1, 1, quadrilateral=True)]
+    meshes.append(ExtrudedMesh(meshes[0], layers=1))
+    for mesh in meshes:
+        ndim = mesh.topological_dimension()
+        elist = []
+        for degree in [7, 2, 31]:
+            V = VectorFunctionSpace(mesh, "Q", degree)
+            Q = FunctionSpace(mesh, "DQ", degree-2)
+            Z = MixedFunctionSpace([V, Q])
+            e = Z.ufl_element()
+            elist.append(e)
+            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+
+        elist = []
+        for degree in [7, 2, 31]:
+            V = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", degree)
+            Q = FunctionSpace(mesh, "DQ", degree-1)
+            Z = MixedFunctionSpace([V, Q])
+            e = Z.ufl_element()
+            elist.append(e)
+            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+
+
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
 def mesh(request):
     if request.param == "triangles":
@@ -166,51 +190,70 @@ def test_p_multigrid_vector():
     assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 3
 
 
-class MixedPMG(PMGPC):
-    def coarsen_element(self, ele):
-        return MixedElement([PMGPC.coarsen_element(self, sub) for sub in ele.sub_elements()])
-
-
 @pytest.mark.skipcomplex
-def test_p_multigrid_mixed():
+def test_p_multigrid_mixed(mat_type):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)
     Z = MixedFunctionSpace([V, V])
-
+    x = SpatialCoordinate(mesh) - Constant((0.5, 0.5))
+    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/6)])
+    B = -div(grad(z_exact))
+    T = dot(grad(z_exact), FacetNormal(mesh))
     z = Function(Z)
-    E = 0.5 * inner(grad(z), grad(z))*dx - inner(Constant((1, 1)), z)*dx
+    E = 0.5 * inner(grad(z), grad(z))*dx - inner(B, z)*dx - inner(T, z)*ds
     F = derivative(E, z, TestFunction(Z))
+    bcs = [DirichletBC(Z.sub(0), z_exact[0], "on_boundary")]
 
-    bcs = [DirichletBC(Z.sub(0), 0, "on_boundary"),
-           DirichletBC(Z.sub(1), 0, "on_boundary")]
-
-    relax = {"ksp_type": "chebyshev",
+    relax = {"transfer_mat_type": mat_type,
+             "ksp_type": "chebyshev",
              "ksp_monitor_true_residual": None,
              "ksp_norm_type": "unpreconditioned",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
+    coarse = {"ksp_type": "richardson",
+              "ksp_max_it": 1,
+              "ksp_norm_type": "unpreconditioned",
+              "ksp_monitor": None,
+              "pc_type": "cholesky",
+              "pc_factor_shift_type": "nonzero",
+              "pc_factor_shift_amount": 1E-10}
+
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
-          "ksp_type": "fgmres",
+          "ksp_type": "cg",
+          "ksp_rtol": 1E-12,
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
-          "pc_python_type": __name__ + ".MixedPMG",
-          "mat_type": "aij",
+          "pc_python_type": "firedrake.PMGPC",
+          # "mat_type": mat_type,  # FIXME bug with mat-free jacobi on MixedFunctionSpace
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
-          "pmg_mg_coarse_pc_type": "lu"}
-    problem = NonlinearVariationalProblem(F, z, bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
-    solver.solve()
+          "pmg_mg_coarse": coarse}
 
-    assert solver.snes.ksp.its <= 5
+    basis = VectorSpaceBasis([assemble(TestFunction(Z.sub(1))*dx)])
+    basis.orthonormalize()
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
+    problem = NonlinearVariationalProblem(F, z, bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
+    solver.solve()
+    assert solver.snes.ksp.its <= 7
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
+
+    level = solver._ctx
+    assert abs(assemble(z[1]*dx)) < 1E-12
+    assert norm(z-z_exact, "H1") < 1E-12
+    ctx_levels = 0
+    while level is not None:
+        nsp = level._nullspace
+        assert isinstance(nsp, MixedVectorSpaceBasis)
+        assert nsp._bases[0].index == 0
+        assert isinstance(nsp._bases[1], VectorSpaceBasis)
+        assert len(nsp._bases[1]._petsc_vecs) == 1
+        level = level._coarse
+        ctx_levels += 1
+    assert ctx_levels == 3
 
 
 @pytest.mark.skipcomplex
