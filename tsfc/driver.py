@@ -23,7 +23,7 @@ from FIAT.reference_element import TensorProductCell
 import finat
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
-from tsfc import fem, ufl_utils
+from tsfc import fem, kernel_args, ufl_utils
 from tsfc.finatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
@@ -279,8 +279,6 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     :arg parameters: parameters object
     :returns: Loopy-based ExpressionKernel object.
     """
-    from tsfc.kernel_interface.firedrake_loopy import DualEvaluationOutputKernelArg
-
     if parameters is None:
         parameters = default_parameters()
     else:
@@ -358,7 +356,14 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape)
-    return_arg = DualEvaluationOutputKernelArg(return_shape, builder.scalar_type)
+
+    if len(argument_multiindices) == 0:
+        return_arg = kernel_args.DualEvalVectorOutputKernelArg(return_shape, builder.scalar_type)
+    elif len(argument_multiindices) == 1:
+        return_arg = kernel_args.DualEvalMatrixOutputKernelArg(return_shape[0], return_shape[1], builder.scalar_type)
+    else:
+        raise AssertionError
+
     return_expr = gem.Indexed(return_var, return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
