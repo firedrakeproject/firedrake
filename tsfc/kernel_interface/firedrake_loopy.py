@@ -316,9 +316,9 @@ class KernelBuilder(KernelBuilderBase):
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(kernel_args.FacetKernelArg(interior_facet=False))
+            args.append(kernel_args.ExteriorFacetKernelArg())
         elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(kernel_args.FacetKernelArg(interior_facet=True))
+            args.append(kernel_args.InteriorFacetKernelArg())
 
         for name_, shape in self.kernel.tabulations:
             args.append(kernel_args.TabulationKernelArg(name_, shape, self.scalar_type))

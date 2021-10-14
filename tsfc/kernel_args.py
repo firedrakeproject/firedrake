@@ -316,34 +316,27 @@ class CellSizesKernelArg(RankOneKernelArg):
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
 
-class FacetKernelArg(RankOneKernelArg):
+class FacetKernelArg(RankOneKernelArg, abc.ABC):
 
-    def __init__(self, interior_facet=False):
-        self._interior_facet = interior_facet
+    name = "facet"
+    intent = Intent.IN
+    dtype = np.uint32
 
-    @property
-    def name(self):
-        return "facet"
-
-    @property
-    def shape(self):
-        return (2,) if self._interior_facet else (1,)
-
-    @property
-    def dtype(self):
-        return np.uint32
-
-    @property
-    def intent(self):
-        return Intent.IN
-
-    @property
-    def node_shape(self):
-        return (1,)
+    node_shape = (1,)
 
     @property
     def loopy_arg(self):
         return lp.GlobalArg(self.name, self.dtype, shape=self.shape)
+
+
+class ExteriorFacetKernelArg(FacetKernelArg):
+
+    shape = (1,)
+
+
+class InteriorFacetKernelArg(FacetKernelArg):
+
+    shape = (2,)
 
 
 # class TabulationKernelArg(KernelArg):
