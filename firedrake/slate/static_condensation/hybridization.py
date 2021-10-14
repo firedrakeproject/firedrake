@@ -482,7 +482,10 @@ class SchurComplementBuilder(object):
         self.nested = PETSc.Options(prefix).getBool("nested_schur", False)
 
         # Get preconditioning options for local solvers
+        # Note Shat == preconditioner to inner S
+        self.preonly_Shat = PETSc.Options(self.prefix_schur).getString("aux_ksp_type", default="") == "preonly"
         self.jacobi_Shat = PETSc.Options(self.prefix_schur).getString("aux_pc_type", default="") == "jacobi"
+        self.preonly_A00 = PETSc.Options(self.prefix_A00).getString("ksp_type", default="") == "preonly"
         self.jacobi_A00 = PETSc.Options(self.prefix_A00).getString("pc_type", default="") == "jacobi"
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
@@ -494,13 +497,15 @@ class SchurComplementBuilder(object):
         _, A01, A10, A11 = self.list_split_mixed_ops
         return A11 - A10 * self.A00_inv_hat * A01
 
-    def inv(self, A, P, prec):
+    def inv(self, A, P, prec, replace=False):
         """ Calculates the inverse of an operator A.
             The inverse is potentially approximated through a solve
             which is potentially preconditioned with pc
             if prec is True.
+            The inverse of A may be just approximated with the inverse of P
+            if prec and replace.
         """
-        return (P*A).inv * P if prec else A.inv
+        return (P*A).inv * P if prec else (P.inv if prec and replace else A.inv)
 
     def _build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
@@ -521,7 +526,7 @@ class SchurComplementBuilder(object):
             A = self.schur_approx
             P = DiagonalTensor(A).inv
             prec = self.schur_approx and self.jacobi_Shat
-            return self.inv(A, P, prec)
+            return self.inv(A, P, prec, self.preonly_Shat)
         else:
             return None
 
@@ -532,7 +537,7 @@ class SchurComplementBuilder(object):
         """
         A, _, _, _ = self.list_split_mixed_ops
         P = DiagonalTensor(A).inv
-        return self.inv(A, P, self.jacobi_A00)
+        return self.inv(A, P, self.jacobi_A00, self.preonly_A00)
 
     def _retrieve_user_S_approx(self, pc):
         """Retrieve a user-defined AuxiliaryOperator from the PETSc Options,
