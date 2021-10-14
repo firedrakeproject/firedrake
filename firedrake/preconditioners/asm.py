@@ -319,7 +319,7 @@ class ASMExtrudedStarPC(ASMPatchPC):
 
     ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
-    specified by `pc_hexstar_construct_dim`.
+    specified by `pc_star_construct_dim`.
     '''
 
     _prefix = 'pc_star_'

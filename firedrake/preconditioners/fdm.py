@@ -497,13 +497,13 @@ class FDMPC(PCBase):
                 i1, i2, i3, i4, j2, j4 = indices(6)
                 G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
             else:
-                raise ValueError("I don't know what to do with the homogeneity tensor")
+                raise ValueError("TensorFunctionSpaces with more than 1 index are not supported.")
         else:
             if len(alpha.ufl_shape) == 4:
                 i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
                 G = as_tensor(Piola[j1, i1] * Finv[i2, j2] * Piola[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
             else:
-                raise ValueError("I don't know what to do with the homogeneity tensor")
+                raise ValueError("TensorFunctionSpaces with more than 1 index are not supported.")
 
         if discard_mixed:
             # discard mixed derivatives and mixed components
