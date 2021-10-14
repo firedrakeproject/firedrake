@@ -541,10 +541,8 @@ class SchurComplementBuilder(object):
         """
         _, _, _, A11 = self.list_split_mixed_ops
         test, trial = A11.arguments()
-
-        prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
         sentinel = object()
-        usercode = PETSc.Options().getString(prefix_schur + 'pc_python_type', default=sentinel)
+        usercode = PETSc.Options().getString(self.prefix_schur + 'pc_python_type', default=sentinel)
 
         if usercode != sentinel:
             (modname, funname) = usercode.rsplit('.', 1)
