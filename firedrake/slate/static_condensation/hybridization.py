@@ -479,9 +479,10 @@ class SchurComplementBuilder(object):
 
         # Get preconditioning options for local solvers
         prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
-        self.jacobi_Shat = PETSc.Options(prefix_schur).getBool("aux_pc_type_jacobi", False)
+        sentinel = ""
+        self.jacobi_Shat = PETSc.Options(prefix_schur).getString("aux_pc_type", default=sentinel) == "jacobi"
         prefix_A00 = pc.getOptionsPrefix() + "hybridization_approx_A00_"
-        self.jacobi_A00 = PETSc.Options(prefix_A00).getBool("pc_type_jacobi", False)
+        self.jacobi_A00 = PETSc.Options(prefix_A00).getString("pc_type", default=sentinel) == "jacobi"
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
                                                               a preconditioning matrix if the Slate optimiser replaces \
