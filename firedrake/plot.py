@@ -815,15 +815,15 @@ class FunctionPlotter:
         self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, mesh, num_sample_points):
-        cell = mesh.ufl_cell()
-        if cell.cellname() == "triangle":
+        cell_name = mesh.ufl_cell().cellname()
+        if cell_name == "triangle":
             x = np.array([0, 0, 1])
             y = np.array([0, 1, 0])
-        elif cell.cellname() == "quadrilateral":
+        elif cell_name in ["quadrilateral", "interval * interval"]:
             x = np.array([0, 0, 1, 1])
             y = np.array([0, 1, 0, 1])
         else:
-            raise ValueError(f"Unsupported cell type {cell}")
+            raise ValueError(f"Unsupported cell type {cell_name}")
 
         # First, create the *reference points* -- a triangulation and points in
         # a single reference cell of the mesh, which will be coarser or denser
@@ -833,7 +833,7 @@ class FunctionPlotter:
         sub_triangles = int(math.log(num_sample_points, 4))
         tri = refiner.refine_triangulation(False, sub_triangles)
         triangles = tri.get_masked_triangles()
-        self._reference_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
+        self._reference_points = np.column_stack((tri.x, tri.y))
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
