@@ -1405,19 +1405,19 @@ if mode == "install" or not args.update_script:
     blas_location = args.with_blas
 
     if osname == "Darwin":
-        if options["package_manager"]:
+        try:
+            check_call(["brew", "--version"])
+        except subprocess.CalledProcessError:
+            quit("Installing Firedrake on MacOS requires Homebrew. Please install "
+                 "it using the instructions at http://brew.sh and then try again.")
 
+        if options["package_manager"]:
             log.info("Installing command line tools...")
             try:
                 check_call(["xcode-select", "--install"])
             except subprocess.CalledProcessError:
                 # expected failure if already installed
                 pass
-
-            try:
-                check_call(["brew", "--version"])
-            except subprocess.CalledProcessError:
-                quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
             log.info("Checking brew doctor...")
             try:
