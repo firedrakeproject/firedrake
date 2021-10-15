@@ -251,10 +251,11 @@ def test_slate_hybridization_jacobi_prec_schur():
                                          'fieldsplit_type': 'schur',
                                          'fieldsplit_schur_fact_type': 'diag',
                                          'fieldsplit_0': {'ksp_type': 'default',
-                                                          'pc_type': 'jacobi'}
+                                                          'pc_type': 'jacobi'},
                                          'fieldsplit_1': {'ksp_type': 'default',
                                                           'pc_type': 'python',
                                                           'pc_python_type': __name__ + '.DGLaplacian',
+                                                          'aux_ksp_type': 'preonly'},
                                                           'aux_pc_type': 'jacobi'}}}}
      solve(a == L, w, solver_parameters=params)
      sigma_h, u_h = w.split()
