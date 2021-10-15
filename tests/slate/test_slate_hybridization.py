@@ -206,9 +206,12 @@ def test_mixed_poisson_approximated_schur():
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
-                                'approx_schur': {'ksp_type': 'preonly',
-                                                 'pc_type': 'python',
-                                                 'pc_python_type': __name__ + ".DGLaplacian"}}}
+                                'lmi': {'ksp_type': 'preonly',
+                                         'pc_type': 'fieldsplit',
+                                         'fieldsplit_type': 'schur',
+                                         'fieldsplit_1': {'ksp_type': 'default',
+                                                          'pc_type': 'python',
+                                                          'pc_python_type': __name__ + '.DGLaplacian'}}}
 
     solve(a == L, w, bcs=bcs, solver_parameters=params)
     sigma_h, u_h = w.split()
