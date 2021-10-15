@@ -146,9 +146,9 @@ def test_slate_hybridization_diag_schur():
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
                                 'lmi': {'ksp_type': 'preonly',
-                                         'pc_type': 'fieldsplit',
-                                         'fieldsplit_type': 'schur',
-                                         'fieldsplit_schur_fact_type': 'diag'}}}
+                                        'pc_type': 'fieldsplit',
+                                        'fieldsplit_type': 'schur',
+                                        'fieldsplit_schur_fact_type': 'diag'}}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 
