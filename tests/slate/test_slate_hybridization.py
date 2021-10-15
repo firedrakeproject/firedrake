@@ -47,6 +47,15 @@ def setup_poisson():
     return a, L, W
 
 
+def options_check(builder, expected):
+    all_good = True
+    for k, v in expected.items():
+        all_good = bool(getattr(builder, k)) == v
+        if not all_good:
+            return False
+    return all_good
+
+
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])
@@ -255,7 +264,7 @@ def test_slate_hybridization_jacobi_prec_schur():
                                          'fieldsplit_1': {'ksp_type': 'default',
                                                           'pc_type': 'python',
                                                           'pc_python_type': __name__ + '.DGLaplacian',
-                                                          'aux_ksp_type': 'preonly'},
+                                                          'aux_ksp_type': 'preonly',
                                                           'aux_pc_type': 'jacobi'}}}}
      solve(a == L, w, solver_parameters=params)
      sigma_h, u_h = w.split()
