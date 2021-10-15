@@ -6,7 +6,6 @@ import sys
 from functools import reduce
 from itertools import chain
 
-import numpy as np
 from numpy import asarray
 
 import ufl

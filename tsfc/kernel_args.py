@@ -104,7 +104,6 @@ class CoordinatesKernelArg(RankOneKernelArg):
         self._dtype = dtype
         self._interior_facet = interior_facet
 
-
     @property
     def dtype(self):
         return self._dtype

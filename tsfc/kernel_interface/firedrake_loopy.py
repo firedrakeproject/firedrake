@@ -1,18 +1,11 @@
-import abc
-import enum
 import numpy
 from collections import namedtuple
-from itertools import chain, product
 from functools import partial
 
-import finat
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
 from gem.flop_count import count_flops
-from gem.optimise import remove_componenttensors as prune
-
-import loopy as lp
 
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
@@ -28,6 +21,8 @@ ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cel
 
 def make_builder(*args, **kwargs):
     return partial(KernelBuilder, *args, **kwargs)
+
+
 class Kernel:
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
@@ -122,7 +117,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            kernel_arg, expression  = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
             self.cell_sizes_arg = kernel_arg
             self._cell_sizes = expression
 
@@ -421,7 +416,6 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
         elements = (element,)
-
 
     if len(arguments) == 1 or diagonal:
         finat_element, = elements
