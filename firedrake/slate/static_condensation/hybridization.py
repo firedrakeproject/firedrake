@@ -591,7 +591,7 @@ class SchurComplementBuilder(object):
         """
         A = self.inner_S
         P = self.inner_S_approx_inv_hat
-        prec = self.schur_approx
+        prec = bool(self.schur_approx)
         return self.inv(A, P, prec)
 
     def _build_Sapprox_inv(self):
