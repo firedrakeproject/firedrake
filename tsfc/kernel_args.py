@@ -372,8 +372,8 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
     @property
     def loopy_arg(self):
-        rshape = np.prod([self.rnode_shape, *self.cshape], dtype=int)
-        cshape = np.prod([self.rnode_shape, *self.cshape], dtype=int)
+        rshape = np.prod([self.rnode_shape, *self.rshape], dtype=int)
+        cshape = np.prod([self.cnode_shape, *self.cshape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=(rshape, cshape))
 
     @property
