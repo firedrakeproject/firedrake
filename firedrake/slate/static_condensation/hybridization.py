@@ -447,14 +447,10 @@ class SchurComplementBuilder(object):
         self.vidx = vidx
         self.pidx = pidx
         self._split_mixed_operator()
+        self.prefix = prefix + "lmi_"
 
         # prefixes
-        self.prefix_schur = pc.getOptionsPrefix() + "hybridization_approx_schur_"
-        self.prefix_A00 = pc.getOptionsPrefix() + "hybridization_approx_A00_"
-        self._retrieve_options(prefix)
-
-        # get user supplied operator
-        self.schur_approx = self._retrieve_user_S_approx(pc)
+        self._retrieve_options(pc)
 
         # build all required inverses
         self.A00_inv_hat = self._build_A00_inv()
@@ -476,17 +472,28 @@ class SchurComplementBuilder(object):
         K1 = Tensor(split_trace_op[(0, id1)])
         self.list_split_trace_ops = [K0, K1]
     
-    def _retrieve_options(self, prefix):
-        # Get options for Schur complement decomposition
-        self.diag = PETSc.Options(prefix).getBool("diag_schur", False)
-        self.nested = PETSc.Options(prefix).getBool("nested_schur", False)
+    def _retrieve_options(self, pc):
+        get_option = lambda key: PETSc.Options(self.prefix).getString(key, default="")
 
+        # Get options for Schur complement decomposition
+        self.nested = (get_option("ksp_type") == "preonly" and
+                       get_option("pc_type") == "fieldsplit" and
+                       get_option("fieldsplit_type") == "schur")
+        self.diag = (self.nested and  get_option("fieldsplit_schur_fact_type") == "diag")
+    
         # Get preconditioning options for local solvers
         # Note Shat == preconditioner to inner S
-        self.preonly_Shat = PETSc.Options(self.prefix_schur).getString("aux_ksp_type", default="") == "preonly"
-        self.jacobi_Shat = PETSc.Options(self.prefix_schur).getString("aux_pc_type", default="") == "jacobi"
-        self.preonly_A00 = PETSc.Options(self.prefix_A00).getString("ksp_type", default="") == "preonly"
-        self.jacobi_A00 = PETSc.Options(self.prefix_A00).getString("pc_type", default="") == "jacobi"
+        fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
+        self.preonly_A00 = get_option(fs0+"ksp_type") == "default"
+        self.jacobi_A00 = get_option(fs0+"pc_type") == "jacobi"
+
+        # get user supplied operator
+        self.schur_approx = (self._retrieve_user_S_approx(pc, get_option(fs1+"pc_python_type"))
+                             if get_option("ksp_type") == "default" and get_option("pc_type") == "python"
+                             else None)
+        self.preonly_Shat = get_option(fs1+"aux_ksp_type") == "default"
+        self.jacobi_Shat = get_option(fs1+"aux_pc_type") == "jacobi"
+
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
                                                               a preconditioning matrix if the Slate optimiser replaces \
@@ -539,17 +546,14 @@ class SchurComplementBuilder(object):
         P = DiagonalTensor(A).inv
         return self.inv(A, P, self.jacobi_A00, self.preonly_A00)
 
-    def _retrieve_user_S_approx(self, pc):
+    def _retrieve_user_S_approx(self, pc, usercode):
         """Retrieve a user-defined AuxiliaryOperator from the PETSc Options,
         which is an approximation to the Schur complement and its inverse is used
         to precondition the local solve in the reconstruction calls (e.g.).
         """
         _, _, _, A11 = self.list_split_mixed_ops
         test, trial = A11.arguments()
-        sentinel = object()
-        usercode = PETSc.Options().getString(self.prefix_schur + 'pc_python_type', default=sentinel)
-
-        if usercode != sentinel:
+        if usercode != "":
             (modname, funname) = usercode.rsplit('.', 1)
             mod = __import__(modname)
             fun = getattr(mod, funname)
