@@ -113,7 +113,7 @@ def test_slate_hybridization_nested_schur():
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
                                 'lmi': {'ksp_type': 'preonly',
-                                         'pc_type': 'fieldsplit',
+                                        'pc_type': 'fieldsplit',
                                          'fieldsplit_type': 'schur'}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
