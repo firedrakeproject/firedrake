@@ -293,7 +293,17 @@ def test_slate_hybridization_jacobi_prec_schur():
                                                         'pc_python_type': __name__ + '.DGLaplacian',
                                                         'aux_ksp_type': 'preonly',
                                                         'aux_pc_type': 'jacobi'}}}}
-    solve(a == L, w, solver_parameters=params)
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    expected = {'nested':True, 'diag':True,
+                'preonly_A00':False, 'jacobi_A00':True,
+                'schur_approx':True,
+                'preonly_Shat':True, 'jacobi_Shat':True}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
     sigma_h, u_h = w.split()
 
     # (Non-hybrid) Need to slam it with preconditioning due to the
