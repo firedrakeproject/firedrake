@@ -566,11 +566,11 @@ class SchurComplementBuilder(object):
     def build_schur(self, rhs):
         """The Schur complement in the operators of the trace solve contains
         the inverse on a mixed system.  Users may want this inverse to be treated
-        with another schur complement.
+        with another Schur complement.
 
-        Let the mixed matrix Atilde be called A here,
-        then the "nested" options rewrites with a Schur decomposition
-        as the following.
+        Let the mixed matrix Atilde be called A here.
+        Then, if a nested schur complement is requested, the inverse of Atilde 
+        is rewritten with help of a a Schur decomposition as follows.
 
         .. code-block:: text
 
@@ -579,10 +579,10 @@ class SchurComplementBuilder(object):
                         --------------------        -----------------       -------------------
                         block1                      block2                  block3
 
-        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+                with the (inner) schur complement S = A11 - A10 * A00.inv * A01
 
-        If the diag options is specified only the block diagonal block
-        of the Schur complement decomposition is considered, so
+        If the diag options is specified the decomposition is approximated
+        with only the block diagonal block of the Schur complement decomposition.
 
         .. code-block:: text
 
@@ -590,8 +590,7 @@ class SchurComplementBuilder(object):
                         [0,        S.inv]]
                         ------------------
                         block4
-
-        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+                with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
 
         if self.nested:
