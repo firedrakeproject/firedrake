@@ -554,15 +554,15 @@ class SchurComplementBuilder(object):
         # Get preconditioning options for local solvers
         # Note Shat == preconditioner to inner S
         fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
-        self.preonly_A00 = get_option(fs0+"ksp_type") == "default"
-        self.jacobi_A00 = get_option(fs0+"pc_type") == "jacobi"
+        self.preonly_A00 = get_option(fs0+"_ksp_type") == "preonly"
+        self.jacobi_A00 = get_option(fs0+"_pc_type") == "jacobi"
 
         # get user supplied operator
-        self.schur_approx = (self._retrieve_user_S_approx(pc, get_option(fs1+"pc_python_type"))
-                             if get_option("ksp_type") == "default" and get_option("pc_type") == "python"
+        self.schur_approx = (self._retrieve_user_S_approx(pc, get_option(fs1+"_pc_python_type"))
+                             if get_option(fs1+"_ksp_type") == "default" and get_option(fs1+"_pc_type") == "python"
                              else None)
-        self.preonly_Shat = get_option(fs1+"aux_ksp_type") == "preonly"
-        self.jacobi_Shat = get_option(fs1+"aux_pc_type") == "jacobi"
+        self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
+        self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
 
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
