@@ -19,7 +19,7 @@ from pyadjoint.tape import no_annotations
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTriangleMesh',
-           'RectangleMesh', 'TensorRectangleMesh', 
+           'RectangleMesh', 'TensorRectangleMesh',
            'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
