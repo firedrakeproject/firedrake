@@ -7,7 +7,7 @@ from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
-from tsfc.finatinterface import create_element, create_base_element, as_fiat_cell
+from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
 
 import gem
@@ -25,7 +25,7 @@ __all__ = ("interpolate", "Interpolator")
 def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
-    :arg expr: an :class:`.Expression`.
+    :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
@@ -153,10 +153,7 @@ class Interpolator(object):
 def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
-    if isinstance(expr, firedrake.Expression):
-        arguments = ()
-    else:
-        arguments = extract_arguments(expr)
+    arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
             f = V
@@ -211,18 +208,10 @@ def make_interpolator(expr, V, subset, access):
         raise RuntimeError('Expression of length %d required, got length %d'
                            % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
 
-    if not isinstance(expr, firedrake.Expression):
-        if len(V) > 1:
-            raise NotImplementedError(
-                "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
-    elif hasattr(expr, 'eval'):
-        if len(V) > 1:
-            raise NotImplementedError(
-                "Python expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
-    else:
-        raise ValueError("Don't know how to interpolate a %r" % expr)
+    if len(V) > 1:
+        raise NotImplementedError(
+            "UFL expressions for mixed functions are not yet supported.")
+    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
 
     def callable(loops, f):
         for l in loops:
@@ -235,13 +224,11 @@ def make_interpolator(expr, V, subset, access):
 @utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
-        if not isinstance(expr, firedrake.Expression):
-            to_element = create_element(V.ufl_element())
-            if V.ufl_element().mapping() == "symmetries":
-                raise NotImplementedError("Cannot interpolate into tensor spaces with symmetry yet")
-        else:
-            # compile_python_kernel code pathway expects base element
-            to_element = create_base_element(V.ufl_element())
+        expr = ufl.as_ufl(expr)
+    except ufl.UFLException:
+        raise ValueError("Expecting to interpolate a UFL expression")
+    try:
+        to_element = create_element(V.ufl_element())
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
@@ -259,10 +246,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.ufl_domain()
-    if isinstance(expr, firedrake.Expression):
-        source_mesh = target_mesh
-    else:
-        source_mesh = expr.ufl_domain() or target_mesh
+    source_mesh = expr.ufl_domain() or target_mesh
 
     if target_mesh is not source_mesh:
         if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -289,30 +273,24 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
-    if not isinstance(expr, firedrake.Expression):
-        kernel = compile_expression_dual_evaluation(expr, to_element,
-                                                    domain=source_mesh,
-                                                    parameters=parameters)
-        ast = kernel.ast
-        oriented = kernel.oriented
-        needs_cell_sizes = kernel.needs_cell_sizes
-        coefficients = kernel.coefficients
-        first_coeff_fake_coords = kernel.first_coefficient_fake_coords
-        name = kernel.name
-        kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                            flop_count=kernel.flop_count)
-    elif hasattr(expr, "eval"):
-        to_pts = []
-        for dual in to_element.fiat_equivalent.dual_basis():
-            if not isinstance(dual, FIAT.functional.PointEvaluation):
-                raise NotImplementedError("Can only interpolate Python kernels with Lagrange elements")
-            pts, = dual.pt_dict.keys()
-            to_pts.append(pts)
-        kernel, oriented, needs_cell_sizes, coefficients = compile_python_kernel(expr, to_pts, to_element, V, source_mesh.coordinates)
-        first_coeff_fake_coords = False
-    else:
-        raise RuntimeError("Attempting to evaluate an Expression which has no value.")
-
+    # We need to pass both the ufl element and the finat element
+    # because the finat elements might not have the right mapping
+    # (e.g. L2 Piola, or tensor element with symmetries)
+    # FIXME: for the runtime unknown point set (for cross-mesh
+    # interpolation) we have to pass the finat element we construct
+    # here. Ideally we would only pass the UFL element through.
+    kernel = compile_expression_dual_evaluation(expr, to_element,
+                                                V.ufl_element(),
+                                                domain=source_mesh,
+                                                parameters=parameters)
+    ast = kernel.ast
+    oriented = kernel.oriented
+    needs_cell_sizes = kernel.needs_cell_sizes
+    coefficients = kernel.coefficients
+    first_coeff_fake_coords = kernel.first_coefficient_fake_coords
+    name = kernel.name
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+                        flop_count=kernel.flop_count)
     cell_set = target_mesh.cell_set
     if subset is not None:
         assert subset.superset == cell_set
@@ -328,10 +306,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         # kernels if they are deemed not-necessary.
         # FIXME: Checking for argument name in the inner kernel to decide
         # whether to add an extra coefficient is a stopgap until
-        # compile_expression_dual_evaluation and compile_python_kernel
-        #   (a) output a coefficient map to indicate argument ordering in
+        # compile_expression_dual_evaluation
+        #   (a) outputs a coefficient map to indicate argument ordering in
         #       parloops as `compile_form` does and
-        #   (b) allow the dual evaluation related coefficients to be suplied to
+        #   (b) allows the dual evaluation related coefficients to be supplied to
         #       them rather than having to be added post-hoc (likely by
         #       replacing `to_element` with a CoFunction/CoArgument as the
         #       target `dual` which would contain `dual` related
@@ -512,35 +490,3 @@ class GlobalWrapper(object):
         self.dat = glob
         self.cell_node_map = lambda *arguments: None
         self.ufl_domain = lambda: None
-
-
-@PETSc.Log.EventDecorator()
-def compile_python_kernel(expression, to_pts, to_element, fs, coords):
-    """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
-    function provided."""
-
-    coords_space = coords.function_space()
-    coords_element = create_base_element(coords_space.ufl_element()).fiat_equivalent
-
-    X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
-
-    # The par_loop will just pass us arguments, since it doesn't
-    # know about keyword arguments at all so unpack into a dict that we
-    # can pass to the user's eval method.
-    def kernel(output, x, *arguments):
-        kwargs = {}
-        for (slot, _), arg in zip(expression._user_args, arguments):
-            kwargs[slot] = arg
-        X = numpy.dot(X_remap.T, x)
-
-        for i in range(len(output)):
-            # Pass a slice for the scalar case but just the
-            # current vector in the VFS case. This ensures the
-            # eval method has a Dolfin compatible API.
-            expression.eval(output[i:i+1, ...] if numpy.ndim(output) == 1 else output[i, ...],
-                            X[i:i+1, ...] if numpy.ndim(X) == 1 else X[i, ...], **kwargs)
-
-    coefficients = [coords]
-    for _, arg in expression._user_args:
-        coefficients.append(GlobalWrapper(arg))
-    return kernel, False, False, tuple(coefficients)

@@ -26,6 +26,26 @@ import pytest
 from firedrake import *
 
 
+def setup_poisson():
+    mesh = UnitSquareMesh(1, 1)
+    U = FunctionSpace(mesh, "RT", 4)
+    V = FunctionSpace(mesh, "DG", 3)
+    W = U * V
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+
+    # Define the source function
+    f = Function(V)
+    import numpy as np
+    fvector = f.vector()
+    fvector.set_local(np.random.uniform(size=fvector.local_size()))
+
+    # Define the variational forms
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    L = -inner(f, v) * dx
+    return a, L, W
+
+
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])
@@ -71,6 +91,37 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
                              'pc_fieldsplit_schur_fact_type': 'FULL',
                              'fieldsplit_0_ksp_type': 'cg',
                              'fieldsplit_1_ksp_type': 'cg'})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-11
+    assert u_err < 1e-11
+
+
+def test_slate_hybridization_nested_schur():
+    a, L, W = setup_poisson()
+
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'nested_schur': 'true'}}
+    solve(a == L, w, solver_parameters=params)
+    sigma_h, u_h = w.split()
+
+    w2 = Function(W)
+    solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
+                                         'pc_type': 'python',
+                                         'mat_type': 'matfree',
+                                         'pc_python_type': 'firedrake.HybridizationPC',
+                                         'hybridization': {'ksp_type': 'preonly',
+                                                           'pc_type': 'lu'}})
     nh_sigma, nh_u = w2.split()
 
     # Return the L2 error
