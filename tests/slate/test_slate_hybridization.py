@@ -211,7 +211,7 @@ def test_mixed_poisson_approximated_schur():
                                         'fieldsplit_type': 'schur',
                                         'fieldsplit_1': {'ksp_type': 'default',
                                                          'pc_type': 'python',
-                                                          'pc_python_type': __name__ + '.DGLaplacian'}}}
+                                                         'pc_python_type': __name__ + '.DGLaplacian'}}}}
 
     solve(a == L, w, bcs=bcs, solver_parameters=params)
     sigma_h, u_h = w.split()
