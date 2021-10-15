@@ -440,6 +440,75 @@ class HybridizationPC(SCBase):
 
 class SchurComplementBuilder(object):
 
+    """A Slate-based Schur complement expression builder. The expression is
+       used in the trace system solve and parts of it in the reconstruction
+       calls of the other two variables of the hybridised system.
+       How the Schur complement if constructed, and in particular how the local inverse of the 
+       mixed matrix is built, is controlled with PETSc options. All corresponding PETSc options
+       start with `hybridization_lmi', where `lmi' is short for `local mixed inverse'.
+       The following option sets are valid together with the usual set of hybridisation options:
+       
+        {'lmi': {'ksp_type': 'preonly',
+                 'pc_type': 'fieldsplit',
+                 'fieldsplit_type': 'schur'}}
+        --> A Schur complement is requested for the mixed matrix inverse which appears inside the
+            Schur complement of the trace system solve. The Schur complements are then nested.
+            For details see defition of <build_schur>.
+        
+        {'lmi': {'ksp_type': 'preonly',
+                'pc_type': 'fieldsplit',
+                'fieldsplit_type': 'schur',
+                'fieldsplit_schur_fact_type': 'diag'}}
+        --> The requested Schur complement for the mixed matrix inverse is approximated with
+            only the block-diagonal part of the Schur decomposition.
+            For details see defition of <build_schur>.
+        
+        'lmi': {'ksp_type': 'preonly',
+                'pc_type': 'fieldsplit',
+                'fieldsplit_type': 'schur',
+                'fieldsplit_1': {'ksp_type': 'default',
+                                 'pc_type': 'python',
+                                 'pc_python_type': __name__ + '.DGLaplacian'}}
+        --> The inverse of the Schur complement inside the Schur decomposition of the mixed matrix inverse
+            is approximated by a default solver (LU in the matrix-explicit case) which is preconditioned
+            by a user-defined operator, e.g. a DG Laplacian, see <_build_inner_S_inv>.
+            So P_S * S * x = P_S * b.
+
+        'lmi': {'ksp_type': 'preonly',
+                'pc_type': 'fieldsplit',
+                'fieldsplit_type': 'schur',
+                'fieldsplit_1': {'ksp_type': 'default',
+                                 'pc_type': 'python',
+                                 'pc_python_type': __name__ + '.DGLaplacian',
+                                 'aux_ksp_type': 'preonly'}
+                                 'aux_pc_type': 'jacobi'}}}}
+        --> The inverse of the Schur complement inside the Schur decomposition of the mixed matrix inverse
+            is approximated by a default solver (LU in the matrix-explicit case) which is preconditioned
+            by a user-defined operator, e.g. a DG Laplacian. The inverse of the preconditioning matrix is
+            approximated through the inverse of only the diagonal of the provided operator, see
+             <_build_Sapprox_inv>. So diag(P_S).inv * S * x = diag(P_S).inv * b.
+
+        'lmi': {'ksp_type': 'preonly',
+                'pc_type': 'fieldsplit',
+                'fieldsplit_type': 'schur',
+                'fieldsplit_0': {'ksp_type': 'default',
+                                 'pc_type': 'jacobi'}
+        --> The inverse of the A00 block of the mixed matrix is approximated by a default solver
+            (LU in the matrix-explicit case) which is preconditioned by the diagonal matrix of A00,
+            see <_build_A00_inv>. So diag(A00).inv * A00 * x = diag(A00).inv * b.
+
+        'lmi': {'ksp_type': 'preonly',
+                'pc_type': 'fieldsplit',
+                'fieldsplit_type': 'None',
+                'fieldsplit_0':  ...
+                'fieldsplit_1':  ...
+        --> All the options for fieldsplit_* are still valid if 'fieldsplit_type': 'None'. In this case
+            the mixed matrix inverse which appears inside the Schur complement of the trace system solve
+            is calculated explicitly, but the local inverses of A00 and the Schur complement
+            in the reconstructions calls are still treated according to the options in fieldsplit_*.
+    """
+
+
     def __init__(self, prefix, Atilde, K,  pc, vidx, pidx):
         # set options, operators and order of sub-operators
         self.Atilde = Atilde
