@@ -453,7 +453,8 @@ class SchurComplementBuilder(object):
                  'fieldsplit_type': 'schur'}}
         --> A Schur complement is requested for the mixed matrix inverse which appears inside the
             Schur complement of the trace system solve. The Schur complements are then nested.
-            For details see defition of <build_schur>.
+            For details see defition of <build_schur>. No fieldsplit options are set so all
+            local inverses are calculated explicitly.
         
         {'lmi': {'ksp_type': 'preonly',
                 'pc_type': 'fieldsplit',
