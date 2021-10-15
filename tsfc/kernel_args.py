@@ -76,95 +76,38 @@ class RankTwoKernelArg(KernelArg, abc.ABC):
         ...
 
 
-class DualEvalVectorOutputKernelArg(RankOneKernelArg):
+class DualEvalOutputKernelArg(KernelArg):
 
-    def __init__(self, node_shape, dtype):
-        self._node_shape = node_shape
+    name = "A"
+    intent = Intent.OUT
+
+    def __init__(self, shape, dtype):
+        self._shape = shape
         self._dtype = dtype
-
-    @property
-    def name(self):
-        return "A"
 
     @property
     def dtype(self):
         return self._dtype
 
     @property
-    def intent(self):
-        return Intent.OUT
-
-    @property
-    def shape(self):
-        return (1,)
-
-    @property
-    def node_shape(self):
-        return self._node_shape
-
-    @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self.node_shape)
-
-
-class DualEvalMatrixOutputKernelArg(RankTwoKernelArg):
-
-    def __init__(self, rnode_shape, cnode_shape, dtype):
-        self._rnode_shape = rnode_shape
-        self._cnode_shape = cnode_shape
-        self._dtype = dtype
-
-    @property
-    def name(self):
-        return "A"
-
-    @property
-    def dtype(self):
-        return self._dtype
-
-    @property
-    def intent(self):
-        return Intent.OUT
-
-    @property
-    def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=(self.rnode_shape, self.cnode_shape))
-
-    @property
-    def rshape(self):
-        return (1,)
-
-    @property
-    def cshape(self):
-        return (1,)
-
-    @property
-    def rnode_shape(self):
-        return self._rnode_shape
-
-    @property
-    def cnode_shape(self):
-        return self._cnode_shape
+        return lp.GlobalArg(self.name, self.dtype, shape=self._shape)
 
 
 class CoordinatesKernelArg(RankOneKernelArg):
+
+    name = "coords"
+    intent = Intent.IN
 
     def __init__(self, elem, dtype, interior_facet=False):
         self._elem = _ElementHandler(elem)
         self._dtype = dtype
         self._interior_facet = interior_facet
 
-    @property
-    def name(self):
-        return "coords"
 
     @property
     def dtype(self):
         return self._dtype
-
-    @property
-    def intent(self):
-        return Intent.IN
 
     @property
     def shape(self):
@@ -246,20 +189,14 @@ class CoefficientKernelArg(RankOneKernelArg):
 
 class CellOrientationsKernelArg(RankOneKernelArg):
 
+    name = "cell_orientations"
+    intent = Intent.IN
+    dtype = np.int32
+
+    node_shape = 1
+
     def __init__(self, interior_facet=False):
         self._interior_facet = interior_facet
-
-    @property
-    def name(self):
-        return "cell_orientations"
-
-    @property
-    def dtype(self):
-        return np.int32
-
-    @property
-    def intent(self):
-        return Intent.IN
 
     @property
     def loopy_arg(self):
@@ -270,44 +207,28 @@ class CellOrientationsKernelArg(RankOneKernelArg):
     def shape(self):
         return (2,) if self._interior_facet else (1,)
 
-    @property
-    def node_shape(self):
-        return (1,)
-
 
 class CellSizesKernelArg(RankOneKernelArg):
 
+    name = "cell_sizes"
+    intent = Intent.IN
+
     def __init__(self, elem, dtype, *, interior_facet=False):
-        self._elem = elem
+        self._elem = _ElementHandler(elem)
         self._dtype = dtype
         self._interior_facet = interior_facet
-
-    @property
-    def name(self):
-        return "cell_sizes"
 
     @property
     def dtype(self):
         return self._dtype
 
     @property
-    def intent(self):
-        return Intent.IN
-
-    @property
     def shape(self):
-        if _is_tensor_element(self._elem):
-            return self._elem._shape
-        else:
-            return (1,)
+        return self._elem.tensor_shape
 
     @property
     def node_shape(self):
-        if _is_tensor_element(self._elem):
-            shape = self._elem.index_shape[:-len(self.shape)]
-        else:
-            shape = self._elem.index_shape
-        shape = np.prod(shape, dtype=int)
+        shape = self._elem.node_shape
         return 2*shape if self._interior_facet else shape
 
     @property
@@ -322,7 +243,7 @@ class FacetKernelArg(RankOneKernelArg, abc.ABC):
     intent = Intent.IN
     dtype = np.uint32
 
-    node_shape = (1,)
+    node_shape = None  # Must be None because of direct addressing - this is obscure
 
     @property
     def loopy_arg(self):

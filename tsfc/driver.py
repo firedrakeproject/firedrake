@@ -6,6 +6,7 @@ import sys
 from functools import reduce
 from itertools import chain
 
+import numpy as np
 from numpy import asarray
 
 import ufl
@@ -355,16 +356,10 @@ def compile_expression_dual_evaluation(expression, to_element, *,
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape)
 
-    if len(argument_multiindices) == 0:
-        return_arg = kernel_args.DualEvalVectorOutputKernelArg(return_shape, builder.scalar_type)
-    elif len(argument_multiindices) == 1:
-        return_arg = kernel_args.DualEvalMatrixOutputKernelArg(return_shape[0], return_shape[1], builder.scalar_type)
-    else:
-        raise AssertionError
-
-    return_expr = gem.Indexed(return_var, return_indices)
+    # TODO I do not know how to determine tensor_shape and node_shape from this information
+    return_arg = kernel_args.DualEvalOutputKernelArg(return_shape, builder.scalar_type)
+    return_expr = gem.Indexed(gem.Variable("A", return_shape), return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
