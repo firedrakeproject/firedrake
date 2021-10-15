@@ -574,7 +574,7 @@ class SchurComplementBuilder(object):
         _, A01, A10, A11 = self.list_split_mixed_ops
         return A11 - A10 * self.A00_inv_hat * A01
 
-    def inv(self, A, P, prec, replace=False):
+    def inv(self, A, P, prec, preonly=False):
         """ Calculates the inverse of an operator A.
             The inverse is potentially approximated through a solve
             which is potentially preconditioned with pc
@@ -582,7 +582,7 @@ class SchurComplementBuilder(object):
             The inverse of A may be just approximated with the inverse of P
             if prec and replace.
         """
-        return (P*A).inv * P if prec else (P.inv if prec and replace else A.inv)
+        return P.inv if prec and preonly else ((P*A).inv * P if prec else A.inv)
 
     def _build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
