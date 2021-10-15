@@ -3,7 +3,7 @@
 This is the final stage of code generation in TSFC."""
 
 import numpy
-from functools import singledispatch, partial
+from functools import singledispatch
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
@@ -22,57 +22,54 @@ from tsfc.parameters import is_complex
 from contextlib import contextmanager
 
 
-maxtype = partial(numpy.find_common_type, [])
-
-
 @singledispatch
 def _assign_dtype(expression, self):
-    return maxtype(map(self, expression.children))
+    return set.union(*map(self, expression.children))
 
 
 @_assign_dtype.register(gem.Terminal)
 def _assign_dtype_terminal(expression, self):
-    return self.scalar_type
+    return {self.scalar_type}
 
 
 @_assign_dtype.register(gem.Zero)
 @_assign_dtype.register(gem.Identity)
 @_assign_dtype.register(gem.Delta)
 def _assign_dtype_real(expression, self):
-    return self.real_type
+    return {self.real_type}
 
 
 @_assign_dtype.register(gem.Literal)
 def _assign_dtype_identity(expression, self):
-    return expression.array.dtype
+    return {expression.array.dtype}
 
 
 @_assign_dtype.register(gem.Power)
 def _assign_dtype_power(expression, self):
     # Conservative
-    return self.scalar_type
+    return {self.scalar_type}
 
 
 @_assign_dtype.register(gem.MathFunction)
 def _assign_dtype_mathfunction(expression, self):
     if expression.name in {"abs", "real", "imag"}:
-        return self.real_type
+        return {self.real_type}
     elif expression.name == "sqrt":
-        return self.scalar_type
+        return {self.scalar_type}
     else:
-        return maxtype(map(self, expression.children))
+        return set.union(*map(self, expression.children))
 
 
 @_assign_dtype.register(gem.MinValue)
 @_assign_dtype.register(gem.MaxValue)
 def _assign_dtype_minmax(expression, self):
     # UFL did correctness checking
-    return self.real_type
+    return {self.real_type}
 
 
 @_assign_dtype.register(gem.Conditional)
 def _assign_dtype_conditional(expression, self):
-    return maxtype(map(self, expression.children[1:]))
+    return set.union(*map(self, expression.children[1:]))
 
 
 @_assign_dtype.register(gem.Comparison)
@@ -80,7 +77,7 @@ def _assign_dtype_conditional(expression, self):
 @_assign_dtype.register(gem.LogicalAnd)
 @_assign_dtype.register(gem.LogicalOr)
 def _assign_dtype_logical(expression, self):
-    return numpy.int8
+    return {numpy.int8}
 
 
 def assign_dtypes(expressions, scalar_type):
@@ -94,11 +91,8 @@ def assign_dtypes(expressions, scalar_type):
     :returns: list of tuples (expression, dtype)."""
     mapper = Memoizer(_assign_dtype)
     mapper.scalar_type = scalar_type
-    if scalar_type.kind == "c":
-        mapper.real_type = numpy.finfo(scalar_type).dtype
-    else:
-        mapper.real_type = scalar_type
-    return [(e, mapper(e)) for e in expressions]
+    mapper.real_type = numpy.finfo(scalar_type).dtype
+    return [(e, numpy.find_common_type(mapper(e), [])) for e in expressions]
 
 
 class LoopyContext(object):
