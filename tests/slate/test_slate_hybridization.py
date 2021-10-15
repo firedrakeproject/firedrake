@@ -145,8 +145,10 @@ def test_slate_hybridization_diag_schur():
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
-                                'nested_schur': 'true',
-                                'diag_schur': 'true'}}
+                                'lmi': {'ksp_type': 'preonly',
+                                         'pc_type': 'fieldsplit',
+                                         'fieldsplit_type': 'schur',
+                                         'fieldsplit_schur_fact_type': 'diag'}}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 
