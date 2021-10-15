@@ -207,10 +207,10 @@ def test_mixed_poisson_approximated_schur():
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu',
                                 'lmi': {'ksp_type': 'preonly',
-                                         'pc_type': 'fieldsplit',
-                                         'fieldsplit_type': 'schur',
-                                         'fieldsplit_1': {'ksp_type': 'default',
-                                                          'pc_type': 'python',
+                                        'pc_type': 'fieldsplit',
+                                        'fieldsplit_type': 'schur',
+                                        'fieldsplit_1': {'ksp_type': 'default',
+                                                         'pc_type': 'python',
                                                           'pc_python_type': __name__ + '.DGLaplacian'}}}
 
     solve(a == L, w, bcs=bcs, solver_parameters=params)
