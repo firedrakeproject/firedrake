@@ -25,6 +25,7 @@ which appears in the variational form as the term: -<42*tau, n>
 import pytest
 from firedrake import *
 
+PETSc.Sys.popErrorHandler()
 
 def setup_poisson():
     mesh = UnitSquareMesh(1, 1)
@@ -238,13 +239,16 @@ def test_slate_hybridization_jacobi_prec_schur():
                'pc_python_type': 'firedrake.HybridizationPC',
                'hybridization': {'ksp_type': 'preonly',
                                  'pc_type': 'lu',
-                                 'nested_schur': 'true',
-                                 'approx_schur': {'ksp_type': 'preonly',
-                                                  'pc_type': 'python',
-                                                  'pc_python_type': __name__ + ".DGLaplacian",
-                                                  'aux_pc_type': 'jacobi'},
-                                 'approx_A00': {'ksp_type': 'preonly',
-                                                'pc_type': 'jacobi'}}}
+                                 'lmi': {'ksp_type': 'preonly',
+                                         'pc_type': 'fieldsplit',
+                                         'fieldsplit_type': 'schur',
+                                         'fieldsplit_schur_fact_type': 'diag',
+                                         'fieldsplit_0': {'ksp_type': 'default',
+                                                          'pc_type': 'jacobi'}
+                                         'fieldsplit_1': {'ksp_type': 'default',
+                                                          'pc_type': 'python',
+                                                          'pc_python_type': __name__ + '.DGLaplacian',
+                                                          'aux_pc_type': 'jacobi'}}}}
      solve(a == L, w, solver_parameters=params)
      sigma_h, u_h = w.split()
 
