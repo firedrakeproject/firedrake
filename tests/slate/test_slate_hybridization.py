@@ -124,7 +124,16 @@ def test_slate_hybridization_nested_schur():
                                 'lmi': {'ksp_type': 'preonly',
                                         'pc_type': 'fieldsplit',
                                         'fieldsplit_type': 'schur'}}}
-    solve(a == L, w, solver_parameters=params)
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    expected = {'nested':True, 'diag':False,
+                'preonly_A00':False, 'jacobi_A00':False,
+                'schur_approx':False,
+                'preonly_Shat':False, 'jacobi_Shat':False}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
     sigma_h, u_h = w.split()
 
     w2 = Function(W)
