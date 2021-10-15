@@ -199,8 +199,8 @@ class HybridizationPC(SCBase):
         K = Tensor(Kform)
 
         # Build schur complement operator and right hand side
-        schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
-        schur_rhs, schur_comp = schur_builder.build_schur(self.broken_residual)
+        self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
+        schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -269,9 +269,9 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(schur_builder)
+        self._reconstruction_calls()
 
-    def _reconstruction_calls(self, schur_builder):
+    def _reconstruction_calls(self):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -290,11 +290,11 @@ class HybridizationPC(SCBase):
         # one clean expression.
 
         # reuse work from trace operator build
-        A, B, C, _ = schur_builder.list_split_mixed_ops
-        K_0, K_1 = schur_builder.list_split_trace_ops
-        Ahat = schur_builder.A00_inv_hat
-        Shat = schur_builder.inner_S_inv_hat
-        S = schur_builder.inner_S
+        A, B, C, _ = self.schur_builder.list_split_mixed_ops
+        K_0, K_1 = self.schur_builder.list_split_trace_ops
+        Ahat = self.schur_builder.A00_inv_hat
+        Shat = self.schur_builder.inner_S_inv_hat
+        S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
@@ -307,7 +307,7 @@ class HybridizationPC(SCBase):
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
-        if schur_builder.schur_approx:
+        if self.schur_builder.schur_approx:
             S = Shat * S
             rhs = Shat * rhs
 
@@ -436,6 +436,9 @@ class HybridizationPC(SCBase):
             self.trace_ksp.view(viewer)
             viewer.printfASCII("Locally reconstructing solutions.\n")
             viewer.printfASCII("Projecting broken flux into HDiv space.\n")
+    
+    def getSchurComplementBuilder(self):
+        return self.schur_builder
 
 
 class SchurComplementBuilder(object):
@@ -648,7 +651,6 @@ class SchurComplementBuilder(object):
                         [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
                         --------------------        -----------------       -------------------
                         block1                      block2                  block3
-
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
 
         If the diag options is specified the decomposition is approximated
