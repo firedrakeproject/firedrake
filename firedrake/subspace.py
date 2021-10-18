@@ -250,9 +250,9 @@ class RotatedSubspace(Subspace):
         """
         subspace_expr, = subspace_expr
         shape = subspace_expr.shape
-        finat_element = create_element(self.ufl_element())
         if len(shape) != 2:
             raise TypeError(f"{type(self)} is only for VectorElements, not for {self.ufl_element()}.")
+        finat_element = create_element(self.ufl_element())
         entity_dofs = finat_element.base_element.entity_dofs()
         substitution = ((i_dummy[0], i[0]), )
         mapper = MemoizerArg(filtered_replace_indices)
@@ -285,19 +285,16 @@ class NodalHermiteSubspace(Subspace):
         subspace_expr, = subspace_expr
         shape = subspace_expr.shape
         finat_element = create_element(self.ufl_element())
-        if len(shape) == 1:
-            entity_dofs = finat_element.entity_dofs()
-        else:
-            entity_dofs = finat_element.base_element.entity_dofs()
+        entity_dofs = finat_element.entity_dofs()
         _expressions = []
         for expression in expressions:
             _expression = gem.Zero()
             for dim in entity_dofs:
                 for _, dofs in entity_dofs[dim].items():
-                    if len(dofs) == 0 or (len(dofs) == 1 and len(shape) == 1):
+                    if len(dofs) == 0 or len(dofs) == 1:
                         continue
                     # Avoid pytools/persistent_dict.py TypeError: unsupported type for persistent hash keying: <class 'complex'>
-                    #ind = np.zeros(shape, dtype=dtype)
+                    # ind = np.zeros(shape, dtype=dtype)
                     ind = np.zeros(shape, dtype=RealType)
                     for dof in dofs:
                         for ndind in np.ndindex(shape[1:]):
