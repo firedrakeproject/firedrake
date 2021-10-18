@@ -775,7 +775,7 @@ def git_update(name, url=None):
         if url:
             _, plain_url, branch = split_requirements_url(url)
             current_url = check_output(["git", "remote", "-v"]).split()[1]
-            current_branch = check_output(["git", "branch", "--show-current"]).strip()
+            current_branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
             protocol = "https" if current_url.startswith("https") else "ssh"
             new_url = git_url(plain_url, protocol)
             # Ensure we only change from bitbucket to github and not the reverse.
