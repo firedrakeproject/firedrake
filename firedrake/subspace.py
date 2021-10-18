@@ -254,21 +254,14 @@ class RotatedSubspace(Subspace):
         if len(shape) != 2:
             raise TypeError(f"{type(self)} is only for VectorElements, not for {self.ufl_element()}.")
         entity_dofs = finat_element.base_element.entity_dofs()
+        substitution = ((i_dummy[0], i[0]), )
+        mapper = MemoizerArg(filtered_replace_indices)
+        expressions = tuple(mapper(expression, substitution) for expression in expressions)
+        i_dummy = (i[0], ) + i_dummy[1:]
         _expressions = []
         for expression in expressions:
-            _expression = gem.Zero()
-            for dim in entity_dofs:
-                for _, dofs in entity_dofs[dim].items():
-                    if len(dofs) == 0:
-                        continue
-                    # Avoid pytools/persistent_dict.py TypeError: unsupported type for persistent hash keying: <class 'complex'>
-                    #ind = np.zeros(shape, dtype=dtype)
-                    ind = np.zeros(shape, dtype=RealType)
-                    for dof in dofs:
-                        for ndind in np.ndindex(shape[1:]):
-                            ind[(dof, ) + ndind] = 1.
-                    temp = gem.IndexSum(gem.Product(gem.Product(gem.Literal(ind)[i_dummy], subspace_expr[i_dummy]), expression), i_dummy)
-                    _expression = gem.Sum(_expression, gem.Product(gem.Product(gem.Literal(ind)[i], subspace_expr[i]), temp))
+            temp = gem.IndexSum(gem.Product(subspace_expr[i_dummy], expression), i_dummy[1:])
+            _expression = gem.Product(subspace_expr[i], temp)
             _expressions.append(_expression)
         return tuple(_expressions)
 
