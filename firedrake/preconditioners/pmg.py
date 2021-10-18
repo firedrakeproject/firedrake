@@ -492,13 +492,16 @@ def prolongation_transfer_kernel_aij(Pk, P1):
 
     expr = TestFunction(P1)
     to_element = create_element(Pk.ufl_element())
-
     kernel = compile_expression_dual_evaluation(expr, to_element, Pk.ufl_element())
-    ast = kernel.ast
-    name = kernel.name
-    flop_count = kernel.flop_count
-    return op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                      flop_count=flop_count)
+    coefficients = kernel.coefficients
+    if kernel.first_coefficient_fake_coords:
+        mesh = Pk.ufl_domain()
+        coefficients[0] = mesh.coordinates
+
+    op2kernel = op2.Kernel(kernel.ast, kernel.name,
+                           requires_zeroed_output_arguments=True,
+                           flop_count=kernel.flop_count)
+    return op2kernel, coefficients
 
 
 def tensor_product_space_query(V):
@@ -516,6 +519,8 @@ def tensor_product_space_query(V):
     iscube = (ndim == 2 or ndim == 3) and reference_element.is_hypercube(V.finat_element.cell)
 
     ele = V.ufl_element()
+    if isinstance(ele, firedrake.WithMapping):
+        ele = ele.wrapee
     if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
         subel = ele.sub_elements()
         ele = subel[0]
@@ -530,7 +535,6 @@ def tensor_product_space_query(V):
     except TypeError:
         # Just a single int
         pass
-
     if isinstance(ele, TensorProductElement):
         sub_families = set(e.family() for e in ele.sub_elements())
         try:
@@ -1047,8 +1051,13 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            op2.par_loop(prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i)), mesh.cell_set,
-                         matarg)
+            kernel, coefficients = prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i))
+            parloop_args = [kernel, mesh.cell_set, matarg]
+            for coefficient in coefficients:
+                m_ = coefficient.cell_node_map()
+                parloop_args.append(coefficient.dat(op2.READ, m_))
+
+            op2.par_loop(*parloop_args)
 
     else:
         rlgmap, clgmap = mat.local_to_global_maps
@@ -1058,8 +1067,13 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        op2.par_loop(prolongation_transfer_kernel_aij(Pk, P1), mesh.cell_set,
-                     matarg)
+        kernel, coefficients = prolongation_transfer_kernel_aij(Pk, P1)
+        parloop_args = [kernel, mesh.cell_set, matarg]
+        for coefficient in coefficients:
+            m_ = coefficient.cell_node_map()
+            parloop_args.append(coefficient.dat(op2.READ, m_))
+
+        op2.par_loop(*parloop_args)
 
     mat.assemble()
     return mat.handle
