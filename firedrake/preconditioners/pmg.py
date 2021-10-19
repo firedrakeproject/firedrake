@@ -2,7 +2,8 @@ from functools import partial, lru_cache
 from itertools import chain
 
 from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
-from ufl import EnrichedElement, HDivElement, HCurlElement, Form, replace
+from ufl import EnrichedElement, HDivElement, HCurlElement, WithMapping
+from ufl import Form, replace, as_vector, elem_mult
 from ufl.classes import Expr
 
 from pyop2 import op2, PermutedMap
@@ -79,6 +80,8 @@ class PMGBase(PCSNESBase):
             return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
         elif isinstance(ele, EnrichedElement):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
+        elif isinstance(ele, WithMapping):
+            return PMGBase.max_degree(ele.wrapee)
         else:
             try:
                 return PMGBase.max_degree(ele._element)
@@ -92,7 +95,7 @@ class PMGBase(PCSNESBase):
     @staticmethod
     def reconstruct_degree(ele, N):
         """
-        Reconstruct an element, modifying its polynomial degree.
+        Reconstruct an element, modifying it polynomial degree.
 
         By default, reconstructed EnrichedElements, TensorProductElements,
         and MixedElements will have the degree of the sub-elements shifted
@@ -117,6 +120,8 @@ class PMGBase(PCSNESBase):
         elif isinstance(ele, MixedElement):
             shift = N-PMGBase.max_degree(ele)
             return MixedElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
+        elif isinstance(ele, WithMapping):
+            return WithMapping(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
         else:
             try:
                 return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
@@ -669,43 +674,25 @@ class StandaloneInterpolationMatrix(object):
         mf = Vf.ufl_element().mapping().lower()
         mc = Vc.ufl_element().mapping().lower()
 
-        if tf and tc and mf == mc:
-            self.Vf_map = get_permuted_map(Vf)
-            self.Vc_map = get_permuted_map(Vc)
-            self.prolong_kernel, self.restrict_kernel = self.make_blas_kernels(Vf, Vc)
+        if tc and tf and ((mc == mf) or (mc == "identity")):
+            uf_map = get_permuted_map(Vf)
+            uc_map = get_permuted_map(Vc)
+            prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
         else:
-            self.Vf_map = Vf.cell_node_map()
-            self.Vc_map = Vc.cell_node_map()
-            self.prolong_kernel, self.restrict_kernel = self.make_kernels(Vf, Vc)
+            uf_map = Vf.cell_node_map()
+            uc_map = Vc.cell_node_map()
+            prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
 
-    def make_kernels(self, Vf, Vc):
-        """
-        Interpolation and restriction kernels between arbitrary elements.
+        coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
 
-        This is temporary while we wait for dual evaluation in FInAT.
-        """
-        prolong_kernel = self.prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
-        # The way we transpose the prolongation kernel is suboptimal.
-        # A local matrix is generated each time the kernel is executed.
-        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
-        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
-        dimc = Vc.finat_element.space_dimension() * Vc.value_size
-        dimf = Vf.finat_element.space_dimension() * Vf.value_size
-        restrict_code = f"""
-        {element_kernel}
+        self.restrict_args = [restrict_kernel, self.mesh.cell_set,
+                              self.uc.dat(op2.INC, uc_map),
+                              self.uf.dat(op2.READ, uf_map),
+                              self.weight.dat(op2.READ, uf_map)] + coefficient_args
 
-        void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w)
-        {{
-            {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
-            expression_kernel(Afc);
-            for ({IntType_c} i = 0; i < {dimf}; i++)
-               for ({IntType_c} j = 0; j < {dimc}; j++)
-                   Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
-        }}
-        """
-        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel
+        self.prolong_args = [prolong_kernel, self.mesh.cell_set,
+                             self.uf.dat(op2.WRITE, uf_map),
+                             self.uc.dat(op2.READ, uc_map)] + coefficient_args
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
@@ -713,11 +700,46 @@ class StandaloneInterpolationMatrix(object):
         from tsfc.finatinterface import create_element
         to_element = create_element(Vf.ufl_element())
         kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
-        ast = kernel.ast
-        name = kernel.name
-        flop_count = kernel.flop_count
-        return op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                          flop_count=flop_count)
+        coefficients = kernel.coefficients
+        if kernel.first_coefficient_fake_coords:
+            mesh = Vf.ufl_domain()
+            coefficients[0] = mesh.coordinates
+
+        return op2.Kernel(kernel.ast, kernel.name,
+                          requires_zeroed_output_arguments=True,
+                          flop_count=kernel.flop_count), coefficients
+
+    def make_kernels(self, Vf, Vc):
+        """
+        Interpolation and restriction kernels between arbitrary elements.
+
+        This is temporary while we wait for dual evaluation in FInAT.
+        """
+        prolong_kernel, _ = self.prolongation_transfer_kernel_action(Vf, self.uc)
+        matrix_kernel, coefficients = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        # The way we transpose the prolongation kernel is suboptimal.
+        # A local matrix is generated each time the kernel is executed.
+        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
+        dimc = Vc.finat_element.space_dimension() * Vc.value_size
+        dimf = Vf.finat_element.space_dimension() * Vf.value_size
+
+        coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
+        coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+        restrict_code = f"""
+        {element_kernel}
+
+        void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w{coef_decl})
+        {{
+            {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
+            expression_kernel(Afc{coef_args});
+            for ({IntType_c} i = 0; i < {dimf}; i++)
+               for ({IntType_c} j = 0; j < {dimc}; j++)
+                   Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
+        }}
+        """
+        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
+        return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
     @lru_cache(maxsize=20)
@@ -738,6 +760,9 @@ class StandaloneInterpolationMatrix(object):
         Vc_bsize = Vc.value_size
         Vf_sdim = Vf.finat_element.space_dimension()
         Vc_sdim = Vc.finat_element.space_dimension()
+
+        Vf_mapping = Vf.ufl_element().mapping().lower()
+        Vc_mapping = Vc.ufl_element().mapping().lower()
 
         celem = get_line_element(Vc)
         nodes = get_line_nodes(Vf)
@@ -835,51 +860,135 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        kernel_code = f"""
-        {kronmxv_code}
+        if Vf_mapping == Vc_mapping:
+            coefficients = []
+            kernel_code = f"""
+            {kronmxv_code}
 
-        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
-            PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one=1.0E0;
+            void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
+                PetscScalar JX[{Jlen}] = {{ {JX} }};
+                PetscScalar t0[{lwork}], t1[{lwork}];
+                PetscScalar one=1.0E0;
 
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+                for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                        t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
 
-            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
+                kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
-            return;
-        }}
+                for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                       y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+                return;
+            }}
 
-        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
-        const PetscScalar *restrict w){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
-            PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one=1.0E0;
+            void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
+                             const PetscScalar *restrict w){{
+                PetscScalar JX[{Jlen}] = {{ {JX} }};
+                PetscScalar t0[{lwork}], t1[{lwork}];
+                PetscScalar one=1.0E0;
 
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                    t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+                for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                        t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
 
-            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
+                kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
 
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
-            return;
-        }}
-        """
+                for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                        y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
+                return;
+            }}
+            """
+        else:
+            if Vc_mapping != "identity":
+                raise NotImplementedError("The coarse element needs to be mapped with the identity when the fine mappings are different")
+
+            e = Vf.ufl_element()
+            celem = WithMapping(Vc.ufl_element(), e.mapping())
+            Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem)
+            expr = firedrake.TestFunction(Vc)
+
+            isHDiv = e.family() == "RTCF"
+            if isinstance(e, EnrichedElement):
+                if all(isinstance(sub, HDivElement) for sub in e._elements):
+                    isHDiv = True
+
+            if isHDiv:
+                sign = [1]*expr.ufl_shape[0]
+                sign[0] = -1
+                expr = elem_mult(as_vector(sign), expr)
+
+            matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
+            mapping_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+            mapping_kernel = mapping_kernel.replace("void expression_kernel", "static void expression_kernel")
+            dimc = Vc.finat_element.space_dimension() * Vc.value_size
+
+            coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
+            coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+            kernel_code = f"""
+            {kronmxv_code}
+
+            {mapping_kernel}
+
+            void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
+                PetscScalar JX[{Jlen}] = {{ {JX} }};
+                PetscScalar t0[{lwork}], t1[{lwork}] = {{0}};
+                PetscScalar one=1.0E0;
+
+                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
+                expression_kernel(Amap{coef_args});
+
+                for({IntType_c} i=0; i<{dimc}; i++)
+                    for({IntType_c} j=0; j<{dimc}; j++)
+                        t1[i] += Amap[i+j*{dimc}] * x[j];
+
+                for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                        t0[j + {Vc_sdim}*i] = t1[i + {Vc_bsize}*j];
+
+                kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+
+                for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                       y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+                return;
+            }}
+
+            void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
+                             const PetscScalar *restrict w{coef_decl}){{
+                PetscScalar JX[{Jlen}] = {{ {JX} }};
+                PetscScalar t0[{lwork}], t1[{lwork}];
+                PetscScalar one=1.0E0;
+
+                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
+                expression_kernel(Amap{coef_args});
+
+                for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                        t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+
+                kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+
+                for({IntType_c} i=0; i<{dimc}; i++){{
+                    t0[i] = 0.0E0;
+                    for({IntType_c} j=0; j<{dimc}; j++)
+                        t0[i] += Amap[j+{dimc}*i] * t1[j];
+                }}
+
+                for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                        y[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
+                return;
+            }}
+            """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel
+        return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
     def multiplicity(V):
@@ -911,10 +1020,7 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
-        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.Vc_map),
-                     self.uf.dat(op2.READ, self.Vf_map),
-                     self.weight.dat(op2.READ, self.Vf_map))
+        op2.par_loop(*self.restrict_args)
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -930,13 +1036,13 @@ class StandaloneInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
-        [bc.zero(self.uc) for bc in self.Vc_bcs]
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
 
-        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uf.dat(op2.WRITE, self.Vf_map),
-                     self.uc.dat(op2.READ, self.Vc_map))
+        op2.par_loop(*self.prolong_args)
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
@@ -980,15 +1086,14 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc:
             xc.set(0.0E0)
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
         for (i, standalone) in enumerate(self.standalones):
-            op2.par_loop(standalone.restrict_kernel, standalone.mesh.cell_set,
-                         self.uc.split()[i].dat(op2.INC, standalone.Vc_map),
-                         self.uf.split()[i].dat(op2.READ, standalone.Vf_map),
-                         standalone.weight.dat(op2.READ, standalone.Vf_map))
+            op2.par_loop(*standalone.restrict_args)
 
-        [bc.zero(self.uc) for bc in self.Vc_bcs]
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
 
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
@@ -997,14 +1102,14 @@ class MixedInterpolationMatrix(object):
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
 
-        [bc.zero(self.uc) for bc in self.Vc_bcs]
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
 
         for (i, standalone) in enumerate(self.standalones):
-            op2.par_loop(standalone.prolong_kernel, standalone.mesh.cell_set,
-                         self.uf.split()[i].dat(op2.WRITE, standalone.Vf_map),
-                         self.uc.split()[i].dat(op2.READ, standalone.Vc_map))
+            op2.par_loop(*standalone.prolong_args)
 
-        [bc.zero(self.uf) for bc in self.Vf_bcs]
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
         with self.uf.dat.vec_ro as xf_:
             if inc:
