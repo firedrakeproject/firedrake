@@ -284,7 +284,6 @@ def test_slate_hybridization_jacobi_prec_schur():
                                 'lmi': {'ksp_type': 'preonly',
                                         'pc_type': 'fieldsplit',
                                         'fieldsplit_type': 'schur',
-                                        'fieldsplit_schur_fact_type': 'diag',
                                         'fieldsplit_0': {'ksp_type': 'default',
                                                         'pc_type': 'jacobi'},
                                         'fieldsplit_1': {'ksp_type': 'default',

@@ -562,7 +562,7 @@ class SchurComplementBuilder(object):
 
         # get user supplied operator
         self.schur_approx = (self._retrieve_user_S_approx(pc, get_option(fs1+"_pc_python_type"))
-                             if get_option(fs1+"_ksp_type") == "default" and get_option(fs1+"_pc_type") == "python"
+                             if get_option(fs1+"_pc_type") == "python"
                              else None)
         self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
         self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
