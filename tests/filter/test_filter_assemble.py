@@ -60,7 +60,7 @@ def test_filter_one_form_bdm():
     subdomain = (1, )
     g = Function(V).project(as_vector([1., 2.]))
     g = Function(V).assign(g, V.boundary_node_subset(subdomain))
-    Vsub = ScalarSubspace(V, g)
+    Vsub = DofSubspace(V, g)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
@@ -89,7 +89,7 @@ def test_filter_one_form_mixed():
     g.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=BDM.boundary_node_subset((1, )))
     g.sub(1).assign(Constant(1.), subset=CG.boundary_node_subset((1, )))
 
-    Vsub = ScalarSubspace(V, g)
+    Vsub = DofSubspace(V, g)
 
     rhs0 = assemble(inner(f, v) * dx)
     rhs1 = assemble(inner(f, Projected(v, Vsub)) * dx)
@@ -119,7 +119,7 @@ def test_filter_one_form_mixed_action():
     g.sub(0).assign(Function(BDM).project(as_vector([1., 2.])), subset=BDM.boundary_node_subset((1, )))
     g.sub(1).assign(Constant(1.), subset=CG.boundary_node_subset((1, )))
 
-    Vsub = ScalarSubspace(V, g)
+    Vsub = DofSubspace(V, g)
     fsub = Function(V)
     for i in range(len(V)):
         fsub.dat.data[i][:] = f.dat.data[i][:] * Vsub.dat.data[i][:]
@@ -140,7 +140,7 @@ def test_filter_two_form_lagrange():
     u = TrialFunction(V)
 
     subdomain = V.boundary_node_subset((1, ))
-    Vsub_b = ScalarSubspace(V, Function(V).assign(Constant(1.), subdomain))
+    Vsub_b = DofSubspace(V, Function(V).assign(Constant(1.), subdomain))
     V0 = ComplementSubspace(Vsub_b)
 
     v_b = Projected(v, Vsub_b)

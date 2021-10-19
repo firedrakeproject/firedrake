@@ -20,7 +20,7 @@ from gem.optimise import filtered_replace_indices
 
 from tsfc.finatinterface import create_element
 
-__all__ = ['ScalarSubspace', 'RotatedSubspace', 'ComplementSubspace']
+__all__ = ['DofSubspace', 'VectorComponentSubspace', 'ComplementSubspace']
 
 
 class AbstractSubspace(object, metaclass=abc.ABCMeta):
@@ -207,7 +207,7 @@ class Subspace(AbstractSubspace):
         return val
 
 
-class ScalarSubspace(Subspace):
+class DofSubspace(Subspace):
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Basic subspace.
 
@@ -232,7 +232,7 @@ class ScalarSubspace(Subspace):
         return tuple(gem.Product(gem.Indexed(subspace_expr, i), expression) for expression in expressions)
 
 
-class RotatedSubspace(Subspace):
+class VectorComponentSubspace(Subspace):
     def transform(self, expressions, subspace_expr, i_dummy, i, dtype):
         """Rotation subspace.
 

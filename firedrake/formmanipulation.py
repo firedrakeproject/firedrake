@@ -227,7 +227,7 @@ def split_form_projected(form):
     .. code-block:: python
 
         V = FunctionSpace(m, 'CG', 1)
-        Vsub = ScalarSubspace(V)
+        Vsub = DofSubspace(V)
         v = TestFunction(V)
         u = Function(V)
         form = u * v * dx + u * Projected(v, Vsub) * dx + Projected(u, Vsub) * v * dx

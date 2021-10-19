@@ -4,7 +4,7 @@ import firedrake
 from firedrake import functionspaceimpl
 from firedrake.function import Function 
 from firedrake.constant import Constant
-from firedrake.subspace import ScalarSubspace, RotatedSubspace, NodalHermiteSubspace, DirectSumSubspace
+from firedrake.subspace import DofSubspace, VectorComponentSubspace, NodalHermiteSubspace, DirectSumSubspace
 
 from pyop2.datatypes import ScalarType
 from pyop2.utils import as_tuple
@@ -100,7 +100,7 @@ def _boundary_subspace_functions(V, subdomain):
         subset_deriv = V.node_subset(derivative_order=1)  # subset of derivative nodes
         subset_corners = V.subdomain_intersection_subset(subdomain)
         g_ = Function(V).assign(Constant(1.), subset=subset_all.difference(subset_corners).intersection(subset_deriv))
-        s_ = ScalarSubspace(V, val=g_)
+        s_ = DofSubspace(V, val=g_)
         quad_rule_ds = QuadratureRule(PointSet([[0, ], [1, ]]), [0.5, 0.5])
         farea = FacetArea(mesh)
         normal = FacetNormal(mesh)
@@ -116,7 +116,7 @@ def _boundary_subspace_functions(V, subdomain):
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s1 = _normalise_subspace_hermite(s1, subdomain)
         s0.assign(Constant(1.), subset=subset_all.difference(subset_corners).intersection(subset_value).union(subset_corners))
-        return (ScalarSubspace(V, s0), NodalHermiteSubspace(V, s1))
+        return (DofSubspace(V, s0), NodalHermiteSubspace(V, s1))
     elif V.ufl_element().family() == 'Morley':
         raise NotImplementedError("Morley not implemented.")
     elif V.ufl_element().family() == 'Argyris':
@@ -125,7 +125,7 @@ def _boundary_subspace_functions(V, subdomain):
         raise NotImplementedError("Bell not implemented.")
     else:
         f0 = Function(V).assign(Constant(1.), subset=V.boundary_node_subset(subdomain))
-        return (ScalarSubspace(V, f0), )
+        return (DofSubspace(V, f0), )
 
 
 def _boundary_component_subspace_functions(V, subdomain, thetas):
@@ -153,7 +153,7 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         subset_all = V.boundary_node_subset(subdomain)
         subset_corners = V.subdomain_intersection_subset(subdomain)
         g_ = Function(V).assign(Constant(1.), subset=subset_all.difference(subset_corners))
-        s_ = ScalarSubspace(V, g_)
+        s_ = DofSubspace(V, g_)
         v = firedrake.TestFunction(V)
         u = firedrake.TrialFunction(V)
         v_ = Projected(v, s_)
@@ -166,7 +166,7 @@ def _boundary_component_subspace_functions(V, subdomain, thetas):
         solve(a == L, s1, solver_parameters={"ksp_type": 'cg', "ksp_rtol": 1.e-16})
         s0 = Function(V)
         s0.assign(Constant(1.), subset=subset_corners)
-        return (ScalarSubspace(V, s0), RotatedSubspace(V, s1))
+        return (DofSubspace(V, s0), VectorComponentSubspace(V, s1))
     else:
         raise NotImplementedError("Currently only implemented for vector Lagrange element.")
 
