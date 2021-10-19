@@ -1,5 +1,6 @@
 import functools
 import numbers
+from matplotlib.pyplot import plot
 
 import numpy as np
 import ufl
@@ -658,26 +659,28 @@ class SchurComplementBuilder(object):
 
         .. code-block:: text
 
-                A.inv = [[A00.inv, 0    ]
-                        [0,        S.inv]]
+                P.inv = [[A00.inv, 0    ]     sp P.inv * A = [[A00.inv*A00, A00.inv*A10]  so 
+                        [0,        S.inv]]                    [S.inv*A01, S.inv*A11]]
                         ------------------
                         block4
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
 
         if self.nested:
-            _, A01, A10, _ = self.list_split_mixed_ops
+            A00, A01, A10, A11 = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
             broken_residual = rhs.split()
             R = [AssembledVector(broken_residual[self.vidx]),
-                                AssembledVector(broken_residual[self.pidx])]
+                 AssembledVector(broken_residual[self.pidx])]
 
             if self.diag:
+                self.spinvAtilde = [[self.A00_inv_hat*A00, self.A00_inv_hat*A01],
+                                    [self.inner_S_inv_hat*A10, self.inner_S_inv_hat*A11]]
                 # K * block4
-                schur_rhs = (K0 * self.A00_inv_hat * R[0] +
-                             K1 * self.inner_S_inv_hat * R[1])
-                schur_comp = (K0 * self.A00_inv_hat * K0.T +
-                              K1 * self.inner_S_inv_hat * K1.T)
+                schur_rhs = (K0 * self.spinvAtilde[0][0]  * R[0] + K1 * self.spinvAtilde[1][0]  * R[0] +
+                             K0 * self.spinvAtilde[0][1]  * R[1] + K1 * self.spinvAtilde[1][1]  * R[1] )
+                schur_comp = (K0 * self.spinvAtilde[0][0]  *  K0.T + K1 * self.spinvAtilde[1][0]  *  K0.T  +
+                              K0 * self.spinvAtilde[0][1]  *  K1.T + K1 * self.spinvAtilde[1][1]  *  K1.T)
             else:
                 # K * block1
                 K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
