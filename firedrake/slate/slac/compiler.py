@@ -94,7 +94,7 @@ class SlateKernel(TSFCKernel):
         if self._initialized:
             return
         if coffee:
-            self.split_kernel = generate_kernel(expr, compiler_parameters, diagonal)
+            self.split_kernel = generate_kernel(expr, compiler_parameters)
         else:
             self.split_kernel = generate_loopy_kernel(expr, compiler_parameters, diagonal)
         self._initialized = True
