@@ -157,7 +157,7 @@ class TensorBase(object, metaclass=ABCMeta):
             elif isinstance(op, Factorization):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
-                data = (op.form.signature(), )
+                data = (op.form.signature(), op.diagonal, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
