@@ -25,7 +25,6 @@ which appears in the variational form as the term: -<42*tau, n>
 import pytest
 from firedrake import *
 
-PETSc.Sys.popErrorHandler()
 
 def setup_poisson():
     mesh = UnitSquareMesh(1, 1)
