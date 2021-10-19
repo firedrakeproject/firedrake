@@ -308,7 +308,7 @@ class PMGBase(PCSNESBase):
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
-        cdm.setCreateInjection(self.create_injection)
+        #cdm.setCreateInjection(self.create_injection)
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -324,8 +324,8 @@ class PMGBase(PCSNESBase):
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                 mat.multTranspose(xf, xc)
 
-        injection = self.create_injection(cdm, fdm)
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+        #injection = self.create_injection(cdm, fdm)
+        #add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         # restrict the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
@@ -674,7 +674,7 @@ class StandaloneInterpolationMatrix(object):
         mf = Vf.ufl_element().mapping().lower()
         mc = Vc.ufl_element().mapping().lower()
 
-        if tc and tf and ((mc == mf) or (mc == "identity")):
+        if (tc and tf) and ((mc == mf) or (mc == "identity")):
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
@@ -902,27 +902,38 @@ class StandaloneInterpolationMatrix(object):
             """
         else:
             if Vc_mapping != "identity":
-                raise NotImplementedError("The coarse element needs to be mapped with the identity when the fine mappings are different")
+                raise NotImplementedError("The coarse element needs the identity mapping when the coarse and fine mappings differ")
 
             e = Vf.ufl_element()
             celem = WithMapping(Vc.ufl_element(), e.mapping())
             Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem)
             expr = firedrake.TestFunction(Vc)
+            dimc = Vc.finat_element.space_dimension() * Vc.value_size
 
             isHDiv = e.family() == "RTCF"
             if isinstance(e, EnrichedElement):
                 if all(isinstance(sub, HDivElement) for sub in e._elements):
                     isHDiv = True
 
+            permutation = numpy.arange(dimc)
             if isHDiv:
                 sign = [1]*expr.ufl_shape[0]
                 sign[0] = -1
                 expr = elem_mult(as_vector(sign), expr)
+                
+                ndim = Vc.ufl_domain().topological_dimension()
+                pshape = (1+PMGBase.max_degree(Vc.ufl_element()),)*ndim 
+                pshape += Vc.ufl_element().value_shape()
+                ncomp = pshape[-1]
+                permutation = numpy.reshape(permutation, pshape)
+                for k in range(ncomp):
+                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(1+k+numpy.arange(ncomp)) % ncomp)
+                permutation = numpy.reshape(permutation, (-1,))
+            perm = ", ".join(map(str, permutation))
 
             matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
             mapping_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
             mapping_kernel = mapping_kernel.replace("void expression_kernel", "static void expression_kernel")
-            dimc = Vc.finat_element.space_dimension() * Vc.value_size
 
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
             coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
@@ -936,12 +947,15 @@ class StandaloneInterpolationMatrix(object):
                 PetscScalar t0[{lwork}], t1[{lwork}] = {{0}};
                 PetscScalar one=1.0E0;
 
+                {IntType_c} k, perm[{dimc}] = {{ {perm} }};
                 {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
                 expression_kernel(Amap{coef_args});
-
-                for({IntType_c} i=0; i<{dimc}; i++)
+                
+                for({IntType_c} i=0; i<{dimc}; i++){{
+                    k = perm[i];
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        t1[i] += Amap[i+j*{dimc}] * x[j];
+                        t1[k] += Amap[i+j*{dimc}] * x[j];
+                }}
 
                 for({IntType_c} j=0; j<{Vc_sdim}; j++)
                     for({IntType_c} i=0; i<{Vc_bsize}; i++)
@@ -961,6 +975,7 @@ class StandaloneInterpolationMatrix(object):
                 PetscScalar t0[{lwork}], t1[{lwork}];
                 PetscScalar one=1.0E0;
 
+                {IntType_c} perm[{dimc}] = {{ {perm} }};
                 {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
                 expression_kernel(Amap{coef_args});
 
@@ -973,7 +988,7 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{dimc}; i++){{
                     t0[i] = 0.0E0;
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        t0[i] += Amap[j+{dimc}*i] * t1[j];
+                        t0[i] += Amap[j+{dimc}*i] * t1[perm[j]];
                 }}
 
                 for({IntType_c} j=0; j<{Vc_sdim}; j++)
