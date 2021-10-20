@@ -907,32 +907,30 @@ class StandaloneInterpolationMatrix(object):
             if Vc_mapping != "identity":
                 raise NotImplementedError("The coarse element needs the identity mapping when the coarse and fine mappings differ")
 
-            e = Vf.ufl_element()
-            celem = WithMapping(Vc.ufl_element(), e.mapping())
-            Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem)
+            felem = Vf.ufl_element()
+            celem = Vc.ufl_element()
+            celem_mapped = WithMapping(celem, felem.mapping())
+            Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem_mapped)
+
             expr = firedrake.TestFunction(Vc)
-            dimc = Vc.finat_element.space_dimension() * Vc.value_size
+            dimc = Vc_sdim * Vc_bsize
+            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), (Vc_bsize, Vc_sdim)))
 
-            isHDiv = e.family() == "RTCF"
-            if isinstance(e, EnrichedElement):
-                if all(isinstance(sub, HDivElement) for sub in e._elements):
-                    isHDiv = True
-
-            permutation = numpy.arange(dimc)
-            permutation = (permutation // Vc_bsize) + Vc_sdim*(permutation % Vc_bsize)
-            if isHDiv:
-                # handle sign flip on first component
+            if felem.sobolev_space() == firedrake.HDiv:
+                # flip the sign of the first component
                 sign = [1]*expr.ufl_shape[0]
                 sign[0] = -1
                 expr = elem_mult(as_vector(sign), expr)
-                # use the inverse of the H(div) permutation
-                ndim = Vc.ufl_domain().topological_dimension()
+
+                # compose with the inverse H(div) permutation
                 pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
                 permutation = numpy.reshape(permutation, pshape)
-                ncomp = permutation.shape[-1]
-                for k in range(ncomp):
-                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ncomp)-k-1) % ncomp)
-                permutation = numpy.reshape(permutation, (-1,))
+                for k in range(permutation.shape[-1]):
+                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
+            elif felem.sobolev_space() == firedrake.HCurl:
+                raise NotImplementedError("Mapped BLAS kernels for HCurl are not implemented yet")
+
+            permutation = numpy.reshape(permutation, (-1,))
             perm = ", ".join(map(str, permutation))
 
             matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
@@ -952,9 +950,9 @@ class StandaloneInterpolationMatrix(object):
                 PetscScalar one=1.0E0;
 
                 {IntType_c} perm[{dimc}] = {{ {perm} }};
-                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
+                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0.0E0}};
                 expression_kernel(Amap{coef_args});
-                
+
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
                         t0[perm[i]] += Amap[i+{dimc}*j] * x[j];
@@ -963,7 +961,7 @@ class StandaloneInterpolationMatrix(object):
 
                 for({IntType_c} j=0; j<{Vf_sdim}; j++)
                     for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                       y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+                        y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
                 return;
             }}
 
@@ -974,7 +972,7 @@ class StandaloneInterpolationMatrix(object):
                 PetscScalar one=1.0E0;
 
                 {IntType_c} perm[{dimc}] = {{ {perm} }};
-                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
+                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0.0E0}};
                 expression_kernel(Amap{coef_args});
 
                 for({IntType_c} j=0; j<{Vf_sdim}; j++)
