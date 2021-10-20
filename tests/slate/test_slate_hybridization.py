@@ -152,49 +152,6 @@ def test_slate_hybridization_nested_schur():
     assert u_err < 1e-11
 
 
-def test_slate_hybridization_diag_schur():
-    a, L, W = setup_poisson()
-
-    w = Function(W)
-    params = {'mat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'lmi': {'ksp_type': 'preonly',
-                                        'pc_type': 'fieldsplit',
-                                        'fieldsplit_type': 'schur',
-                                        'fieldsplit_schur_fact_type': 'diag'}}}
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
-    solver = LinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
-    expected = {'nested':True, 'diag':True,
-                'preonly_A00':False, 'jacobi_A00':False,
-                'schur_approx':False,
-                'preonly_Shat':False, 'jacobi_Shat':False}
-    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
-    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
-    sigma_h, u_h = w.split()
-
-    w2 = Function(W)
-    solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
-                                         'pc_type': 'python',
-                                         'mat_type': 'matfree',
-                                         'pc_python_type': 'firedrake.HybridizationPC',
-                                         'hybridization': {'ksp_type': 'preonly',
-                                                           'pc_type': 'lu'}})
-    nh_sigma, nh_u = w2.split()
-
-    # Return the L2 error
-    sigma_err = errornorm(sigma_h, nh_sigma)
-    u_err = errornorm(u_h, nh_u)
-
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
-
-
 class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
