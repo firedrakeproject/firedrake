@@ -553,7 +553,6 @@ class SchurComplementBuilder(object):
         self.nested = (get_option("ksp_type") == "preonly" and
                        get_option("pc_type") == "fieldsplit" and
                        get_option("fieldsplit_type") == "schur")
-        self.diag = (self.nested and  get_option("fieldsplit_schur_fact_type") == "diag")
     
         # Get preconditioning options for local solvers
         # Note Shat == preconditioner to inner S
@@ -653,17 +652,6 @@ class SchurComplementBuilder(object):
                         --------------------        -----------------       -------------------
                         block1                      block2                  block3
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
-
-        If the diag options is specified the decomposition is approximated
-        with only the block diagonal block of the Schur complement decomposition.
-
-        .. code-block:: text
-
-                P.inv = [[A00.inv, 0    ]     sp P.inv * A = [[A00.inv*A00, A00.inv*A10]  so 
-                        [0,        S.inv]]                    [S.inv*A01, S.inv*A11]]
-                        ------------------
-                        block4
-                with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
 
         if self.nested:
@@ -672,28 +660,18 @@ class SchurComplementBuilder(object):
             broken_residual = rhs.split()
             R = [AssembledVector(broken_residual[self.vidx]),
                  AssembledVector(broken_residual[self.pidx])]
-
-            if self.diag:
-                self.spinvAtilde = [[self.A00_inv_hat*A00, self.A00_inv_hat*A01],
-                                    [self.inner_S_inv_hat*A10, self.inner_S_inv_hat*A11]]
-                # K * block4
-                schur_rhs = (K0 * self.spinvAtilde[0][0]  * R[0] + K1 * self.spinvAtilde[1][0]  * R[0] +
-                             K0 * self.spinvAtilde[0][1]  * R[1] + K1 * self.spinvAtilde[1][1]  * R[1] )
-                schur_comp = (K0 * self.spinvAtilde[0][0]  *  K0.T + K1 * self.spinvAtilde[1][0]  *  K0.T  +
-                              K0 * self.spinvAtilde[0][1]  *  K1.T + K1 * self.spinvAtilde[1][1]  *  K1.T)
-            else:
-                # K * block1
-                K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
-                # K * block1 * block2
-                K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
-                                 K_Ainv_block1[1] * self.inner_S_inv_hat]
-                # K * block1 * block2 * block3
-                K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * self.A00_inv_hat,
-                                 K_Ainv_block2[1]]
-                # K * block1 * block2 * block3 * broken residual
-                schur_rhs = (K_Ainv_block3[0] * R[0] + K_Ainv_block3[1] * R[1])
-                # K * block1 * block2 * block3 * K.T
-                schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
+            # K * block1
+            K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
+            # K * block1 * block2
+            K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
+                                K_Ainv_block1[1] * self.inner_S_inv_hat]
+            # K * block1 * block2 * block3
+            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * self.A00_inv_hat,
+                                K_Ainv_block2[1]]
+            # K * block1 * block2 * block3 * broken residual
+            schur_rhs = (K_Ainv_block3[0] * R[0] + K_Ainv_block3[1] * R[1])
+            # K * block1 * block2 * block3 * K.T
+            schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
         else:
             schur_rhs = self.K * self.Atilde.inv * AssembledVector(rhs)
             schur_comp = self.K * self.Atilde.inv * self.K.T
