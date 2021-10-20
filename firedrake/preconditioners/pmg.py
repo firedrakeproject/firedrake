@@ -308,7 +308,16 @@ class PMGBase(PCSNESBase):
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
-        #cdm.setCreateInjection(self.create_injection)
+
+        # injection of the initial state
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        if self._inject_state:
+            cdm.setCreateInjection(self.create_injection)
+            injection = self.create_injection(cdm, fdm)
+            add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -318,14 +327,6 @@ class PMGBase(PCSNESBase):
             cdm.setCoarsen(self.coarsen)
         except ValueError:
             pass
-
-        # injection of the initial state
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
-
-        #injection = self.create_injection(cdm, fdm)
-        #add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         # restrict the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
@@ -399,6 +400,7 @@ class PMGBase(PCSNESBase):
 
 class PMGPC(PCBase, PMGBase):
     _prefix = "pmg_"
+    _inject_state = False
 
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
@@ -435,6 +437,7 @@ class PMGPC(PCBase, PMGBase):
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
+    _inject_state = True
 
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
@@ -916,18 +919,19 @@ class StandaloneInterpolationMatrix(object):
                     isHDiv = True
 
             permutation = numpy.arange(dimc)
+            permutation = (permutation // Vc_bsize) + Vc_sdim*(permutation % Vc_bsize)
             if isHDiv:
+                # handle sign flip on first component
                 sign = [1]*expr.ufl_shape[0]
                 sign[0] = -1
                 expr = elem_mult(as_vector(sign), expr)
-                
+                # use the inverse of the H(div) permutation
                 ndim = Vc.ufl_domain().topological_dimension()
-                pshape = (1+PMGBase.max_degree(Vc.ufl_element()),)*ndim 
-                pshape += Vc.ufl_element().value_shape()
-                ncomp = pshape[-1]
+                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
                 permutation = numpy.reshape(permutation, pshape)
+                ncomp = permutation.shape[-1]
                 for k in range(ncomp):
-                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(1+k+numpy.arange(ncomp)) % ncomp)
+                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ncomp)-k-1) % ncomp)
                 permutation = numpy.reshape(permutation, (-1,))
             perm = ", ".join(map(str, permutation))
 
@@ -944,22 +948,16 @@ class StandaloneInterpolationMatrix(object):
 
             void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
                 PetscScalar JX[{Jlen}] = {{ {JX} }};
-                PetscScalar t0[{lwork}], t1[{lwork}] = {{0}};
+                PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
                 PetscScalar one=1.0E0;
 
-                {IntType_c} k, perm[{dimc}] = {{ {perm} }};
+                {IntType_c} perm[{dimc}] = {{ {perm} }};
                 {ScalarType_c} Amap[{dimc}*{dimc}] = {{0}};
                 expression_kernel(Amap{coef_args});
                 
-                for({IntType_c} i=0; i<{dimc}; i++){{
-                    k = perm[i];
+                for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        t1[k] += Amap[i+j*{dimc}] * x[j];
-                }}
-
-                for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                        t0[j + {Vc_sdim}*i] = t1[i + {Vc_bsize}*j];
+                        t0[perm[i]] += Amap[i+{dimc}*j] * x[j];
 
                 kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
 
@@ -985,15 +983,9 @@ class StandaloneInterpolationMatrix(object):
 
                 kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
 
-                for({IntType_c} i=0; i<{dimc}; i++){{
-                    t0[i] = 0.0E0;
+                for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        t0[i] += Amap[j+{dimc}*i] * t1[perm[j]];
-                }}
-
-                for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                        y[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
+                        y[i] += Amap[j+{dimc}*i] * t1[perm[j]];
                 return;
             }}
             """
