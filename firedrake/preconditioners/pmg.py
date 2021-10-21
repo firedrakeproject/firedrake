@@ -909,36 +909,35 @@ class StandaloneInterpolationMatrix(object):
 
             felem = Vf.ufl_element()
             celem = Vc.ufl_element()
+            expr = firedrake.TestFunction(Vc)
             celem_mapped = WithMapping(celem, felem.mapping())
             Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem_mapped)
-
-            expr = firedrake.TestFunction(Vc)
-            dimc = Vc_sdim * Vc_bsize
-            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), (Vc_bsize, Vc_sdim)))
-
-            if felem.sobolev_space() == firedrake.HDiv:
-                # flip the sign of the first component
-                sign = [1]*expr.ufl_shape[0]
-                sign[0] = -1
-                expr = elem_mult(as_vector(sign), expr)
-
-                # compose with the inverse H(div) permutation
-                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
-                permutation = numpy.reshape(permutation, pshape)
-                for k in range(permutation.shape[-1]):
-                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
-            elif felem.sobolev_space() == firedrake.HCurl:
-                raise NotImplementedError("Mapped BLAS kernels for HCurl are not implemented yet")
-
-            permutation = numpy.reshape(permutation, (-1,))
-            perm = ", ".join(map(str, permutation))
-
+            
             matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
             mapping_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
             mapping_kernel = mapping_kernel.replace("void expression_kernel", "static void expression_kernel")
 
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
             coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+
+            dimc = Vc_sdim * Vc_bsize
+            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), (Vc_bsize, Vc_sdim)))
+            fsobolev = felem.sobolev_space()
+            if fsobolev in [firedrake.HDiv, firedrake.HCurl]:
+                # compose with the inverse H(div)/H(curl) permutation
+                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
+                permutation = numpy.reshape(permutation, pshape)
+                for k in range(permutation.shape[-1]):
+                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
+
+            permutation = numpy.reshape(permutation, (-1,))
+            perm = ", ".join(map(str, permutation))
+
+            nflip = 0
+            if fsobolev == firedrake.HDiv:
+                # flip the sign of the first component
+                nflip = dimc // celem.value_shape()[0]
+
             kernel_code = f"""
             {kronmxv_code}
 
@@ -955,7 +954,10 @@ class StandaloneInterpolationMatrix(object):
 
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        t0[perm[i]] += Amap[i+{dimc}*j] * x[j];
+                        t0[perm[i]] += Amap[i*{dimc}+j] * x[j];
+
+                for({IntType_c} i=0; i<{nflip}; i++)
+                    t0[i] = -t0[i];
 
                 kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
 
@@ -981,9 +983,12 @@ class StandaloneInterpolationMatrix(object):
 
                 kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
 
+                for({IntType_c} i=0; i<{nflip}; i++)
+                    t1[i] = -t1[i];
+                
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
-                        y[i] += Amap[j+{dimc}*i] * t1[perm[j]];
+                        y[i] += Amap[j*{dimc}+i] * t1[perm[j]];
                 return;
             }}
             """
