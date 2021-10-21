@@ -396,15 +396,15 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
     ny = np.size(ycoords)-1
 
     for n in (nx, ny):
-        if n <= 0 or n % 1:
+        if n <= 0:
             raise ValueError("Number of cells must be a postive integer")
 
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
     if not quadrilateral and diagonal == "crossed":
-        xs = 0.5*(xcoords[1:] + xcoords[:, -1])
-        ys = 0.5*(ycoords[1:] + ycoords[:, -1])
+        xs = 0.5*(xcoords[1:] + xcoords[:-1])
+        ys = 0.5*(ycoords[1:] + ycoords[:-1])
         extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
         coords = np.vstack([coords, extra])
         #
