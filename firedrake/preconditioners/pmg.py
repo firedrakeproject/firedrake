@@ -3,7 +3,7 @@ from itertools import chain
 
 from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
 from ufl import EnrichedElement, HDivElement, HCurlElement, WithMapping
-from ufl import Form, replace, as_vector, elem_mult
+from ufl import Form, replace
 from ufl.classes import Expr
 
 from pyop2 import op2, PermutedMap
@@ -308,16 +308,15 @@ class PMGBase(PCSNESBase):
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
+        cdm.setCreateInjection(self.create_injection)
 
         # injection of the initial state
         def inject_state(mat):
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                 mat.multTranspose(xf, xc)
 
-        if self._inject_state:
-            cdm.setCreateInjection(self.create_injection)
-            injection = self.create_injection(cdm, fdm)
-            add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+        injection = self.create_injection(cdm, fdm)
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -400,7 +399,6 @@ class PMGBase(PCSNESBase):
 
 class PMGPC(PCBase, PMGBase):
     _prefix = "pmg_"
-    _inject_state = False
 
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
@@ -437,7 +435,6 @@ class PMGPC(PCBase, PMGBase):
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
-    _inject_state = True
 
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
@@ -677,7 +674,7 @@ class StandaloneInterpolationMatrix(object):
         mf = Vf.ufl_element().mapping().lower()
         mc = Vc.ufl_element().mapping().lower()
 
-        if (tc and tf) and ((mc == mf) or (mc == "identity")):
+        if (tf and tc) and ((mf == mc) or (mc == "identity") or (mf == "identity")):
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
@@ -863,69 +860,65 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
+        prolong_read = f"""
+        for({IntType_c} j=0; j<{Vc_sdim}; j++)
+            for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+        """
+        prolong_write = f"""
+        for({IntType_c} j=0; j<{Vf_sdim}; j++)
+            for({IntType_c} i=0; i<{Vf_bsize}; i++)
+               y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+        """
+        restrict_read = f"""
+        for({IntType_c} j=0; j<{Vf_sdim}; j++)
+            for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+        """
+        restrict_write = f"""
+        for({IntType_c} j=0; j<{Vc_sdim}; j++)
+            for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
+        """
+
         if Vf_mapping == Vc_mapping:
             coefficients = []
-            kernel_code = f"""
-            {kronmxv_code}
-
-            void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-                PetscScalar JX[{Jlen}] = {{ {JX} }};
-                PetscScalar t0[{lwork}], t1[{lwork}];
-                PetscScalar one=1.0E0;
-
-                for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                        t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
-
-                kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0,t1);
-
-                for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                       y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
-                return;
-            }}
-
-            void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
-                             const PetscScalar *restrict w){{
-                PetscScalar JX[{Jlen}] = {{ {JX} }};
-                PetscScalar t0[{lwork}], t1[{lwork}];
-                PetscScalar one=1.0E0;
-
-                for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                        t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
-
-                kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0,t1);
-
-                for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                        y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
-                return;
-            }}
-            """
+            mapping_kernel = ""
+            assemble_map = ""
+            coef_decl = ""
+            coef_args = ""
         else:
-            if Vc_mapping != "identity":
-                raise NotImplementedError("The coarse element needs the identity mapping when the coarse and fine mappings differ")
-
             felem = Vf.ufl_element()
             celem = Vc.ufl_element()
-            expr = firedrake.TestFunction(Vc)
-            celem_mapped = WithMapping(celem, felem.mapping())
-            Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), celem_mapped)
-            
-            matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
+            if Vc_mapping == "identity":
+                dimc = Vc_sdim * Vc_bsize
+                sobolev = felem.sobolev_space()
+                vshape = (Vc_bsize, Vc_sdim)
+                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
+
+                Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), WithMapping(celem, felem.mapping()))
+                expr = firedrake.TestFunction(Vc)
+                matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
+            elif Vf_mapping == "identity":
+                dimc = Vf_sdim * Vf_bsize
+                sobolev = celem.sobolev_space()
+                vshape = (Vf_bsize, Vf_sdim)
+                pshape = (mx, -1) if ndim == 1 else (mx, my, -1) if ndim == 2 else (mx, my, mz, -1)
+
+                Vf_mapped = firedrake.FunctionSpace(Vf.ufl_domain(), WithMapping(felem, celem.mapping()))
+                expr = firedrake.TestFunction(Vf_mapped)
+                matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vf, expr)
+            else:
+                raise NotImplementedError("Need at least one space with identity mapping")
+
             mapping_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
             mapping_kernel = mapping_kernel.replace("void expression_kernel", "static void expression_kernel")
-
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
-            coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+            coef_decl = "".join([", const PetscScalar *restrict c%d" % i for i in range(len(coefficients))])
 
-            dimc = Vc_sdim * Vc_bsize
-            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), (Vc_bsize, Vc_sdim)))
-            fsobolev = felem.sobolev_space()
-            if fsobolev in [firedrake.HDiv, firedrake.HCurl]:
+            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), vshape))
+            if sobolev in [firedrake.HDiv, firedrake.HCurl]:
                 # compose with the inverse H(div)/H(curl) permutation
-                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
                 permutation = numpy.reshape(permutation, pshape)
                 for k in range(permutation.shape[-1]):
                     permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
@@ -934,70 +927,85 @@ class StandaloneInterpolationMatrix(object):
             perm = ", ".join(map(str, permutation))
 
             nflip = 0
-            if fsobolev == firedrake.HDiv:
+            if sobolev == firedrake.HDiv:
                 # flip the sign of the first component
                 nflip = dimc // celem.value_shape()[0]
 
-            kernel_code = f"""
-            {kronmxv_code}
-
-            {mapping_kernel}
-
-            void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
-                PetscScalar JX[{Jlen}] = {{ {JX} }};
-                PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
-                PetscScalar one=1.0E0;
-
-                {IntType_c} perm[{dimc}] = {{ {perm} }};
-                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0.0E0}};
-                expression_kernel(Amap{coef_args});
-
+            # the map is computed in row-major order
+            assemble_map = f"""
+            PetscInt perm[{dimc}] = {{ {perm} }};
+            PetscScalar Amap[{dimc}*{dimc}] = {{0.0E0}};
+            expression_kernel(Amap{coef_args});
+            """
+            if Vc_mapping == "identity":
+                prolong_read = f"""
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
                         t0[perm[i]] += Amap[i*{dimc}+j] * x[j];
-
                 for({IntType_c} i=0; i<{nflip}; i++)
                     t0[i] = -t0[i];
-
-                kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
-
-                for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                        y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
-                return;
-            }}
-
-            void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
-                             const PetscScalar *restrict w{coef_decl}){{
-                PetscScalar JX[{Jlen}] = {{ {JX} }};
-                PetscScalar t0[{lwork}], t1[{lwork}];
-                PetscScalar one=1.0E0;
-
-                {IntType_c} perm[{dimc}] = {{ {perm} }};
-                {ScalarType_c} Amap[{dimc}*{dimc}] = {{0.0E0}};
-                expression_kernel(Amap{coef_args});
-
-                for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                    for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                        t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
-
-                kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
-
+                """
+                restrict_write = f"""
                 for({IntType_c} i=0; i<{nflip}; i++)
                     t1[i] = -t1[i];
-                
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
                         y[i] += Amap[j*{dimc}+i] * t1[perm[j]];
-                return;
-            }}
-            """
+                """
+            else:
+                prolong_write = f"""
+                for({IntType_c} i=0; i<{nflip}; i++)
+                    t1[i] = -t1[i];
+                for({IntType_c} i=0; i<{dimc}; i++)
+                    for({IntType_c} j=0; j<{dimc}; j++)
+                        y[i] += Amap[i*{dimc}+j] * t1[perm[j]];
+                """
+                restrict_read = f"""
+                for({IntType_c} i=0; i<{dimc}; i++)
+                    for({IntType_c} j=0; j<{dimc}; j++)
+                        t0[perm[i]] += Amap[j*{dimc}+i] * x[j] * w[j];
+                for({IntType_c} i=0; i<{nflip}; i++)
+                    t0[i] = -t0[i];
+                """
+
+        kernel_code = f"""
+        {kronmxv_code}
+
+        {mapping_kernel}
+
+        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
+            PetscScalar JX[{Jlen}] = {{ {JX} }};
+            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar one=1.0E0;
+            {assemble_map}
+            {prolong_read}
+            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+            {prolong_write}
+            return;
+        }}
+
+        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
+                         const PetscScalar *restrict w{coef_decl}){{
+            PetscScalar JX[{Jlen}] = {{ {JX} }};
+            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar one=1.0E0;
+            {assemble_map}
+            {restrict_read}
+            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+            {restrict_write}
+            return;
+        }}
+        """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        prolong_kernel = op2.Kernel(kernel_code, "prolongation",
+                                    include_dirs=BLASLAPACK_INCLUDE.split(),
+                                    ldargs=BLASLAPACK_LIB.split(),
+                                    requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(kernel_code, "restriction",
+                                     include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(),
+                                     requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
