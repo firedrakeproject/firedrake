@@ -215,8 +215,10 @@ def test_mixed_poisson_approximated_schur():
                   'pc_type': 'python',
                   'mat_type': 'matfree',
                   'pc_python_type': 'firedrake.HybridizationPC',
-                  'hybridization': {'ksp_type': 'preonly',
-                                    'pc_type': 'lu'}}
+                  'hybridization': {'ksp_type': 'cg',
+                                    'pc_type': 'none',
+                                    'ksp_rtol': 1e-8,
+                                    'mat_type': 'matfree'}}
     solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
     _sigma, _u = w2.split()
 
