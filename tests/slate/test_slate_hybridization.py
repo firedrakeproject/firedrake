@@ -202,7 +202,7 @@ def test_mixed_poisson_approximated_schur():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
-    expected = {'nested':True, 'diag':False,
+    expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':False,
                 'schur_approx':True,
                 'preonly_Shat':False, 'jacobi_Shat':False}
