@@ -421,7 +421,8 @@ def test_slate_hybridization_flip_sign():
                                                         'pc_type': 'python',
                                                         'pc_python_type': __name__ + '.DGLaplacian',
                                                         'aux_ksp_type': 'preonly',
-                                                        'aux_pc_type': 'jacobi'}}}}
+                                                        'aux_pc_type': 'jacobi',
+                                                        'scaling': '-1'}}}}
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
