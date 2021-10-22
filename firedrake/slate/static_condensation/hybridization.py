@@ -591,7 +591,9 @@ class SchurComplementBuilder(object):
             The inverse of A may be just approximated with the inverse of P
             if prec and replace.
         """
-        return P.inv if prec and preonly else ((P*A).inv * P if prec else A.inv)
+        return (P if prec and preonly else
+                (P*A).inv * P if prec else
+                A.inv)
 
     def _build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
