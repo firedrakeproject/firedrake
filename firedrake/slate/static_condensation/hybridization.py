@@ -294,7 +294,6 @@ class HybridizationPC(SCBase):
         A, B, C, _ = self.schur_builder.list_split_mixed_ops
         K_0, K_1 = self.schur_builder.list_split_trace_ops
         Ahat = self.schur_builder.A00_inv_hat
-        Shat = self.schur_builder.inner_S_inv_hat
         S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
