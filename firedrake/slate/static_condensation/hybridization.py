@@ -564,6 +564,8 @@ class SchurComplementBuilder(object):
         self.jacobi_A00 = get_option(fs0+"_pc_type") == "jacobi"
 
         # get user supplied operator
+        self.preonly_S = get_option(fs1+"_ksp_type") == "preonly"
+        self.jacobi_S = get_option(fs1+"_pc_type") == "jacobi"
         self.schur_approx = (self._retrieve_user_S_approx(pc, get_option(fs1+"_pc_python_type"))
                              if get_option(fs1+"_pc_type") == "python"
                              else None)
@@ -574,6 +576,7 @@ class SchurComplementBuilder(object):
             assert parameters["slate_compiler"]["optimise"], "Local systems should only get preconditioned with \
                                                               a preconditioning matrix if the Slate optimiser replaces \
                                                               inverses by solves "
+        self.flip_sign = get_option(fs1+"_scaling") == "-1"
     
     def _build_inner_S(self):
         """Build the inner Schur complement."""
@@ -595,10 +598,11 @@ class SchurComplementBuilder(object):
             The inverse is potentially approximated through a solve
             which is potentially preconditioned with pc.
         """
-        A = self.inner_S
-        P = self.inner_S_approx_inv_hat
-        prec = bool(self.schur_approx)
-        return self.inv(A, P, prec)
+        A = -self.inner_S if self.flip_sign else self.inner_S
+        P = -self.inner_S_approx_inv_hat if self.flip_sign else self.inner_S_approx_inv_hat
+        prec = bool(self.schur_approx) or self.jacobi_S
+        Shatinv = self.inv(A, P, prec, self.preonly_S) if self.schur_approx or not self.jacobi_S else self.inner_S_approx_inv_hat
+        return -Shatinv if self.flip_sign else Shatinv
 
     def _build_Sapprox_inv(self):
         """ Calculates the inverse of the schur complement approximation (!) provided by the user.
@@ -606,12 +610,14 @@ class SchurComplementBuilder(object):
             which is potentially preconditioned with jacobi.
         """
         if self.schur_approx:
-            A = self.schur_approx
-            P = DiagonalTensor(A).inv
-            prec = self.schur_approx and self.jacobi_Shat
-            return self.inv(A, P, prec, self.preonly_Shat)
+            A = self.schur_approx if self.flip_sign else self.schur_approx
+        elif self.jacobi_S:
+            A = self.inner_S
         else:
             return None
+        P = DiagonalTensor(A).inv
+        prec = self.schur_approx or self.jacobi_S
+        return self.inv(A, P, prec, self.preonly_S)
 
     def _build_A00_inv(self):
         """ Calculates the inverse of A00, the (0,0)-block of the mixed matrix Atilde.
