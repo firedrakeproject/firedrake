@@ -56,12 +56,6 @@ def setup_poisson_3D():
     # globally matfree trace solve
     mesh = SquareMesh(n, n, 1, quadrilateral=True)
     mesh = ExtrudedMesh(mesh, n)
-
-    affine = True
-    deform = 6.
-    if not affine:
-        mesh.coordinates.dat.data[2][1] += deform * mesh.coordinates.dat.data[2][1]
-        mesh.coordinates.dat.data[4][1] += deform * 0.25 * mesh.coordinates.dat.data[4][1]
     RT = FiniteElement("RTCF", quadrilateral, p+1)
     DG_v = FiniteElement("DG", interval, p)
     DG_h = FiniteElement("DQ", quadrilateral, p)
@@ -291,9 +285,10 @@ def test_mixed_poisson_approximated_schur():
 
 
 def test_slate_hybridization_jacobi_prec_A00():
-    # NOTE With the setup in this test, using jacovi a preconditioner to the
-    # A00 mass matrix in the condition number of the local solve is reduced from
-    # 36.59 to 3.06
+    # NOTE With the setup in this test, using jacobi as apreconditioner to the
+    # schur complement matrix the condition number of the matrix of the local solve 
+    # P.inv * A \ ...
+    # is reduced from 36.59 to 3.06
     a, L, W = setup_poisson_3D()
 
     # Compare hybridized solution with non-hybridized
