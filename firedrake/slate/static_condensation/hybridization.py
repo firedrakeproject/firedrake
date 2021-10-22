@@ -308,9 +308,13 @@ class HybridizationPC(SCBase):
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
-        if self.schur_builder.schur_approx:
-            S = Shat * S
-            rhs = Shat * rhs
+        if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
+            Shat = self.schur_builder.inner_S_approx_inv_hat
+            if self.schur_builder.preonly_S:
+                S = Shat
+            else:
+                S = Shat * S
+                rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
         self._sub_unknown = functools.partial(assemble,
