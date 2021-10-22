@@ -411,26 +411,22 @@ def test_slate_hybridization_flip_sign():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.HybridizationPC',
             'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'lmi': {'ksp_type': 'preonly',
-                                        'pc_type': 'fieldsplit',
-                                        'fieldsplit_type': 'schur',
-                                        'fieldsplit_0': {'ksp_type': 'default',
-                                                        'pc_type': 'jacobi'},
-                                        'fieldsplit_1': {'ksp_type': 'default',
-                                                        'pc_type': 'python',
-                                                        'pc_python_type': __name__ + '.DGLaplacian',
-                                                        'aux_ksp_type': 'preonly',
-                                                        'aux_pc_type': 'jacobi',
-                                                        'scaling': '-1'}}}}
+                              'pc_type': 'lu',
+                              'lmi': {'ksp_type': 'preonly',
+                                      'pc_type': 'fieldsplit',
+                                      'fieldsplit_type': 'schur',
+                                      'fieldsplit_1': {'pc_type': 'python',
+                                                       'pc_python_type': __name__ + '.DGLaplacian',
+                                                       'scaling': '-1'}}}}
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
     expected = {'nested':True,
-                'preonly_A00':False, 'jacobi_A00':True,
+                'preonly_A00':False, 'jacobi_A00':False,
                 'schur_approx':True,
-                'preonly_Shat':True, 'jacobi_Shat':True,
+                'preonly_Shat':False, 'jacobi_Shat':False,
+                'preonly_S':False, 'jacobi_S':False,
                 'flip_sign': True}
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
