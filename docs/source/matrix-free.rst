@@ -2,9 +2,9 @@
 
   .. contents::
 
-==================================================================
- Support for matrix-free operator application and preconditioning
-==================================================================
+=======================
+ Matrix-free operators
+=======================
 
 In addition to supporting computation with the workhorse of sparse
 linear algebra, an assembled sparse matrix, Firedrake also supports
@@ -65,18 +65,6 @@ configure it at run-time via the options database.  This allows the
 use of matrix-free actions in the Krylov solve, preconditioned using
 an assembled matrix.
 
-Firedrake provides a few problem-specific preconditioners for the
-Stokes and Navier-Stokes equations.  Particularly, the
-:class:`.MassInvPC` and :class:`.PCDPC` preconditioners.  The former
-is useful for Stokes problems where, in the absence of high viscosity
-contrasts, the Schur complement is spectrally equivalent to the
-viscosity-weighted pressure mass matrix.  The latter implements the
-pressure-convection-diffusion approximation for the Navier-Stokes
-Schur complement, which approximates the inverse of the Schur
-complement by a mass matrix solve, the application of a scalar
-convection-diffusion operator using the current velocity of the Newton
-step, and a Poisson solve.
-
 Providing application context to preconditioners
 ------------------------------------------------
 
@@ -94,19 +82,8 @@ preconditioners.
 Example usage
 =============
 
-To demonstrate some use cases for matrix-free operators and
-preconditioners, we will now move on to some examples.  These are
-implemented in their own demo files and cover a range of complexities.
-The first is a simple Poisson problem, introducing some of the
-additional solver options.  The others explore various wasy of nesting
-custom preconditioners inside fieldsplit solvers, ending with a
-scalable preconditioner for the simulation of Rayleigh-Benard
-convection.
+To demonstrate basic usage of matrix-free operators and
+preconditioners, we show a simple Poisson problem, introducing some of
+the additional solver options.
 
-.. toctree::
-   :maxdepth: 1
-
-   The Poisson equation.<demos/poisson.py>
-   The Stokes equation.<demos/stokes.py>
-   The Navier-Stokes equations.<demos/navier_stokes.py>
-   Rayleigh-Benard convection.<demos/rayleigh-benard.py>
+.. include:: demos/poisson.py.rst

@@ -22,10 +22,12 @@ import numpy
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
-@article{Brubeck2021,
-  title={A scalable and robust vertex-star relaxation for high-order FEM},
-  author={Brubeck, P. D. and Farrell, P. E.},
-  journal={arXiv preprint arXiv:2107.14758},
+@misc{Brubeck2021,
+  title={A scalable and robust vertex-star relaxation for high-order {FEM}},
+  author={Brubeck, Pablo D. and Farrell, Patrick E.},
+  archiveprefix = {arXiv},
+  eprint = {2107.14758},
+  primaryclass = {math.NA},
   year={2021}
 }
 """)
