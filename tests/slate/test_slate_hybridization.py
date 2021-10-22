@@ -256,7 +256,7 @@ def test_slate_hybridization_jacobi_prec_schur():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
-    expected = {'nested':True, 'diag':True,
+    expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':True,
                 'schur_approx':True,
                 'preonly_Shat':True, 'jacobi_Shat':True}
