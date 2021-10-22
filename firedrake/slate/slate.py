@@ -991,6 +991,7 @@ class Inverse(UnaryOp):
         assert A.shape[0] == A.shape[1], (
             "The inverse can only be computed on square tensors."
         )
+        self.diagonal = A.diagonal
 
         if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
             A = Factorization(A, decomposition="PartialPivLU")
