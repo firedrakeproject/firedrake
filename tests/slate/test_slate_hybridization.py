@@ -51,7 +51,7 @@ def setup_poisson():
 
 def setup_poisson_3D():
     p = 3
-    n = 1
+    n = 2
     # One needs a 2x2 mesh otherwise the action is not computed in the
     # globally matfree trace solve
     mesh = SquareMesh(n, n, 1, quadrilateral=True)
