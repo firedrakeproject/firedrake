@@ -49,6 +49,40 @@ def setup_poisson():
     return a, L, W
 
 
+def setup_poisson_3D():
+    p = 3
+    n = 1
+    # One needs a 2x2 mesh otherwise the action is not computed in the
+    # globally matfree trace solve
+    mesh = SquareMesh(n, n, 1, quadrilateral=True)
+    mesh = ExtrudedMesh(mesh, n)
+
+    affine = True
+    deform = 6.
+    if not affine:
+        mesh.coordinates.dat.data[2][1] += deform * mesh.coordinates.dat.data[2][1]
+        mesh.coordinates.dat.data[4][1] += deform * 0.25 * mesh.coordinates.dat.data[4][1]
+    RT = FiniteElement("RTCF", quadrilateral, p+1)
+    DG_v = FiniteElement("DG", interval, p)
+    DG_h = FiniteElement("DQ", quadrilateral, p)
+    CG = FiniteElement("CG", interval, p+1)
+    HDiv_ele = EnrichedElement(HDiv(TensorProductElement(RT, DG_v)),
+                            HDiv(TensorProductElement(DG_h, CG)))
+    V = FunctionSpace(mesh, HDiv_ele)
+    U = FunctionSpace(mesh, "DQ", p)
+    W = V * U
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    V, U = W.split()
+    f = Function(U)
+    x,y,z = SpatialCoordinate(mesh)
+    expr = (1+12*pi*pi)*cos(100*pi*x)*cos(100*pi*y)*cos(100*pi*z)
+    f.interpolate(expr)
+    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=31)
+    L = -f*v*dx(degree=31)
+    return a, L, W
+
+
 def options_check(builder, expected):
     all_good = True
     for k, v in expected.items():
