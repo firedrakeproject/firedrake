@@ -95,7 +95,7 @@ class PMGBase(PCSNESBase):
     @staticmethod
     def reconstruct_degree(ele, N):
         """
-        Reconstruct an element, modifying it polynomial degree.
+        Reconstruct an element, modifying its polynomial degree.
 
         By default, reconstructed EnrichedElements, TensorProductElements,
         and MixedElements will have the degree of the sub-elements shifted
@@ -310,14 +310,6 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
-        # injection of the initial state
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
-
-        injection = self.create_injection(cdm, fdm)
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
-
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
         # use geometric multigrid for the p-coarse problem
@@ -326,6 +318,14 @@ class PMGBase(PCSNESBase):
             cdm.setCoarsen(self.coarsen)
         except ValueError:
             pass
+
+        # injection of the initial state
+        def inject_state(mat):
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                mat.multTranspose(xf, xc)
+
+        injection = self.create_injection(cdm, fdm)
+        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
         # restrict the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
@@ -655,16 +655,16 @@ class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs, uf=None, uc=None):
         self.Vf = Vf
         self.Vc = Vc
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
 
-        self.uc = firedrake.Function(Vc)
-        self.uf = firedrake.Function(Vf)
+        self.uf = uf or firedrake.Function(Vf)
+        self.uc = uc or firedrake.Function(Vc)
 
-        self.mesh = Vf.mesh()
+        cell_set = Vf.mesh().cell_set
         self.weight = self.multiplicity(Vf)
         with self.weight.dat.vec as w:
             w.reciprocal()
@@ -683,16 +683,19 @@ class StandaloneInterpolationMatrix(object):
             uc_map = Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
 
+        prolong_args = [prolong_kernel, cell_set,
+                        self.uf.dat(op2.WRITE, uf_map),
+                        self.uc.dat(op2.READ, uc_map)]
+
+        restrict_args = [restrict_kernel, cell_set,
+                         self.uc.dat(op2.INC, uc_map),
+                         self.uf.dat(op2.READ, uf_map),
+                         self.weight.dat(op2.READ, uf_map)]
+
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
 
-        self.restrict_args = [restrict_kernel, self.mesh.cell_set,
-                              self.uc.dat(op2.INC, uc_map),
-                              self.uf.dat(op2.READ, uf_map),
-                              self.weight.dat(op2.READ, uf_map)] + coefficient_args
-
-        self.prolong_args = [prolong_kernel, self.mesh.cell_set,
-                             self.uf.dat(op2.WRITE, uf_map),
-                             self.uc.dat(op2.READ, uc_map)] + coefficient_args
+        self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
+        self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
 
     @staticmethod
     def prolongation_transfer_kernel_action(Vf, expr):
@@ -860,26 +863,34 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        prolong_read = f"""
-        for({IntType_c} j=0; j<{Vc_sdim}; j++)
-            for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
-        """
-        prolong_write = f"""
-        for({IntType_c} j=0; j<{Vf_sdim}; j++)
-            for({IntType_c} i=0; i<{Vf_bsize}; i++)
-               y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
-        """
-        restrict_read = f"""
-        for({IntType_c} j=0; j<{Vf_sdim}; j++)
-            for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
-        """
-        restrict_write = f"""
-        for({IntType_c} j=0; j<{Vc_sdim}; j++)
-            for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
-        """
+        if Vc_bsize == 1:
+            coarse_read = f"""for({IntType_c} i=0; i<{Vc_sdim}; i++) t0[i] = x[i];"""
+            coarse_write = f"""for({IntType_c} i=0; i<{Vc_sdim}; i++) y[i] += t1[i];"""
+        else:
+            coarse_read = f"""
+            for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+            """
+            coarse_write = f"""
+            for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                    y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
+            """
+        if Vf_bsize == 1:
+            fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim}; i++) t0[i] = x[i] * w[i];"""
+            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim}; i++) y[i] = t1[i];"""
+        else:
+            fine_read = f"""
+            for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                    t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+            """
+            fine_write = f"""
+            for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+            """
 
         if Vf_mapping == Vc_mapping:
             coefficients = []
@@ -938,14 +949,14 @@ class StandaloneInterpolationMatrix(object):
             expression_kernel(Amap{coef_args});
             """
             if Vc_mapping == "identity":
-                prolong_read = f"""
+                coarse_read = f"""
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
                         t0[perm[i]] += Amap[i*{dimc}+j] * x[j];
                 for({IntType_c} i=0; i<{nflip}; i++)
                     t0[i] = -t0[i];
                 """
-                restrict_write = f"""
+                coarse_write = f"""
                 for({IntType_c} i=0; i<{nflip}; i++)
                     t1[i] = -t1[i];
                 for({IntType_c} i=0; i<{dimc}; i++)
@@ -953,19 +964,19 @@ class StandaloneInterpolationMatrix(object):
                         y[i] += Amap[j*{dimc}+i] * t1[perm[j]];
                 """
             else:
-                prolong_write = f"""
-                for({IntType_c} i=0; i<{nflip}; i++)
-                    t1[i] = -t1[i];
-                for({IntType_c} i=0; i<{dimc}; i++)
-                    for({IntType_c} j=0; j<{dimc}; j++)
-                        y[i] += Amap[i*{dimc}+j] * t1[perm[j]];
-                """
-                restrict_read = f"""
+                fine_read = f"""
                 for({IntType_c} i=0; i<{dimc}; i++)
                     for({IntType_c} j=0; j<{dimc}; j++)
                         t0[perm[i]] += Amap[j*{dimc}+i] * x[j] * w[j];
                 for({IntType_c} i=0; i<{nflip}; i++)
                     t0[i] = -t0[i];
+                """
+                fine_write = f"""
+                for({IntType_c} i=0; i<{nflip}; i++)
+                    t1[i] = -t1[i];
+                for({IntType_c} i=0; i<{dimc}; i++)
+                    for({IntType_c} j=0; j<{dimc}; j++)
+                        y[i] += Amap[i*{dimc}+j] * t1[perm[j]];
                 """
 
         kernel_code = f"""
@@ -978,9 +989,9 @@ class StandaloneInterpolationMatrix(object):
             PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
             PetscScalar one=1.0E0;
             {assemble_map}
-            {prolong_read}
+            {coarse_read}
             kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
-            {prolong_write}
+            {fine_write}
             return;
         }}
 
@@ -990,22 +1001,18 @@ class StandaloneInterpolationMatrix(object):
             PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
             PetscScalar one=1.0E0;
             {assemble_map}
-            {restrict_read}
+            {fine_read}
             kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
-            {restrict_write}
+            {coarse_write}
             return;
         }}
         """
 
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(kernel_code, "prolongation",
-                                    include_dirs=BLASLAPACK_INCLUDE.split(),
-                                    ldargs=BLASLAPACK_LIB.split(),
-                                    requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(kernel_code, "restriction",
-                                     include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(),
-                                     requires_zeroed_output_arguments=True)
+        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
@@ -1038,7 +1045,7 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
-        op2.par_loop(*self.restrict_args)
+        self._restrict()
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1057,7 +1064,7 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
 
-        op2.par_loop(*self.prolong_args)
+        self._prolong()
 
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1076,71 +1083,28 @@ class StandaloneInterpolationMatrix(object):
             w.axpy(1.0, y)
 
 
-class MixedInterpolationMatrix(object):
+class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     """
     Interpolation matrix for a mixed finite element space.
     """
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs, uf=None, uc=None):
         self.Vf = Vf
         self.Vc = Vc
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
 
+        self.uf = uf or firedrake.Function(Vf)
+        self.uc = uc or firedrake.Function(Vc)
+
         self.standalones = []
-        for (i, (Vf_sub, Vc_sub)) in enumerate(zip(Vf, Vc)):
+        for (i, (Vf_sub, Vc_sub, uf_sub, uc_sub)) in enumerate(zip(Vf, Vc, self.uf.split(), self.uc.split())):
             Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
             Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
-            standalone = StandaloneInterpolationMatrix(Vf_sub, Vc_sub, Vf_sub_bcs, Vc_sub_bcs)
+            standalone = StandaloneInterpolationMatrix(Vf_sub, Vc_sub, Vf_sub_bcs, Vc_sub_bcs, uf=uf_sub, uc=uc_sub)
             self.standalones.append(standalone)
 
-        self.uc = firedrake.Function(Vc)
-        self.uf = firedrake.Function(Vf)
-        self.mesh = Vf.mesh()
-
-    def multTranspose(self, mat, resf, resc):
-        with self.uf.dat.vec_wo as xf:
-            resf.copy(xf)
-
-        with self.uc.dat.vec_wo as xc:
-            xc.set(0.0E0)
-
-        for bc in self.Vf_bcs:
-            bc.zero(self.uf)
-
-        for (i, standalone) in enumerate(self.standalones):
-            op2.par_loop(*standalone.restrict_args)
-
-        for bc in self.Vc_bcs:
-            bc.zero(self.uc)
-
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(resc)
-
-    def mult(self, mat, xc, xf, inc=False):
-        with self.uc.dat.vec_wo as xc_:
-            xc.copy(xc_)
-
-        for bc in self.Vc_bcs:
-            bc.zero(self.uc)
-
-        for (i, standalone) in enumerate(self.standalones):
-            op2.par_loop(*standalone.prolong_args)
-
-        for bc in self.Vf_bcs:
-            bc.zero(self.uf)
-
-        with self.uf.dat.vec_ro as xf_:
-            if inc:
-                xf.axpy(1.0, xf_)
-            else:
-                xf_.copy(xf)
-
-    def multAdd(self, mat, x, y, w):
-        if y.handle == w.handle:
-            self.mult(mat, x, w, inc=True)
-        else:
-            self.mult(mat, x, w)
-            w.axpy(1.0, y)
+        self._prolong = lambda: [standalone._prolong() for standalone in self.standalones]
+        self._restrict = lambda: [standalone._restrict() for standalone in self.standalones]
 
     def getNestSubMatrix(self, i, j):
         if i == j:
