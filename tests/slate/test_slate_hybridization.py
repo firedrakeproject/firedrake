@@ -27,7 +27,10 @@ from firedrake import *
 
 
 def setup_poisson():
-    mesh = UnitSquareMesh(1, 1)
+    # One needs a 2x2 mesh otherwise the action is not computed in the
+    # globally matfree trace solve
+    n = 1
+    mesh = UnitSquareMesh(n, n)
     U = FunctionSpace(mesh, "RT", 4)
     V = FunctionSpace(mesh, "DG", 3)
     W = U * V
@@ -168,6 +171,29 @@ class DGLaplacian(AuxiliaryOperatorPC):
                  - inner(grad(u), v*n)*ds
                  + (gamma/h)*inner(u, v)*ds)
         bcs = None
+        return (a_dg, bcs)
+
+
+class DGLaplacian3D(AuxiliaryOperatorPC):
+    def form(self, pc, u,v):
+        W = u.function_space()
+        n = FacetNormal(W.mesh())
+        gamma = Constant(4.**3)
+            
+        h = CellVolume(W.mesh())/FacetArea(W.mesh())
+        
+        a_dg =  -(dot(grad(v), grad(u))*dx(degree=31)
+            - dot(grad(v), (u)*n)*ds_v(degree=31) 
+            - dot(v*n, grad(u))*ds_v(degree=31)
+            + gamma/h*dot(v, u)*ds_v(degree=31)
+            - dot(grad(v), (u)*n)*ds_t(degree=31) 
+            - dot(v*n, grad(u))*ds_t(degree=31)
+            + gamma/h*dot(v, u)*ds_t(degree=31)
+            - dot(grad(v), (u)*n)*ds_b(degree=31) 
+            - dot(v*n, grad(u))*ds_b(degree=31) 
+            + gamma/h*dot(v, u)*ds_b(degree=31))
+
+        bcs = []
         return (a_dg, bcs)
 
 
