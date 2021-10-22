@@ -487,26 +487,19 @@ class PMGSNES(SNESBase, PMGBase):
         return coarse
 
 
-def prolongation_transfer_kernel_aij(Pk, P1):
-    # Works for Pk, Pm; I just retain the notation
-    # P1 to remind you that P1 is of lower degree
-    # than Pk
+def prolongation_transfer_kernel_action(Vf, expr):
     from tsfc import compile_expression_dual_evaluation
     from tsfc.finatinterface import create_element
-    from firedrake import TestFunction
-
-    expr = TestFunction(P1)
-    to_element = create_element(Pk.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Pk.ufl_element())
+    to_element = create_element(Vf.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
     coefficients = kernel.coefficients
     if kernel.first_coefficient_fake_coords:
-        mesh = Pk.ufl_domain()
+        mesh = Vf.ufl_domain()
         coefficients[0] = mesh.coordinates
 
-    op2kernel = op2.Kernel(kernel.ast, kernel.name,
-                           requires_zeroed_output_arguments=True,
-                           flop_count=kernel.flop_count)
-    return op2kernel, coefficients
+    return op2.Kernel(kernel.ast, kernel.name,
+                      requires_zeroed_output_arguments=True,
+                      flop_count=kernel.flop_count), coefficients
 
 
 def tensor_product_space_query(V):
@@ -697,29 +690,14 @@ class StandaloneInterpolationMatrix(object):
         self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
 
-    @staticmethod
-    def prolongation_transfer_kernel_action(Vf, expr):
-        from tsfc import compile_expression_dual_evaluation
-        from tsfc.finatinterface import create_element
-        to_element = create_element(Vf.ufl_element())
-        kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
-        coefficients = kernel.coefficients
-        if kernel.first_coefficient_fake_coords:
-            mesh = Vf.ufl_domain()
-            coefficients[0] = mesh.coordinates
-
-        return op2.Kernel(kernel.ast, kernel.name,
-                          requires_zeroed_output_arguments=True,
-                          flop_count=kernel.flop_count), coefficients
-
     def make_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between arbitrary elements.
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        prolong_kernel, _ = self.prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = self.prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
@@ -902,23 +880,21 @@ class StandaloneInterpolationMatrix(object):
             felem = Vf.ufl_element()
             celem = Vc.ufl_element()
             if Vc_mapping == "identity":
-                dimc = Vc_sdim * Vc_bsize
                 sobolev = felem.sobolev_space()
                 vshape = (Vc_bsize, Vc_sdim)
                 pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
 
                 Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), WithMapping(celem, felem.mapping()))
                 expr = firedrake.TestFunction(Vc)
-                matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vc_mapped, expr)
+                matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vc_mapped, expr)
             elif Vf_mapping == "identity":
-                dimc = Vf_sdim * Vf_bsize
                 sobolev = celem.sobolev_space()
                 vshape = (Vf_bsize, Vf_sdim)
                 pshape = (mx, -1) if ndim == 1 else (mx, my, -1) if ndim == 2 else (mx, my, mz, -1)
 
                 Vf_mapped = firedrake.FunctionSpace(Vf.ufl_domain(), WithMapping(felem, celem.mapping()))
                 expr = firedrake.TestFunction(Vf_mapped)
-                matrix_kernel, coefficients = StandaloneInterpolationMatrix.prolongation_transfer_kernel_action(Vf, expr)
+                matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, expr)
             else:
                 raise NotImplementedError("Need at least one space with identity mapping")
 
@@ -927,6 +903,7 @@ class StandaloneInterpolationMatrix(object):
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
             coef_decl = "".join([", const PetscScalar *restrict c%d" % i for i in range(len(coefficients))])
 
+            dimc = numpy.prod(vshape)
             permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), vshape))
             if sobolev in [firedrake.HDiv, firedrake.HCurl]:
                 # compose with the inverse H(div)/H(curl) permutation
@@ -942,7 +919,7 @@ class StandaloneInterpolationMatrix(object):
                 # flip the sign of the first component
                 nflip = dimc // celem.value_shape()[0]
 
-            # the map is computed in row-major order
+            # the matrix Amap is stored in row-major order
             assemble_map = f"""
             PetscInt perm[{dimc}] = {{ {perm} }};
             PetscScalar Amap[{dimc}*{dimc}] = {{0.0E0}};
@@ -1138,7 +1115,8 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            kernel, coefficients = prolongation_transfer_kernel_aij(Pk.sub(i), P1.sub(i))
+            expr = firedrake.TestFunction(P1.sub(i))
+            kernel, coefficients = prolongation_transfer_kernel_action(Pk.sub(i), expr)
             parloop_args = [kernel, mesh.cell_set, matarg]
             for coefficient in coefficients:
                 m_ = coefficient.cell_node_map()
@@ -1154,7 +1132,8 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        kernel, coefficients = prolongation_transfer_kernel_aij(Pk, P1)
+        expr = firedrake.TestFunction(P1)
+        kernel, coefficients = prolongation_transfer_kernel_action(Pk, expr)
         parloop_args = [kernel, mesh.cell_set, matarg]
         for coefficient in coefficients:
             m_ = coefficient.cell_node_map()
