@@ -290,7 +290,118 @@ def test_mixed_poisson_approximated_schur():
     assert u_err < 1e-8
 
 
+def test_slate_hybridization_jacobi_prec_A00():
+    # NOTE With the setup in this test, using jacovi a preconditioner to the
+    # A00 mass matrix in the condition number of the local solve is reduced from
+    # 36.59 to 3.06
+    a, L, W = setup_poisson_3D()
+
+    # Compare hybridized solution with non-hybridized
+    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+            'ksp_type': 'preonly',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.HybridizationPC',
+            'hybridization': {'ksp_type': 'cg',
+                              'pc_type': 'none',
+                              'ksp_rtol': 1e-12,
+                              'mat_type': 'matfree',
+                              'lmi': {'ksp_type': 'preonly',
+                                      'pc_type': 'fieldsplit',
+                                      'fieldsplit_type': 'schur',
+                                      'fieldsplit_0': {'ksp_type': 'default',
+                                                       'pc_type': 'jacobi'}}}}
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    expected = {'nested':True,
+                'preonly_A00':False, 'jacobi_A00':True,
+                'schur_approx':False,
+                'preonly_Shat':False, 'jacobi_Shat':False,
+                'preonly_S':False, 'jacobi_S':False}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
+    sigma_h, u_h = w.split()
+
+    # (Non-hybrid) Need to slam it with preconditioning due to the
+    # system's indefiniteness
+    w2 = Function(W)
+    solve(a == L, w2,
+        solver_parameters={'mat_type': 'matfree',
+                           'ksp_type': 'preonly',
+                           'pc_type': 'python',
+                           'pc_python_type': 'firedrake.HybridizationPC',
+                           'hybridization': {'ksp_type': 'cg',
+                                             'pc_type': 'none',
+                                             'ksp_rtol': 1e-8,
+                                             'mat_type': 'matfree'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
+
 def test_slate_hybridization_jacobi_prec_schur():
+    a, L, W = setup_poisson_3D()
+
+    # Compare hybridized solution with non-hybridized
+    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+            'ksp_type': 'preonly',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.HybridizationPC',
+            'hybridization': {'ksp_type': 'cg',
+                              'pc_type': 'none',
+                              'ksp_rtol': 1e-12,
+                              'mat_type': 'matfree',
+                              'lmi': {'ksp_type': 'preonly',
+                                      'pc_type': 'fieldsplit',
+                                      'fieldsplit_type': 'schur',
+                                      'fieldsplit_1': {'ksp_type': 'default',
+                                                       'pc_type': 'jacobi'}}}}
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    expected = {'nested':True,
+                'preonly_A00':False, 'jacobi_A00':False,
+                'schur_approx':False,
+                'preonly_S':True, 'jacobi_S':True}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
+    sigma_h, u_h = w.split()
+
+    # (Non-hybrid) Need to slam it with preconditioning due to the
+    # system's indefiniteness
+    w2 = Function(W)
+    solve(a == L, w2,
+        solver_parameters={'mat_type': 'matfree',
+                           'ksp_type': 'preonly',
+                           'pc_type': 'python',
+                           'pc_python_type': 'firedrake.HybridizationPC',
+                           'hybridization': {'ksp_type': 'cg',
+                                             'pc_type': 'none',
+                                             'ksp_rtol': 1e-8,
+                                             'mat_type': 'matfree'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
+
+def test_slate_hybridization_flip_sign():
     a, L, W = setup_poisson()
 
     # Compare hybridized solution with non-hybridized
