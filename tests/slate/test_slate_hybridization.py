@@ -348,6 +348,10 @@ def test_slate_hybridization_jacobi_prec_A00():
 
 
 def test_slate_hybridization_jacobi_prec_schur():
+    # NOTE With the setup in this test, using jacobi as apreconditioner to the
+    # schur complement matrix the condition number of the matrix of the local solve 
+    # P.inv * A \ ...
+    # is reduced from 17.13 to 16.71
     a, L, W = setup_poisson_3D()
 
     # Compare hybridized solution with non-hybridized
