@@ -282,5 +282,6 @@ def test_slate_hybridization_jacobi_prec_schur():
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
