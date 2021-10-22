@@ -1271,6 +1271,7 @@ class DiagonalTensor(UnaryOp):
             "The diagonal can only be computed on square tensors."
         )
         self.tensor = A
+        self.diagonal = True
 
         super(DiagonalTensor, self).__init__(A)
 
