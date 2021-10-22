@@ -29,7 +29,7 @@ from firedrake import *
 def setup_poisson():
     # One needs a 2x2 mesh otherwise the action is not computed in the
     # globally matfree trace solve
-    n = 1
+    n = 2
     mesh = UnitSquareMesh(n, n)
     U = FunctionSpace(mesh, "RT", 4)
     V = FunctionSpace(mesh, "DG", 3)
