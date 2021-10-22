@@ -992,7 +992,7 @@ class Inverse(UnaryOp):
             "The inverse can only be computed on square tensors."
         )
 
-        if A.shape > (4, 4) and not isinstance(A, Factorization):
+        if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
             A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
@@ -1235,7 +1235,7 @@ class Solve(BinaryOp):
         decomposition = decomposition or "PartialPivLU"
 
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition)
+        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal else A
 
         super(Solve, self).__init__(A_factored, B)
 
