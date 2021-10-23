@@ -365,12 +365,15 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     @lru_cache(maxsize=20)
-    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-
+    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs, inject):
         cbcs = cctx._problem.bcs if cbcs else []
         fbcs = fctx._problem.bcs if fbcs else []
+        if inject:
+            cV = cctx._problem.u
+            fV = fctx._problem.u
+        else:
+            cV = cctx.J.arguments()[0].function_space()
+            fV = fctx.J.arguments()[0].function_space()
 
         if mat_type == "matfree":
             return prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
@@ -382,12 +385,12 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False), None
+        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False, False), None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
+        I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False, True)
         return PETSc.Mat().createTranspose(I)
 
     def view(self, pc, viewer=None):
@@ -644,20 +647,124 @@ def get_line_nodes(V):
         raise ValueError("Don't know how to get line nodes for %s" % V.ufl_element())
 
 
+# Common kernel to compute y = kron(A3, kron(A2, A1)) * x
+# Vector and tensor field generalization from Deville, Fischer, and Mund section 8.3.1.
+kronmxv_code = """
+#include <petscsys.h>
+#include <petscblaslapack.h>
+
+static void kronmxv(int tflag,
+    PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
+    PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
+    PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
+    PetscScalar  *x , PetscScalar *y){
+
+/*
+Kronecker matrix-vector product
+
+y = op(A) * x,  A = kron(A3, kron(A2, A1))
+
+where:
+op(A) = transpose(A) if tflag>0 else A
+op(A1) is mx-by-nx,
+op(A2) is my-by-ny,
+op(A3) is mz-by-nz,
+x is (nx*ny*nz)-by-nel,
+y is (mx*my*mz)-by-nel.
+
+Important notes:
+The input data in x is destroyed in the process.
+Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
+*/
+
+PetscBLASInt m,n,k,s,p,lda;
+char TA1, TA2, TA3;
+char tran='T', notr='N';
+PetscScalar zero=0.0E0, one=1.0E0;
+
+if(tflag>0){
+   TA1 = tran;
+   TA2 = notr;
+}else{
+   TA1 = notr;
+   TA2 = tran;
+}
+TA3 = TA2;
+
+m = mx;  k = nx;  n = ny*nz*nel;
+lda = (tflag>0)? nx : mx;
+
+BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
+
+p = 0;  s = 0;
+m = mx;  k = ny;  n = my;
+lda = (tflag>0)? ny : my;
+for(PetscBLASInt i=0; i<nz*nel; i++){
+   BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
+   p += m*k;
+   s += m*n;
+}
+
+p = 0;  s = 0;
+m = mx*my;  k = nz;  n = mz;
+lda = (tflag>0)? nz : mz;
+for(PetscBLASInt i=0; i<nel; i++){
+   BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
+   p += m*k;
+   s += m*n;
+}
+return;
+}
+"""
+
+
+def make_kron_code(Vf, Vc, t_in, t_out):
+    nscal = Vf.ufl_element().value_size()
+    celem = get_line_element(Vc)
+    nodes = get_line_nodes(Vf)
+    Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
+    ndim = len(Jhat)
+
+    # Declare array shapes to be used as literals inside the kernels
+    # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
+    shapes = [[Jk.shape[j] for Jk in Jhat] for j in range(2)]
+    n, m = shapes.copy()
+    m += [1]*(3-ndim)
+    n += [1]*(3-ndim)
+    shapes[0].append(nscal)
+    shapes[1].append(nscal)
+
+    # Pass the 1D tabulation as hexadecimal string
+    # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
+    JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
+    JY = "&one" if ndim < 2 else f"JX+{Jhat[0].size}"
+    JZ = "&one" if ndim < 3 else f"JX+{Jhat[0].size+Jhat[1].size}"
+    Jlen = sum([Jk.size for Jk in Jhat])
+
+    operator_decl = f"""PetscScalar JX[{Jlen}] = {{ {JX} }};"""
+    prolong_code = f"""kronmxv(0, {m[0]},{m[1]},{m[2]}, {n[0]},{n[1]},{n[2]}, {nscal}, JX,{JY},{JZ}, {t_in}, {t_out});"""
+    restrict_code = f"""kronmxv(1, {n[0]},{n[1]},{n[2]}, {m[0]},{m[1]},{m[2]}, {nscal}, JX,{JY},{JZ}, {t_in}, {t_out});"""
+    return operator_decl, prolong_code, restrict_code, shapes
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs, uf=None, uc=None):
-        self.Vf = Vf
-        self.Vc = Vc
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
+        if isinstance(Vf, firedrake.Function):
+            self.uf = Vf
+            Vf = Vf.function_space()
+        else:
+            self.uf = firedrake.Function(Vf)
+        if isinstance(Vc, firedrake.Function):
+            self.uc = Vc
+            Vc = Vc.function_space()
+        else:
+            self.uc = firedrake.Function(Vc)
 
-        self.uf = uf or firedrake.Function(Vf)
-        self.uc = uc or firedrake.Function(Vc)
-
-        cell_set = Vf.mesh().cell_set
         self.weight = self.multiplicity(Vf)
         with self.weight.dat.vec as w:
             w.reciprocal()
@@ -676,11 +783,11 @@ class StandaloneInterpolationMatrix(object):
             uc_map = Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
 
-        prolong_args = [prolong_kernel, cell_set,
+        prolong_args = [prolong_kernel, self.uf.cell_set,
                         self.uf.dat(op2.WRITE, uf_map),
                         self.uc.dat(op2.READ, uc_map)]
 
-        restrict_args = [restrict_kernel, cell_set,
+        restrict_args = [restrict_kernel, self.uf.cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
                          self.weight.dat(op2.READ, uf_map)]
@@ -734,105 +841,16 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
-        ndim = Vf.ufl_domain().topological_dimension()
-        nscal = Vf.ufl_element().value_size()
-
         Vf_bsize = Vf.value_size
         Vc_bsize = Vc.value_size
         Vf_sdim = Vf.finat_element.space_dimension()
         Vc_sdim = Vc.finat_element.space_dimension()
-
         Vf_mapping = Vf.ufl_element().mapping().lower()
         Vc_mapping = Vc.ufl_element().mapping().lower()
+        ndim = Vf.ufl_domain().topological_dimension()
 
-        celem = get_line_element(Vc)
-        nodes = get_line_nodes(Vf)
-        Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
-
-        # Declare array shapes to be used as literals inside the kernels
-        # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
-        nx, mx = Jhat[0].shape
-        ny, my = Jhat[1].shape if ndim >= 2 else (1, 1)
-        nz, mz = Jhat[2].shape if ndim >= 3 else (1, 1)
-        lwork = nscal*max(mx, nx)*max(my, ny)*max(mz, nz)  # size for work arrays
-
-        # Pass the 1D tabulation as hexadecimal string
-        JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
-
-        # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
-        JY = f"JX+{mx*nx}" if ndim >= 2 else "&one"
-        JZ = f"JX+{mx*nx+my*ny}" if ndim >= 3 else "&one"
-        Jlen = sum([Jk.size for Jk in Jhat])
-
-        # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
-        # Vector and tensor field generalization from Deville, Fischer, and Mund section 8.3.1.
-        kronmxv_code = """
-        #include <petscsys.h>
-        #include <petscblaslapack.h>
-
-        static void kronmxv(int tflag,
-            PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
-            PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
-            PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
-            PetscScalar  *x , PetscScalar *y){
-
-        /*
-        Kronecker matrix-vector product
-
-        y = op(A) * x,  A = kron(A3, kron(A2, A1))
-
-        where:
-        op(A) = transpose(A) if tflag>0 else A
-        op(A1) is mx-by-nx,
-        op(A2) is my-by-ny,
-        op(A3) is mz-by-nz,
-        x is (nx*ny*nz)-by-nel,
-        y is (mx*my*mz)-by-nel.
-
-        Important notes:
-        The input data in x is destroyed in the process.
-        Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
-        */
-
-        PetscBLASInt m,n,k,s,p,lda;
-        char TA1, TA2, TA3;
-        char tran='T', notr='N';
-        PetscScalar zero=0.0E0, one=1.0E0;
-
-        if(tflag>0){
-           TA1 = tran;
-           TA2 = notr;
-        }else{
-           TA1 = notr;
-           TA2 = tran;
-        }
-        TA3 = TA2;
-
-        m = mx;  k = nx;  n = ny*nz*nel;
-        lda = (tflag>0)? nx : mx;
-
-        BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
-
-        p = 0;  s = 0;
-        m = mx;  k = ny;  n = my;
-        lda = (tflag>0)? ny : my;
-        for(PetscBLASInt i=0; i<nz*nel; i++){
-           BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
-           p += m*k;
-           s += m*n;
-        }
-
-        p = 0;  s = 0;
-        m = mx*my;  k = nz;  n = mz;
-        lda = (tflag>0)? nz : mz;
-        for(PetscBLASInt i=0; i<nel; i++){
-           BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
-           p += m*k;
-           s += m*n;
-        }
-        return;
-        }
-        """
+        operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1")
+        lwork = numpy.prod([max(m, n) for m, n in zip(*shapes)])
 
         # FInAT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
@@ -882,7 +900,7 @@ class StandaloneInterpolationMatrix(object):
             if Vc_mapping == "identity":
                 sobolev = felem.sobolev_space()
                 vshape = (Vc_bsize, Vc_sdim)
-                pshape = (nx, -1) if ndim == 1 else (nx, ny, -1) if ndim == 2 else (nx, ny, nz, -1)
+                pshape = shapes[0].copy()
 
                 Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), WithMapping(celem, felem.mapping()))
                 expr = firedrake.TestFunction(Vc)
@@ -890,7 +908,7 @@ class StandaloneInterpolationMatrix(object):
             elif Vf_mapping == "identity":
                 sobolev = celem.sobolev_space()
                 vshape = (Vf_bsize, Vf_sdim)
-                pshape = (mx, -1) if ndim == 1 else (mx, my, -1) if ndim == 2 else (mx, my, mz, -1)
+                pshape = shapes[1].copy()
 
                 Vf_mapped = firedrake.FunctionSpace(Vf.ufl_domain(), WithMapping(felem, celem.mapping()))
                 expr = firedrake.TestFunction(Vf_mapped)
@@ -903,6 +921,8 @@ class StandaloneInterpolationMatrix(object):
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
             coef_decl = "".join([", const PetscScalar *restrict c%d" % i for i in range(len(coefficients))])
 
+            pshape = pshape[:ndim]
+            pshape.append(-1)
             dimc = numpy.prod(vshape)
             permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), vshape))
             if sobolev in [firedrake.HDiv, firedrake.HCurl]:
@@ -958,33 +978,30 @@ class StandaloneInterpolationMatrix(object):
 
         kernel_code = f"""
         {kronmxv_code}
-
         {mapping_kernel}
-
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
             PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
-            PetscScalar one=1.0E0;
+            PetscScalar one = 1.0E0;
+            {operator_decl}
             {assemble_map}
             {coarse_read}
-            kronmxv(0, {mx},{my},{mz}, {nx},{ny},{nz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+            {prolong_code}
             {fine_write}
             return;
         }}
 
         void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar JX[{Jlen}] = {{ {JX} }};
             PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
-            PetscScalar one=1.0E0;
+            PetscScalar one = 1.0E0;
+            {operator_decl}
             {assemble_map}
             {fine_read}
-            kronmxv(1, {nx},{ny},{nz}, {mx},{my},{mz}, {nscal}, JX,{JY},{JZ}, t0, t1);
+            {restrict_code}
             {coarse_write}
             return;
         }}
         """
-
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
@@ -1012,7 +1029,6 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement restriction: restrict residual on fine grid resf to coarse grid resc.
         """
-
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
 
@@ -1035,8 +1051,9 @@ class StandaloneInterpolationMatrix(object):
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
 
-        with self.uc.dat.vec_wo as xc_:
-            xc.copy(xc_)
+        if self.uc.dat.vec != xc:
+            with self.uc.dat.vec_wo as xc_:
+                xc.copy(xc_)
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1046,10 +1063,11 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
-        with self.uf.dat.vec_ro as xf_:
-            if inc:
+        if inc:
+            with self.uf.dat.vec_ro as xf_:
                 xf.axpy(1.0, xf_)
-            else:
+        else:
+            with self.uf.dat.vec_ro as xf_:
                 xf_.copy(xf)
 
     def multAdd(self, mat, x, y, w):
@@ -1064,20 +1082,17 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     """
     Interpolation matrix for a mixed finite element space.
     """
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs, uf=None, uc=None):
-        self.Vf = Vf
-        self.Vc = Vc
+    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
-
-        self.uf = uf or firedrake.Function(Vf)
-        self.uc = uc or firedrake.Function(Vc)
+        self.uf = Vf if isinstance(Vf, firedrake.Function) else firedrake.Function(Vf)
+        self.uc = Vc if isinstance(Vc, firedrake.Function) else firedrake.Function(Vc)
 
         self.standalones = []
-        for (i, (Vf_sub, Vc_sub, uf_sub, uc_sub)) in enumerate(zip(Vf, Vc, self.uf.split(), self.uc.split())):
+        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.split(), self.uc.split())):
             Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
             Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
-            standalone = StandaloneInterpolationMatrix(Vf_sub, Vc_sub, Vf_sub_bcs, Vc_sub_bcs, uf=uf_sub, uc=uc_sub)
+            standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)
             self.standalones.append(standalone)
 
         self._prolong = lambda: [standalone._prolong() for standalone in self.standalones]
@@ -1086,15 +1101,19 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     def getNestSubMatrix(self, i, j):
         if i == j:
             s = self.standalones[i]
-            sizes = (s.Vf.dof_dset.layout_vec.getSizes(), s.Vc.dof_dset.layout_vec.getSizes())
-            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.Vf.mesh().comm)
+            sizes = (s.uf.dof_dset.layout_vec.getSizes(), s.uc.dof_dset.layout_vec.getSizes())
+            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
             M_shll.setUp()
             return M_shll
         else:
             return None
 
 
-def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
+def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
+    if isinstance(Pk, firedrake.Function):
+        Pk = Pk.function_space()
+    if isinstance(P1, firedrake.Function):
+        P1 = P1.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -1145,7 +1164,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs, P1_bcs):
     return mat.handle
 
 
-def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
+def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
     fele = Vf.ufl_element()
     if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
         ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
@@ -1153,7 +1172,7 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs, Vc_bcs):
         ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
-    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.mesh().comm)
+    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.comm)
     M_shll.setUp()
 
     return M_shll
