@@ -225,16 +225,19 @@ class DGLaplacian3D(AuxiliaryOperatorPC):
 
 
 def test_mixed_poisson_approximated_schur():
-    # NOTE With the setup in this test, using the approximated schur complemement
-    # defined as DGLaplacian as a preconditioner to the schur complement in the
-    # reconstruction calls reduces the condition number of the local solve from
-    # 16.77 to 5.95
+    """A test, which compares a solution to a 2D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system to
+    a solution with uses a user supplied operator as preconditioner to the 
+    Schur solver.
+
+    NOTE: With the setup in this test, using the approximated schur complemement
+    defined as DGLaplacian as a preconditioner to the schur complement,
+    reduces the condition number of the local solve from 16.77 to 5.95.
+    """
+    # setup FEM
     a, L, W = setup_poisson()
 
-    # Compare hybridized solution with non-hybridized
-    w = Function(W)
-    bcs = []
-
+    # setup first solver
     w = Function(W)
     params = {'ksp_type': 'preonly',
               'pc_type': 'python',
@@ -255,14 +258,18 @@ def test_mixed_poisson_approximated_schur():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
+
+    # double-check options are set as expected
     expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':False,
                 'schur_approx':True,
                 'preonly_Shat':False, 'jacobi_Shat':False}
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
     sigma_h, u_h = w.split()
 
+    # setup second solver
     w2 = Function(W)
     aij_params = {'ksp_type': 'preonly',
                   'pc_type': 'python',
