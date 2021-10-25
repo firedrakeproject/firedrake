@@ -11,9 +11,10 @@ from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
 from pyop2.utils import as_tuple
+from firedrake.formmanipulation import split_form
 
 
-__all__ = ['HybridizationPC']
+__all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
 
 class HybridizationPC(SCBase):
@@ -41,7 +42,6 @@ class HybridizationPC(SCBase):
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC, assemble)
         from firedrake.assemble import allocate_matrix
-        from firedrake.formmanipulation import split_form
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -199,24 +199,9 @@ class HybridizationPC(SCBase):
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
-        # Split forms
-        split_mixed_op = dict(split_form(Atilde.form))
-        id0, id1 = (self.vidx, self.pidx)
-        A00 = Tensor(split_mixed_op[(id0, id0)])
-        A01 = Tensor(split_mixed_op[(id0, id1)])
-        A10 = Tensor(split_mixed_op[(id1, id0)])
-        A11 = Tensor(split_mixed_op[(id1, id1)])
-        list_split_mixed_ops = [A00, A01, A10, A11]
-
-        split_trace_op = dict(split_form(K.form))
-        K0 = Tensor(split_trace_op[(0, id0)])
-        K1 = Tensor(split_trace_op[(0, id1)])
-        list_split_trace_ops = [K0, K1]
-
         # Build schur complement operator and right hand side
-        nested = PETSc.Options(prefix).getBool("nested_schur", False)
-        schur_rhs, schur_comp = self.build_schur(Atilde, K, list_split_mixed_ops,
-                                                 list_split_trace_ops, nested=nested)
+        self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
+        schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -285,16 +270,11 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(list_split_mixed_ops, list_split_trace_ops)
+        self._reconstruction_calls()
 
-    def _reconstruction_calls(self, list_split_mixed_ops, list_split_trace_ops):
+    def _reconstruction_calls(self):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
-
-        :arg split_mixed_op: a ``dict`` of split forms that make up the broken
-                             mixed operator from the original problem.
-        :arg split_trace_op: a ``dict`` of split forms that make up the trace
-                             contribution in the hybridized mixed system.
         """
         from firedrake import assemble
 
@@ -304,8 +284,12 @@ class HybridizationPC(SCBase):
         # TODO: When PyOP2 is able to write into mixed dats,
         # the reconstruction expressions can simplify into
         # one clean expression.
-        A, B, C, D = list_split_mixed_ops
-        K_0, K_1 = list_split_trace_ops
+
+        # reuse work from trace operator build
+        A, B, C, _ = self.schur_builder.list_split_mixed_ops
+        K_0, K_1 = self.schur_builder.list_split_trace_ops
+        Ahat = self.schur_builder.A00_inv_hat
+        S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
         split_residual = self.broken_residual.split()
@@ -316,10 +300,9 @@ class HybridizationPC(SCBase):
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        M = D - C * A.inv * B
-        R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
-                        decomposition="PartialPivLU")
+        R = K_1.T - C * Ahat * K_0.T
+        rhs = f - C * Ahat * g - R * lambdar
+        u_rec = S.solve(rhs, decomposition="PartialPivLU")
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
@@ -333,49 +316,6 @@ class HybridizationPC(SCBase):
                                                tensor=sigma,
                                                form_compiler_parameters=self.ctx.fc_params,
                                                assembly_type="residual")
-
-    def build_schur(self, Atilde, K, list_split_mixed_ops, list_split_trace_ops, nested=False):
-        """The Schur complement in the operators of the trace solve contains
-        the inverse on a mixed system.  Users may want this inverse to be treated
-        with another schur complement.
-
-        Let the mixed matrix Atilde be called A here,
-        then the "nested" options rewrites with a Schur decomposition
-        as the following.
-
-        .. code-block:: text
-
-                A.inv = [[I, -A00.inv * A01]    *   [[A00.inv, 0    ]   *   [[I,             0]
-                        [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
-                        --------------------        -----------------       -------------------
-                        block1                      block2                  block3
-
-        with the (inner) schur complement S = A11 - A10 * A00.inv * A01
-        """
-
-        if nested:
-            A00, A01, A10, A11 = list_split_mixed_ops
-            K0, K1 = list_split_trace_ops
-            broken_residual = self.broken_residual.split()
-            split_broken_res = [AssembledVector(broken_residual[self.vidx]),
-                                AssembledVector(broken_residual[self.pidx])]
-
-            # inner schur complement
-            S = (A11 - A10 * A00.inv * A01)
-            # K * block1
-            K_Ainv_block1 = [K0, -K0 * A00.inv * A01 + K1]
-            # K * block1 * block2
-            K_Ainv_block2 = [K_Ainv_block1[0] * A00.inv, K_Ainv_block1[1] * S.inv]
-            # K * block1 * block2 * block3
-            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * A00.inv, K_Ainv_block2[1]]
-            # K * block1 * block2 * block3 * broken residual
-            schur_rhs = (K_Ainv_block3[0] * split_broken_res[0] + K_Ainv_block3[1] * split_broken_res[1])
-            # K * block1 * block2 * block3 * K.T
-            schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
-        else:
-            schur_rhs = K * Atilde.inv * AssembledVector(self.broken_residual)
-            schur_comp = K * Atilde.inv * K.T
-        return schur_rhs, schur_comp
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
@@ -486,3 +426,143 @@ class HybridizationPC(SCBase):
             self.trace_ksp.view(viewer)
             viewer.printfASCII("Locally reconstructing solutions.\n")
             viewer.printfASCII("Projecting broken flux into HDiv space.\n")
+
+    def getSchurComplementBuilder(self):
+        return self.schur_builder
+
+
+class SchurComplementBuilder(object):
+
+    """A Slate-based Schur complement expression builder. The expression is
+    used in the trace system solve and parts of it in the reconstruction
+    calls of the other two variables of the hybridised system.
+    How the Schur complement if constructed, and in particular how the local inverse of the
+    mixed matrix is built, is controlled with PETSc options. All corresponding PETSc options
+    start with ``hybridization_localsolve``.
+    The following option sets are valid together with the usual set of hybridisation options:
+
+    .. code-block:: text
+
+        {'localsolve': {'ksp_type': 'preonly',
+                        'pc_type': 'fieldsplit',
+                        'pc_fieldsplit_type': 'schur'}}
+
+    A Schur complement is requested for the mixed matrix inverse which appears inside the
+    Schur complement of the trace system solve. The Schur complements are then nested.
+    For details see defition of :meth:`build_schur`. No fieldsplit options are set so all
+    local inverses are calculated explicitly.
+    """
+
+    def __init__(self, prefix, Atilde, K, pc, vidx, pidx):
+        # set options, operators and order of sub-operators
+        self.Atilde = Atilde
+        self.K = K
+        self.vidx = vidx
+        self.pidx = pidx
+        self._split_mixed_operator()
+        self.prefix = prefix + "localsolve_"
+
+        # prefixes
+        self._retrieve_options()
+
+        # build all required inverses
+        self.A00_inv_hat = self.build_A00_inv()
+        self.inner_S = self.build_inner_S()
+        self.inner_S_inv_hat = self.build_inner_S_inv()
+
+    def _split_mixed_operator(self):
+        split_mixed_op = dict(split_form(self.Atilde.form))
+        id0, id1 = (self.vidx, self.pidx)
+        A00 = Tensor(split_mixed_op[(id0, id0)])
+        A01 = Tensor(split_mixed_op[(id0, id1)])
+        A10 = Tensor(split_mixed_op[(id1, id0)])
+        A11 = Tensor(split_mixed_op[(id1, id1)])
+        self.list_split_mixed_ops = [A00, A01, A10, A11]
+
+        split_trace_op = dict(split_form(self.K.form))
+        K0 = Tensor(split_trace_op[(0, id0)])
+        K1 = Tensor(split_trace_op[(0, id1)])
+        self.list_split_trace_ops = [K0, K1]
+
+    def _check_options(self, valid):
+        default = object()
+        opts = PETSc.Options(self.prefix)
+        for key, supported in valid:
+            value = opts.getString(key, default=default)
+            if value is not default and value not in supported:
+                raise ValueError(f"Unsupported value ({value}) for '{self.prefix + key}'. "
+                                 f"Should be one of {supported}")
+
+    def _retrieve_options(self, pc):
+        get_option = lambda key: PETSc.Options(self.prefix).getString(key, default="")
+
+        # Get options for Schur complement decomposition
+        self._check_options([("ksp_type", {"preonly"}), ("pc_type", {"fieldsplit"}), ("pc_fieldsplit_type", {"schur"})])
+        self.nested = (get_option("ksp_type") == "preonly"
+                       and get_option("pc_type") == "fieldsplit"
+                       and get_option("pc_fieldsplit_type") == "schur")
+
+
+    def build_inner_S(self):
+        """Build the inner Schur complement."""
+        _, A01, A10, A11 = self.list_split_mixed_ops
+        return A11 - A10 * self.A00_inv_hat * A01
+
+    def inv(self, A):
+        """ Calculates the inverse of an operator A.
+        """
+        return A.inv
+
+    def build_inner_S_inv(self):
+        """ Calculates the inverse of the schur complement.
+        """
+        return self.inv(self.inner_S)
+
+    def build_A00_inv(self):
+        """ Calculates the inverse of :math:`A_{00}`, the (0,0)-block of the mixed matrix Atilde.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with jacobi.
+        """
+        A, _, _, _ = self.list_split_mixed_ops
+        return self.inv(A)
+
+    def build_schur(self, rhs):
+        """The Schur complement in the operators of the trace solve contains
+        the inverse on a mixed system.  Users may want this inverse to be treated
+        with another Schur complement.
+
+        Let the mixed matrix Atilde be called A here.
+        Then, if a nested schur complement is requested, the inverse of Atilde
+        is rewritten with help of a a Schur decomposition as follows.
+
+        .. code-block:: text
+
+                A.inv = [[I, -A00.inv * A01]    *   [[A00.inv, 0    ]   *   [[I,             0]
+                        [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
+                        --------------------        -----------------       -------------------
+                        block1                      block2                  block3
+                with the (inner) schur complement S = A11 - A10 * A00.inv * A01
+        """
+
+        if self.nested:
+            _, A01, A10, _ = self.list_split_mixed_ops
+            K0, K1 = self.list_split_trace_ops
+            broken_residual = rhs.split()
+            R = [AssembledVector(broken_residual[self.vidx]),
+                 AssembledVector(broken_residual[self.pidx])]
+            # K * block1
+            K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
+            # K * block1 * block2
+            K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
+                             K_Ainv_block1[1] * self.inner_S_inv_hat]
+            # K * block1 * block2 * block3
+            K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * self.A00_inv_hat,
+                             K_Ainv_block2[1]]
+            # K * block1 * block2 * block3 * broken residual
+            schur_rhs = (K_Ainv_block3[0] * R[0] + K_Ainv_block3[1] * R[1])
+            # K * block1 * block2 * block3 * K.T
+            schur_comp = K_Ainv_block3[0] * K0.T + K_Ainv_block3[1] * K1.T
+        else:
+            schur_rhs = self.K * self.Atilde.inv * AssembledVector(rhs)
+            schur_comp = self.K * self.Atilde.inv * self.K.T
+        return schur_rhs, schur_comp
