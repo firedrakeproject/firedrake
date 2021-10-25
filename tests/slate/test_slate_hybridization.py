@@ -348,7 +348,7 @@ def test_slate_hybridization_jacobi_prec_A00():
 
 
 def test_slate_hybridization_jacobi_prec_schur():
-     """A test, which compares a solution to a 3D mixed Poisson problem solved
+    """A test, which compares a solution to a 3D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with the same solver but which has a nested schur complement
     in the trace solve operator and a jacobi preconditioner on the schur
