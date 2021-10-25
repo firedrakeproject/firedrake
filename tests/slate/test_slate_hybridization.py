@@ -25,7 +25,6 @@ which appears in the variational form as the term: -<42*tau, n>
 import pytest
 from firedrake import *
 
-
 def setup_poisson():
     # One needs a 2x2 mesh otherwise the action is not computed in the
     # globally matfree trace solve
@@ -285,14 +284,19 @@ def test_mixed_poisson_approximated_schur():
 
 
 def test_slate_hybridization_jacobi_prec_A00():
-    # NOTE With the setup in this test, using jacobi as apreconditioner to the
-    # schur complement matrix the condition number of the matrix of the local solve 
-    # P.inv * A \ ...
-    # is reduced from 36.59 to 3.06
+    """A test, which compares a solution to a 3D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system to
+    a solution with the same solver but which has a nested schur complement
+    in the trace solve operator and a jacobi preconditioner on the A00 block.
+
+    NOTE: With the setup in this test, using jacobi as a preconditioner to the
+    schur complement matrix, the condition number of the matrix of the local solve 
+    P.inv * A \ (...) is reduced from 36.59 to 3.06.
+    """
+    # setup FEM
     a, L, W = setup_poisson_3D()
 
-    # Compare hybridized solution with non-hybridized
-    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    # setup first solver
     w = Function(W)
     params = {'mat_type': 'matfree',
             'ksp_type': 'preonly',
@@ -311,6 +315,8 @@ def test_slate_hybridization_jacobi_prec_A00():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
+
+    # double-check options are set as expected
     expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':True,
                 'schur_approx':False,
@@ -321,8 +327,7 @@ def test_slate_hybridization_jacobi_prec_A00():
 
     sigma_h, u_h = w.split()
 
-    # (Non-hybrid) Need to slam it with preconditioning due to the
-    # system's indefiniteness
+    # setup second solver
     w2 = Function(W)
     solve(a == L, w2,
         solver_parameters={'mat_type': 'matfree',
@@ -378,8 +383,6 @@ def test_slate_hybridization_jacobi_prec_schur():
 
     sigma_h, u_h = w.split()
 
-    # (Non-hybrid) Need to slam it with preconditioning due to the
-    # system's indefiniteness
     w2 = Function(W)
     solve(a == L, w2,
         solver_parameters={'mat_type': 'matfree',
@@ -433,8 +436,6 @@ def test_slate_hybridization_flip_sign():
 
     sigma_h, u_h = w.split()
 
-    # (Non-hybrid) Need to slam it with preconditioning due to the
-    # system's indefiniteness
     w2 = Function(W)
     solve(a == L, w2,
         solver_parameters={'mat_type': 'matfree',
