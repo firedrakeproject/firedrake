@@ -348,14 +348,20 @@ def test_slate_hybridization_jacobi_prec_A00():
 
 
 def test_slate_hybridization_jacobi_prec_schur():
-    # NOTE With the setup in this test, using jacobi as apreconditioner to the
-    # schur complement matrix the condition number of the matrix of the local solve 
-    # P.inv * A \ ...
-    # is reduced from 17.13 to 16.71
+     """A test, which compares a solution to a 3D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system to
+    a solution with the same solver but which has a nested schur complement
+    in the trace solve operator and a jacobi preconditioner on the schur
+    complement.
+
+    NOTE With the setup in this test, using jacobi as apreconditioner to the
+    schur complement matrix the condition number of the matrix of the local solve 
+    P.inv * A \ )...) is reduced from 17.13 to 16.71
+    """
+    # setup FEM
     a, L, W = setup_poisson_3D()
 
-    # Compare hybridized solution with non-hybridized
-    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    # setup first solver
     w = Function(W)
     params = {'mat_type': 'matfree',
             'ksp_type': 'preonly',
@@ -374,6 +380,8 @@ def test_slate_hybridization_jacobi_prec_schur():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
+
+    # double-check options are set as expected
     expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':False,
                 'schur_approx':False,
@@ -383,6 +391,7 @@ def test_slate_hybridization_jacobi_prec_schur():
 
     sigma_h, u_h = w.split()
 
+    # setup second solver
     w2 = Function(W)
     solve(a == L, w2,
         solver_parameters={'mat_type': 'matfree',
