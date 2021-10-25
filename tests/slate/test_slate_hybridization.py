@@ -413,10 +413,17 @@ def test_slate_hybridization_jacobi_prec_schur():
 
 
 def test_slate_hybridization_flip_sign():
+    """A test, which compares a solution to a 2d mixed Poisson problem solved
+    with a HybridizationPC and LU on the trace system to a solution with
+    the same solver but which has a nested schur complement, where the
+    schur complement is preconditioned with a DGLaplacian operator
+    and the sign in the solve of the schur complement is flipped such
+    that the operator is spd.
+    """
+    # setup FEM
     a, L, W = setup_poisson()
 
-    # Compare hybridized solution with non-hybridized
-    # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
+    # setup first solver
     w = Function(W)
     params = {'mat_type': 'matfree',
             'ksp_type': 'preonly',
@@ -434,6 +441,8 @@ def test_slate_hybridization_flip_sign():
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
+
+    # double-check options are set as expected
     expected = {'nested':True,
                 'preonly_A00':False, 'jacobi_A00':False,
                 'schur_approx':True,
@@ -445,6 +454,7 @@ def test_slate_hybridization_flip_sign():
 
     sigma_h, u_h = w.split()
 
+    # setup second solver
     w2 = Function(W)
     solve(a == L, w2,
         solver_parameters={'mat_type': 'matfree',
