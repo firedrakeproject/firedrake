@@ -76,8 +76,7 @@ class HybridizationPC(SCBase):
                                DirichletBC)
         from firedrake.assemble import allocate_matrix
         from ufl.algorithms.replace import replace
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+        from firedrake.assemble import (assemble)
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix() + "hybridization_"
@@ -254,10 +253,10 @@ class HybridizationPC(SCBase):
             self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
         else:
             self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
-        self._assemble_Srhs = create_assembly_callable(
-            schur_rhs,
-            tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
+        self._assemble_Srhs = functools.partial(assemble,
+                                                schur_rhs,
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
         
         # plot_mixed_operator(schur_comp, "schur_comp")
@@ -267,7 +266,7 @@ class HybridizationPC(SCBase):
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc)) # this generates an ImplicitMatrix and assembles action and actionT
-        self._assemble_S = create_assembly_callable(schur_comp,
+        self._assemble_S = functools.partial(assemble, schur_comp,
                                                     tensor=self.S,
                                                     bcs=trace_bcs,
                                                     form_compiler_parameters=self.ctx.fc_params,
@@ -318,14 +317,13 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls()
+        self._reconstruction_calls(local_matfree, mat_type, prefix, pc)
 
-    def _reconstruction_calls(self):
+    def _reconstruction_calls(self, local_matfree=False, mat_type=None, prefix=None, pc=None):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
+        from firedrake.assemble import assemble
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -491,7 +489,7 @@ class HybridizationPC(SCBase):
 
 
         # plot_mixed_operator(schur_comp, "schur_comp")
-        raise CheckSchurComplement(self.broken_solution, "hi")
+        # raise CheckSchurComplement(self.broken_solution, "hi")
 
         with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
