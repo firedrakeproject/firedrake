@@ -181,7 +181,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     if compiler_parameters["slate_compiler"]["optimise"]:
         # here we reuse the loopy kernel and call tsfc kernels from within
         name = "slate_loopy"
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "when_needed", slate_expr, compiler_parameters["form_compiler"])
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "when_needed", slate_expr, compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     else:
         # here we generate a new kernel where the the slate loopy kernel is called from
         name = "wrap_slate_loopy"

@@ -376,7 +376,7 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr = None, tsfc_parameters=None):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr = None, tsfc_parameters=None, slate_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
     if strategy == "terminals_first":
@@ -430,7 +430,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
 
     elif strategy == "when_needed":
         tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr,
-                                                    ctx_g2l, tsfc_parameters, True, {}, output_arg)
+                                                    ctx_g2l, tsfc_parameters, slate_parameters, True, {}, output_arg)
         return slate_loopy
 
 
@@ -455,11 +455,12 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, init_temporaries=True, tensor2temp={}, output_arg=None):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None):
     insns = []
     tensor2temps = tensor2temp
     knl_list = {}
     gem2pym = ctx_g2l.gem_to_pymbolic
+    print(slate_loopy)
 
     # Keeping track off all coefficients upfront
     # saves us the effort of one of those ugly dict comparisons
@@ -485,7 +486,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             gem_action_node = pym2gem[insn.assignee_name]
 
             # slate node corresponding to current instructions
-            if isinstance(gem_action_node, Solve):
+            if isinstance(gem_action_node, Solve) and not insn.expression.function.name.startswith("action"):
                 # FIXME something is happening to the solve action node hash
                 # so that gem node cannot be found in var2terminal even though it is there
                 # so we save solve node by name for now
@@ -555,7 +556,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # about the gem nodes which correspond to the currently looked at insn
                     # There are two ways go do this:
                     # A) we retrigger the slate2gem compilation
-                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node)
+                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
 
                     # B) we walk through the gem node and fetch what we need
                     # find var -> terminals which belong to this insn
@@ -626,6 +627,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     slate_node,
                                                                     ctx_g2l_action,
                                                                     tsfc_parameters,
+                                                                    slate_parameters,
                                                                     init_temporaries=False,
                                                                     tensor2temp=action_tensor2temp,
                                                                     output_arg=action_output_arg)

@@ -307,8 +307,8 @@ def _push_mul_inverse(expr, self, state):
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
         return expr * state.coeff if state.pick_op else state.coeff * expr
     else:
-        return (self(Solve(child, state.coeff, matfree=self.action), state) if state.pick_op
-                else (self(Transpose(Solve(Transpose(child), Transpose(state.coeff), matfree=self.action), ActionBag(None, flip(state.pick_op))))))
+        return ((Solve(child, state.coeff, matfree=self.action) if state.pick_op
+                else ((Transpose(Solve(Transpose(child), Transpose(state.coeff), matfree=self.action))))))
 
 
 @_push_mul.register(Transpose)

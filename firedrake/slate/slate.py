@@ -998,8 +998,8 @@ class Inverse(UnaryOp):
         )
         self.diagonal = A.diagonal
 
-        if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
-            A = Factorization(A, decomposition="PartialPivLU")
+        # if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
+        #     A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 
