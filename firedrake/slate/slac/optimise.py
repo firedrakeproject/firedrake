@@ -259,8 +259,11 @@ def _drop_double_transpose_action(expr, self):
 
 
 @_drop_double_transpose.register(Solve)
-def _drop_double_transpose_action(expr, self):
-    return type(expr)(*map(self, expr.children), matfree=expr.is_matfree, Aonx=expr._Aonx, Aonp=expr._Aonp)
+def _drop_double_transpose_solve(expr, self):
+    if expr.is_matfree:
+        return type(expr)(*map(self, expr.children), matfree=expr.is_matfree, Aonx=expr._Aonx, Aonp=expr._Aonp)
+    else:
+        return type(expr)(*map(self, expr.children), matfree=expr.is_matfree)
 
 
 @singledispatch
