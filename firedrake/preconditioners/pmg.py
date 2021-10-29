@@ -497,8 +497,8 @@ def prolongation_transfer_kernel_action(Vf, expr):
     kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
     coefficients = kernel.coefficients
     if kernel.first_coefficient_fake_coords:
-        mesh = Vf.ufl_domain()
-        coefficients[0] = mesh.coordinates
+        target_mesh = Vf.ufl_domain()
+        coefficients[0] = target_mesh.coordinates
 
     return op2.Kernel(kernel.ast, kernel.name,
                       requires_zeroed_output_arguments=True,
@@ -718,7 +718,7 @@ return;
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out):
+def make_kron_code(Vf, Vc, t_in, t_out, mat):
     nscal = Vf.ufl_element().value_size()
     celem = get_line_element(Vc)
     nodes = get_line_nodes(Vf)
@@ -737,14 +737,111 @@ def make_kron_code(Vf, Vc, t_in, t_out):
     # Pass the 1D tabulation as hexadecimal string
     # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
     JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
-    JY = "&one" if ndim < 2 else f"JX+{Jhat[0].size}"
-    JZ = "&one" if ndim < 3 else f"JX+{Jhat[0].size+Jhat[1].size}"
+    JY = "&one" if ndim < 2 else f"{mat}+{Jhat[0].size}"
+    JZ = "&one" if ndim < 3 else f"{mat}+{Jhat[0].size+Jhat[1].size}"
     Jlen = sum([Jk.size for Jk in Jhat])
 
-    operator_decl = f"""PetscScalar JX[{Jlen}] = {{ {JX} }};"""
-    prolong_code = f"""kronmxv(0, {m[0]},{m[1]},{m[2]}, {n[0]},{n[1]},{n[2]}, {nscal}, JX,{JY},{JZ}, {t_in}, {t_out});"""
-    restrict_code = f"""kronmxv(1, {n[0]},{n[1]},{n[2]}, {m[0]},{m[1]},{m[2]}, {nscal}, JX,{JY},{JZ}, {t_in}, {t_out});"""
+    operator_decl = f"""PetscScalar {mat}[{Jlen}] = {{ {JX} }};"""
+    prolong_code = f"""
+    kronmxv(0, {m[0]},{m[1]},{m[2]}, {n[0]},{n[1]},{n[2]}, {nscal}, {mat},{JY},{JZ}, {t_in}, {t_out});
+    """
+    restrict_code = f"""
+    kronmxv(1, {n[0]},{n[1]},{n[2]}, {m[0]},{m[1]},{m[2]}, {nscal}, {mat},{JY},{JZ}, {t_out}, {t_in});
+    """
     return operator_decl, prolong_code, restrict_code, shapes
+
+
+def get_piola_tensor(elem, domain, inverse=False):
+    emap = elem.mapping().lower()
+    if emap == "identity":
+        return None
+    elif emap == "contravariant piola":
+        if inverse:
+            return firedrake.JacobianInverse(domain) * firedrake.JacobianDeterminant(domain)
+        else:
+            return firedrake.Jacobian(domain) / firedrake.JacobianDeterminant(domain)
+    elif emap == "covariant piola":
+        if inverse:
+            return firedrake.Jacobian(domain).T
+        else:
+            return firedrake.JacobianInverse(domain).T
+    else:
+        raise ValueError("Unsupported mapping")
+
+
+def make_mapping_code(Q, felem, celem, t_in, t_out):
+    domain = Q.ufl_domain()
+    A = get_piola_tensor(celem, domain, inverse=False)
+    B = get_piola_tensor(felem, domain, inverse=True)
+    tensor = A
+    if B:
+        tensor = firedrake.dot(B, tensor) if tensor else B
+    if tensor is None:
+        tensor = firedrake.Identity(Q.ufl_element().value_shape()[0])
+   
+    u = firedrake.Coefficient(Q)
+    expr = firedrake.dot(tensor, u)
+    prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
+    prolong_map_code = loopy.generate_code_v2(prolong_map_kernel.code).device_code()
+    prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
+    coefficients.remove(u)
+
+    expr = firedrake.dot(u, tensor)
+    restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
+    restrict_map_code = loopy.generate_code_v2(restrict_map_kernel.code).device_code()
+    restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
+    restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
+    coefficients.remove(u)
+
+    coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
+    coef_decl = "".join([", PetscScalar const *restrict c%d" % i for i in range(len(coefficients))])
+    prolong_code = f"""
+    prolongation_mapping({t_out}{coef_args}, {t_in});
+    """
+    restrict_code = f"""
+    restriction_mapping({t_in}{coef_args}, {t_out});
+    """
+    mapping_code = prolong_map_code + restrict_map_code
+    return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
+
+
+def make_permutation_code(elem, vshape, shapes, t_in, t_out):
+    ndim = elem.cell().topological_dimension()
+    if isinstance(elem, WithMapping):
+        sobolev = ""
+    else:
+        sobolev = elem.sobolev_space()
+    
+    pshape = shapes.copy()
+    pshape = pshape[:ndim]
+    pshape.append(-1)
+    ndof = numpy.prod(vshape)
+    permutation = numpy.arange(ndof)
+    permutation = numpy.transpose(numpy.reshape(permutation, vshape))
+    if sobolev in [firedrake.HDiv, firedrake.HCurl]:
+        # compose with the inverse H(div)/H(curl) permutation
+        permutation = numpy.reshape(permutation, pshape)
+        for k in range(permutation.shape[-1]):
+            permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
+
+    permutation = numpy.reshape(permutation, (-1,))
+    perm = ", ".join(map(str, permutation))
+    decl = f"""PetscInt perm[{ndof}] = {{ {perm} }};"""
+
+    nflip = 0
+    if sobolev == firedrake.HDiv:
+        # flip the sign of the first component
+        nflip = ndof // elem.value_shape()[0]
+
+    prolong = f"""
+    for({IntType_c} i=0; i<{ndof}; i++) {t_out}[perm[i]] = {t_in}[i];
+    for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
+    """
+    restrict = f"""
+    for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
+    for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[perm[i]];
+    """
+    return decl, prolong, restrict
 
 
 class StandaloneInterpolationMatrix(object):
@@ -797,6 +894,154 @@ class StandaloneInterpolationMatrix(object):
         self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
 
+    @staticmethod
+    @lru_cache(maxsize=20)
+    def make_blas_kernels(Vf, Vc):
+        """
+        Interpolation and restriction kernels between CG / DG
+        tensor product spaces on quads and hexes.
+
+        Works by tabulating the coarse 1D Lagrange basis
+        functions as the (Nf+1)-by-(Nc+1) matrix Jhat,
+        and using the fact that the 2D / 3D tabulation is the
+        tensor product J = kron(Jhat, kron(Jhat, Jhat))
+        """
+        Vf_bsize = Vf.value_size
+        Vc_bsize = Vc.value_size
+        Vf_sdim = Vf.finat_element.space_dimension()
+        Vc_sdim = Vc.finat_element.space_dimension()
+        Vf_mapping = Vf.ufl_element().mapping().lower()
+        Vc_mapping = Vc.ufl_element().mapping().lower()
+        ndim = Vf.ufl_domain().topological_dimension()
+
+        # FInAT elements order the component DoFs related to the same node contiguously.
+        # We transpose before and after the multiplcation times J to have each component
+        # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
+
+        # We could benefit from loop tiling for the transpose, but that makes the code
+        # more complicated.
+
+        if (Vc_bsize == 1):
+            coarse_read = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) t0[i] = x[i];"""
+            coarse_write = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) x[i] += t0[i];"""
+        else:
+            coarse_read = f"""
+            for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+            """
+            coarse_write = f"""
+            for({IntType_c} j=0; j<{Vc_sdim}; j++)
+                for({IntType_c} i=0; i<{Vc_bsize}; i++)
+                    x[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
+            """
+        if (Vf_bsize == 1):
+            fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) t1[i] = y[i] * w[i];"""
+            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] = t1[i];"""
+        else:
+            fine_read = f"""
+            for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                    t1[j + {Vf_sdim}*i] = y[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+            """
+            fine_write = f"""
+            for({IntType_c} j=0; j<{Vf_sdim}; j++)
+                for({IntType_c} i=0; i<{Vf_bsize}; i++)
+                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+            """
+
+        coefficients = []
+        mapping_code = ""
+        coef_decl = ""
+        if Vf_mapping == Vc_mapping:
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+            lwork = numpy.prod([max(m, n) for m, n in zip(*shapes)])
+        else:
+            felem = Vf.ufl_element()
+            celem = Vc.ufl_element()
+
+            if Vc_mapping == "identity":
+                Qe = PMGBase.reconstruct_degree(celem, PMGBase.max_degree(felem))
+                Qe = celem
+                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
+                vshape = (Q.value_size, Q.finat_element.space_dimension())
+                decl0, prolong0, restrict0, shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
+                prolong1 = f"""
+                for({IntType_c} j=0; j<{vshape[1]}; j++)
+                    for({IntType_c} i=0; i<{vshape[0]}; i++)
+                        t0[i + {vshape[0]}*j] = t1[j + {vshape[1]}*i];
+                """
+                restrict1 = f"""
+                for({IntType_c} j=0; j<{vshape[1]}; j++)
+                    for({IntType_c} i=0; i<{vshape[0]}; i++)
+                        t1[j + {vshape[1]}*i] = t0[i + {vshape[0]}*j];
+                """
+                declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
+                #prolong2 = f"""for({IntType_c} i=0; i<{numpy.prod(vshape)}; i++) t1[i] = t0[i];"""
+                #restrict2 = f"""for({IntType_c} i=0; i<{numpy.prod(vshape)}; i++) t0[i] = t1[i];"""
+
+                decl1, prolong3, restrict3 = make_permutation_code(felem, vshape, shapes[1], "t1", "t0")
+                decl2, prolong4, restrict4, shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)]) 
+            elif Vf_mapping == "identity":
+                vshape = (Vf_bsize, Vf_sdim)
+                decl0, prolong0, restrict0, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+                decl1, prolong1, restrict1 = make_permutation_code(celem, vshape, shapes[1], "t1", "t0")
+                declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
+                fine_write = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) y[i] = t1[i];"""
+                fine_read = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) t1[i] = y[i] * w[i];"""
+                decl2 = ""
+                prolong3 = ""
+                prolong4 = ""
+                restrict3 = ""
+                restrict4 = ""
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)]) 
+            else:
+                raise NotImplementedError("Need at least one space with identity mapping")
+
+            coef_decl = declc
+            operator_decl = decl0 + decl1 + decl2
+            prolong_code = prolong0 + prolong1 + prolong2 + prolong3 + prolong4
+            restrict_code = restrict4 + restrict3 + restrict2 + restrict1 + restrict0
+            
+            #prolong_code = prolong2
+            #restrict_code = restrict2
+
+        kernel_code = f"""
+        {mapping_code}
+        
+        {kronmxv_code}
+
+        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
+            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar one = 1.0E0;
+            {operator_decl}
+            {coarse_read}
+            {prolong_code}
+            {fine_write}
+            return;
+        }}
+
+        void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
+                         const PetscScalar *restrict w{coef_decl}){{
+            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar one = 1.0E0;
+            {operator_decl}
+            {fine_read}
+            {restrict_code}
+            {coarse_write}
+            return;
+        }}
+        """
+
+        print(kernel_code)
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
+                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+        return prolong_kernel, restrict_kernel, coefficients
+
     def make_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between arbitrary elements.
@@ -827,186 +1072,6 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
         restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel, coefficients
-
-    @staticmethod
-    @lru_cache(maxsize=20)
-    def make_blas_kernels(Vf, Vc):
-        """
-        Interpolation and restriction kernels between CG / DG
-        tensor product spaces on quads and hexes.
-
-        Works by tabulating the coarse 1D Lagrange basis
-        functions as the (Nf+1)-by-(Nc+1) matrix Jhat,
-        and using the fact that the 2D / 3D tabulation is the
-        tensor product J = kron(Jhat, kron(Jhat, Jhat))
-        """
-        Vf_bsize = Vf.value_size
-        Vc_bsize = Vc.value_size
-        Vf_sdim = Vf.finat_element.space_dimension()
-        Vc_sdim = Vc.finat_element.space_dimension()
-        Vf_mapping = Vf.ufl_element().mapping().lower()
-        Vc_mapping = Vc.ufl_element().mapping().lower()
-        ndim = Vf.ufl_domain().topological_dimension()
-
-        operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1")
-        lwork = numpy.prod([max(m, n) for m, n in zip(*shapes)])
-
-        # FInAT elements order the component DoFs related to the same node contiguously.
-        # We transpose before and after the multiplcation times J to have each component
-        # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
-
-        # We could benefit from loop tiling for the transpose, but that makes the code
-        # more complicated.
-
-        if Vc_bsize == 1:
-            coarse_read = f"""for({IntType_c} i=0; i<{Vc_sdim}; i++) t0[i] = x[i];"""
-            coarse_write = f"""for({IntType_c} i=0; i<{Vc_sdim}; i++) y[i] += t1[i];"""
-        else:
-            coarse_read = f"""
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
-            """
-            coarse_write = f"""
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    y[i + {Vc_bsize}*j] += t1[j + {Vc_sdim}*i];
-            """
-        if Vf_bsize == 1:
-            fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim}; i++) t0[i] = x[i] * w[i];"""
-            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim}; i++) y[i] = t1[i];"""
-        else:
-            fine_read = f"""
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                    t0[j + {Vf_sdim}*i] = x[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
-            """
-            fine_write = f"""
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
-            """
-
-        if Vf_mapping == Vc_mapping:
-            coefficients = []
-            mapping_kernel = ""
-            assemble_map = ""
-            coef_decl = ""
-            coef_args = ""
-        else:
-            felem = Vf.ufl_element()
-            celem = Vc.ufl_element()
-            if Vc_mapping == "identity":
-                sobolev = felem.sobolev_space()
-                vshape = (Vc_bsize, Vc_sdim)
-                pshape = shapes[0].copy()
-
-                Vc_mapped = firedrake.FunctionSpace(Vc.ufl_domain(), WithMapping(celem, felem.mapping()))
-                expr = firedrake.TestFunction(Vc)
-                matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vc_mapped, expr)
-            elif Vf_mapping == "identity":
-                sobolev = celem.sobolev_space()
-                vshape = (Vf_bsize, Vf_sdim)
-                pshape = shapes[1].copy()
-
-                Vf_mapped = firedrake.FunctionSpace(Vf.ufl_domain(), WithMapping(felem, celem.mapping()))
-                expr = firedrake.TestFunction(Vf_mapped)
-                matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, expr)
-            else:
-                raise NotImplementedError("Need at least one space with identity mapping")
-
-            mapping_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
-            mapping_kernel = mapping_kernel.replace("void expression_kernel", "static void expression_kernel")
-            coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
-            coef_decl = "".join([", const PetscScalar *restrict c%d" % i for i in range(len(coefficients))])
-
-            pshape = pshape[:ndim]
-            pshape.append(-1)
-            dimc = numpy.prod(vshape)
-            permutation = numpy.transpose(numpy.reshape(numpy.arange(dimc), vshape))
-            if sobolev in [firedrake.HDiv, firedrake.HCurl]:
-                # compose with the inverse H(div)/H(curl) permutation
-                permutation = numpy.reshape(permutation, pshape)
-                for k in range(permutation.shape[-1]):
-                    permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
-
-            permutation = numpy.reshape(permutation, (-1,))
-            perm = ", ".join(map(str, permutation))
-
-            nflip = 0
-            if sobolev == firedrake.HDiv:
-                # flip the sign of the first component
-                nflip = dimc // celem.value_shape()[0]
-
-            # the matrix Amap is stored in row-major order
-            assemble_map = f"""
-            PetscInt perm[{dimc}] = {{ {perm} }};
-            PetscScalar Amap[{dimc}*{dimc}] = {{0.0E0}};
-            expression_kernel(Amap{coef_args});
-            """
-            if Vc_mapping == "identity":
-                coarse_read = f"""
-                for({IntType_c} i=0; i<{dimc}; i++)
-                    for({IntType_c} j=0; j<{dimc}; j++)
-                        t0[perm[i]] += Amap[i*{dimc}+j] * x[j];
-                for({IntType_c} i=0; i<{nflip}; i++)
-                    t0[i] = -t0[i];
-                """
-                coarse_write = f"""
-                for({IntType_c} i=0; i<{nflip}; i++)
-                    t1[i] = -t1[i];
-                for({IntType_c} i=0; i<{dimc}; i++)
-                    for({IntType_c} j=0; j<{dimc}; j++)
-                        y[i] += Amap[j*{dimc}+i] * t1[perm[j]];
-                """
-            else:
-                fine_read = f"""
-                for({IntType_c} i=0; i<{dimc}; i++)
-                    for({IntType_c} j=0; j<{dimc}; j++)
-                        t0[perm[i]] += Amap[j*{dimc}+i] * x[j] * w[j];
-                for({IntType_c} i=0; i<{nflip}; i++)
-                    t0[i] = -t0[i];
-                """
-                fine_write = f"""
-                for({IntType_c} i=0; i<{nflip}; i++)
-                    t1[i] = -t1[i];
-                for({IntType_c} i=0; i<{dimc}; i++)
-                    for({IntType_c} j=0; j<{dimc}; j++)
-                        y[i] += Amap[i*{dimc}+j] * t1[perm[j]];
-                """
-
-        kernel_code = f"""
-        {kronmxv_code}
-        {mapping_kernel}
-        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
-            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
-            PetscScalar one = 1.0E0;
-            {operator_decl}
-            {assemble_map}
-            {coarse_read}
-            {prolong_code}
-            {fine_write}
-            return;
-        }}
-
-        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
-                         const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
-            PetscScalar one = 1.0E0;
-            {operator_decl}
-            {assemble_map}
-            {fine_read}
-            {restrict_code}
-            {coarse_write}
-            return;
-        }}
-        """
-        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
