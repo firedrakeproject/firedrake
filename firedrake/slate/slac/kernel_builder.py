@@ -732,20 +732,21 @@ class LocalLoopyKernelBuilder(object):
                                                    target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
            
-            if isinstance(slate_tensor, slate.Tensor):
+            if not slate_tensor.assembled:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
-
-            elif isinstance(slate_tensor, slate.AssembledVector):
-                f = slate_tensor._function
-                coeff = coefficients[f]
+            else:
+                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor._function,)
+                coeff = tuple(coefficients[c] for c in f)
                 offset = 0
-                ismixed = (type(f.ufl_element()) == MixedElement)
-                names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
+                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                names = []
+                for (im, c) in zip(ismixed, coeff):
+                    names += [name for (name, ext) in c.values()] if im else [c[0]]
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
