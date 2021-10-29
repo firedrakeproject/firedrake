@@ -371,7 +371,8 @@ def _push_mul_solve(expr, self, state):
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
-        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp), ActionBag(None, flip(state.pick_op)))
+        pushed_child = (self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp), ActionBag(None, flip(state.pick_op)))
+                        if self.action else self(Solve(mat, new_rhs, matfree=self.action), ActionBag(None, flip(state.pick_op))))
         return Transpose(self(swapped_op, ActionBag(pushed_child, flip(state.pick_op))))
     else:
         """
@@ -389,8 +390,8 @@ def _push_mul_solve(expr, self, state):
 
         if not isinstance(mat, Tensor): # non terminal node 
             mat = TensorShell(mat)
-        return (Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp))
-        # return (Solve(mat, self(self(rhs, state), state), matfree=self.action))
+        return (Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp)
+                if self.action else (Solve(mat, self(self(rhs, state), state))))
 
 
 @_push_mul.register(Mul)
