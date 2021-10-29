@@ -188,26 +188,27 @@ def test_new_slateoptpass(expr):
 
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2]",
-                        "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]",
-                        "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)",
-                        "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)"
+                        "A[0, 0] * A[0, 0] * A[0, 2]",
+                        "A[0, 1] * A[1, 0] * A[0, 2]",
+                        "A[0, 1] * A[1, 1] * A[1, 2]"
                         ])
 def block_expr(request, A4, f4):
     if request.param == "A[0, 0] * A[0, 2]":
         return (A4[0, 0] * A4[0, 2])*f4
-    if request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
+    elif request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
         return (A4[0, 2] + A4[0, 0] * A4[0, 2])*f4
-    if request.param == "A[0, 2] + A[0, 0] * A[0, 2] * A[2, 2]":
-        return (A4[0, 2] + A4[0, 0] * A4[0, 2] * A4[2, 2])*f4
-    elif request.param == "A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
-        return (A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
-    elif request.param == "A[1, 2] - A[1, 0] * A[0, 0].solve(A[0, 2], matfree=True)":
-        return (A4[1, 2] - A4[1, 0] * A4[0, 0].solve(A4[0, 2], matfree=True))*f4
+    elif request.param == "A[0, 0] * A[0, 0] * A[0, 2]":
+        return (A4[0, 0] * A4[0, 0] * A4[0, 2])*f4
+    elif request.param == "A[0, 1] * A[1, 0] * A[0, 2]":
+        return (A4[0, 1] * A4[1, 0] * A4[0, 2])*f4
+    elif request.param == "A[0, 1] * A[1, 1] * A[1, 2]":
+        return (A4[0, 1] * A4[1, 1] * A4[1, 2])*f4
+
 
 def test_blocks(block_expr):
-    tmp = assemble(block_expr, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
-    tmp_opt = assemble(block_expr, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=0.0001)
+    tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
+    tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
 
 
 def test_temporary_test_for_reallifeschur():
