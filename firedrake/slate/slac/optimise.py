@@ -28,15 +28,12 @@ def optimise(expression, parameters):
 
     Returns: An optimised Slate expression
     """
-    # 0) Block optimisation
-    expression = push_block(expression)
-
-    # 1) DiagonalTensor optimisation
-    expression = push_diag(expression)
-
-    # 2) Multiplication optimisation
+    # 1) Multiplication optimisation
     if expression.rank < 2:
         expression = push_mul(expression, parameters)
+
+    # 2) Block optimisation
+    expression = push_block(expression)
 
     # 3) Transpose optimisation
     expression = drop_double_transpose(expression)
