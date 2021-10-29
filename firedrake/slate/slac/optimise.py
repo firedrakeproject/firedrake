@@ -75,12 +75,31 @@ def _push_block_transpose(expr, self, indices):
 @_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
-    return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
+    return type(expr)(*map(self, expr.children, repeat(indices)))
+
+
+@_push_block.register(TensorShell)
+def _push_block_shell(expr, self, indices):
+    """Distributes Blocks for these nodes"""
+    child, = expr.children
+    return (self(child, indices)) if child.terminal else type(expr)(self(child, indices))
+
+
+@_push_block.register(Action)
+def _push_block_action(expr, self, indices):
+    """Distributes Blocks into an Action"""
+    return type(expr)(*map(self, expr.children, repeat(indices)), expr.pick_op)
+
+
+@_push_block.register(Solve)
+def _push_block_solve(expr, self, indices):
+    """Distributes Blocks into an Action"""
+    return (type(expr)(*map(self, expr.children, repeat(indices)), expr.is_matfree, expr._Aonx, expr._Aonp)
+           if expr.is_matfree else type(expr)(*map(self, expr.children, repeat(indices)), expr.is_matfree))
 
 
 @_push_block.register(Factorization)
 @_push_block.register(Inverse)
-@_push_block.register(Solve)
 @_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
