@@ -256,56 +256,45 @@ def test_full_hybridisation():
     solve(a == L, w, solver_parameters=params)
     assert np.allclose(w.dat.data, w2.dat.data, rtol=1e-8)
 
-def test_hybridisation_bitbybit():
+def test_schur_complements():
     mesh = UnitSquareMesh(6, 6)
-    dimension = 1
-    U = FunctionSpace(mesh, "DRT", dimension+1)  
-    V = FunctionSpace(mesh, "DG", dimension)  
-    T = FunctionSpace(mesh, "DGT",dimension)
+    degree = 0
+    U = FunctionSpace(mesh, "DRT", degree+1)  
+    V = FunctionSpace(mesh, "DG", degree)  
+    T = FunctionSpace(mesh, "DGT",degree)
     W = U * V * T
 
     u, p, l = TrialFunctions(W)
     w, phi, gamma = TestFunctions(W)
     n = FacetNormal(mesh)
 
-    eq1 = ((dot(w,u)-p*div(w))*dx
-            + l*jump(w,n=n)*dS)
-    eq2 = (phi*div(u)+phi*p)*dx
-    eq3 = gamma*jump(u,n=n)*dS
-    a = eq1-eq2-eq3
-    L = phi*dx
+    sigma, u, lambdar = TrialFunctions(W)
+    tau, v, gammar = TestFunctions(W)
+
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
+
+    a = (inner(sigma, tau)*dx + inner(u, div(tau))*dx
+         + inner(div(sigma), v)*dx
+         + inner(lambdar('+'), jump(tau, n=n))*dS
+         - inner(jump(sigma, n=n), gammar('+'))*dS)
+    L = inner(f, v)*dx
 
     _A = Tensor(a)
     A = _A.blocks
-    S = A[2,2] + A[2,:2] * A[:2,:2].solve(A[:2,2])
 
-    _F = Tensor(L)
-    F = _F.blocks
-    E = F[2] - A[2, :2] * A[:2, :2].solve(F[:2])
-
-    # schur
-    coeff = Function(T)
-    coeff.assign(Constant(2))
-    C = AssembledVector(coeff)
-    matfree_schur = assemble(S*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-    schur = assemble(S*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
+    # outer schur complement
+    S = A[2,2] - A[2,:2] * A[:2,:2].inv * A[:2,2]
+    C = AssembledVector(Function(T).assign(Constant(2.)))
+    matfree_schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
 
-    # reconstruction u
-    coeff = Function(U)
-    coeff.assign(Constant(V))
-    C = AssembledVector(coeff)
-    Sd = A[1,1]-A[1,0]*A[0,0].inv*A[0,1]
-    matfree_u = assemble(Sd*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-    u = assemble(Sd*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
-    assert np.allclose(u.dat.data, matfree_u.dat.data, atol=0.000001)
-
-    #recontruction sigma
-    coeff = Function(U)
-    coeff.assign(Constant(2))
-    C = AssembledVector(coeff)
-    Sl = A[1,2]-A[1,0]*A[0,0].inv*A[0,2]
-    matfree_sigma = assemble(Sl*C, form_compiler_parameters={"optimise_slate": True, "replace_mul_with_action": True, "visual_debug": False})
-    sigma = assemble(Sl*C, form_compiler_parameters={"optimise_slate": False, "replace_mul_with_action": False, "visual_debug": False})
-    assert np.allclose(matfree_sigma.dat.data, sigma.dat.data, atol=0.000001)
+    # inner schur complement
+    S = A[1,1] - A[1,:1] * A[:1,:1].inv * A[:1,1]
+    C = AssembledVector(Function(T).assign(Constant(2.)))
+    matfree_schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
                 
