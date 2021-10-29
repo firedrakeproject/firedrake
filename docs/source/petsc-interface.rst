@@ -62,7 +62,7 @@ read-write access to the PETSc object.  For read-only access, we use:
    with assemble(linear_form).dat.vec_ro as v:
        petsc_vec_ro = v
 
-For read-write access, use:
+For write-only access, use ``.vec_wo``, and for read-write access, use:
 
 .. code-block:: python3
 
@@ -186,6 +186,13 @@ Now we can solve a system using this ``ksp`` object:
 
 Defining a preconditioner
 =========================
+
+.. note::
+
+   In many cases it is not necessary to drop to this low a level to
+   construct problem-specific preconditioners. More details on this
+   approach are discussed in the manual section on
+   :doc:`preconditioning`.
 
 Since PETSc only knows how to compute the action of :math:`B`, and
 does not have access to any of the entries, it will not be able to
