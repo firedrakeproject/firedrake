@@ -211,7 +211,7 @@ def test_blocks(block_expr):
     assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
 
 
-def test_temporary_test_for_reallifeschur():
+def test_full_hybridisation():
     # Create a mesh
     mesh = UnitSquareMesh(6, 6)
     U = FunctionSpace(mesh, "RT", 1)
@@ -228,13 +228,7 @@ def test_temporary_test_for_reallifeschur():
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = -inner(f, v) * dx + Constant(0.0) * dot(conj(tau), n) * (ds(3) + ds(4))
-
-    # Compare hybridized solution with non-hybridized
-    w = Function(W)
-    bc1 = DirichletBC(W[0], as_vector([0.0, -sin(5*x)]), 1)
-    bc2 = DirichletBC(W[0], as_vector([0.0, sin(5*y)]), 2)
-    bcs = [bc1, bc2]
+    L = -inner(f, v) * dx
 
     matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
@@ -244,9 +238,7 @@ def test_temporary_test_for_reallifeschur():
                                         'pc_type': 'none',
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree',
-                                        'local_matfree': True,
-                                        'throw_the_schur': True}} # new petsc option!
-                                        # will I need to specify GT preconditioner here?
+                                        'local_matfree': True}}
     params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
                       'pc_type': 'python',
@@ -255,37 +247,14 @@ def test_temporary_test_for_reallifeschur():
                                         'pc_type': 'none',
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree',
-                                        'local_matfree': False,
-                                        'throw_the_schur': True}}
+                                        'local_matfree': False}}
 
-    import ufl.algorithms as ufl_alg
-    f = Function(W)
-    f.assign(Constant(2))
-    A = None
-    B = None
-    try:
-        # Solve the system in a local matrix-free manner
-        solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
-    except static_condensation.hybridization.CheckSchurComplement as e:
-        # local matrix-free form for schur complement is delivered by the exception
-        matfree_schur = e.expression.action
-        u, = matfree_schur._coefficients
-        # apply the LOCAL matrix-free schur action to a known function
-        matfree_schur_wv = ufl_alg.replace(matfree_schur, {u: f})
-        A = assemble(matfree_schur_wv)
-    try:
-        # Solve the system in a global only matrix-free manner
-        solve(a == L, w, bcs=bcs, solver_parameters=params)
-    except static_condensation.hybridization.CheckSchurComplement as e: 
-        # NON-LOCAL matrix-free form for schur complement is delivered by the exception
-        schur = e.expression.action
-        u, = schur._coefficients
-        # apply the NON-LOCAL matrix-free schur action to a known function
-        schur_wv = ufl_alg.replace(schur, {u: f})
-        B = assemble(schur_wv)
-        # compare local to non-local action of schur complement on a function
-    for a,b in zip(A.dat.data, B.dat.data):
-        assert np.allclose(a,b)
+
+    w = Function(W)
+    solve(a == L, w, solver_parameters=matfree_params)
+    w2 = Function(W)
+    solve(a == L, w, solver_parameters=params)
+    assert np.allclose(w.dat.data, w2.dat.data, rtol=1e-8)
 
 def test_hybridisation_bitbybit():
     mesh = UnitSquareMesh(6, 6)
