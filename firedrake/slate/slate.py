@@ -1297,11 +1297,11 @@ class TensorShell(TensorBase):
             (*) optimised = The Slate expression only contains up to rank-1 Tensors
     """
 
-    operands = ()
 
     def __init__(self, A):
         super(TensorShell, self).__init__()
         self.tensor = A
+        self.operands = (A,)
 
     @cached_property
     def arg_function_spaces(self):
