@@ -107,7 +107,7 @@ def A4(W4, mymesh):
     x = SpatialCoordinate(mesh)
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
-    a = (inner(sigma, tau)*dx - inner(u, div(tau))*dx
+    a = (inner(sigma, tau)*dx + inner(u, div(tau))*dx
             + inner(div(sigma), v)*dx
             + inner(lambdar('+'), jump(tau, n=n))*dS
             # Multiply transmission equation by -1 to ensure
