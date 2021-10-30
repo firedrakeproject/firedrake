@@ -43,6 +43,7 @@ jobs:
           cd docs
           firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
           firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+          firedrake-preprocess-bibtex --validate source/_static/references.bib
       - name: Build docs
         run: |
           . /home/firedrake/firedrake/bin/activate

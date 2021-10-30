@@ -16,38 +16,35 @@ from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_permuted_map, tensor_product_space_query
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
-from firedrake.logging import warning
 import firedrake
 import numpy
+import numpy.linalg
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
-@article{Brubeck2021,
-  title={A scalable and robust vertex-star relaxation for high-order FEM},
-  author={Brubeck, P. D. and Farrell, P. E.},
-  journal={arXiv preprint arXiv:2107.14758},
+@misc{Brubeck2021,
+  title={A scalable and robust vertex-star relaxation for high-order {FEM}},
+  author={Brubeck, Pablo D. and Farrell, Patrick E.},
+  archiveprefix = {arXiv},
+  eprint = {2107.14758},
+  primaryclass = {math.NA},
   year={2021}
 }
 """)
 
 __all__ = ("FDMPC",)
 
-try:
-    from scipy.linalg import eigh
 
-    def sym_eig(A, B):
-        return eigh(A, B)
-except ImportError:
-    warning("scipy not available, using numpy for generalized eigendecomposition.")
-    import numpy.linalg as npla
-
-    def sym_eig(A, B):
-        L = npla.cholesky(B)
-        Linv = npla.inv(L)
-        C = numpy.dot(Linv, numpy.dot(A, Linv.T))
-        Z, W = npla.eigh(C)
-        V = numpy.dot(Linv.T, W)
-        return Z, V
+def sym_eig(A, B):
+    """
+    numpy version of `scipy.linalg.eigh`
+    """
+    L = numpy.linalg.cholesky(B)
+    Linv = numpy.linalg.inv(L)
+    C = numpy.dot(Linv, numpy.dot(A, Linv.T))
+    Z, W = numpy.linalg.eigh(C)
+    V = numpy.dot(Linv.T, W)
+    return Z, V
 
 
 class FDMPC(PCBase):

@@ -89,6 +89,7 @@ finite element problems in Firedrake.
    visualisation
    checkpointing
    matrix-free
+   preconditioning
    petsc-interface
    parallelism
    zenodo
@@ -115,3 +116,6 @@ element systems.
    Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>
    Linear mixed fluid-structure interaction system.<demos/linear_fluid_structure_interaction.py>
    Mass lumping for a high order spectral wave equation.<demos/higher_order_mass_lumping.py>
+   Block preconditioning for the Stokes equation.<demos/stokes.py>
+   A pressure-convection-diffusion preconditioner for the Navier-Stokes equations.</demos/navier_stokes.py>
+   Rayleigh-Benard convection.<demos/rayleigh-benard.py>
