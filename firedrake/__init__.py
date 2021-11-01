@@ -75,7 +75,6 @@ from firedrake.checkpointing import *
 from firedrake.cofunction import *
 from firedrake.constant import *
 from firedrake.exceptions import *
-from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *

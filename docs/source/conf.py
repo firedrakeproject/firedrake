@@ -263,4 +263,4 @@ intersphinx_mapping = {
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
-bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib']
+bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']

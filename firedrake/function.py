@@ -336,8 +336,8 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
-        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
-        :class:`.Expression`.
+        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
+        UFL expression.
 
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
@@ -360,7 +360,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param expression: a UFL expression to interpolate
         :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation

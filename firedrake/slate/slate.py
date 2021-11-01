@@ -39,7 +39,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve']
+           'Add', 'Mul', 'Solve', 'BlockAssembledVector']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -470,11 +470,12 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`firedrake.Function`s
+    vector of data contained in a set of :class:`firedrake.Function` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.
     """
+
     def __new__(cls, function, split_functions, indices):
         if isinstance(split_functions, tuple) \
            and all(isinstance(f, Coefficient) for f in split_functions):
@@ -1121,7 +1122,7 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
-        if A.shape[1] != B.shape[0]:
+        if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
@@ -1236,7 +1237,8 @@ def space_equivalence(A, B):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor],
     [Add],
-    [Mul, Solve],
+    [Mul],
+    [Solve],
     [UnaryOp],
 ]
 

@@ -19,7 +19,8 @@ from pyadjoint.tape import no_annotations
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTriangleMesh',
-           'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
+           'RectangleMesh', 'TensorRectangleMesh',
+           'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
            'CircleManifoldMesh', 'UnitDiskMesh',
@@ -358,14 +359,52 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
 
     xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
     ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    return TensorRectangleMesh(xcoords, ycoords,
+                               quadrilateral=quadrilateral,
+                               reorder=reorder,
+                               diagonal=diagonal,
+                               distribution_parameters=distribution_parameters,
+                               comm=comm)
+
+
+def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
+                        reorder=None,
+                        diagonal="left", distribution_parameters=None,
+                        comm=COMM_WORLD):
+    """Generate a rectangular mesh
+
+    :arg xcoords: mesh points for the x direction
+    :arg ycoords: mesh points for the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    :kwarg diagonal: For triangular meshes, should the diagonal got
+        from bottom left to top right (``"right"``), or top left to
+        bottom right (``"left"``), or put in both diagonals (``"crossed"``).
+
+    The boundary edges in this mesh are numbered as follows:
+
+    * 1: plane x == xcoords[0]
+    * 2: plane x == xcoords[-1]
+    * 3: plane y == ycoords[0]
+    * 4: plane y == ycoords[-1]
+    """
+    xcoords = np.unique(xcoords)
+    ycoords = np.unique(ycoords)
+    nx = np.size(xcoords)-1
+    ny = np.size(ycoords)-1
+
+    for n in (nx, ny):
+        if n <= 0:
+            raise ValueError("Number of cells must be a postive integer")
+
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
     if not quadrilateral and diagonal == "crossed":
-        dx = Lx * 0.5 / nx
-        dy = Ly * 0.5 / ny
-        xs = np.linspace(dx, Lx - dx, nx, dtype=np.double)
-        ys = np.linspace(dy, Ly - dy, ny, dtype=np.double)
+        xs = 0.5*(xcoords[1:] + xcoords[:-1])
+        ys = 0.5*(ycoords[1:] + ycoords[:-1])
         extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
         coords = np.vstack([coords, extra])
         #
@@ -404,17 +443,21 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = Lx/(2*nx)
-        ytol = Ly/(2*ny)
+        xtol = 0.5*min(xcoords[1]-xcoords[0], xcoords[-1]-xcoords[-2])
+        ytol = 0.5*min(ycoords[1]-ycoords[0], ycoords[-1]-ycoords[-2])
+        x0 = xcoords[0]
+        x1 = xcoords[-1]
+        y0 = ycoords[0]
+        y1 = ycoords[-1]
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
-            if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
+            if abs(face_coords[0]-x0) < xtol and abs(face_coords[2]-x0) < xtol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-            if abs(face_coords[0] - Lx) < xtol and abs(face_coords[2] - Lx) < xtol:
+            if abs(face_coords[0] - x1) < xtol and abs(face_coords[2] - x1) < xtol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
-            if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
+            if abs(face_coords[1]-y0) < ytol and abs(face_coords[3]-y0) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
-            if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
+            if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)

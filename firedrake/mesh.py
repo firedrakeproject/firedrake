@@ -17,12 +17,10 @@ from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
-import firedrake.expression as expression
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
-from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
@@ -1633,7 +1631,7 @@ values from f.)"""
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
-        :arg expr: an :class:`.Expression` evaluated to produce a
+        :arg expr: a UFL expression evaluated to produce a
              reference normal direction.
 
         """
@@ -1649,16 +1647,11 @@ values from f.)"""
         if hasattr(self.topology, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
-        if isinstance(expr, expression.Expression):
-            if expr.value_shape()[0] != 3:
-                raise NotImplementedError('Only implemented for 3-vectors')
-
-            expr = interpolate(expr, functionspace.VectorFunctionSpace(self, 'DG', 0))
-        elif isinstance(expr, ufl.classes.Expr):
+        if isinstance(expr, ufl.classes.Expr):
             if expr.ufl_shape != (3,):
                 raise NotImplementedError('Only implemented for 3-vectors')
         else:
-            raise TypeError("UFL expression or Expression object expected!")
+            raise TypeError("UFL expression expected!")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)
