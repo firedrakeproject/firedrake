@@ -741,7 +741,9 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     JZ = "&one" if ndim < 3 else f"{mat}+{Jhat[0].size+Jhat[1].size}"
     Jlen = sum([Jk.size for Jk in Jhat])
 
-    operator_decl = f"""const PetscScalar {mat}[{Jlen}] = {{ {JX} }};"""
+    operator_decl = f"""
+            PetscScalar {mat}[{Jlen}] = {{ {JX} }};
+    """
     prolong_code = f"""
             kronmxv(0, {m[0]}, {m[1]}, {m[2]}, {n[0]}, {n[1]}, {n[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_in}, {t_out});
     """
@@ -810,42 +812,57 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
 
 
-def make_permutation_code(elem, vshape, shapes, t_in, t_out):
-    ndim = elem.cell().topological_dimension()
-    if isinstance(elem, WithMapping):
-        sobolev = ""
-    else:
+def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
+    try:
         sobolev = elem.sobolev_space()
+    except AttributeError:
+        sobolev = ""
 
-    pshape = shapes.copy()
-    pshape = pshape[:ndim]
-    pshape.append(-1)
-    ndof = numpy.prod(vshape)
-    permutation = numpy.arange(ndof)
-    permutation = numpy.transpose(numpy.reshape(permutation, vshape))
     if sobolev in [firedrake.HDiv, firedrake.HCurl]:
+        ndim = elem.cell().topological_dimension()
+        pshape = shapes.copy()
+        pshape = pshape[:ndim]
+        pshape.append(-1)
+        ndof = numpy.prod(vshape)
+        permutation = numpy.arange(ndof)
+        permutation = numpy.transpose(numpy.reshape(permutation, vshape))
         # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(permutation, pshape)
         for k in range(permutation.shape[-1]):
             permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
 
-    permutation = numpy.reshape(permutation, (-1,))
-    perm = ", ".join(map(str, permutation))
-    decl = f"""const PetscInt perm[{ndof}] = {{ {perm} }};"""
+        permutation = numpy.reshape(permutation, (-1,))
+        perm = ", ".join(map(str, permutation))
+        decl = f"""
+            PetscInt {array_name}[{ndof}] = {{ {perm} }};
+        """
 
-    nflip = 0
-    if sobolev == firedrake.HDiv:
-        # flip the sign of the first component
-        nflip = ndof // elem.value_shape()[0]
+        nflip = 0
+        if sobolev == firedrake.HDiv:
+            # flip the sign of the first component
+            nflip = ndof // elem.value_shape()[0]
 
-    prolong = f"""
-            for({IntType_c} i=0; i<{ndof}; i++) {t_out}[perm[i]] = {t_in}[i];
+        prolong = f"""
+            for({IntType_c} i=0; i<{ndof}; i++) {t_out}[{array_name}[i]] = {t_in}[i];
             for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
-    """
-    restrict = f"""
+        """
+        restrict = f"""
             for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
-            for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[perm[i]];
-    """
+            for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[{array_name}[i]];
+        """
+    else:
+        decl = ""
+        prolong = f"""
+            for({IntType_c} j=0; j<{vshape[1]}; j++)
+                for({IntType_c} i=0; i<{vshape[0]}; i++)
+                    {t_out}[j + {vshape[1]}*i] = {t_in}[i + {vshape[0]}*j];
+        """
+        restrict = f"""
+            for({IntType_c} j=0; j<{vshape[1]}; j++)
+                for({IntType_c} i=0; i<{vshape[0]}; i++)
+                    {t_in}[i + {vshape[0]}*j] = {t_out}[j + {vshape[1]}*i];
+        """
+
     return decl, prolong, restrict
 
 
@@ -873,10 +890,8 @@ class StandaloneInterpolationMatrix(object):
 
         tf, _, _, _, _ = tensor_product_space_query(Vf)
         tc, _, _, _, _ = tensor_product_space_query(Vc)
-        mf = Vf.ufl_element().mapping().lower()
-        mc = Vc.ufl_element().mapping().lower()
 
-        if (tf and tc) and ((mf == mc) or (mc == "identity") or (mf == "identity")):
+        if (tf and tc):
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
@@ -918,8 +933,53 @@ class StandaloneInterpolationMatrix(object):
         Vf_mapping = Vf.ufl_element().mapping().lower()
         Vc_mapping = Vc.ufl_element().mapping().lower()
 
-        # FInAT elements order the component DoFs related to the same node contiguously.
-        # We transpose before and after the multiplcation times J to have each component
+        fine_is_ordered = False
+        coefficients = []
+        mapping_code = ""
+        coef_decl = ""
+        if Vf_mapping == Vc_mapping:
+            # interpolate on each direction via Kroncker product
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+            lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
+        else:
+            felem = Vf.ufl_element()
+            celem = Vc.ufl_element()
+            fshape = (Vf_bsize, Vf_sdim)
+
+            decl = [""]*4
+            prolong = [""]*5
+            restrict = [""]*5
+            if Vf_mapping == "identity":
+                # interpolate to fine space
+                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+                # permute to firedrake ordering and apply the mapping
+                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, fshape, shapes[1], "t0", "t1", "perm0")
+                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
+                fine_is_ordered = True
+            else:
+                # interpolate to a higher degree element with identity mapping
+                qdegree = PMGBase.max_degree(felem)
+                Qe = TensorElement("DQ", felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
+                qshape = (Q.value_size, Q.finat_element.space_dimension())
+
+                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
+                # permute to firedrake ordering and apply the mapping
+                decl[1], restrict[1], prolong[1] = make_permutation_code(Qe, qshape, shapes[1], "t0", "t1", "perm0")
+                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
+
+                # permute to tensor-friendly ordering and interpolate to fine space
+                decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[1], "t1", "t0", "perm1")
+                decl[3], prolong[4], restrict[4], shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)])
+
+            operator_decl = "".join(decl)
+            prolong_code = "".join(prolong)
+            restrict_code = "".join(reversed(restrict))
+
+        # Firedrake elements order the component DoFs related to the same node contiguously.
+        # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
         # We could benefit from loop tiling for the transpose, but that makes the code
@@ -939,7 +999,7 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{Vc_bsize}; i++)
                     x[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
             """
-        if (Vf_bsize == 1):
+        if (Vf_bsize == 1) or fine_is_ordered:
             fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) t1[i] = y[i] * w[i];"""
             fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] = t1[i];"""
         else:
@@ -953,54 +1013,6 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{Vf_bsize}; i++)
                    y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
             """
-
-        coefficients = []
-        mapping_code = ""
-        coef_decl = ""
-        if Vf_mapping == Vc_mapping:
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-            lwork = numpy.prod([max(m, n) for m, n in zip(*shapes)])
-        else:
-            felem = Vf.ufl_element()
-            celem = Vc.ufl_element()
-
-            decl = [""]*3
-            prolong = [""]*5
-            restrict = [""]*5
-            if Vc_mapping == "identity":
-                Qe = PMGBase.reconstruct_degree(celem, PMGBase.max_degree(felem))
-                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-                vshape = (Q.value_size, Q.finat_element.space_dimension())
-                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-                prolong[1] = f"""
-            for({IntType_c} j=0; j<{vshape[1]}; j++)
-                for({IntType_c} i=0; i<{vshape[0]}; i++)
-                    t0[i + {vshape[0]}*j] = t1[j + {vshape[1]}*i];
-                """
-                restrict[1] = f"""
-            for({IntType_c} j=0; j<{vshape[1]}; j++)
-                for({IntType_c} i=0; i<{vshape[0]}; i++)
-                    t1[j + {vshape[1]}*i] = t0[i + {vshape[0]}*j];
-                """
-                declc, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
-                decl[1], prolong[3], restrict[3] = make_permutation_code(felem, vshape, shapes[1], "t1", "t0")
-                decl[2], prolong[4], restrict[4], shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)])
-            elif Vf_mapping == "identity":
-                vshape = (Vf_bsize, Vf_sdim)
-                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, vshape, shapes[1], "t0", "t1")
-                declc, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
-                fine_write = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) y[i] = t1[i];"""
-                fine_read = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) t1[i] = y[i] * w[i];"""
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
-            else:
-                raise NotImplementedError("Need at least one space with identity mapping")
-
-            coef_decl = declc
-            operator_decl = "".join(decl)
-            prolong_code = "".join(prolong)
-            restrict_code = "".join(reversed(restrict))
 
         kernel_code = f"""
         {mapping_code}
@@ -1028,7 +1040,6 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
