@@ -37,6 +37,8 @@ firedrake_apps = {
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
     "femlium": ("""Interactive visualization of finite element simulations on geographic maps with folium. https://femlium.github.io/""",
                 "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
+    "pyroteus": ("""Goal-oriented mesh adaptation toolkit. https://pyroteus.github.io""",
+                 "git+ssh://github.com/pyroteus/pyroteus.git#egg=pyroteus"),
 }
 
 
