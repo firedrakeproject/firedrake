@@ -743,10 +743,10 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
 
     operator_decl = f"""PetscScalar {mat}[{Jlen}] = {{ {JX} }};"""
     prolong_code = f"""
-    kronmxv(0, {m[0]},{m[1]},{m[2]}, {n[0]},{n[1]},{n[2]}, {nscal}, {mat},{JY},{JZ}, {t_in}, {t_out});
+            kronmxv(0, {m[0]}, {m[1]}, {m[2]}, {n[0]}, {n[1]}, {n[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_in}, {t_out});
     """
     restrict_code = f"""
-    kronmxv(1, {n[0]},{n[1]},{n[2]}, {m[0]},{m[1]},{m[2]}, {nscal}, {mat},{JY},{JZ}, {t_out}, {t_in});
+            kronmxv(1, {n[0]}, {n[1]}, {n[2]}, {m[0]}, {m[1]}, {m[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_out}, {t_in});
     """
     return operator_decl, prolong_code, restrict_code, shapes
 
@@ -778,7 +778,7 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
         tensor = firedrake.dot(B, tensor) if tensor else B
     if tensor is None:
         tensor = firedrake.Identity(Q.ufl_element().value_shape()[0])
-   
+
     u = firedrake.Coefficient(Q)
     expr = firedrake.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
@@ -795,11 +795,16 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
 
     coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
     coef_decl = "".join([", PetscScalar const *restrict c%d" % i for i in range(len(coefficients))])
+    qlen = Q.value_size * Q.finat_element.space_dimension()
     prolong_code = f"""
-    prolongation_mapping({t_out}{coef_args}, {t_in});
+            for({IntType_c} i=0; i<{qlen}; i++) {t_out}[i] = 0.0E0;
+
+            prolongation_mapping({t_out}{coef_args}, {t_in});
     """
     restrict_code = f"""
-    restriction_mapping({t_in}{coef_args}, {t_out});
+            for({IntType_c} i=0; i<{qlen}; i++) {t_in}[i] = 0.0E0;
+
+            restriction_mapping({t_in}{coef_args}, {t_out});
     """
     mapping_code = prolong_map_code + restrict_map_code
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
@@ -811,7 +816,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out):
         sobolev = ""
     else:
         sobolev = elem.sobolev_space()
-    
+
     pshape = shapes.copy()
     pshape = pshape[:ndim]
     pshape.append(-1)
@@ -834,12 +839,12 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out):
         nflip = ndof // elem.value_shape()[0]
 
     prolong = f"""
-    for({IntType_c} i=0; i<{ndof}; i++) {t_out}[perm[i]] = {t_in}[i];
-    for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
+            for({IntType_c} i=0; i<{ndof}; i++) {t_out}[perm[i]] = {t_in}[i];
+            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
     """
     restrict = f"""
-    for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
-    for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[perm[i]];
+            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
+            for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[perm[i]];
     """
     return decl, prolong, restrict
 
@@ -912,7 +917,6 @@ class StandaloneInterpolationMatrix(object):
         Vc_sdim = Vc.finat_element.space_dimension()
         Vf_mapping = Vf.ufl_element().mapping().lower()
         Vc_mapping = Vc.ufl_element().mapping().lower()
-        ndim = Vf.ufl_domain().topological_dimension()
 
         # FInAT elements order the component DoFs related to the same node contiguously.
         # We transpose before and after the multiplcation times J to have each component
@@ -962,31 +966,27 @@ class StandaloneInterpolationMatrix(object):
 
             if Vc_mapping == "identity":
                 Qe = PMGBase.reconstruct_degree(celem, PMGBase.max_degree(felem))
-                Qe = celem
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
                 vshape = (Q.value_size, Q.finat_element.space_dimension())
                 decl0, prolong0, restrict0, shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
                 prolong1 = f"""
-                for({IntType_c} j=0; j<{vshape[1]}; j++)
-                    for({IntType_c} i=0; i<{vshape[0]}; i++)
-                        t0[i + {vshape[0]}*j] = t1[j + {vshape[1]}*i];
+            for({IntType_c} j=0; j<{vshape[1]}; j++)
+                for({IntType_c} i=0; i<{vshape[0]}; i++)
+                    t0[i + {vshape[0]}*j] = t1[j + {vshape[1]}*i];
                 """
                 restrict1 = f"""
-                for({IntType_c} j=0; j<{vshape[1]}; j++)
-                    for({IntType_c} i=0; i<{vshape[0]}; i++)
-                        t1[j + {vshape[1]}*i] = t0[i + {vshape[0]}*j];
+            for({IntType_c} j=0; j<{vshape[1]}; j++)
+                for({IntType_c} i=0; i<{vshape[0]}; i++)
+                    t1[j + {vshape[1]}*i] = t0[i + {vshape[0]}*j];
                 """
                 declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
-                #prolong2 = f"""for({IntType_c} i=0; i<{numpy.prod(vshape)}; i++) t1[i] = t0[i];"""
-                #restrict2 = f"""for({IntType_c} i=0; i<{numpy.prod(vshape)}; i++) t0[i] = t1[i];"""
-
                 decl1, prolong3, restrict3 = make_permutation_code(felem, vshape, shapes[1], "t1", "t0")
                 decl2, prolong4, restrict4, shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)]) 
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)])
             elif Vf_mapping == "identity":
                 vshape = (Vf_bsize, Vf_sdim)
                 decl0, prolong0, restrict0, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-                decl1, prolong1, restrict1 = make_permutation_code(celem, vshape, shapes[1], "t1", "t0")
+                decl1, restrict1, prolong1 = make_permutation_code(celem, vshape, shapes[1], "t0", "t1")
                 declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
                 fine_write = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) y[i] = t1[i];"""
                 fine_read = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) t1[i] = y[i] * w[i];"""
@@ -995,7 +995,7 @@ class StandaloneInterpolationMatrix(object):
                 prolong4 = ""
                 restrict3 = ""
                 restrict4 = ""
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)]) 
+                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
             else:
                 raise NotImplementedError("Need at least one space with identity mapping")
 
@@ -1003,17 +1003,14 @@ class StandaloneInterpolationMatrix(object):
             operator_decl = decl0 + decl1 + decl2
             prolong_code = prolong0 + prolong1 + prolong2 + prolong3 + prolong4
             restrict_code = restrict4 + restrict3 + restrict2 + restrict1 + restrict0
-            
-            #prolong_code = prolong2
-            #restrict_code = restrict2
 
         kernel_code = f"""
         {mapping_code}
-        
+
         {kronmxv_code}
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
-            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
             {operator_decl}
             {coarse_read}
@@ -1024,7 +1021,7 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar t0[{lwork}] = {{0.0E0}}, t1[{lwork}];
+            PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
             {operator_decl}
             {fine_read}
@@ -1034,7 +1031,6 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
 
-        print(kernel_code)
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
