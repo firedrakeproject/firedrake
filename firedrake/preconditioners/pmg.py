@@ -741,7 +741,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     JZ = "&one" if ndim < 3 else f"{mat}+{Jhat[0].size+Jhat[1].size}"
     Jlen = sum([Jk.size for Jk in Jhat])
 
-    operator_decl = f"""PetscScalar {mat}[{Jlen}] = {{ {JX} }};"""
+    operator_decl = f"""const PetscScalar {mat}[{Jlen}] = {{ {JX} }};"""
     prolong_code = f"""
             kronmxv(0, {m[0]}, {m[1]}, {m[2]}, {n[0]}, {n[1]}, {n[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_in}, {t_out});
     """
@@ -831,7 +831,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out):
 
     permutation = numpy.reshape(permutation, (-1,))
     perm = ", ".join(map(str, permutation))
-    decl = f"""PetscInt perm[{ndof}] = {{ {perm} }};"""
+    decl = f"""const PetscInt perm[{ndof}] = {{ {perm} }};"""
 
     nflip = 0
     if sobolev == firedrake.HDiv:
@@ -964,45 +964,43 @@ class StandaloneInterpolationMatrix(object):
             felem = Vf.ufl_element()
             celem = Vc.ufl_element()
 
+            decl = [""]*3
+            prolong = [""]*5
+            restrict = [""]*5
             if Vc_mapping == "identity":
                 Qe = PMGBase.reconstruct_degree(celem, PMGBase.max_degree(felem))
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
                 vshape = (Q.value_size, Q.finat_element.space_dimension())
-                decl0, prolong0, restrict0, shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-                prolong1 = f"""
+                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
+                prolong[1] = f"""
             for({IntType_c} j=0; j<{vshape[1]}; j++)
                 for({IntType_c} i=0; i<{vshape[0]}; i++)
                     t0[i + {vshape[0]}*j] = t1[j + {vshape[1]}*i];
                 """
-                restrict1 = f"""
+                restrict[1] = f"""
             for({IntType_c} j=0; j<{vshape[1]}; j++)
                 for({IntType_c} i=0; i<{vshape[0]}; i++)
                     t1[j + {vshape[1]}*i] = t0[i + {vshape[0]}*j];
                 """
-                declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
-                decl1, prolong3, restrict3 = make_permutation_code(felem, vshape, shapes[1], "t1", "t0")
-                decl2, prolong4, restrict4, shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
+                declc, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
+                decl[1], prolong[3], restrict[3] = make_permutation_code(felem, vshape, shapes[1], "t1", "t0")
+                decl[2], prolong[4], restrict[4], shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
                 lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)])
             elif Vf_mapping == "identity":
                 vshape = (Vf_bsize, Vf_sdim)
-                decl0, prolong0, restrict0, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-                decl1, restrict1, prolong1 = make_permutation_code(celem, vshape, shapes[1], "t0", "t1")
-                declc, prolong2, restrict2, mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
+                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, vshape, shapes[1], "t0", "t1")
+                declc, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
                 fine_write = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) y[i] = t1[i];"""
                 fine_read = f"""for({IntType_c} i=0; i<{Vf_bsize*Vf_sdim}; i++) t1[i] = y[i] * w[i];"""
-                decl2 = ""
-                prolong3 = ""
-                prolong4 = ""
-                restrict3 = ""
-                restrict4 = ""
                 lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
             else:
                 raise NotImplementedError("Need at least one space with identity mapping")
 
             coef_decl = declc
-            operator_decl = decl0 + decl1 + decl2
-            prolong_code = prolong0 + prolong1 + prolong2 + prolong3 + prolong4
-            restrict_code = restrict4 + restrict3 + restrict2 + restrict1 + restrict0
+            operator_decl = "".join(decl)
+            prolong_code = "".join(prolong)
+            restrict_code = "".join(reversed(restrict))
 
         kernel_code = f"""
         {mapping_code}
