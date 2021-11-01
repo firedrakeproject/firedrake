@@ -2,7 +2,6 @@ import numpy
 from collections import namedtuple
 from functools import partial
 
-import ufl
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
@@ -373,20 +372,15 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
 
-    # A bad way to check if we are using the same function space (so we don't unpack
-    # too many maps in PyOP2)
-    fs_id = _get_function_space_id(coefficient.ufl_function_space())
-
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
-        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, fs_id, dtype, interior_facet=interior_facet)
+        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, dtype, interior_facet=interior_facet)
     elif name == "coords":
-        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, fs_id, dtype, interior_facet=interior_facet)
+        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, dtype, interior_facet=interior_facet)
     else:
         kernel_arg = kernel_args.CoefficientKernelArg(
             name,
             finat_element,
-            fs_id,
             dtype,
             interior_facet=interior_facet
         )
@@ -412,40 +406,25 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
         return kernel_args.ScalarOutputKernelArg(scalar_type)
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    fs_ids = tuple(_get_function_space_id(arg.ufl_function_space()) for arg in arguments)
 
     if diagonal:
         if len(arguments) != 2:
             raise ValueError("Diagonal only for 2-forms")
         try:
             element, = set(elements)
-            fs_id, = set(fs_ids)
         except ValueError:
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
         elements = (element,)
-        fs_ids = (fs_id,)
 
     if len(arguments) == 1 or diagonal:
         finat_element, = elements
-        fs_id, = fs_ids
-        return kernel_args.VectorOutputKernelArg(finat_element, fs_id, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
+        return kernel_args.VectorOutputKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
         rfinat_element, cfinat_element = elements
-        rfs_id, cfs_id = fs_ids
         return kernel_args.MatrixOutputKernelArg(
-            rfinat_element, cfinat_element, rfs_id, cfs_id, scalar_type,
+            rfinat_element, cfinat_element, scalar_type,
             interior_facet=interior_facet
         )
     else:
         raise AssertionError
-
-
-def _get_function_space_id(func_space):
-    # We need to kill any tensor structure here
-    elem = func_space.ufl_element()
-    if isinstance(elem, (ufl.VectorElement, ufl.TensorElement)):
-        elem = elem._sub_element
-
-    # Here we copy func_space._ufl_hash_data_ but with new element
-    return (func_space.ufl_domain()._ufl_hash_data_(), elem._ufl_hash_data_())

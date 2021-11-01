@@ -99,9 +99,8 @@ class CoordinatesKernelArg(RankOneKernelArg):
     name = "coords"
     intent = Intent.IN
 
-    def __init__(self, elem, fs_id, dtype, interior_facet=False):
+    def __init__(self, elem, dtype, interior_facet=False):
         self._elem = _ElementHandler(elem)
-        self._fs_id = fs_id
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -122,10 +121,6 @@ class CoordinatesKernelArg(RankOneKernelArg):
     def loopy_arg(self):
         shape = np.prod([self.node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
-
-    @property
-    def function_space_id(self):
-        return self._fs_id
 
 
 class ConstantKernelArg(RankZeroKernelArg):
@@ -158,10 +153,9 @@ class ConstantKernelArg(RankZeroKernelArg):
 
 class CoefficientKernelArg(RankOneKernelArg):
 
-    def __init__(self, name, elem, fs_id, dtype, *, interior_facet=False):
+    def __init__(self, name, elem, dtype, *, interior_facet=False):
         self._name = name
         self._elem = _ElementHandler(elem)
-        self._fs_id = fs_id
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -191,10 +185,6 @@ class CoefficientKernelArg(RankOneKernelArg):
         shape = np.prod([self.node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
-    @property
-    def function_space_id(self):
-        return self._fs_id
-
 
 class CellOrientationsKernelArg(RankOneKernelArg):
 
@@ -222,9 +212,8 @@ class CellSizesKernelArg(RankOneKernelArg):
     name = "cell_sizes"
     intent = Intent.IN
 
-    def __init__(self, elem, fs_id, dtype, *, interior_facet=False):
+    def __init__(self, elem, dtype, *, interior_facet=False):
         self._elem = _ElementHandler(elem)
-        self._fs_id = fs_id
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -245,10 +234,6 @@ class CellSizesKernelArg(RankOneKernelArg):
     def loopy_arg(self):
         shape = np.prod([self.node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
-
-    @property
-    def function_space_id(self):
-        return self._fs_id
 
 
 class FacetKernelArg(RankOneKernelArg, abc.ABC):
@@ -321,10 +306,9 @@ class ScalarOutputKernelArg(RankZeroKernelArg, OutputKernelArg):
 class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
     def __init__(
-        self, elem, fs_id, dtype, *, interior_facet=False, diagonal=False
+        self, elem, dtype, *, interior_facet=False, diagonal=False
     ):
         self._elem = _ElementHandler(elem)
-        self._fs_id = fs_id
         self._dtype = dtype
 
         self._interior_facet = interior_facet
@@ -347,10 +331,6 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
     def loopy_arg(self):
         shape = np.prod([self.node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
-
-    @property
-    def function_space_id(self):
-        return self._fs_id
 
     # TODO Function please
     def make_gem_exprs(self, multiindices):
@@ -380,11 +360,9 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
 class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
-    def __init__(self, relem, celem, rfs_id, cfs_id, dtype, *, interior_facet=False):
+    def __init__(self, relem, celem, dtype, *, interior_facet=False):
         self._relem = _ElementHandler(relem)
         self._celem = _ElementHandler(celem)
-        self._rfs_id = rfs_id
-        self._cfs_id = cfs_id
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -415,14 +393,6 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
     def cnode_shape(self):
         shape = self._celem.node_shape
         return 2*shape if self._interior_facet else shape
-
-    @property
-    def rfunction_space_id(self):
-        return self._rfs_id
-
-    @property
-    def cfunction_space_id(self):
-        return self._cfs_id
 
     def make_gem_exprs(self, multiindices):
         u_shape = np.array([np.prod(elem._elem.index_shape, dtype=int)
