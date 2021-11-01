@@ -27,8 +27,11 @@ def optimise(expression, parameters):
 
     Returns: An optimised Slate expression
     """
-    # 1) Block optimisation
+    # 0) Block optimisation
     expression = push_block(expression)
+
+    # 1) DiagonalTensor optimisation
+    expression = push_diag(expression)
 
     # 2) Multiplication optimisation
     if expression.rank < 2:
@@ -111,6 +114,66 @@ def _push_block_block(expr, self, indices):
     indices = expr._indices if not indices else reindexed
     block, = map(self, expr.children, repeat(indices))
     return block
+
+
+def push_diag(expression):
+    """Executes a Slate compiler optimisation pass.
+    The optimisation is achieved by pushing DiagonalTensor from the outside to the inside of an expression.
+
+    :arg expression: A (potentially unoptimised) Slate expression.
+
+    Returns: An optimised Slate expression, where DiagonalTensors are sitting
+    on terminal tensors whereever possible.
+    """
+    mapper = MemoizerArg(_push_diag)
+    return mapper(expression, False)
+
+
+@singledispatch
+def _push_diag(expr, self, diag):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_push_diag.register(Transpose)
+@_push_diag.register(Add)
+@_push_diag.register(Negative)
+def _push_diag_distributive(expr, self, diag):
+    """Distributes the DiagonalTensors into these nodes"""
+    return type(expr)(*map(self, expr.children, repeat(diag)))
+
+
+@_push_diag.register(Factorization)
+@_push_diag.register(Inverse)
+@_push_diag.register(Solve)
+@_push_diag.register(Mul)
+@_push_diag.register(Tensor)
+def _push_diag_stop(expr, self, diag):
+    """Diagonal Tensors cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(False))) if not expr.terminal else expr
+    return DiagonalTensor(expr) if diag else expr
+
+
+@_push_diag.register(Block)
+def _push_diag_block(expr, self, diag):
+    """Diagonal Tensors cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(False)), expr._indices) if not expr.terminal else expr
+    return DiagonalTensor(expr) if diag else expr
+
+
+@_push_diag.register(AssembledVector)
+@_push_diag.register(Reciprocal)
+def _push_diag_vectors(expr, self, diag):
+    """DiagonalTensors should not be pushed onto rank-1 tensors."""
+    if diag:
+        raise AssertionError("It is not legal to define DiagonalTensors on rank-1 tensors.")
+    else:
+        return expr
+
+
+@_push_diag.register(DiagonalTensor)
+def _push_diag_diag(expr, self, diag):
+    """DiagonalTensors are either pushed down or ignored when wrapped into another DiagonalTensor."""
+    return self(*expr.children, not diag)
 
 
 def push_mul(tensor, options):
