@@ -802,7 +802,7 @@ class LocalLoopyKernelBuilder(object):
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
         name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
-        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 0.00000000001)
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-18)
         shape = expr.shape
         corner_case = self.generate_code_for_converged_pre_iteration()
 
@@ -828,7 +828,7 @@ class LocalLoopyKernelBuilder(object):
                         {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> projector_is_zero = abs(p_on_Ap) < 0.00000000000000001 {{id=zeroproj, dep=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 1.e-18 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
