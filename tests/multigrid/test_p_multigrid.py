@@ -44,7 +44,7 @@ def test_prolongation_matrix_matfree():
         fs = [Q, DQ, RT]
         us = [Function(V) for V in fs]
         us[0].interpolate(expr)
-        order = [0, 1, 2, 0, 2, 1]
+        order = [0, 1, 2, 0, 2, 1, 0]
         for k in range(len(order)-1):
             u = us[order[k]]
             v = us[order[k+1]]

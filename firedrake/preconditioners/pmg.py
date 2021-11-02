@@ -574,16 +574,18 @@ def get_permuted_map(V):
     if use_tensorproduct and sub_families < {"RTCF", "NCF"}:
         pshape = [N]*ndim
         pshape[0] = -1
+        shift = 1
     elif use_tensorproduct and sub_families < {"RTCE", "NCE"}:
         pshape = [N+1]*ndim
         pshape[0] = -1
+        shift = 0
     else:
         return V.cell_node_map()
 
     ncomp, = V.finat_element.value_shape
     permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), (ncomp, -1))
     for k in range(ncomp):
-        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(1+k+numpy.arange(ncomp)) % ncomp), (-1,))
+        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(numpy.arange(ncomp)+((2*shift-1)*k+shift)) % ncomp), (-1,))
     permutation = numpy.reshape(permutation, (-1,))
     return PermutedMap(V.cell_node_map(), permutation)
 
@@ -826,10 +828,15 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
         ndof = numpy.prod(vshape)
         permutation = numpy.arange(ndof)
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
+        shift = int(sobolev == firedrake.HDiv)
+
         # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(permutation, pshape)
         for k in range(permutation.shape[-1]):
-            permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-k-1) % ndim)
+            permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-((2*shift-1)*k+shift)) % ndim)
+
+        if sobolev == firedrake.HCurl:
+            permutation = numpy.flip(permutation, axis=-1)
 
         permutation = numpy.reshape(permutation, (-1,))
         perm = ", ".join(map(str, permutation))
@@ -930,8 +937,11 @@ class StandaloneInterpolationMatrix(object):
         Vc_bsize = Vc.value_size
         Vf_sdim = Vf.finat_element.space_dimension()
         Vc_sdim = Vc.finat_element.space_dimension()
-        Vf_mapping = Vf.ufl_element().mapping().lower()
-        Vc_mapping = Vc.ufl_element().mapping().lower()
+
+        felem = Vf.ufl_element()
+        celem = Vc.ufl_element()
+        Vf_mapping = felem.mapping().lower()
+        Vc_mapping = celem.mapping().lower()
 
         fine_is_ordered = False
         coefficients = []
@@ -942,14 +952,12 @@ class StandaloneInterpolationMatrix(object):
             operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
             lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         else:
-            felem = Vf.ufl_element()
-            celem = Vc.ufl_element()
-            fshape = (Vf_bsize, Vf_sdim)
 
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
             if Vf_mapping == "identity":
+                fshape = (Vf_bsize, Vf_sdim)
                 # interpolate to fine space
                 decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
                 # permute to firedrake ordering and apply the mapping
