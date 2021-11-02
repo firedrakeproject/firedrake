@@ -26,6 +26,7 @@ def test_reconstruct_degree():
             assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+@pytest.mark.skipcomplex
 def test_prolongation_matrix_matfree():
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
