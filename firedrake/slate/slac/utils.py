@@ -25,36 +25,6 @@ from loopy.symbolic import SubArrayRef
 
 # FIXME Move all slac loopy in separate file
 
-def visualise(dag, how = None):
-    """
-        Visualises a slate dag. Can for example used to show the original expression
-        vs the optimised slate expression.
-
-        :arg: a dag with nodes that have shape information
-    """
-    import tsensor
-    from collections import OrderedDict
-
-    # Add tensors as locals to this frame.
-    # It's how tsensor acesses shape information and so forth
-    from firedrake.slate.slac.utils import traverse_dags
-    tensors = OrderedDict()
-    for node in traverse_dags([dag]):
-        tensors[str(node)] = node
-    locals().update(tensors)
-    
-
-    code = str(dag)
-    # plot expr
-    if how == "tree":
-        g = tsensor.astviz(code)
-        g.view()
-    else:
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(1,1)
-        tsensor.pyviz(code, ax=ax)
-        plt.show()
-
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
