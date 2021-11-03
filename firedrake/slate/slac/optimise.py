@@ -80,9 +80,11 @@ def _push_block_distributive(expr, self, indices):
 
 @_push_block.register(TensorShell)
 def _push_block_shell(expr, self, indices):
-    """Distributes Blocks for these nodes"""
+    """Distributes Blocks into TensorShell node"""
     child, = expr.children
-    return (self(child, indices)) if child.terminal else type(expr)(self(child, indices))
+    # Drop TensorShell nodes if the child is terminal
+    # maybe we don't ever get into that state, should be asserted earlier
+    return self(child, indices) if child.terminal else type(expr)(self(child, indices))
 
 
 @_push_block.register(Action)

@@ -1298,6 +1298,7 @@ class TensorShell(UnaryOp):
 
     :arg A: A non-terminal Slate expression
     """
+    terminal = True
 
     def __init__(self, A):
         super(TensorShell, self).__init__()
