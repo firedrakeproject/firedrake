@@ -1280,7 +1280,7 @@ class Action(BinaryOp):
         # Keep track of the (potentially new) coefficient and replace
         # one of the arguments in the form corresponding to the tensor A
         # with the coefficient
-        assert tensor.terminal, "It's only possible to action onto terminal tensors."
+        assert self.tensor.terminal, "It's only possible to action onto terminal tensors."
         self.ufl_coefficient = coeff
         return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
