@@ -6,10 +6,10 @@ from collections import namedtuple
 from firedrake.ufl_expr import adjoint
 
 """ ActionBag class
-:arg coeff:     what we contract with.
-:arg pick_op:   decides which argument in Tensor is exchanged against the coefficient
+:arg coeff:     This is the object b in Action(A, b).
+:arg pick_op:   Pick_op decides which argument in Tensor is exchanged against the coefficient
                 and also in which operand the action has to be pushed,
-                basically determins if we pre or postmultiply
+                it basically determines if we pre or post"multiply".
 """
 ActionBag = namedtuple("ActionBag", ["coeff", "pick_op"])
 
@@ -395,8 +395,8 @@ def _push_mul_solve(expr, self, state):
         """
         mat = Transpose(expr.children[state.pick_op])
         rhs = expr.children[flip(state.pick_op)]
-        Aonx = make_action(expr, state.pick_op, self.action)
-        Aonp = make_action(expr, state.pick_op, self.action)
+        Aonx = make_action(expr.children[state.pick_op], state.pick_op, self.action)
+        Aonp = make_action(expr.children[state.pick_op], state.pick_op, self.action)
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
@@ -411,8 +411,8 @@ def _push_mul_solve(expr, self, state):
                 We always push into the right hand side of the solve.
         """
         mat, rhs = expr.children
-        Aonx = make_action(expr, state.pick_op, self.action)
-        Aonp = make_action(expr, state.pick_op, self.action)
+        Aonx = make_action(mat, state.pick_op, self.action)
+        Aonp = make_action(mat, state.pick_op, self.action)
         return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp)
 
 
