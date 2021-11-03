@@ -1196,14 +1196,17 @@ class Mul(BinaryOp):
         return self._args
 
 class Action(BinaryOp):
-    """Abstract Slate class representing the interior product or two tensors,
+    """Slate class representing the interior product of two tensors,
     where the second tensor has one dimesion less than the first tensor.
-    This includes an action of Matrix on a Vector. The difference
-    to a product is that the higher dimensional tensor is never stored in a
-    temporary."
+    This includes an action of a Matrix on a Vector. The difference
+    to a :class:firedrake.slate.slate.Mul is that the higher dimensional
+    tensor is never stored in a temporary."
 
     :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg b: another :class:`TensorBase` object.
+    :arg pick_op: an integer argument that specifies the order of A and b
+                  if pick_op is 0 b is actioned onto A
+                  if pick_op is 1 A is actioned onto b
     """
 
     def __init__(self, A, b, pick_op):
@@ -1214,7 +1217,6 @@ class Action(BinaryOp):
 
         fsA = A.arg_function_spaces[-pick_op]
         fsB = b.arg_function_spaces[0]
-
         assert space_equivalence(fsA, fsB), (
             "Cannot perform argument contraction over middle indices. "
             "They must be in the same function space."
@@ -1224,13 +1226,16 @@ class Action(BinaryOp):
 
         # Function space check above ensures that middle arguments can
         # be 'eliminated'.
-        if pick_op == 0:
-            self._args = A.arguments()[1:] + b.arguments()[1:]
-        else:
-            self._args = A.arguments()[:-1] + b.arguments()[1:]
+        self._args = (A.arguments()[1:] + b.arguments()[1:] 
+                      if pick_op == 0 else A.arguments()[:-1] + b.arguments()[1:])
+        
         self.pick_op = pick_op
         self.tensor = A
+        # Not that b does not need to be an AssembledVector
+        assert b.rank == A.rank-1, "In Action(A, b) b needs to have a lower rank than A." 
         self.coeff = b
+        # This is the ufl coefficient that is used a replacement
+        # for an arg in the ufl form corresponding to A
         self.ufl_coefficient = None
 
     @cached_property
@@ -1246,7 +1251,7 @@ class Action(BinaryOp):
 
     def _output_string(self, prec):
         """Returns a string representation."""
-        return "(%s * (%s))" % self.operands
+        return "Action(%s, %s)" % self.operands
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
@@ -1255,29 +1260,29 @@ class Action(BinaryOp):
         return self._args
 
     def action(self):
-        if isinstance(self.tensor, Factorization):
-            self.tensor, = self.tensor.children
         import ufl.algorithms as ufl_alg
 
-        # Pick first or last argument (will be replaced)
+        # Pick which argument will be replaced,
+        # the first or last argument
         arguments = self.tensor.arguments()
         u = arguments[self.pick_op]
+
+        # The tensor we action does not necessarily need to be an AssembledVector
+        # it could be antoher Action or a matrix-free Solve
         if hasattr(self.coeff, "_function"):
+            # If B is an AssembledVector just use its corresponding Coefficient
             coeff = self.coeff._function
         else:
+            # If B is an Action or a matrix-free Solve generate a Coefficient for it
+            # which is then used to the "placeholder coefficient" within the ufl form
+            # corresponding to the tensor A
             cfs, = self.coeff.arguments()
             coeff = Coefficient(cfs.ufl_function_space())
-        self.ufl_coefficient = coeff
-        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
-    def update_action(self):
-        import ufl.algorithms as ufl_alg
-
-        # Pick first or last argument (will be replaced)
-        arguments = self.tensor.arguments()
-        u = arguments[self.pick_op]
-        cfs, = self.coeff.arguments()
-        coeff = Coefficient(cfs.ufl_function_space())
+        # Keep track of the (potentially new) coefficient and replace
+        # one of the arguments in the form corresponding to the tensor A
+        # with the coefficient
+        assert tensor.terminal, "It's only possible to action onto terminal tensors."
         self.ufl_coefficient = coeff
         return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
 
