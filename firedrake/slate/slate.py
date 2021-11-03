@@ -1301,6 +1301,7 @@ class TensorShell(TensorBase):
 
     def __init__(self, A):
         super(TensorShell, self).__init__()
+        assert not A.terminal, "Terminal Slate tensors can be handled without a TensorShell node wrapped around."
         self.operands = (A,)
 
     @cached_property
