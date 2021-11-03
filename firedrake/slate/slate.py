@@ -1291,7 +1291,7 @@ class Action(BinaryOp):
         return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
 
 
-class TensorShell(TensorBase):
+class TensorShell(UnaryOp):
     """A representation of a tensor expression which is never explicitly locally assembled.
     TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
     translation to a backend. This class wraps the relevant information of the associated expression.
@@ -1321,16 +1321,18 @@ class TensorShell(TensorBase):
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
         operation is performed."""
+        tensor, = self.operands
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
             par = lambda x: "(%s)" % x
 
-        return par("{{%s} -> {}}" % self.tensor._output_string(prec=self.prec))
+        return par("{{%s} -> {}}" % tensor._output_string(prec=self.prec))
 
     def __repr__(self):
         """Slate representation of the tensor object."""
-        return "TensorShell(%r)" % self.tensor
+        tensor, = self.operands
+        return "TensorShell(%r)" % tensor
 
 
 class Solve(BinaryOp):
