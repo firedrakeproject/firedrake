@@ -229,23 +229,24 @@ def _slate2gem_reciprocal(expr, self):
 
 @_slate2gem.register(sl.Action)
 def _slate2gem_action(expr, self):
-    name = f"A{len(self.var2terminal)}"
     assert expr not in self.var2terminal.values()
-    var = Action(*map(self, expr.children), name, expr.pick_op)
+    children = list(map(self, expr.children))
+    name = f"A{len(self.var2terminal)}"
+    var = Action(*children, name, expr.pick_op)
     self.var2terminal[var] = expr
     return var
 
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    if expr.is_matfree():
+    if expr.matfree:
         name = f"S{len(self.var2terminal)}"
         assert expr not in self.var2terminal.values()
         self.var2terminal[name] = expr
-        var = Solve(*map(self, expr.children), name, expr.is_matfree(), self(expr._Aonx), self(expr._Aonp))
+        var = Solve(*map(self, expr.children), name, expr.matfree, self(expr.Aonx), self(expr.Aonp))
         self.var2terminal[var] = expr
         # FIXME something is happening to the solve action node hash
         # so that gem node cannot be found in var2terminal even though it is there
-        # so we save solve node by name for now
+        # so we save solve node by name for now (there is a corresponding FIXME in the merger)
         return var
     else:
         return Solve(*map(self, expr.children))
