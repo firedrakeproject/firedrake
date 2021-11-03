@@ -39,20 +39,18 @@ def test_prolongation_matrix_matfree():
         mat = diag(Constant([ndim+1]*ndim)) + Constant([[-1]*ndim]*ndim)
         expr = dot(mat, SpatialCoordinate(mesh)) + b
 
-        Q = VectorFunctionSpace(mesh, "Q", 4)
-        DQ = VectorFunctionSpace(mesh, "DQ", 3)
-        RT = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", 2)
-        fs = [Q, DQ, RT]
+        Q = VectorFunctionSpace(mesh, "Q", 3)
+        RTCF = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", 2)
+        RTCE = FunctionSpace(mesh, "NCE" if ndim == 3 else "RTCE", 2)
+        fs = [Q, RTCF, RTCE]
         us = [Function(V) for V in fs]
         us[0].interpolate(expr)
-        order = [0, 1, 2, 0, 2, 1, 0]
-        for k in range(len(order)-1):
-            u = us[order[k]]
-            v = us[order[k+1]]
-            P = prolongation_matrix_matfree(v, u).getPythonContext()
-            P._prolong()
-            error = norm(v-expr, "L2")
-            assert error < tol
+        for u in us:
+            for v in us:
+                if u != v:
+                    P = prolongation_matrix_matfree(v, u).getPythonContext()
+                    P._prolong()
+                    assert norm(v-expr, "L2") < tol
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")

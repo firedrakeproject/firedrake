@@ -582,8 +582,9 @@ def get_permuted_map(V):
     else:
         return V.cell_node_map()
 
-    ncomp, = V.finat_element.value_shape
-    permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), (ncomp, -1))
+    ncomp = V.ufl_element().value_size()
+    ndof = V.value_size * V.finat_element.space_dimension()
+    permutation = numpy.reshape(numpy.arange(ndof), (ncomp, -1))
     for k in range(ncomp):
         permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(numpy.arange(ncomp)+((2*shift-1)*k+shift)) % ncomp), (-1,))
     permutation = numpy.reshape(permutation, (-1,))
@@ -658,8 +659,8 @@ kronmxv_code = """
 static void kronmxv(int tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
-    PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
-    PetscScalar  *x , PetscScalar *y){
+    PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
+    PetscScalar *x , PetscScalar *y){
 
 /*
 Kronecker matrix-vector product
@@ -897,8 +898,7 @@ class StandaloneInterpolationMatrix(object):
 
         tf, _, _, _, _ = tensor_product_space_query(Vf)
         tc, _, _, _, _ = tensor_product_space_query(Vc)
-
-        if (tf and tc):
+        if tf and tc:
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
@@ -915,14 +915,11 @@ class StandaloneInterpolationMatrix(object):
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
                          self.weight.dat(op2.READ, uf_map)]
-
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-
         self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
 
     @staticmethod
-    @lru_cache(maxsize=20)
     def make_blas_kernels(Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
@@ -952,21 +949,20 @@ class StandaloneInterpolationMatrix(object):
             operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
             lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         else:
-
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
             if Vf_mapping == "identity":
-                fshape = (Vf_bsize, Vf_sdim)
+                qshape = (Vf_bsize, Vf_sdim)
                 # interpolate to fine space
                 decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
                 # permute to firedrake ordering and apply the mapping
-                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, fshape, shapes[1], "t0", "t1", "perm0")
+                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
                 coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
                 lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
                 fine_is_ordered = True
             else:
-                # interpolate to a higher degree element with identity mapping
+                # interpolate to an embedding element with collocated vector component DOFs
                 qdegree = PMGBase.max_degree(felem)
                 Qe = TensorElement("DQ", felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
@@ -974,7 +970,7 @@ class StandaloneInterpolationMatrix(object):
 
                 decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
                 # permute to firedrake ordering and apply the mapping
-                decl[1], restrict[1], prolong[1] = make_permutation_code(Qe, qshape, shapes[1], "t0", "t1", "perm0")
+                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
                 coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
 
                 # permute to tensor-friendly ordering and interpolate to fine space
@@ -986,14 +982,14 @@ class StandaloneInterpolationMatrix(object):
             prolong_code = "".join(prolong)
             restrict_code = "".join(reversed(restrict))
 
-        # Firedrake elements order the component DoFs related to the same node contiguously.
+        # Firedrake elements order the component DOFs related to the same node contiguously.
         # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        if (Vc_bsize == 1):
+        if Vc_bsize == 1:
             coarse_read = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) t0[i] = x[i];"""
             coarse_write = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) x[i] += t0[i];"""
         else:
@@ -1021,7 +1017,6 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{Vf_bsize}; i++)
                    y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
             """
-
         kernel_code = f"""
         {mapping_code}
 
