@@ -1292,18 +1292,15 @@ class Action(BinaryOp):
 
 
 class TensorShell(TensorBase):
-    """A representation of tensorial expressions which are never explicitly locally assembled.
+    """A representation of a tensor expression which is never explicitly locally assembled.
     TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
     translation to a backend. This class wraps the relevant information of the associated expression.
 
-    :arg A: An optimised (*), non-terminal Slate expression, i.e. and object of type TensorOp
-            (*) optimised = The Slate expression only contains up to rank-1 Tensors
+    :arg A: A non-terminal Slate expression
     """
-
 
     def __init__(self, A):
         super(TensorShell, self).__init__()
-        self.tensor = A
         self.operands = (A,)
 
     @cached_property
@@ -1311,13 +1308,15 @@ class TensorShell(TensorBase):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        return self.tensor.arg_function_spaces
+        tensor, = self.operands
+        return tensor.arg_function_spaces
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.tensor.arguments()
+        tensor, = self.operands
+        return tensor.arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -1329,28 +1328,6 @@ class TensorShell(TensorBase):
             par = lambda x: "(%s)" % x
 
         return par("{{%s} -> {}}" % self.tensor._output_string(prec=self.prec))
-
-    @cached_property
-    def shape(self):
-        return self.tensor.shape
-    
-    def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
-        return self.tensor.coefficients()
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        return self.tensor.ufl_domains()
-
-    def subdomain_data(self):
-        return self.tensor.subdomain_data()
-    
-    @cached_property
-    def _key(self):
-        """Returns a key for hash and equality."""
-        return (type(self), self.tensor)
 
     def __repr__(self):
         """Slate representation of the tensor object."""
