@@ -1314,15 +1314,13 @@ class TensorShell(TensorBase):
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor.
-        """
+        performing a specific unary operation on a tensor."""
         tensor, = self.operands
         return tensor.arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
+        operation is performed."""
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -1338,7 +1336,9 @@ class TensorShell(TensorBase):
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
     This object is a direct solver, utilizing the application of the inverse
-    of matrix in a decomposed form.
+    of matrix in a decomposed form, if it is not used in its matrix-form.
+    In the matrix-free case the object is an iterative solver, where
+    currently only conjugate gradient is available.
 
     :arg A: The left-hand side operator.
     :arg B: The right-hand side.
@@ -1348,7 +1348,7 @@ class Solve(BinaryOp):
     :arg matfree: True when the local solve operates matrix-free.
     """
 
-    def __new__(cls, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
+    def __new__(cls, A, B, decomposition=None, **kwargs):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
@@ -1368,79 +1368,77 @@ class Solve(BinaryOp):
         # For matrices smaller than 5x5, exact formulae can be used
         # to evaluate the inverse. Otherwise, this class will trigger
         # a factorization method in the code-generation.
-        # if A.shape < (5, 5):
-        #     return A.inv * B
+        if A.shape < (5, 5) and not ("matfree" in kwargs.keys() and kwargs["matfree"]):
+            return A.inv * B
 
         return super().__new__(cls)
 
-    def __init__(self, A, B, decomposition=None, matfree=False, Aonx=None, Aonp=None):
+    def __init__(self, A, B, decomposition=None, **kwargs):
         """Constructor for the Solve class."""
 
         # LU with partial pivoting is a stable default.
         decomposition = decomposition or "PartialPivLU"
+
+        # Get matrix-free specific information from kwargs
+        self.matfree= False
+        self.Aonx = None
+        self.Aonp = None
+        for key, value in kwargs.items():
+            self[key] = value
 
         # If we have a matfree solve on a transposed Tensor
         # we need to drop the Transpose
         # because otherwise it will generate a matrix temporary
         # instead we change which argument of the tensor will be replaced
         # within the actions used in the matrix-free solve kernel
-        if isinstance(A, Transpose) and matfree:
+        if isinstance(A, Transpose) and self.matfree:
             A, = A.children
             pick_op = 0
         else:
             pick_op = 1
 
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal and not matfree else A
+        A_factored = (Factorization(A, decomposition=decomposition)
+                     if not A.diagonal and not self.matfree else A)
 
         super(Solve, self).__init__(A_factored, B)
 
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
-        self._matfree = matfree
 
-        if matfree:
+        if self.matfree:
             # keep track of the actions, which we need for the local matrixfree solve
-            if Aonx:
-                self._Aonx = Aonx
-            else:
+            if not self.Aonx:
                 arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
-                self._Aonx = Action(A, arbitrary_coeff_x, pick_op)
-            if Aonp:
-                self._Aonp = Aonp
-            else:
+                self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
+            if not self.Aonp:
                 arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
-                self._Aonp = Action(A, arbitrary_coeff_p, pick_op)
+                self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
             # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
-        is defined on.
-        """
+        is defined on."""
         return tuple(self._arg_fs)
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
-        from applying the inverse of A onto B.
-        """
+        from applying the inverse of A onto B."""
         return self._args
-
-    def is_matfree(self):
-        return self._matfree
 
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        op1, op2 = self.operands
-        if self._matfree:
-            return (type(self), op1, op2, self._matfree, self._Aonx, self._Aonp)
+        if self.matfree:
+            return (type(self), *self.operands, self.matfree, self.Aonx, self.Aonp)
         else:
-            return (type(self), op1, op2, self._matfree)
+            return (type(self), *self.operands, self.matfree)
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
-        return "(%s).solve(%s)" % self.operands
+        return ("(%s).matf_solve(%s)" % self.operands
+                if self.matfree else "(%s).solve(%s)" % self.operands)
 
 
 class Diagonal(UnaryOp):
