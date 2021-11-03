@@ -278,6 +278,45 @@ class TestMixedIndirectLoop:
         assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0
 
 
+def test_permuted_map():
+    fromset = op2.Set(1)
+    toset = op2.Set(4)
+    d1 = op2.Dat(op2.DataSet(toset, 1), dtype=np.int32)
+    d2 = op2.Dat(op2.DataSet(toset, 1), dtype=np.int32)
+    d1.data[:] = np.arange(4, dtype=np.int32)
+    k = op2.Kernel("""
+    void copy(int *to, const int * restrict from) {
+        for (int i = 0; i < 4; i++) { to[i] = from[i]; }
+    }""", "copy")
+    m1 = op2.Map(fromset, toset, 4, values=[1, 2, 3, 0])
+    m2 = op2.PermutedMap(m1, [3, 2, 0, 1])
+    op2.par_loop(k, fromset, d2(op2.WRITE, m2), d1(op2.READ, m1))
+    expect = np.empty_like(d1.data)
+    expect[m1.values[..., m2.permutation]] = d1.data[m1.values]
+    assert (d1.data == np.arange(4, dtype=np.int32)).all()
+    assert (d2.data == expect).all()
+
+
+def test_permuted_map_both():
+    fromset = op2.Set(1)
+    toset = op2.Set(4)
+    d1 = op2.Dat(op2.DataSet(toset, 1), dtype=np.int32)
+    d2 = op2.Dat(op2.DataSet(toset, 1), dtype=np.int32)
+    d1.data[:] = np.arange(4, dtype=np.int32)
+    k = op2.Kernel("""
+    void copy(int *to, const int * restrict from) {
+        for (int i = 0; i < 4; i++) { to[i] = from[i]; }
+    }""", "copy")
+    m1 = op2.Map(fromset, toset, 4, values=[0, 2, 1, 3])
+    m2 = op2.PermutedMap(m1, [3, 2, 1, 0])
+    m3 = op2.PermutedMap(m1, [0, 2, 3, 1])
+    op2.par_loop(k, fromset, d2(op2.WRITE, m2), d1(op2.READ, m3))
+    expect = np.empty_like(d1.data)
+    expect[m1.values[..., m2.permutation]] = d1.data[m1.values[..., m3.permutation]]
+    assert (d1.data == np.arange(4, dtype=np.int32)).all()
+    assert (d2.data == expect).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
