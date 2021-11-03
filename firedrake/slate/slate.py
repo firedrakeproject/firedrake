@@ -255,7 +255,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def T(self):
         return Transpose(self)
 
-    def solve(self, B, decomposition=None, matfree=False):
+    def solve(self, B, **kwargs):
         """Solve a system of equations with
         a specified right-hand side.
 
@@ -268,7 +268,7 @@ class TensorBase(object, metaclass=ABCMeta):
             available matrix decompositions are outlined in
             :class:`Factorization`.
         """
-        return Solve(self, B, decomposition=decomposition, matfree=matfree)
+        return Solve(self, B, **kwargs)
 
     @cached_property
     def blocks(self):
@@ -1348,7 +1348,7 @@ class Solve(BinaryOp):
     :arg matfree: True when the local solve operates matrix-free.
     """
 
-    def __new__(cls, A, B, decomposition=None, **kwargs):
+    def __new__(cls, A, B, **kwargs):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
@@ -1373,18 +1373,16 @@ class Solve(BinaryOp):
 
         return super().__new__(cls)
 
-    def __init__(self, A, B, decomposition=None, **kwargs):
+    def __init__(self, A, B, **kwargs):
         """Constructor for the Solve class."""
 
-        # LU with partial pivoting is a stable default.
-        decomposition = decomposition or "PartialPivLU"
-
-        # Get matrix-free specific information from kwargs
+        # Get matrix-free specific and decomposition information from kwargs
         self.matfree= False
         self.Aonx = None
         self.Aonp = None
+        self.decomposition = "PartialPivLU"
         for key, value in kwargs.items():
-            self[key] = value
+            setattr(self, key, value)
 
         # If we have a matfree solve on a transposed Tensor
         # we need to drop the Transpose
@@ -1397,8 +1395,12 @@ class Solve(BinaryOp):
         else:
             pick_op = 1
 
+        # wrap tensor into a shell when its not terminal
+        if self.matfree and not A.terminal and not isinstance(A, TensorShell):
+            A = TensorShell(A)
+
         # Create a matrix factorization
-        A_factored = (Factorization(A, decomposition=decomposition)
+        A_factored = (Factorization(A, decomposition=self.decomposition)
                      if not A.diagonal and not self.matfree else A)
 
         super(Solve, self).__init__(A_factored, B)
