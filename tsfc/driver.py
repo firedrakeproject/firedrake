@@ -57,7 +57,8 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     for integral_data in fd.integral_data:
         start = time.time()
         kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, coffee=coffee, diagonal=diagonal)
-        kernels.append(kernel)
+        if kernel is not None:
+            kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
 
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
