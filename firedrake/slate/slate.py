@@ -1241,13 +1241,12 @@ class Action(BinaryOp):
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
-        is defined on.
-        """
+        is defined on."""
         A, B = self.operands
-        if self.pick_op == 1:
-            return A.arg_function_spaces[:-1] + B.arg_function_spaces[1:]
-        else:
-            return A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
+        return (A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
+                if self.pick_op == 0
+                else A.arg_function_spaces[:-1] + B.arg_function_spaces[1:])
+
 
     def _output_string(self, prec):
         """Returns a string representation."""
@@ -1255,8 +1254,7 @@ class Action(BinaryOp):
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
-        from multiplying two tensors A and B.
-        """
+        from multiplying two tensors A and B."""
         return self._args
 
     def action(self):
