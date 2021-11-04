@@ -247,25 +247,31 @@ def _slate2gem_solve(expr, self):
 def _slate2gem_transpose(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
+    var = ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Negative)
 def _slate2gem_negative(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Product(Literal(-1),
-                           Indexed(child, indices)),
-                           indices)
+    var = ComponentTensor(Product(Literal(-1),
+                          Indexed(child, indices)),
+                          indices)
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Add)
 def _slate2gem_add(expr, self):
     A, B = map(self, expr.children)
     indices = tuple(make_indices(len(A.shape)))
-    return ComponentTensor(Sum(Indexed(A, indices),
-                           Indexed(B, indices)),
-                           indices)
+    var = ComponentTensor(Sum(Indexed(A, indices),
+                          Indexed(B, indices)),
+                          indices)
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Mul)
@@ -275,7 +281,9 @@ def _slate2gem_mul(expr, self):
     _, *j = tuple(make_indices(len(B.shape)))
     ABikj = Product(Indexed(A, tuple(i + [k])),
                     Indexed(B, tuple([k] + j)))
-    return ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+    var = ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Factorization)
@@ -287,8 +295,12 @@ def _slate2gem_factorization(expr, self):
 def slate2gem(expression, options):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
+    mapper.gem2slate = OrderedDict()
     mapper.matfree = options["replace_mul"]
-    return mapper(expression), mapper.var2terminal
+    m = mapper(expression)
+    # WIP actually make use of the fact that we do have two different dicts now
+    mapper.var2terminal.update(mapper.gem2slate)
+    return m, mapper.var2terminal
 
 
 def depth_first_search(graph, node, visited, schedule):
