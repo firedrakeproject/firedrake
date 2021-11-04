@@ -286,9 +286,9 @@ def base_form_operands(expr):
     if isinstance(expr, ufl.Action):
         return [expr.left(), expr.right()]
     if isinstance(expr, ufl.Form):
-        return expr.external_operators()
+        return list(reversed(expr.external_operators()))
     if isinstance(expr, ufl.ExternalOperator):
-        return list(e for e in expr.external_operators() if e is not expr)
+        return list(e for e in reversed(expr.external_operators()) if e is not expr)
         # TODO: At the moment assemble nothing instead of only assembling BaseForm
         # return tuple(expr.ufl_operands() + expr.argument_slots())
     return []
@@ -338,7 +338,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type, form_
 
         if args and mat_type != "matfree":
             # Retrieve the Form's children
-            external_operators = expr.external_operators()
+            external_operators = list(reversed(expr.external_operators()))
             # Substitute the external operators by their output
             expr = ufl.replace(expr, dict(zip(external_operators, args)))
 
