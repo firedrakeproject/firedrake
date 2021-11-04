@@ -22,6 +22,7 @@ from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 import loopy as lp
 import pymbolic.primitives as pym
 from loopy.symbolic import SubArrayRef
+from firedrake.slate.slac.optimise import optimise
 
 # FIXME Move all slac loopy in separate file
 
@@ -426,12 +427,11 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
     insns = []
     tensor2temps = tensor2temp
     knl_list = {}
     gem2pym = ctx_g2l.gem_to_pymbolic
-    print(slate_loopy)
 
     # Keeping track off all coefficients upfront
     # saves us the effort of one of those ugly dict comparisons
@@ -444,6 +444,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
     c = 0 
     slate_loopy_name = builder.slate_loopy_name
+    # this index is needed so that we find the right bit of an AssembledVector to intialise
+    # this is in particular needed for acting blocks of tensor on a coefficient
+    coeff_init_index = None
     for insn in slate_loopy[slate_loopy_name].instructions:
         # TODO specialise the call instruction node and dispatch based on its type
         if (not isinstance(insn, lp.kernel.instruction.CallInstruction) or
@@ -457,7 +460,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             gem_action_node = pym2gem[insn.assignee_name]
 
             # slate node corresponding to current instructions
-            if isinstance(gem_action_node, Solve) and not insn.expression.function.name.startswith("action"):
+            if isinstance(gem_action_node, Solve):
                 # FIXME something is happening to the solve action node hash
                 # so that gem node cannot be found in var2terminal even though it is there
                 # so we save solve node by name for now
@@ -467,8 +470,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-            _, coeff_node = slate_node.children
-            if (isinstance(slate_node, sl.Action)):
+            tensor_shell_node, coeff_node = slate_node.children
+            if isinstance(slate_node, sl.Action) and not matshell:
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
                     # split coefficients into a set of original coefficients (old_coeffs)
                     # and coefficients coming from the result of an action (new_coeffs)
@@ -476,9 +479,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     new_coeffs = {}
                     old_coeffs = {}
                     for coeff, name, terminal in zip(coeffs, names, terminals):  
-                        old_coeff, new_coeff = builder.collect_coefficients(coeff,
-                                                                            names=name,
-                                                                            action_node=terminal)
+                        old_coeff, new_coeff = builder.collect_coefficients([coeff],
+                                                                            names=name)
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
@@ -490,7 +492,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         for slate_node, coeff_name in zip(slate_nodes, coeff_names):
                             terminal = slate_node.action()
                             coeff = slate_node.ufl_coefficient
-                            names = {coeff._ufl_function_space:coeff_name}
+                            names = {coeff._ufl_function_space:(coeff_name, coeff.ufl_shape)}
                             yield terminal, coeff, names
 
                 terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))
@@ -511,24 +513,34 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     for init in inits:
                         insns.append(init)
                 
-                # replaction action call with tsfc call, which gets linked to tsfc kernel later 
-                action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
-                insns += action_insns
-                knl_list.update(action_knl_list)
+                    # replaces call with tsfc call, which gets linked to tsfc kernel later 
+                    action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                    insns += action_insns
+                    knl_list.update(action_knl_list)
+                else:
+                    # replaction action call with tsfc call, which gets linked to tsfc kernel later 
+                    action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                    insns += action_insns
+                    knl_list.update(action_knl_list)
 
             else:
                 if not (isinstance(slate_node, sl.Solve)):
 
                     # This path handles the inlining of action which don't have a 
                     # terminal as the tensor to be acted on
-                    action_wrapper_knl_name = "wrap_" + insn.expression.function.name
+                    action_wrapper_knl_name = ("wrap_" + insn.expression.function.name
+                                                + "_" + insn.assignee_name + "_in_" + slate_loopy_name)
+                    
 
                     # We need to get the var2terminal which only contains information 
                     # about the gem nodes which correspond to the currently looked at insn
                     # There are two ways go do this:
                     # A) we retrigger the slate2gem compilation
+                    slate_node = optimise(slate_node, slate_parameters)
                     gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
 
+
+                    sl_node = var2terminal_actions[gem_action_node]
                     # B) we walk through the gem node and fetch what we need
                     # find var -> terminals which belong to this insn
                     # var2terminal_actions = {}
@@ -586,7 +598,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
   
                     # Prepare data structures of tensor2temp for a new swipe
                     _, child2 = slate_node.children
-                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
+                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[3]}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     
@@ -601,7 +613,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     slate_parameters,
                                                                     init_temporaries=False,
                                                                     tensor2temp=action_tensor2temp,
-                                                                    output_arg=action_output_arg)
+                                                                    output_arg=action_output_arg,
+                                                                    matshell=False)
 
                 ctx_g2l.kernel_name = slate_loopy_name
                 # FIXME use a copy function
@@ -629,7 +642,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
-        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index)
         builder.bag = updated_bag
         for i in inits:
             insns.insert(0, i)
@@ -661,23 +674,26 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
         # maybe when the kernel would just be an identity operation?
         rhs = insn.expression.parameters[1]
         var = insn.assignees[0].subscript.aggregate
-        lhs = pym.Subscript(var, 0)
-        rhs = pym.Subscript(rhs.subscript.aggregate, 0)
-        insns.append(lp.kernel.instruction.Assignment(lhs, rhs, id=insn.id+"_whatsthis"))
+        lhs = pym.Subscript(var, insn.assignees[0].subscript.index)
+        rhs = pym.Subscript(rhs.subscript.aggregate, insn.assignees[0].subscript.index)
+        inames = [i.name for i in insn.assignees[0].subscript.index]
+        wi = frozenset(i for i in itertools.chain(insn.within_inames, inames))
+        insns.append(lp.kernel.instruction.Assignment(lhs, 0., id=insn.id+"_whatsthis", within_inames=wi))
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index=None):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
     init_coeffs,_ = builder.collect_coefficients()
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
-                                for (cv,ct) in init_coeffs.items()
+                                for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
-                                and t._function==cv}
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)            
-    tensor2temps.update(tensor2temp)
+                                and t._function == cv}
+    pos = coeff_init_index
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs, pos, reinit)   
+    tensor2temps.update(tensor2temp)        
 
     # Get all coeffs into the wrapper kernel
     # so that we can generate the right wrapper kernel args of it
@@ -727,6 +743,9 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
         slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
+    
+        print(slate_loopy)
+        print(builder.slate_loopy_name)
     return slate_loopy
 
 

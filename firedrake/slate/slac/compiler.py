@@ -190,7 +190,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    print(loopy_merged)
+    print("LOOPYMERGED", loopy_merged)
     loopykernel = op2.Kernel(loopy_merged,
                              name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
@@ -658,12 +658,13 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
     args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
-    for var in var2terminal.keys():
+    for var, terminal in var2terminal.items():
         if hasattr(var, "name") and var.name not in [a.name for a in args]:
             # FIXME we should probably just have two dicts
-            # FIXME we don't want to append anything matrix shaped as arg to a loopy kernel
-            #       -> needed for the loopy solve kernel, need to find a better idea
-            if var.name.startswith("S") or var.name.startswith("A") or (len(var.shape)>1 and matfree):
+            # From the var2terminal dict we only want to append vector-shaped args
+            # which are coming from AssembledVectors to the global args of the Slate kernel,
+            # meaning we don't want to append anything matrix shaped and also no solves or actions
+            if not terminal.terminal or (terminal.rank>1 and matfree):
                 t_shape = var.shape if var.shape else (1,)
                 args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
             else:

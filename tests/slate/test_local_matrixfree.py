@@ -141,7 +141,7 @@ def f4(W4, mymesh):
     return AssembledVector(f)
 
 
-@pytest.fixture(params=["A+A-A2*A.inv*A"])
+@pytest.fixture(params=["tensorshell"])
 def expr(request, A, A2, A3, f, f2):
     if request.param == "A+A":
         return (A+A)*f
@@ -175,6 +175,8 @@ def expr(request, A, A2, A3, f, f2):
         return A3*f2
     elif request.param == "advectionT":
         return Transpose(A3)*f2
+    elif request.param == "tensorshell":
+        return (A+A).inv*f
     # TODO Add test for a partially optimised expression
 
 
@@ -296,4 +298,8 @@ def test_schur_complements():
     matfree_schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
     schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
-                
+
+import sys
+import pytest
+if __name__ == "__main__":
+    pytest.main(["-x", "/Users/sv2518/firedrakeinstalls/firedrake/src/firedrake/tests/slate/test_local_matrixfree.py"])
