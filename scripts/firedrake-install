@@ -1489,8 +1489,9 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
+    # Pin setuptools to a working version until latest version is fixed
+    run_pip(["install", "-U", "setuptools==58.4"])
     # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
     run_pip(["install", "-U", "wheel"])
 
