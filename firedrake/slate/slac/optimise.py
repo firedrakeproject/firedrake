@@ -6,10 +6,10 @@ from collections import namedtuple
 from firedrake.ufl_expr import adjoint
 
 """ ActionBag class
-:arg coeff:     This is the object b in Action(A, b).
+:arg coeff:     This is the object b in Action(A, b) or Mul(A, b).
 :arg pick_op:   Pick_op decides which argument in Tensor is exchanged against the coefficient
                 and also in which operand the action has to be pushed,
-                it basically determines if we pre or post"multiply".
+                it basically determines if we pre or postmultiply.
 """
 ActionBag = namedtuple("ActionBag", ["coeff", "pick_op"])
 
@@ -28,14 +28,19 @@ def optimise(expression, parameters):
 
     Returns: An optimised Slate expression
     """
+
+    # 0) Block optimisation
+    # e.g. for (A + A)[0, 0] * f
+    expression = push_block(expression)
+
+    # 0) DiagonalTensor optimisation
+    expression = push_diag(expression)
+
     # 1) Multiplication optimisation
     if expression.rank < 2:
         expression = push_mul(expression, parameters)
 
-    # 2) Block optimisation
-    expression = push_block(expression)
-
-    # 3) Transpose optimisation
+    # 2) Transpose optimisation
     expression = drop_double_transpose(expression)
 
     return expression
@@ -66,7 +71,8 @@ def _push_block(expr, self, indices):
 @_push_block.register(Transpose)
 def _push_block_transpose(expr, self, indices):
     """Indices of the Blocks are transposed if Block is pushed into a Transpose."""
-    return Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
+    return (Transpose(*map(self, expr.children, repeat(indices[::-1])))
+            if indices else Transpose(self(expr, *expr.children, indices)))
 
 
 @_push_block.register(Add)
@@ -87,23 +93,20 @@ def _push_block_shell(expr, self, indices):
     return self(child, indices) if child.terminal else type(expr)(self(child, indices))
 
 
-@_push_block.register(Action)
-def _push_block_action(expr, self, indices):
-    """Distributes Blocks into an Action"""
-    return type(expr)(*map(self, expr.children, repeat(indices)), expr.pick_op)
-
-
-@_push_block.register(Solve)
-def _push_block_solve(expr, self, indices):
-    """Distributes Blocks into a Solve"""
-    return type(expr)(*map(self, expr.children, repeat(indices)), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp)
-
-
 @_push_block.register(Factorization)
 @_push_block.register(Inverse)
+@_push_block.register(Solve)
 @_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())))
+    return Block(expr, indices) if indices else expr
+
+
+@_push_block.register(Action)
+def _push_block_stop(expr, self, indices):
+    """Blocks cannot be pushed further into Action nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())), expr.pick_op)
     return Block(expr, indices) if indices else expr
 
 
@@ -162,9 +165,9 @@ def _push_diag_distributive(expr, self, diag):
 
 @_push_diag.register(Factorization)
 @_push_diag.register(Inverse)
-@_push_diag.register(Solve)
 @_push_diag.register(Mul)
 @_push_diag.register(Tensor)
+@_push_diag.register(TensorShell)
 def _push_diag_stop(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(False))) if not expr.terminal else expr
@@ -180,6 +183,8 @@ def _push_diag_block(expr, self, diag):
 
 @_push_diag.register(AssembledVector)
 @_push_diag.register(Reciprocal)
+@_push_diag.register(Action)
+@_push_diag.register(Solve)
 def _push_diag_vectors(expr, self, diag):
     """DiagonalTensors should not be pushed onto rank-1 tensors."""
     if diag:
@@ -270,6 +275,7 @@ def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
 
+
 @_drop_double_transpose.register(Action)
 def _drop_double_transpose_action(expr, self):
     return type(expr)(*map(self, expr.children), expr.pick_op)
@@ -307,14 +313,13 @@ def _push_mul_vector(expr, self, state):
 
 
 @_push_mul.register(Action)
-def _push_mul_vector(expr, self, state):
-    """Do not push into AssembledVectors."""
+def _push_mul_action(expr, self, state):
+    """Drop TensorShells inside actions if needed and push on if not terminal."""
     tensor, rhs = expr.children
     if isinstance(tensor, TensorShell):
         tensor, = tensor.children
-        expr = Action(tensor, rhs, expr.pick_op)
-    
-    return expr if tensor.terminal else self(tensor, ActionBag(rhs, expr.pick_op))
+    return (Action(tensor, rhs, expr.pick_op)
+            if tensor.terminal else self(tensor, ActionBag(rhs, expr.pick_op)))
 
 
 @_push_mul.register(Negative)
@@ -373,8 +378,10 @@ def _push_mul_solve(expr, self, state):
                 b) multiplication from back
     """
     from firedrake import Function
+
     def make_action(expr, pick_op, matfree):
-        # we generate coeffs outside of the solve because we need to let the optimiser run on the actions too
+        # This is a use-case where we generate actions outside of the matrix-free solve
+        # reason for which is that we need to let the optimiser run on the actions too
         arbitrary_coeff = AssembledVector(Function(expr.arg_function_spaces[pick_op]))
         A = self(expr, ActionBag(arbitrary_coeff, pick_op)) if matfree else None
         return A
@@ -403,7 +410,8 @@ def _push_mul_solve(expr, self, state):
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
-        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp), ActionBag(None, flip(state.pick_op)))
+        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp),
+                            ActionBag(None, flip(state.pick_op)))
         return Transpose(self(swapped_op, ActionBag(pushed_child, flip(state.pick_op))))
     else:
         """
@@ -484,7 +492,8 @@ b) y.T*TensorOp(op1, op2)
         # Optimise child of rank 1 first but do not use result as coefficient.
         coeff = self(prio_child, ActionBag(None, pick_op))
         pushed_other_child = self(other_child, ActionBag(state.coeff, pick_op))
-        return Mul(pushed_other_child, prio_child) if pick_op else Mul(prio_child, pushed_other_child)
+        type = Action if self.action else Mul
+        return (type)(pushed_other_child, prio_child) if pick_op else (type)(prio_child, pushed_other_child)
     else:
         # Optimise child of rank 1 first and use result as coefficient
         coeff = self(prio_child, state)
