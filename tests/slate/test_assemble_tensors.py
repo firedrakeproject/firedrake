@@ -82,6 +82,22 @@ def mass(function_space):
 
 
 @pytest.fixture
+def matrix_mixed_facet():
+    mesh = UnitSquareMesh(2, 2)
+    U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    n = FacetNormal(mesh)
+    W = U * V * T
+    u, p, lambdar = TrialFunctions(W)
+    w, q, gammar = TestFunctions(W)
+
+    return (inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
+            + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
+            + lambdar*gammar*ds)
+
+
+@pytest.fixture
 def rank_one_tensor(mass, f):
     return Tensor(action(mass, f))
 
@@ -270,3 +286,56 @@ def test_matrix_subblocks(mesh):
     for tensor, form in items:
         ref = assemble(form).M.values
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
+
+
+def test_diagonal(mass, matrix_mixed_facet):
+    n, _ = Tensor(mass).shape
+
+    # test vector built from diagonal
+    res = assemble(Tensor(mass, diagonal=True)).dat.data
+    ref = assemble(mass, diagonal=True).dat.data
+    for r, d in zip(ref, res):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal
+    res = assemble(DiagonalTensor(Tensor(mass))).M.values
+    ref = assemble(mass, diagonal=True).dat.data
+    ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # vectorspace
+    ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # tensorspace
+    for r, d in zip(ref, np.diag(res)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal for non mass matrix
+    res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_facet))).M.values
+    ref2 = np.concatenate(assemble(matrix_mixed_facet, diagonal=True).dat.data)
+    for r, d in zip(res2, np.diag(ref2)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal
+    # for a Slate expression on a non mass matrix
+    A = Tensor(matrix_mixed_facet)
+    res3 = assemble(DiagonalTensor(A+A)).M.values
+    ref3 = np.concatenate(assemble(matrix_mixed_facet+matrix_mixed_facet, diagonal=True).dat.data)
+    for r, d in zip(res3, np.diag(ref3)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+
+@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
+def test_reciprocal(function_space):
+    # test reciprocal of vector built from diagonal
+    # note: reciprocal does not commute with addition so one can only test DG
+    u = TrialFunction(function_space)
+    v = TestFunction(function_space)
+    mass = inner(u, v) * dx
+    res = assemble(Reciprocal(Tensor(mass, diagonal=True))).dat.data
+    ref = assemble(mass, diagonal=True).dat.data
+    for r, d in zip([1./d for d in ref], res):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test inverse of matrix built from diagonal
+    # for a Slate expression on a mass matrix
+    A = Tensor(mass)
+    res = assemble(DiagonalTensor(A+A).inv).M.values
+    ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
+    for r, d in zip(res, np.diag(ref)):
+        assert np.allclose(r, d, rtol=1e-14)

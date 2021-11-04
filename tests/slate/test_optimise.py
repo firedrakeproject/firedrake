@@ -330,6 +330,28 @@ def test_drop_transposes(TC_non_symm):
 
 
 #######################################
+# Test diagonal optimisation pass
+#######################################
+def test_push_diagonal(TC_non_symm):
+    """Test Optimisers's ability to push DiagonalTensors inside expressions."""
+    A, C = TC_non_symm
+
+    expressions = [DiagonalTensor(A), DiagonalTensor(A+A),
+                   DiagonalTensor(-A), DiagonalTensor(A*A),
+                   DiagonalTensor(A).inv]
+    opt_expressions = [DiagonalTensor(A), DiagonalTensor(A)+DiagonalTensor(A),
+                       -DiagonalTensor(A), DiagonalTensor(A*A),
+                       DiagonalTensor(A).inv]
+    compare_tensor_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
+    expressions = [DiagonalTensor(A+A).solve(C)]
+    opt_expressions = [(DiagonalTensor(A)+DiagonalTensor(A)).solve(C)]
+    compare_vector_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
+
+#######################################
 # Helper functions
 #######################################
 def compare_tensor_expressions(expressions):
