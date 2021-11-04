@@ -115,8 +115,7 @@ def A4(W4, mymesh):
             - inner(jump(sigma, n=n), gammar('+'))*dS)
     L = inner(f, v)*dx
 
-    _A = Tensor(a)
-    A = _A.blocks
+    A = Tensor(a)
     return A
 
 
@@ -191,9 +190,12 @@ def test_new_slateoptpass(expr):
                         "A[0, 2] + A[0, 0] * A[0, 2]",
                         "A[0, 0] * A[0, 0] * A[0, 2]",
                         "A[0, 1] * A[1, 0] * A[0, 2]",
-                        "A[0, 1] * A[1, 1] * A[1, 2]"
+                        "A[0, 1] * A[1, 1] * A[1, 2]",
+                        "(A + A)[0, 2]",
                         ])
 def block_expr(request, A4, f4):
+    A = A4
+    A4 = A4.blocks
     if request.param == "A[0, 0] * A[0, 2]":
         return (A4[0, 0] * A4[0, 2])*f4
     elif request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
@@ -204,6 +206,8 @@ def block_expr(request, A4, f4):
         return (A4[0, 1] * A4[1, 0] * A4[0, 2])*f4
     elif request.param == "A[0, 1] * A[1, 1] * A[1, 2]":
         return (A4[0, 1] * A4[1, 1] * A4[1, 2])*f4
+    elif request.param == "(A + A)[0, 2]":
+        return ((A + A).blocks[0, 2])*f4
 
 
 def test_blocks(block_expr):
