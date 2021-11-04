@@ -6,7 +6,8 @@ from collections import OrderedDict
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 Solve, Inverse, Variable, view, Delta, Index, Division)
+                 Solve, Inverse, Variable, view, Delta, Index, Division,
+                 Action)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -171,11 +172,11 @@ def _slate2gem(expr, self):
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
 @_slate2gem.register(sl.BlockAssembledVector)
+@_slate2gem.register(sl.TensorShell)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
-    name = f"T{len(self.var2terminal)}"
     assert expr not in self.var2terminal.values()
-    var = Variable(name, shape)
+    var = Variable(None, shape)
     self.var2terminal[var] = expr
     return var
 
@@ -222,9 +223,24 @@ def _slate2gem_reciprocal(expr, self):
     return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
 
 
+@_slate2gem.register(sl.Action)
+def _slate2gem_action(expr, self):
+    assert expr not in self.gem2slate.values()
+    children = list(map(self, expr.children))
+    var = Action(*children, expr.pick_op)
+    self.var2terminal[var] = expr
+    return var
+
+
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
-    return Solve(*map(self, expr.children))
+    if expr.matfree:
+        assert expr not in self.gem2slate.values()
+        var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp))
+        self.gem2slate[var.name] = expr
+        return var
+    else:
+        return Solve(*map(self, expr.children))
 
 
 @_slate2gem.register(sl.Transpose)
