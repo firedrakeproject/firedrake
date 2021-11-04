@@ -287,6 +287,7 @@ def _push_mul(expr, self, state):
 
 @_push_mul.register(Tensor)
 @_push_mul.register(Block)
+@_push_mul.register(TensorShell)
 def _push_mul_tensor(expr, self, state):
     if not self.action:
         if state.coeff:
@@ -300,9 +301,8 @@ def _push_mul_tensor(expr, self, state):
 @_push_mul.register(AssembledVector)
 @_push_mul.register(DiagonalTensor)
 @_push_mul.register(Reciprocal)
-@_push_mul.register(TensorShell)
 def _push_mul_vector(expr, self, state):
-    """Do not push into AssembledVectors."""
+    """Do not push into these nodes."""
     return expr
 
 
@@ -310,10 +310,9 @@ def _push_mul_vector(expr, self, state):
 def _push_mul_vector(expr, self, state):
     """Do not push into AssembledVectors."""
     tensor, rhs = expr.children
-    # FIXME do I need this or no
-    # if isinstance(tensor, TensorShell):
-    #     tensor, = tensor.children
-    #     expr = Action(tensor, rhs, expr.pick_op)
+    if isinstance(tensor, TensorShell):
+        tensor, = tensor.children
+        expr = Action(tensor, rhs, expr.pick_op)
     
     return expr if tensor.terminal else self(tensor, ActionBag(rhs, expr.pick_op))
 
@@ -376,8 +375,8 @@ def _push_mul_solve(expr, self, state):
     from firedrake import Function
     def make_action(expr, pick_op, matfree):
         # we generate coeffs outside of the solve because we need to let the optimiser run on the actions too
-        arbitrary_coeff = AssembledVector(Function(expr.children[pick_op].arg_function_spaces[pick_op]))
-        A = self(expr.children[pick_op], ActionBag(arbitrary_coeff, pick_op)) if matfree else None
+        arbitrary_coeff = AssembledVector(Function(expr.arg_function_spaces[pick_op]))
+        A = self(expr, ActionBag(arbitrary_coeff, pick_op)) if matfree else None
         return A
 
     if expr.rank == 2 and state.pick_op == 0:
