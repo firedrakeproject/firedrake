@@ -50,6 +50,9 @@ class HybridizationPC(SCBase):
         _, P = pc.getOperators()
         self.ctx = P.getPythonContext()
 
+        if not self.ctx.fc_params:
+            self.ctx.fc_params = {}
+
         if not isinstance(self.ctx, ImplicitMatrixContext):
             raise ValueError("The python context must be an ImplicitMatrixContext")
 
@@ -204,6 +207,9 @@ class HybridizationPC(SCBase):
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
+        # Set ctx params to drive optimisations if local solves are matrix-free
+        self.ctx.fc_params.update({"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}})
+
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = functools.partial(assemble,
@@ -212,6 +218,11 @@ class HybridizationPC(SCBase):
                                                 form_compiler_parameters=self.ctx.fc_params,
                                                 assembly_type="residual")
 
+        self.schur_rhs = Function(TraceSpace)
+        self._assemble_Srhs = functools.partial(assemble,
+                                                schur_rhs,
+                                                tensor=self.schur_rhs,
+                                                form_compiler_parameters=self.ctx.fc_params)
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
@@ -223,8 +234,7 @@ class HybridizationPC(SCBase):
                                              tensor=self.S,
                                              bcs=trace_bcs,
                                              form_compiler_parameters=self.ctx.fc_params,
-                                             mat_type=mat_type,
-                                             assembly_type="residual")
+                                             mat_type=mat_type)
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
@@ -311,15 +321,14 @@ class HybridizationPC(SCBase):
                 S = Shat * S
                 rhs = Shat * rhs
 
-        u_rec = S.solve(rhs, decomposition="PartialPivLU")
+        u_rec = S.solve(rhs)
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
                                               form_compiler_parameters=self.ctx.fc_params,
                                               assembly_type="residual")
 
-        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU")
+        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar)
         self._elim_unknown = functools.partial(assemble,
                                                sigma_rec,
                                                tensor=sigma,
@@ -593,6 +602,9 @@ class SchurComplementBuilder(object):
             assert parameters["slate_compiler"]["optimise"], ("Local systems should only get preconditioned with "
                                                               "a preconditioning matrix if the Slate optimiser replaces "
                                                               "inverses by solves.")
+        # Do the local solves matrix-free?
+        self._check_options([("mat_type", {"matfree"})])
+        self.local_matfree = get_option("mat_type") == "matfree"
 
     def build_inner_S(self):
         """Build the inner Schur complement."""
@@ -677,7 +689,7 @@ class SchurComplementBuilder(object):
                         block1                      block2                  block3
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
-
+        self.rhs = rhs
         if self.nested:
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
