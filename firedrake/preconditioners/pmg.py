@@ -1,6 +1,9 @@
 from functools import partial, lru_cache
 from itertools import chain
 
+import os
+import tempfile
+
 from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
 from ufl import EnrichedElement, HDivElement, HCurlElement, WithMapping
 from ufl import Form, replace
@@ -680,7 +683,7 @@ The input data in x is destroyed in the process.
 Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
 */
 
-PetscBLASInt m,n,k,s,p,lda;
+PetscBLASInt m, n, k, s, p, lda;
 char TA1, TA2, TA3;
 char tran='T', notr='N';
 PetscScalar zero=0.0E0, one=1.0E0;
@@ -774,6 +777,27 @@ def get_piola_tensor(elem, domain, inverse=False):
         raise ValueError("Unsupported mapping")
 
 
+def cache_generate_code(kernel, comm):
+    _cachedir = os.environ.get('PYOP2_CACHE_DIR',
+                               os.path.join(tempfile.gettempdir(),
+                                            'pyop2-cache-uid%d' % os.getuid()))
+
+    key = kernel.cache_key
+    shard, disk_key = key[:2], key[2:]
+    filepath = os.path.join(_cachedir, shard, disk_key)
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            code = f.read()
+    else:
+        code = loopy.generate_code_v2(kernel.code).device_code()
+        if comm.rank == 0:
+            os.makedirs(os.path.join(_cachedir, shard), exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(code)
+        comm.barrier()
+    return code
+
+
 def make_mapping_code(Q, felem, celem, t_in, t_out):
     domain = Q.ufl_domain()
     A = get_piola_tensor(celem, domain, inverse=False)
@@ -787,13 +811,13 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
     u = firedrake.Coefficient(Q)
     expr = firedrake.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    prolong_map_code = loopy.generate_code_v2(prolong_map_kernel.code).device_code()
+    prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
     prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
     coefficients.remove(u)
 
     expr = firedrake.dot(u, tensor)
     restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    restrict_map_code = loopy.generate_code_v2(restrict_map_kernel.code).device_code()
+    restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
     coefficients.remove(u)
@@ -870,7 +894,6 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
                 for({IntType_c} i=0; i<{vshape[0]}; i++)
                     {t_in}[i + {vshape[0]}*j] = {t_out}[j + {vshape[1]}*i];
         """
-
     return decl, prolong, restrict
 
 
@@ -952,7 +975,7 @@ class StandaloneInterpolationMatrix(object):
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
-            if Vf_mapping == "identity":
+            if (Vf_mapping == "identity") and (Vf_bsize == felem.value_size()):
                 qshape = (Vf_bsize, Vf_sdim)
                 # interpolate to fine space
                 decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
