@@ -2,6 +2,7 @@ import abc
 import enum
 import itertools
 
+import FIAT
 import finat
 import gem
 from gem.optimise import remove_componenttensors as prune
@@ -99,10 +100,11 @@ class CoordinatesKernelArg(RankOneKernelArg):
     name = "coords"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, interior_facet=False):
+    def __init__(self, elem, dtype, interior_facet=False, interior_facet_horiz=False):
         self._elem = _ElementHandler(elem)
         self._dtype = dtype
         self._interior_facet = interior_facet
+        self._interior_facet_horiz = interior_facet_horiz
 
     @property
     def dtype(self):
@@ -115,11 +117,19 @@ class CoordinatesKernelArg(RankOneKernelArg):
     @property
     def node_shape(self):
         shape = self._elem.node_shape
-        return 2*shape if self._interior_facet else shape
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     @property
     def loopy_arg(self):
-        shape = np.prod([self.node_shape, *self.shape], dtype=int)
+        node_shape = self._elem.node_shape
+        node_shape = 2*node_shape if self._interior_facet else node_shape
+        shape = np.prod([node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
 
@@ -153,11 +163,12 @@ class ConstantKernelArg(RankZeroKernelArg):
 
 class CoefficientKernelArg(RankOneKernelArg):
 
-    def __init__(self, name, elem, dtype, *, interior_facet=False):
+    def __init__(self, name, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
         self._name = name
         self._elem = _ElementHandler(elem)
         self._dtype = dtype
         self._interior_facet = interior_facet
+        self._interior_facet_horiz = interior_facet_horiz
 
     @property
     def name(self):
@@ -178,11 +189,20 @@ class CoefficientKernelArg(RankOneKernelArg):
     @property
     def node_shape(self):
         shape = self._elem.node_shape
-        return 2*shape if self._interior_facet else shape
+
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     @property
     def loopy_arg(self):
-        shape = np.prod([self.node_shape, *self.shape], dtype=int)
+        node_shape = self._elem.node_shape
+        node_shape = 2*node_shape if self._interior_facet else node_shape
+        shape = np.prod([node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
 
@@ -194,8 +214,9 @@ class CellOrientationsKernelArg(RankOneKernelArg):
 
     node_shape = 1
 
-    def __init__(self, interior_facet=False):
+    def __init__(self, interior_facet=False, interior_facet_horiz=False):
         self._interior_facet = interior_facet
+        assert not interior_facet_horiz
 
     @property
     def loopy_arg(self):
@@ -212,10 +233,11 @@ class CellSizesKernelArg(RankOneKernelArg):
     name = "cell_sizes"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, *, interior_facet=False):
+    def __init__(self, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
         self._elem = _ElementHandler(elem)
         self._dtype = dtype
         self._interior_facet = interior_facet
+        self._interior_facet_horiz = interior_facet_horiz
 
     @property
     def dtype(self):
@@ -228,11 +250,19 @@ class CellSizesKernelArg(RankOneKernelArg):
     @property
     def node_shape(self):
         shape = self._elem.node_shape
-        return 2*shape if self._interior_facet else shape
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     @property
     def loopy_arg(self):
-        shape = np.prod([self.node_shape, *self.shape], dtype=int)
+        node_shape = self._elem.node_shape
+        node_shape = 2*node_shape if self._interior_facet else node_shape
+        shape = np.prod([node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
 
@@ -306,12 +336,13 @@ class ScalarOutputKernelArg(RankZeroKernelArg, OutputKernelArg):
 class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
     def __init__(
-        self, elem, dtype, *, interior_facet=False, diagonal=False
+        self, elem, dtype, *, interior_facet=False, diagonal=False, interior_facet_horiz=False
     ):
         self._elem = _ElementHandler(elem)
         self._dtype = dtype
 
         self._interior_facet = interior_facet
+        self._interior_facet_horiz = interior_facet_horiz
         self._diagonal = diagonal
 
     @property
@@ -325,11 +356,19 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
     @property
     def node_shape(self):
         shape = self._elem.node_shape
-        return 2*shape if self._interior_facet else shape
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     @property
     def loopy_arg(self):
-        shape = np.prod([self.node_shape, *self.shape], dtype=int)
+        node_shape = self._elem.node_shape
+        node_shape = 2*node_shape if self._interior_facet else node_shape
+        shape = np.prod([node_shape, *self.shape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=shape)
 
     # TODO Function please
@@ -360,11 +399,12 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
 class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
-    def __init__(self, relem, celem, dtype, *, interior_facet=False):
+    def __init__(self, relem, celem, dtype, *, interior_facet=False, interior_facet_horiz=False):
         self._relem = _ElementHandler(relem)
         self._celem = _ElementHandler(celem)
         self._dtype = dtype
         self._interior_facet = interior_facet
+        self._interior_facet_horiz = interior_facet_horiz
 
     @property
     def dtype(self):
@@ -372,8 +412,14 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
     @property
     def loopy_arg(self):
-        rshape = np.prod([self.rnode_shape, *self.rshape], dtype=int)
-        cshape = np.prod([self.cnode_shape, *self.cshape], dtype=int)
+        rnode_shape = self._relem.node_shape
+        cnode_shape = self._celem.node_shape
+
+        rnode_shape = 2*rnode_shape if self._interior_facet else rnode_shape
+        cnode_shape = 2*cnode_shape if self._interior_facet else cnode_shape
+
+        rshape = np.prod([rnode_shape, *self.rshape], dtype=int)
+        cshape = np.prod([cnode_shape, *self.cshape], dtype=int)
         return lp.GlobalArg(self.name, self.dtype, shape=(rshape, cshape))
 
     @property
@@ -387,12 +433,24 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
     @property
     def rnode_shape(self):
         shape = self._relem.node_shape
-        return 2*shape if self._interior_facet else shape
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     @property
     def cnode_shape(self):
         shape = self._celem.node_shape
-        return 2*shape if self._interior_facet else shape
+        if self._interior_facet:
+            if self._interior_facet_horiz:
+                return shape
+            else:
+                return 2 * shape
+        else:
+            return shape
 
     def make_gem_exprs(self, multiindices):
         u_shape = np.array([np.prod(elem._elem.index_shape, dtype=int)
@@ -433,6 +491,17 @@ class _ElementHandler:
     @property
     def tensor_shape(self):
         return self._elem._shape if self._is_tensor_element else (1,)
+
+    @property
+    def is_mixed(self):
+        return (isinstance(self._elem, finat.EnrichedElement)
+                and isinstance(self._elem.fiat_equivalent, FIAT.MixedElement))
+
+    def split(self):
+        if not self.is_mixed:
+            raise ValueError("Cannot split a non-mixed element")
+
+        return tuple([type(self)(subelem.element) for subelem in self._elem.elements])
 
     @property
     def _is_tensor_element(self):

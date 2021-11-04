@@ -65,13 +65,14 @@ class Kernel:
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False, interior_facet_horiz=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
         super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
                                                 interior_facet=interior_facet)
+        self.interior_facet_horiz = interior_facet_horiz
 
         # Cell orientation
         if self.interior_facet:
@@ -95,7 +96,8 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        kernel_arg, expression = prepare_coefficient(coefficient, name, self.scalar_type, self.interior_facet)
+        kernel_arg, expression = prepare_coefficient(coefficient, name, self.scalar_type,
+                                                     self.interior_facet, self.interior_facet_horiz)
         self.coefficient_map[coefficient] = expression
         return kernel_arg
 
@@ -117,7 +119,9 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type,
+                                                         interior_facet=self.interior_facet,
+                                                         interior_facet_horiz=self.interior_facet_horiz)
             self.cell_sizes_arg = kernel_arg
             self._cell_sizes = expression
 
@@ -199,7 +203,9 @@ class KernelBuilder(KernelBuilderBase):
     def __init__(self, integral_type, subdomain_id, domain_number, scalar_type, dont_split=(),
                  diagonal=False):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        super(KernelBuilder, self).__init__(scalar_type,
+                                            integral_type.startswith("interior_facet"),
+                                            integral_type=="interior_facet_horiz")
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
@@ -232,7 +238,7 @@ class KernelBuilder(KernelBuilderBase):
         """
         kernel_arg = prepare_arguments(
             arguments, self.scalar_type, interior_facet=self.interior_facet,
-            diagonal=self.diagonal)
+            interior_facet_horiz=self.interior_facet_horiz, diagonal=self.diagonal)
         self.local_tensor = kernel_arg
         return kernel_arg.make_gem_exprs(multiindices)
 
@@ -246,7 +252,9 @@ class KernelBuilder(KernelBuilderBase):
         self.domain_coordinate[domain] = f
         # TODO Copy-pasted from _coefficient - needs refactor
         # self.coordinates_arg = self._coefficient(f, "coords")
-        kernel_arg, expression = prepare_coefficient(f, "coords", self.scalar_type, self.interior_facet)
+        kernel_arg, expression = prepare_coefficient(f, "coords", self.scalar_type,
+                                                     self.interior_facet,
+                                                     self.interior_facet_horiz)
         self.coefficient_map[f] = expression
         self.coordinates_arg = kernel_arg
 
@@ -337,7 +345,7 @@ class KernelBuilder(KernelBuilderBase):
 
 
 # TODO Returning is_constant is nasty. Refactor.
-def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
+def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior_facet_horiz=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -374,20 +382,20 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False):
 
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
-        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, dtype, interior_facet=interior_facet)
+        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
     elif name == "coords":
-        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, dtype, interior_facet=interior_facet)
+        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
     else:
         kernel_arg = kernel_args.CoefficientKernelArg(
             name,
             finat_element,
             dtype,
-            interior_facet=interior_facet
+            interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
         )
     return kernel_arg, expression
 
 
-def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=False):
+def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_facet_horiz=False, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -419,12 +427,12 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, diagonal=Fal
 
     if len(arguments) == 1 or diagonal:
         finat_element, = elements
-        return kernel_args.VectorOutputKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
+        return kernel_args.VectorOutputKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal, interior_facet_horiz=interior_facet_horiz)
     elif len(arguments) == 2:
         rfinat_element, cfinat_element = elements
         return kernel_args.MatrixOutputKernelArg(
             rfinat_element, cfinat_element, scalar_type,
-            interior_facet=interior_facet
+            interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
         )
     else:
         raise AssertionError
