@@ -65,7 +65,6 @@ class BlockIndexer(object):
     __slots__ = ['tensor', 'block_cache']
 
     def __init__(self, tensor):
-        assert isinstance(tensor, Tensor), "Slate can only express blocks on terminal tensors."
         self.tensor = tensor
         self.block_cache = {}
 
