@@ -260,21 +260,31 @@ class InteriorFacetKernelArg(FacetKernelArg):
     shape = (2,)
 
 
-# TODO Find a case where we actually need to use this.
-# class TabulationKernelArg(KernelArg):
+class TabulationKernelArg(RankOneKernelArg):
 
-#     rank = 1
-#     intent = Intent.IN
+    intent = Intent.IN
+    shape = (1,)
 
-#     def __init__(self, name, shape, dtype, interior_facet=False):
-#         self.name = name
-#         self.shape = shape
-#         self.dtype = dtype
-#         self.interior_facet = interior_facet
+    def __init__(self, name, shape, dtype):
+        self._name = name
+        self._shape = shape
+        self._dtype = dtype
 
-#     @property
-#     def loopy_arg(self):
-#         raise NotImplementedError
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def node_shape(self):
+        return np.prod(self._shape, dtype=int)
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @property
+    def loopy_arg(self):
+        return lp.GlobalArg(self._name, self._dtype, shape=self._shape)
 
 class OutputKernelArg(KernelArg, abc.ABC):
 

@@ -185,7 +185,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             args.append(self.cell_sizes_arg)
         args.extend(self.kernel_args)
         for name_, shape in self.tabulations:
-            args.append(kernel_args.TabulationKernelArg(name_, self.scalar_type, shape))
+            args.append(kernel_args.TabulationKernelArg(name_, shape, self.scalar_type))
 
         loopy_args = [arg.loopy_arg for arg in args]
 
