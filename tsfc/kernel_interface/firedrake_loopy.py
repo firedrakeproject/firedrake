@@ -205,7 +205,7 @@ class KernelBuilder(KernelBuilderBase):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type,
                                             integral_type.startswith("interior_facet"),
-                                            integral_type=="interior_facet_horiz")
+                                            integral_type == "interior_facet_horiz")
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
