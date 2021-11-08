@@ -1501,7 +1501,7 @@ def space_equivalence(A, B):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal, TensorShell],
     [Add],
-    [Mul, Action]
+    [Mul, Action],
     [Solve],
     [UnaryOp],
 ]
