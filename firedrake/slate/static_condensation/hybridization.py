@@ -17,39 +17,6 @@ from firedrake.parameters import parameters
 
 __all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
-def petsctopy(petscmat):
-    n,m=petscmat.getSize()
-    aa = np.zeros((n,m))
-    for i in range(n):
-        for j in range(m):
-            aa[i,j] = petscmat.getValues(i,j)
-    return aa
-def plot_mixed_operator(a, name):
-    print(name+"\n")
-    import matplotlib.pyplot as plt
-    import scipy as sc
-    fig=plt.figure()
-    c=1
-    from firedrake import assemble
-    A=assemble(a, mat_type="aij",  form_compiler_parameters={"slate_compiler":{"optimise": False, "replace_mul": False}}).M.handle
-    A_np=petsctopy(A)
-    print("condition number:", np.linalg.cond(A_np))
-    print("positive definite?:", np.all(np.linalg.eigvals(A_np) >= 0))
-    print("neg definite?:", np.all(np.linalg.eigvals(A_np) <= 0))
-    # print("eigenvalues:", np.linalg.eigvals(A_np))
-    print("symmetric?:", np.allclose(A_np, A_np.T, rtol=0.0001))
-    np.save(name+'.npy', A_np)
-    
-    plt.imshow(A_np)
-    plt.colorbar()
-    # plt.axis('off')
-    plt.savefig(name, dpi=150)
-
-class CheckSchurComplement(Exception):
-    def __init__(self, expr, m):
-        self.expression = expr
-        self.message = m
-
 class HybridizationPC(SCBase):
 
     needs_python_pmat = True
@@ -73,10 +40,9 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC)
+                               DirichletBC, assemble)
         from firedrake.assemble import allocate_matrix
         from ufl.algorithms.replace import replace
-        from firedrake.assemble import (assemble)
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix() + "hybridization_"
@@ -263,12 +229,13 @@ class HybridizationPC(SCBase):
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
-                                 appctx=self.get_appctx(pc)) # this generates an ImplicitMatrix and assembles action and actionT
-        self._assemble_S = functools.partial(assemble, schur_comp,
-                                                    tensor=self.S,
-                                                    bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type) 
+                                 appctx=self.get_appctx(pc))
+        self._assemble_S = functools.partial(assemble,
+                                             schur_comp,
+                                             tensor=self.S,
+                                             bcs=trace_bcs,
+                                             form_compiler_parameters=self.ctx.fc_params,
+                                             mat_type=mat_type) 
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
@@ -360,20 +327,21 @@ class HybridizationPC(SCBase):
                 S = Shat * S
                 rhs = Shat * rhs
 
-        u_rec = S.solve(rhs)
+        u_rec = S.solve(rhs, decomposition="PartialPivLU")
 
         self._sub_unknown = functools.partial(assemble,
-                                            u_rec,
-                                            tensor=u,
-                                            form_compiler_parameters=self.ctx.fc_params,
-                                            assembly_type="residual")
+                                              u_rec,
+                                              tensor=u,
+                                              form_compiler_parameters=self.ctx.fc_params,
+                                              assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                                 matfree=local_matfree)
         self._elim_unknown = functools.partial(assemble,
-                                                sigma_rec,
-                                                tensor=sigma,
-                                                form_compiler_parameters=self.ctx.fc_params)
+                                              sigma_rec,
+                                              tensor=sigma,
+                                              form_compiler_parameters=self.ctx.fc_params,
+                                              assembly_type="residual")
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
@@ -419,34 +387,7 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
-            self._assemble_Srhs()
-
-        def run_cg(name, b):
-            A = np.load(name+".npy")
-            import matplotlib.pyplot as plt
-            from scipy.sparse.linalg import cg
-            from scipy.sparse import csr_matrix
-            fdat = b.dat.data
-            f = np.concatenate((fdat[0], fdat[1]))
-            print(f)
-            print(A)
-            plt.figure()
-            plt.plot(f)
-            plt.show()
-            jacobimat = np.diag(np.diag(A))
-            print(jacobimat)
-            sol = cg(csr_matrix(A), f, f)
-            print(sol)
-
-            plt.figure()
-            plt.plot(sol[0])
-            plt.show()
-
-        print("DATA", self.schur_rhs.dat.data)
-        # run_cg("A", self.broken_residual)
-
-        # raise CheckSchurComplement(self.schur_rhs, "hi")
-        
+            self._assemble_Srhs()   
 
     def sc_solve(self, pc):
         """Solve the condensed linear system for the
