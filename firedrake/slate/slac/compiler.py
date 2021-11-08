@@ -161,11 +161,9 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     Citations().register("Gibson2018")
 
     orig_expr = slate_expr
-    print("not optimised", slate_expr)
     # Optimise slate expr, e.g. push blocks as far inward as possible
     if compiler_parameters["slate_compiler"]["optimise"]:
         slate_expr = optimise(slate_expr, compiler_parameters["slate_compiler"])
-        print("optimised", slate_expr)
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
@@ -177,15 +175,17 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=slate_loopy_name)
-    
+
     if compiler_parameters["slate_compiler"]["optimise"]:
-        # here we reuse the loopy kernel and call tsfc kernels from within
         name = "slate_loopy"
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "when_needed", slate_expr, compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
+                                   name, ctx_g2l, "when_needed", slate_expr,
+                                   compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     else:
-        # here we generate a new kernel where the the slate loopy kernel is called from
         name = "wrap_slate_loopy"
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name, ctx_g2l, "terminals_first", slate_expr, compiler_parameters["form_compiler"])
+        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
+                                   name, ctx_g2l, "terminals_first", slate_expr,
+                                   compiler_parameters["form_compiler"])
 
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
@@ -664,7 +664,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output
             # From the var2terminal dict we only want to append vector-shaped args
             # which are coming from AssembledVectors to the global args of the Slate kernel,
             # meaning we don't want to append anything matrix shaped and also no solves or actions
-            if not terminal.terminal or (terminal.rank>1 and matfree):
+            if not terminal.terminal or (terminal.rank > 1 and matfree):
                 t_shape = var.shape if var.shape else (1,)
                 args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
             else:
