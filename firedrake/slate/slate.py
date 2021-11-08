@@ -997,8 +997,8 @@ class Inverse(UnaryOp):
         )
         self.diagonal = A.diagonal
 
-        # if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
-        #     A = Factorization(A, decomposition="PartialPivLU")
+        if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
+            A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 
@@ -1194,6 +1194,7 @@ class Mul(BinaryOp):
         """
         return self._args
 
+
 class Action(BinaryOp):
     """Slate class representing the interior product of two tensors,
     where the second tensor has one dimesion less than the first tensor.
@@ -1225,13 +1226,13 @@ class Action(BinaryOp):
 
         # Function space check above ensures that middle arguments can
         # be 'eliminated'.
-        self._args = (A.arguments()[1:] + b.arguments()[1:] 
+        self._args = (A.arguments()[1:] + b.arguments()[1:]
                       if pick_op == 0 else A.arguments()[:-1] + b.arguments()[1:])
-        
+
         self.pick_op = pick_op
         self.tensor = A
         # Not that b does not need to be an AssembledVector
-        assert b.rank == A.rank-1, "In Action(A, b) b needs to have a lower rank than A." 
+        assert b.rank == A.rank-1, "In Action(A, b) b needs to have a lower rank than A."
         self.coeff = b
         # This is the ufl coefficient that is used a replacement
         # for an arg in the ufl form corresponding to A
@@ -1245,7 +1246,6 @@ class Action(BinaryOp):
         return (A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
                 if self.pick_op == 0
                 else A.arg_function_spaces[:-1] + B.arg_function_spaces[1:])
-
 
     def _output_string(self, prec):
         """Returns a string representation."""
@@ -1379,7 +1379,7 @@ class Solve(BinaryOp):
         """Constructor for the Solve class."""
 
         # Get matrix-free specific and decomposition information from kwargs
-        self.matfree= False
+        self.matfree = False
         self.Aonx = None
         self.Aonp = None
         self.decomposition = "PartialPivLU"
@@ -1403,41 +1403,43 @@ class Solve(BinaryOp):
 
         # Create a matrix factorization
         A_factored = (Factorization(A, decomposition=self.decomposition)
-                     if not A.diagonal and not self.matfree else A)
+                      if not A.diagonal and not self.matfree else A)
 
         super(Solve, self).__init__(A_factored, B)
 
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
+        # Users don't need to specify Aonx and Aonp and can still be using the solve matrix-free
+        # In our compiler we sometimes want to pass them which is why we keep them as optionals args
         if self.matfree:
-            # keep track of the actions, which we need for the local matrixfree solve
             if not self.Aonx:
                 arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
                 self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
             if not self.Aonp:
                 arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
                 self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
-            # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
+
+        # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
-        is defined on."""
+        is defined on.
+        """
         return tuple(self._arg_fs)
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
-        from applying the inverse of A onto B."""
+        from applying the inverse of A onto B.
+        """
         return self._args
 
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        if self.matfree:
-            return (type(self), *self.operands, self.matfree, self.Aonx, self.Aonp)
-        else:
-            return (type(self), *self.operands, self.matfree)
+        return ((type(self), *self.operands, self.matfree, self.Aonx, self.Aonp)
+                if self.matfree else (type(self), *self.operands, self.matfree))
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
@@ -1499,7 +1501,8 @@ def space_equivalence(A, B):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal, TensorShell],
     [Add],
-    [Mul, Action, Solve],
+    [Mul, Action]
+    [Solve],
     [UnaryOp],
 ]
 
