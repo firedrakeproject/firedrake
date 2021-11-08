@@ -9,7 +9,6 @@ from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
 from ufl import MixedElement
-from ufl.classes import Indexed
 import loopy
 
 from loopy.symbolic import SubArrayRef
@@ -514,7 +513,7 @@ class LocalLoopyKernelBuilder(object):
                 else:
                     for c_, info in cinfo.items():
                         if info[0] not in added_coefficients:
-                            kernel_data.extend([((c, c_), info)])
+                            kernel_data.extend([((c, c_), info[0])])
                             added_coefficients.append(info)
         return kernel_data
 
@@ -539,13 +538,27 @@ class LocalLoopyKernelBuilder(object):
             # kernel data is restructured
             if isinstance(c, tuple):  # then the coeff is coming from a mixed background
                 mixed_c, split_c = c
-                shp, = shape if isinstance(info, tuple) else split_c.ufl_shape if split_c.ufl_shape else (1,)
+                def arg_function_spaces(coeff):
+                    return (coeff.ufl_function_space(),)
+                def shapes(coeff):
+                    shapes = OrderedDict()
+                    for i, fs in enumerate(arg_function_spaces(coeff)):
+                        shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
+                                        for V in fs)
+                    return shapes
+                def shape(coeff):
+                    return tuple(sum(shapelist) for shapelist in shapes(coeff).values())
+                shp2 = shape(split_c)
+                if name == "S1":
+                    shp2 = (8,)
+                shp, = shp2 if shp2 else (1,)
                 idx = self.bag.index_creator((shp,))
                 offset_index = (pym.Sum((offset, idx[0])),)
                 c = pym.Subscript(pym.Variable(name), offset_index)
-                if last_mixed_c == mixed_c and len(arguments)==len(mixed_c._ufl_function_space.split()):
+                if last_mixed_c == mixed_c:
                     # reset offset whenyou encounter the second part
                     # of the split mixed coeff
+                    # FIXME this obvs does not work when you have a mixed FS of more componentes
                     offset = 0
                     last_mixed_c = None
                 else:
@@ -623,7 +636,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, new_coeffs=None, names=None):
+    def collect_coefficients(self, new_coeffs=None, names=None, action_node=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
@@ -631,7 +644,7 @@ class LocalLoopyKernelBuilder(object):
         # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
         # the coefficient in the right way. (Its space is FunctionSpace instead of
         # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
-        coeffs = self.expression.coefficients() if not new_coeffs else new_coeffs
+        coeffs = self.expression.coefficients() if not action_node else action_node.coefficients()
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
         new = False
@@ -645,55 +658,66 @@ class LocalLoopyKernelBuilder(object):
                 prefix = names[c._ufl_function_space]
                 new = True
             except:
+                # otherwise check if the splitted functionspace
+                # is in names
+                for fs in c._ufl_function_space.split():
+                    try:
+                        prefix = names[fs]
+                        new = True
+                    except:
+                        pass
                 # if the coefficient is not in names, it's not going to replaced
                 # so using the normal naming convention for the coefficient
                 if not new:
                     prefix = "w_{}".format(i)
-            if not isinstance(c, Indexed):
-                element = c.ufl_element()
-                if type(element) == MixedElement:
-                    new_or_not = []
-                    subst_names = []
-                    split_coeffs = []
-                    extents = []
-                    for j,c_ in enumerate(c.split()):
-                        if names and c._ufl_function_space in names.keys():
-                            name = names[c._ufl_function_space]
-                            new = True
-                        else:
-                            name = "w_{}".format(i)
-                            new = False
-                        subst_names.append(name)
-                        extents.append(self.extent(c_))
-                        new_or_not.append(new)
-                        split_coeffs.append(c_)
-                    if np.any(new_or_not):
-                        i = np.where(new_or_not)[0][0]
-                        new_name = subst_names[i]
-                        subst_names = [new_name[0]]*len(subst_names)
-
-                    for (((new, subst_name), ext), c_) in zip(zip(zip(new_or_not, subst_names), extents), split_coeffs):
-                        mixed = {c_: (subst_name, ext)}
+            element = c.ufl_element()
+            if type(element) == MixedElement:
+                mixed = OrderedDict()
+                try:
+                    # try to split the coefficient
+                    # for some reason there are coefficients defined on mixed function space
+                    # which cannot be split, I assume they are somehow already indexed
+                    loop = c.split()
+                    for j, c_ in enumerate(loop):
                         if new:
-                            if c in new_coeff_dict.keys():
-                                new_coeff_dict[c].update(mixed)
-                            else:
-                                new_coeff_dict[c] = mixed
+                            name = prefix
                         else:
-                            if c in coeff_dict.keys():
-                                coeff_dict[c].update(mixed)
-                            else:
-                                coeff_dict[c] = mixed
-                else:
-                    # if we don't deal with a mixed coefficient we can just append it
-                    name = prefix
+                            name = prefix+"_{}".format(j)
+                        info = (name, self.extent(c_))
+                        mixed.update({c_: info})
                     if new:
-                        new_coeff_dict[c] = (name, self.extent(c))
+                        new_coeff_dict[c] = mixed
                     else:
-                        coeff_dict[c] = (name, self.extent(c))
+                        coeff_dict[c] = mixed
+                except:
+                    # if the coefficient is not splitable
+                    # generate a coefficient for an argument on a mixed fs
+                    # then try to split that coefficient and link to the correct substitue
+                    # FIXME this might not be the right order, unclear how to deduct this from anything
+                    args = self.expression.arguments()
+                    from ufl import Coefficient
+                    missing_coeff = Coefficient(args[0].function_space())
+                    for j,c_ in enumerate((c,)+(missing_coeff,)):
+                        if new:
+                            name = prefix
+                        else:
+                            name = "w_{}_{}".format(i, j)
+                        info = (name, self.extent(c_))
+                        mixed.update({c_: info})
+                    if new:
+                        new_coeff_dict[c] = mixed
+                    else:
+                        coeff_dict[c] = mixed
+            else:
+                # if we don't deal with a mixed coefficient we can just append it
+                name = prefix
+                if new:
+                    new_coeff_dict[c] = (name, self.extent(c))
+                else:
+                    coeff_dict[c] = (name, self.extent(c))
         return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2tensor, coefficients, pos=None, reinit=False):
+    def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
 
@@ -704,6 +728,7 @@ class LocalLoopyKernelBuilder(object):
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
+            assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
@@ -711,35 +736,22 @@ class LocalLoopyKernelBuilder(object):
                                                    address_space=loopy.AddressSpace.LOCAL,
                                                    target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
-
-            if isinstance(slate_tensor, slate.Tensor) and not (reinit and len(slate_tensor.shape)<2):
+           
+            if not slate_tensor.assembled:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
-            elif reinit and len(slate_tensor.shape)<2:
+            else:
+                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor._function,)
+                coeff = tuple(coefficients[c] for c in f)
                 offset = 0
-                for i, shp in enumerate(*slate_tensor.shapes.values()):
-                    indices = self.bag.index_creator((shp,))
-                    inames = {var.name for var in indices}
-                    offset_index = (pym.Sum((offset, indices[0])),)
-                    subst = (pos == i) if not pos == None else False
-                    if not subst:
-                        var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
-                        inits.append(loopy.Assignment(var, 0.0, id="reinit_" + gem_tensor.name + "_" +str(i),
-                                                    within_inames=frozenset(inames),
-                                                    within_inames_is_final=True))
-                    offset += shp
-            elif isinstance(slate_tensor, slate.AssembledVector):
-                f = slate_tensor._function
-                coeff = coefficients[f]
-                offset = 0
-                ismixed = (type(f.ufl_element()) == MixedElement)
-                names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
-                while len(names)<len(slate_tensor.shapes[0]):
-                    names += [None]
+                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                names = []
+                for (im, c) in zip(ismixed, coeff):
+                    names += [name for (name, ext) in c.values()] if im else [c[0]]
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
@@ -747,17 +759,12 @@ class LocalLoopyKernelBuilder(object):
                     inames = {var.name for var in indices}
                     offset_index = (pym.Sum((offset, indices[0])),)
                     name = names[i] if ismixed else names
-                    subst = not pos == i if pos else False
-                    if name: 
-                        var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
-                        if not subst:
-                            c = pym.Subscript(pym.Variable(name), indices)
-                        else:
-                            c = 0.0
-                        inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
-                                                    within_inames=frozenset(inames),
-                                                    within_inames_is_final=True))
-                        offset += shp
+                    var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
+                    c = pym.Subscript(pym.Variable(name), indices)
+                    inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" +str(i),
+                                                  within_inames=frozenset(inames),
+                                                  within_inames_is_final=True))
+                    offset += shp
 
         return inits, tensor2temp
 
@@ -806,28 +813,25 @@ class LocalLoopyKernelBuilder(object):
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
-
         knl = loopy.make_function(
-                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,j_0]: 
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
-                    and 0<=i_5<n and 0<=i_6<=2*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_5<n and 0<=i_6<=100*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
                     and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
-                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=ii_3<n
-                    and 0<=iii_3<n and 0<=j_0<n}""" ,
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n}""" ,
                 ["""
-                    x[i_0] = {b}[i_0] {{id=x0}} 
-                    {A_on_x}[ii_3] = 0. {{dep=x0, id=Aonx0}}
-                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=Aonx0, id=Aonx}}
+                    x[i_0] = -{b}[i_0] {{id=x0}} 
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
-                    p[i_4] = -r[i_4] {{dep=sumr, id=projector0}}
+                    <> converged = sum_r < 0.00000000000000001{{dep=sumr, id=converged}}
+                    p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
                     <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
-                    {A_on_p}[iii_3] = 0. {{dep=rk_norm1, id=Aonp00}}
                     for i_6
-                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=Aonp00, id=Aonp, inames=i_6}}
-                        <> p_on_Ap = 0 {{dep=Aonp, id=ponAp0}}
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
+                        <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
                         <> projector_is_zero = abs(p_on_Ap) < 1.e-18 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
@@ -836,7 +840,7 @@ class LocalLoopyKernelBuilder(object):
                         <> alpha = rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
                         x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
                         r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
-                        <> rkp1_norm = 0 {{dep=rk, id=rkp1_norm0}}
+                        <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
                         rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id=rkp1_normk}}
                     """.format(**str2name),
                         stop_criterion,
@@ -857,7 +861,6 @@ class LocalLoopyKernelBuilder(object):
                 lang_version=(2018, 2))
 
         knl = loopy.fix_parameters(knl, n=shape[0])
-        print(knl)
 
         # update gem to pym mapping
         # by linking the actions of the matrix-free solve kernel
@@ -880,7 +883,7 @@ class LocalLoopyKernelBuilder(object):
         # note that depends_on and id need to match the instructions in the kernel,
         # which uses the stop criterion
         return loopy.CInstruction("",
-                            "if (projector_is_zero || isnan(p_on_Ap)) break;",
+                            "if (projector_is_zero) break;",
                             depends_on="zeroproj",
                             id="cornercase")
 
@@ -910,7 +913,7 @@ class LocalLoopyKernelBuilder(object):
             for i in range(int(pyop2.configuration["simd_width"])-1):
                 variable += "&& " + variable_name + "["+str(i+1)+"]" + condition
         else:
-            variable = "fabs("+ var_name+")" + condition + "|| fabs(rk_norm)<0.0000001 "
+            variable = var_name + condition
         # note that depends_on and id need to match the instructions in the kernel,
         # which uses the stop criterion
         return loopy.CInstruction("",
@@ -963,49 +966,25 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=self.tsfc_parameters["scalar_type"],
                                         is_input=True, is_output=False))
 
-        action_names = []
-        for coeff in self.bag.action_coefficients.values():
-            if isinstance(coeff, OrderedDict) or isinstance(coeff, dict):
+        for coeff in self.bag.coefficients.values():
+            if isinstance(coeff, OrderedDict):
                 for (name, extent) in coeff.values():
-                    action_names.append(name)
-            else:
-                (name, extent) = coeff
-                action_names.append(name)
-        
-        if len(self.bag.coefficients.items())>0:
-            pyop2_coeffs = [ct for c in self.expression.coefficients()
-                                for cv,ct in self.bag.coefficients.items()
-                                if c == cv]
-        else:
-            pyop2_coeffs = self.bag.coefficients.values()
-
-        for coeff in pyop2_coeffs:
-            if isinstance(coeff, OrderedDict) or isinstance(coeff, dict):
-                for pos, (name, extent) in enumerate(coeff.values()):
-                    if (name not in [arg.name for arg in args] and name not in action_names) and pos == 2:
-                        arg = loopy.GlobalArg(name, shape=extent,
-                                            dtype=self.tsfc_parameters["scalar_type"],
-                                            target=loopy.CTarget(),
-                                            is_input=True, is_output=False,
-                                            dim_tags=None, strides=loopy.auto, order="C")
+                    arg = loopy.GlobalArg(name, shape=extent,
+                                          dtype=self.tsfc_parameters["scalar_type"],
+                                          target=loopy.CTarget(),
+                                          is_input=True, is_output=False,
+                                          dim_tags=None, strides=loopy.auto, order="C")
+                    if arg not in args:
                         args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
                                       dtype=self.tsfc_parameters["scalar_type"],
                                       target=loopy.CTarget(),
-                                      is_input=True, is_output=False,
+                                      is_input=True, is_output=True,
                                       dim_tags=None, strides=loopy.auto, order="C")
-                if arg.name not in [arg.name for arg in args]:
+                if arg not in args:
                     args.append(arg)
-
-        for append in append_args:
-            if append.name not in [arg.name for arg in args]:
-                args.append(append)
-
-        for tensor_temp in temporaries:
-            if tensor_temp.name not in [arg.name for arg in args]:
-                args.append(tensor_temp)
 
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
@@ -1031,6 +1010,14 @@ class LocalLoopyKernelBuilder(object):
             args.append(loopy.ValueArg(self.layer_arg,
                         dtype=np.int32))
 
+        for tensor_temp in temporaries:
+            if tensor_temp.name not in [arg.name for arg in args]:
+                args.append(tensor_temp)
+
+        for append in append_args:
+            if append.name not in [arg.name for arg in args]:
+                args.append(append)
+        
         for prepend in prepend_args:
             if prepend.name not in [arg.name for arg in args]:
                 args.insert(0, prepend)
@@ -1085,6 +1072,7 @@ class LocalLoopyKernelBuilder(object):
                                              predicates=predicates, id=key)
 
                 code = kinfo.kernel.code
+                # code = match_kernel_argnames(insn, code)
                 yield insn, {kinfo.kernel.name: code}
 
         if not cxt_kernels:
@@ -1096,6 +1084,27 @@ class LocalLoopyKernelBuilder(object):
         bag.coefficients = coeffs
         bag.action_coefficients = new_coeffs
         return bag
+
+
+# def match_kernel_argnames(insn, code):
+#     # FIXME we should do this before generating the knl
+#     knl_name, = code.callables_table
+#     knl = code.callables_table[knl_name].subkernel
+#     last_arg = None
+#     for c, arg in enumerate(insn.expression.parameters):
+#         if not isinstance(arg, pym.Variable):
+#             name_call = arg.subscript.aggregate.name
+#             name_code = knl.args[c].name
+#             if last_arg:
+#                 if name_call == last_arg.name:
+#                     # In this case we are dealing with coefficients coming from a mixed background.
+#                     # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
+#                     # but we pass them as one temporary which contains them both, so we need to adjust the shape
+#                     wrongly_shaped_arg = knl.arg_dict[name_call].copy()
+#                     wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
+#                     knl.arg_dict[name_call] = wrongly_shaped_arg
+#             last_arg = knl.arg_dict[name_code]
+#     return code
 
 
 class SlateWrapperBag(object):

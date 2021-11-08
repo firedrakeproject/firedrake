@@ -614,7 +614,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     init_temporaries=False,
                                                                     tensor2temp=action_tensor2temp,
                                                                     output_arg=action_output_arg,
-                                                                    matshell=False)
+                                                                    matshell=isinstance(tensor_shell_node, sl.TensorShell))
 
                 ctx_g2l.kernel_name = slate_loopy_name
                 # FIXME use a copy function
@@ -692,7 +692,7 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=Fal
                                 if isinstance(t, sl.AssembledVector)
                                 and t._function == cv}
     pos = coeff_init_index
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs, pos, reinit)   
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)   
     tensor2temps.update(tensor2temp)        
 
     # Get all coeffs into the wrapper kernel
