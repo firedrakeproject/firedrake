@@ -200,14 +200,18 @@ class HybridizationPC(SCBase):
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
-        local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
 
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
+        # Set ctx params to drive optimisations if local solves are matrix-free
+        if self.schur_builder.local_matfree:
+            self.ctx.fc_params.update({"slate_compiler": {"replace_mul": True}})
+        else:
+            self.ctx.fc_params.update({"slate_compiler": {"replace_mul": False}})
+
         # Assemble the Schur complement operator and right-hand side
-        local_matfree = PETSc.Options().getString(prefix + "local_matfree", "false") == "true"
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = functools.partial(assemble,
                                                 schur_rhs,
@@ -216,10 +220,6 @@ class HybridizationPC(SCBase):
                                                 assembly_type="residual")
 
         self.schur_rhs = Function(TraceSpace)
-        if local_matfree:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": True}})
-        else:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": False}})
         self._assemble_Srhs = functools.partial(assemble,
                                                 schur_rhs,
                                                 tensor=self.schur_rhs,
@@ -283,9 +283,9 @@ class HybridizationPC(SCBase):
             trace_ksp.setFromOptions()
 
         # Generate reconstruction calls
-        self._reconstruction_calls(local_matfree, mat_type, prefix, pc)
+        self._reconstruction_calls()
 
-    def _reconstruction_calls(self, local_matfree=False, mat_type=None, prefix=None, pc=None):
+    def _reconstruction_calls(self):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
@@ -323,7 +323,7 @@ class HybridizationPC(SCBase):
                 S = Shat * S
                 rhs = Shat * rhs
 
-        u_rec = S.solve(rhs, decomposition="PartialPivLU")
+        u_rec = S.solve(rhs, decomposition="PartialPivLU", matfree=self.schur_builder.local_matfree)
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
@@ -332,7 +332,7 @@ class HybridizationPC(SCBase):
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU",
-                            matfree=local_matfree)
+                            matfree=self.schur_builder.local_matfree)
         self._elim_unknown = functools.partial(assemble,
                                                sigma_rec,
                                                tensor=sigma,
@@ -606,6 +606,9 @@ class SchurComplementBuilder(object):
             assert parameters["slate_compiler"]["optimise"], ("Local systems should only get preconditioned with "
                                                               "a preconditioning matrix if the Slate optimiser replaces "
                                                               "inverses by solves.")
+        # Do the local solves matrix-free?
+        self._check_options([("mat_type", {"matfree"})])
+        self.local_matfree = get_option("mat_type") == "matfree"
 
     def build_inner_S(self):
         """Build the inner Schur complement."""

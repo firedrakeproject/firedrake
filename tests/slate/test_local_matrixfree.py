@@ -233,7 +233,7 @@ def test_full_hybridisation():
                                         'pc_type': 'none',
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree',
-                                        'local_matfree': True}}
+                                        'localsolve': {'mat_type': 'matfree'}}}
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
@@ -241,8 +241,7 @@ def test_full_hybridisation():
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
                                 'ksp_rtol': 1e-8,
-                                'mat_type': 'matfree',
-                                'local_matfree': False}}
+                                'mat_type': 'matfree'}}
 
     w = Function(W)
     solve(a == L, w, solver_parameters=matfree_params)
