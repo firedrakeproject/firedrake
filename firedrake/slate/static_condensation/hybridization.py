@@ -217,9 +217,9 @@ class HybridizationPC(SCBase):
 
         self.schur_rhs = Function(TraceSpace)
         if local_matfree:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": True}})
         else:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": False}})
         self._assemble_Srhs = functools.partial(assemble,
                                                 schur_rhs,
                                                 tensor=self.schur_rhs,
@@ -312,11 +312,6 @@ class HybridizationPC(SCBase):
         sigma = split_sol[id0]
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
-
-        if not local_matfree:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
-        else:
-            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": True}})
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
