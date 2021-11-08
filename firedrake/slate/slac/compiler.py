@@ -47,6 +47,7 @@ import gem
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg
 from tsfc.loopy import generate as generate_loopy
+from firedrake.slate.slac.kernel_settings import knl_counter
 import copy
 
 __all__ = ['compile_expression']
@@ -169,13 +170,23 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
-
+    (slate_loopy, ctx), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, "slate_loopy",
+                                                  matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
-                                      tsfc_parameters=compiler_parameters["form_compiler"])
+                                      tsfc_parameters=compiler_parameters["form_compiler"],
+                                      slate_loopy_name=ctx.kernel_name)
 
-    name = "slate_wrapper"
-    loopy_merged, arguments = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
+    if compiler_parameters["slate_compiler"]["replace_mul"]:
+        # Matrix-free Slate
+        name = ctx.kernel_name
+        assembly_strategy = "when_needed"
+    else:
+        name = "wrap_" + ctx.kernel_name
+        assembly_strategy = "terminals_first"
+
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
+                               name, ctx, assembly_strategy, slate_expr,
+                               compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
@@ -637,36 +648,54 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="output", matfree=False):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return slate_loopy: 2-tuple of loopy kernel for slate operations
-        and loopy GlobalArg for the output variable.
+
+    :arg gem_expr: the GEM expression which is supposed to be compiled into a loopy kernel
+    :arg var2terminal: originally a mapping from GEM variables to Slate terminal tensors,
+                       but in the matrix-free case it currently contains a mapping
+                       from arbitrary GEM expressions to arbitrary Slate nodes
+    :arg scalar_type: dtype of the variables in the loopy kernel
+    :arg out_name: name of the the final (output) GEM variable
+                   matching the last variable in the loopy kernel
+    :arg matfree: needed for seperating some expressions in var2terminal,
+                  can probably be dropped after FIXME is fixed
+
+    :return (slate_loopy, ctx): 2-tuple of loopy kernel for slate operations,
+                                and a ctx which most importantly contains gem->loopy mappings
+    :return output_variable:    a loopy GlobalArg for the output variable
     """
     # Creation of return variables for outer loopy
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-
-    output_loopy_arg = loopy.GlobalArg("output", shape=shape,
-                                       dtype=scalar_type,
-                                       is_input=True,
-                                       is_output=True)
-    args = [output_loopy_arg] + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
-                                 for var in var2terminal.keys()]
-    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
+    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
+    for var, terminal in var2terminal.items():
+        # FIXME for the matrixfree case we should probably just have two dicts
+        # From the var2terminal dict we only want to append vector-shaped args
+        # which are coming from AssembledVectors to the global args of the Slate kernel,
+        # meaning we don't want to append anything matrix shaped and also no solves or actions
+        if hasattr(var, "name") and var.name not in [a.name for a in args]:
+            if not terminal.terminal or (terminal.rank > 1 and matfree):
+                t_shape = var.shape if var.shape else (1,)
+                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
+            else:
+                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type, target=loopy.CTarget(),
+                                            is_input=True, is_output=False, dim_tags=None, strides=loopy.auto, order="C"))
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
     # glue assignments to return variable
-    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+    assignments = list(zip([gem.Indexed(gem.Variable(out_name, shape), idx)], preprocessed_gem_expr))
 
     # Part A: slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg
+    knl_name = knl_prefix + "_knl_%d" % knl_counter()  # auto generate a unique name
+    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True),
+            args[0].copy())
 
 
 def slate_to_cpp(expr, temps, prec=None):
