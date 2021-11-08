@@ -1,6 +1,7 @@
 from firedrake import *
 import pytest
 
+
 def run_gtmg_mixed_poisson():
 
     m = UnitSquareMesh(10, 10)
