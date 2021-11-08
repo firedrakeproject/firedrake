@@ -21,7 +21,7 @@ def make_builder(*args, **kwargs):
 
 
 class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+    __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
                  "coefficient_numbers", "name", "__weakref__",
                  "flop_count")
@@ -41,13 +41,15 @@ class Kernel(object):
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
     :kwarg flop_count: Estimated total flops for this kernel.
     """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
+    def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
                  subdomain_id=None, domain_number=None, quadrature_rule=None,
                  coefficient_numbers=(),
                  needs_cell_sizes=False,
                  flop_count=0):
         # Defaults
         self.ast = ast
+        assert arguments is None  # only valid for loopy kernels
+        self.arguments = None
         self.integral_type = integral_type
         self.oriented = oriented
         self.domain_number = domain_number
