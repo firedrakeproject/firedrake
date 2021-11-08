@@ -328,6 +328,13 @@ def test_drop_transposes(TC_non_symm):
     compare_vector_expressions(expressions)
     compare_slate_tensors(expressions, opt_expressions)
 
+    assert A != A.T
+    from firedrake.slate.slac.optimise import optimise
+    T_opt = optimise(A.T, {"optimise": True})
+    assert isinstance(T_opt, Tensor)
+    assert np.allclose(assemble(T_opt.T).M.values,
+                       assemble(adjoint(T_opt.form)).M.values)
+
 
 #######################################
 # Test diagonal optimisation pass
