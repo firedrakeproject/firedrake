@@ -11,7 +11,7 @@ def mymesh():
 @pytest.fixture
 def V(mymesh):
     dimension = 3
-    return FunctionSpace(mymesh, "CG", dimension) 
+    return FunctionSpace(mymesh, "CG", dimension)
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def dg(mymesh):
 
 
 @pytest.fixture
-def A(V): 
+def A(V):
     u = TrialFunction(V)
     v = TestFunction(V)
     a = (dot(grad(v), grad(u)) + v * u) * dx
@@ -73,7 +73,6 @@ def A3(mymesh, Mixed, Velo, Pres, dg):
     T = TrialFunction(dg)
     v = TestFunction(dg)
 
-    h = 2*Circumradius(mymesh)
     n = FacetNormal(mymesh)
 
     u = split(w)[0]
@@ -107,22 +106,19 @@ def A4(W4, mymesh):
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
     a = (inner(sigma, tau)*dx + inner(u, div(tau))*dx
-            + inner(div(sigma), v)*dx
-            + inner(lambdar('+'), jump(tau, n=n))*dS
-            # Multiply transmission equation by -1 to ensure
-            # SCPC produces the SPD operator after statically
-            # condensing
-            - inner(jump(sigma, n=n), gammar('+'))*dS)
-    L = inner(f, v)*dx
+         + inner(div(sigma), v)*dx
+         + inner(lambdar('+'), jump(tau, n=n))*dS
+         - inner(jump(sigma, n=n), gammar('+'))*dS)
 
-    A = Tensor(a)
+    _A = Tensor(a)
+    A = _A.blocks
     return A
 
 
 @pytest.fixture
 def f(V, mymesh):
     f = Function(V)
-    x, y= SpatialCoordinate(mymesh)
+    x, y = SpatialCoordinate(mymesh)
     f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
     return AssembledVector(f)
 
@@ -181,8 +177,8 @@ def expr(request, A, A2, A3, f, f2):
 
 def test_new_slateoptpass(expr):
     print("Test is running for expresion " + str(expr))
-    tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
-    tmp_opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
+    tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    tmp_opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
 
 
@@ -190,12 +186,9 @@ def test_new_slateoptpass(expr):
                         "A[0, 2] + A[0, 0] * A[0, 2]",
                         "A[0, 0] * A[0, 0] * A[0, 2]",
                         "A[0, 1] * A[1, 0] * A[0, 2]",
-                        "A[0, 1] * A[1, 1] * A[1, 2]",
-                        "(A + A)[0, 2]",
+                        "A[0, 1] * A[1, 1] * A[1, 2]"
                         ])
 def block_expr(request, A4, f4):
-    A = A4
-    A4 = A4.blocks
     if request.param == "A[0, 0] * A[0, 2]":
         return (A4[0, 0] * A4[0, 2])*f4
     elif request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
@@ -206,13 +199,11 @@ def block_expr(request, A4, f4):
         return (A4[0, 1] * A4[1, 0] * A4[0, 2])*f4
     elif request.param == "A[0, 1] * A[1, 1] * A[1, 2]":
         return (A4[0, 1] * A4[1, 1] * A4[1, 2])*f4
-    elif request.param == "(A + A)[0, 2]":
-        return ((A + A).blocks[0, 2])*f4
 
 
 def test_blocks(block_expr):
-    tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
-    tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
+    tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
 
 
@@ -224,7 +215,6 @@ def test_full_hybridisation():
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    n = FacetNormal(mesh)
 
     # Define the source function
     x, y = SpatialCoordinate(mesh)
@@ -245,15 +235,14 @@ def test_full_hybridisation():
                                         'mat_type': 'matfree',
                                         'local_matfree': True}}
     params = {'mat_type': 'matfree',
-                      'ksp_type': 'preonly',
-                      'pc_type': 'python',
-                      'pc_python_type': 'firedrake.HybridizationPC',
-                      'hybridization': {'ksp_type': 'cg',
-                                        'pc_type': 'none',
-                                        'ksp_rtol': 1e-8,
-                                        'mat_type': 'matfree',
-                                        'local_matfree': False}}
-
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'ksp_rtol': 1e-8,
+                                'mat_type': 'matfree',
+                                'local_matfree': False}}
 
     w = Function(W)
     solve(a == L, w, solver_parameters=matfree_params)
@@ -261,12 +250,13 @@ def test_full_hybridisation():
     solve(a == L, w, solver_parameters=params)
     assert np.allclose(w.dat.data, w2.dat.data, rtol=1e-8)
 
+
 def test_schur_complements():
     mesh = UnitSquareMesh(6, 6)
     degree = 0
-    U = FunctionSpace(mesh, "DRT", degree+1)  
-    V = FunctionSpace(mesh, "DG", degree)  
-    T = FunctionSpace(mesh, "DGT",degree)
+    U = FunctionSpace(mesh, "DRT", degree+1)
+    V = FunctionSpace(mesh, "DG", degree)
+    T = FunctionSpace(mesh, "DGT", degree)
     W = U * V * T
 
     u, p, l = TrialFunctions(W)
@@ -284,26 +274,20 @@ def test_schur_complements():
          + inner(div(sigma), v)*dx
          + inner(lambdar('+'), jump(tau, n=n))*dS
          - inner(jump(sigma, n=n), gammar('+'))*dS)
-    L = inner(f, v)*dx
 
     _A = Tensor(a)
     A = _A.blocks
 
     # outer schur complement
-    S = A[2,2] - A[2,:2] * A[:2,:2].inv * A[:2,2]
+    S = A[2, 2] - A[2, :2] * A[:2, :2].inv * A[:2, 2]
     C = AssembledVector(Function(T).assign(Constant(2.)))
-    matfree_schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
+    matfree_schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
 
     # inner schur complement
-    S = A[1,1] - A[1,:1] * A[:1,:1].inv * A[:1,1]
+    S = A[1, 1] - A[1, :1] * A[:1, :1].inv * A[:1, 1]
     C = AssembledVector(Function(T).assign(Constant(2.)))
-    matfree_schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(S*C, form_compiler_parameters={"slate_compiler": {"optimise":False, "replace_mul": False, "visual_debug": False}})
+    matfree_schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
-
-import sys
-import pytest
-if __name__ == "__main__":
-    pytest.main(["-x", "/Users/sv2518/firedrakeinstalls/firedrake/src/firedrake/tests/slate/test_local_matrixfree.py"])
