@@ -1445,43 +1445,6 @@ class Solve(BinaryOp):
                 if self.matfree else "(%s).solve(%s)" % self.operands)
 
 
-class Diagonal(UnaryOp):
-    """An abstract Slate class representing the diagonal of a tensor.
-
-    .. warning::
-
-       This class will raise an error if the tensor is not square.
-    """
-
-    def __init__(self, A):
-        """Constructor for the Diagonal class."""
-        assert A.rank == 2, "The tensor must be rank 2."
-        assert A.shape[0] == A.shape[1], (
-            "The diagonal can only be computed on square tensors."
-        )
-
-        super(Diagonal, self).__init__(A)
-
-    @cached_property
-    def arg_function_spaces(self):
-        """Returns a tuple of function spaces that the tensor
-        is defined on.
-        """
-        tensor, = self.operands
-        return (tensor.arg_function_spaces[::-1][0],)
-
-    def arguments(self):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor.
-        """
-        tensor, = self.operands
-        return (tensor.arguments()[::-1][0],)
-
-    def _output_string(self, prec=None):
-        """Creates a string representation of the diagonal of a tensor."""
-        tensor, = self.operands
-        return "(%s).diag" % tensor
-
 class DiagonalTensor(UnaryOp):
     """An abstract Slate class representing the diagonal of a tensor.
 

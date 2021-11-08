@@ -258,8 +258,6 @@ class HybridizationPC(SCBase):
                                                 tensor=self.schur_rhs,
                                                 form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        
-        # plot_mixed_operator(schur_comp, "schur_comp")
 
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
@@ -469,9 +467,6 @@ class HybridizationPC(SCBase):
                     acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
                     self.trace_ksp.solve(b, x_trace)
-        
-        # plot_mixed_operator(schur_comp, "schur_comp")
-        # raise CheckSchurComplement(self.trace_solution, "hin")
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
@@ -486,10 +481,6 @@ class HybridizationPC(SCBase):
             self._sub_unknown()
         # Recover the eliminated unknown
         self._elim_unknown()
-
-
-        # plot_mixed_operator(schur_comp, "schur_comp")
-        # raise CheckSchurComplement(self.broken_solution, "hi")
 
         with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
