@@ -30,32 +30,18 @@ class Map(object):
 
     __slots__ = ("values", "offset", "interior_horizontal",
                  "variable", "unroll", "layer_bounds",
-                 "prefetch", "permutation")
+                 "prefetch", "_pmap_count")
 
     def __init__(self, map_, interior_horizontal, layer_bounds,
-                 values=None, offset=None, unroll=False):
+                 offset=None, unroll=False):
         self.variable = map_.iterset._extruded and not map_.iterset.constant_layers
         self.unroll = unroll
         self.layer_bounds = layer_bounds
         self.interior_horizontal = interior_horizontal
         self.prefetch = {}
-        if values is not None:
-            raise RuntimeError
-            self.values = values
-            if map_.offset is not None:
-                assert offset is not None
-            self.offset = offset
-            return
-
         offset = map_.offset
         shape = (None, ) + map_.shape[1:]
         values = Argument(shape, dtype=map_.dtype, pfx="map")
-        if isinstance(map_, PermutedMap):
-            self.permutation = NamedLiteral(map_.permutation, parent=values, suffix="permutation")
-            if offset is not None:
-                offset = offset[map_.permutation]
-        else:
-            self.permutation = None
         if offset is not None:
             if len(set(map_.offset)) == 1:
                 offset = Literal(offset[0], casting=True)
@@ -64,6 +50,7 @@ class Map(object):
 
         self.values = values
         self.offset = offset
+        self._pmap_count = itertools.count()
 
     @property
     def shape(self):
@@ -73,7 +60,7 @@ class Map(object):
     def dtype(self):
         return self.values.dtype
 
-    def indexed(self, multiindex, layer=None):
+    def indexed(self, multiindex, layer=None, permute=lambda x: x):
         n, i, f = multiindex
         if layer is not None and self.offset is not None:
             # For extruded mesh, prefetch the indirections for each map, so that they don't
@@ -82,10 +69,7 @@ class Map(object):
             base_key = None
             if base_key not in self.prefetch:
                 j = Index()
-                if self.permutation is None:
-                    base = Indexed(self.values, (n, j))
-                else:
-                    base = Indexed(self.values, (n, Indexed(self.permutation, (j,))))
+                base = Indexed(self.values, (n, permute(j)))
                 self.prefetch[base_key] = Materialise(PackInst(), base, MultiIndex(j))
 
             base = self.prefetch[base_key]
@@ -112,24 +96,56 @@ class Map(object):
             return Indexed(self.prefetch[key], (f, i)), (f, i)
         else:
             assert f.extent == 1 or f.extent is None
-            if self.permutation is None:
-                base = Indexed(self.values, (n, i))
-            else:
-                base = Indexed(self.values, (n, Indexed(self.permutation, (i,))))
+            base = Indexed(self.values, (n, permute(i)))
             return base, (f, i)
 
-    def indexed_vector(self, n, shape, layer=None):
+    def indexed_vector(self, n, shape, layer=None, permute=lambda x: x):
         shape = self.shape[1:] + shape
         if self.interior_horizontal:
             shape = (2, ) + shape
         else:
             shape = (1, ) + shape
         f, i, j = (Index(e) for e in shape)
-        base, (f, i) = self.indexed((n, i, f), layer=layer)
+        base, (f, i) = self.indexed((n, i, f), layer=layer, permute=permute)
         init = Sum(Product(base, Literal(numpy.int32(j.extent))), j)
         pack = Materialise(PackInst(), init, MultiIndex(f, i, j))
         multiindex = tuple(Index(e) for e in pack.shape)
         return Indexed(pack, multiindex), multiindex
+
+
+class PMap(Map):
+    __slots__ = ("permutation",)
+
+    def __init__(self, map_, permutation):
+        # Copy over properties
+        self.variable = map_.variable
+        self.unroll = map_.unroll
+        self.layer_bounds = map_.layer_bounds
+        self.interior_horizontal = map_.interior_horizontal
+        self.prefetch = {}
+        self.values = map_.values
+        self.offset = map_.offset
+        offset = map_.offset
+        # TODO: this is a hack, rep2loopy should be in charge of
+        # generating all names!
+        count = next(map_._pmap_count)
+        if offset is not None:
+            if offset.shape:
+                # Have a named literal
+                offset = offset.value[permutation]
+                offset = NamedLiteral(offset, parent=self.values, suffix=f"permutation{count}_offset")
+            else:
+                offset = map_.offset
+        self.offset = offset
+        self.permutation = NamedLiteral(permutation, parent=self.values, suffix=f"permutation{count}")
+
+    def indexed(self, multiindex, layer=None):
+        permute = lambda x: Indexed(self.permutation, (x,))
+        return super().indexed(multiindex, layer=layer, permute=permute)
+
+    def indexed_vector(self, n, shape, layer=None):
+        permute = lambda x: Indexed(self.permutation, (x,))
+        return super().indexed_vector(n, shape, layer=layer, permute=permute)
 
 
 class Pack(metaclass=ABCMeta):
@@ -818,9 +834,13 @@ class WrapperBuilder(object):
         try:
             return self.maps[key]
         except KeyError:
-            map_ = Map(map_, interior_horizontal,
-                       (self.bottom_layer, self.top_layer),
-                       unroll=unroll)
+            if isinstance(map_, PermutedMap):
+                imap = self.map_(map_.map_, unroll=unroll)
+                map_ = PMap(imap, map_.permutation)
+            else:
+                map_ = Map(map_, interior_horizontal,
+                           (self.bottom_layer, self.top_layer),
+                           unroll=unroll)
             self.maps[key] = map_
             return map_
 
@@ -854,7 +874,11 @@ class WrapperBuilder(object):
         args.extend(self.arguments)
         # maps are refcounted
         for map_ in self.maps.values():
-            args.append(map_.values)
+            # But we don't need to emit stuff for PMaps because they
+            # are a Map (already seen + a permutation [encoded in the
+            # indexing]).
+            if not isinstance(map_, PMap):
+                args.append(map_.values)
         return tuple(args)
 
     def kernel_call(self):
