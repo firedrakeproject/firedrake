@@ -200,7 +200,6 @@ class HybridizationPC(SCBase):
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
 
-
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
@@ -225,7 +224,6 @@ class HybridizationPC(SCBase):
                                                 tensor=self.schur_rhs,
                                                 form_compiler_parameters=self.ctx.fc_params)
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
@@ -289,7 +287,7 @@ class HybridizationPC(SCBase):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake.assemble import assemble
+        from firedrake import assemble
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
