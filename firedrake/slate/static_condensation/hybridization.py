@@ -17,6 +17,7 @@ from firedrake.parameters import parameters
 
 __all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
+
 class HybridizationPC(SCBase):
 
     needs_python_pmat = True
@@ -216,13 +217,13 @@ class HybridizationPC(SCBase):
 
         self.schur_rhs = Function(TraceSpace)
         if local_matfree:
-            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
         else:
-            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
         self._assemble_Srhs = functools.partial(assemble,
                                                 schur_rhs,
                                                 tensor=self.schur_rhs,
-                                                form_compiler_parameters=self.ctx.fc_params) # this triggers loopy compilation
+                                                form_compiler_parameters=self.ctx.fc_params)
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
@@ -235,7 +236,7 @@ class HybridizationPC(SCBase):
                                              tensor=self.S,
                                              bcs=trace_bcs,
                                              form_compiler_parameters=self.ctx.fc_params,
-                                             mat_type=mat_type) 
+                                             mat_type=mat_type)
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
@@ -313,9 +314,9 @@ class HybridizationPC(SCBase):
         lambdar = AssembledVector(self.trace_solution)
 
         if not local_matfree:
-            self.ctx.fc_params.update({"slate_compiler":{"optimise": False, "replace_mul": False}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": False, "replace_mul": False}})
         else:
-            self.ctx.fc_params.update({"slate_compiler":{"optimise": True, "replace_mul": True}})
+            self.ctx.fc_params.update({"slate_compiler": {"optimise": True, "replace_mul": True}})
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
@@ -328,7 +329,6 @@ class HybridizationPC(SCBase):
                 rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
-
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
@@ -336,12 +336,13 @@ class HybridizationPC(SCBase):
                                               assembly_type="residual")
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                                matfree=local_matfree)
+                            decomposition="PartialPivLU",
+                            matfree=local_matfree)
         self._elim_unknown = functools.partial(assemble,
-                                              sigma_rec,
-                                              tensor=sigma,
-                                              form_compiler_parameters=self.ctx.fc_params,
-                                              assembly_type="residual")
+                                               sigma_rec,
+                                               tensor=sigma,
+                                               form_compiler_parameters=self.ctx.fc_params,
+                                               assembly_type="residual")
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
@@ -387,7 +388,7 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
-            self._assemble_Srhs()   
+            self._assemble_Srhs()
 
     def sc_solve(self, pc):
         """Solve the condensed linear system for the
