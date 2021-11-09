@@ -343,7 +343,7 @@ def _push_mul_inverse(expr, self, state):
                 else Transpose(Solve(Transpose(child), Transpose(state.coeff), matfree=self.action)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
-        return expr if isinstance(expr, Inverse) else self(expr, ActionBag(None, 1))
+        return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
 
 
 @_push_mul.register(Transpose)
