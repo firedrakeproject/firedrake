@@ -492,7 +492,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         for slate_node, coeff_name in zip(slate_nodes, coeff_names):
                             terminal = slate_node.action()
                             coeff = slate_node.ufl_coefficient
-                            names = {coeff._ufl_function_space:(coeff_name, coeff.ufl_shape)}
+                            names = {coeff: (coeff_name, slate_node.coeff.shape)}
                             yield terminal, coeff, names
 
                 terminal, coeff, names = tuple(*get_coeff([slate_node], [coeff_name]))

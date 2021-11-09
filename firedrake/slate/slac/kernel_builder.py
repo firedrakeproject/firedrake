@@ -655,17 +655,17 @@ class LocalLoopyKernelBuilder(object):
             try:
                 # check if the coefficient is in names,
                 # if yes it will be replaced later
-                prefix = names[c._ufl_function_space]
+                prefix = names[c]
                 new = True
             except:
-                # otherwise check if the splitted functionspace
-                # is in names
-                for fs in c._ufl_function_space.split():
-                    try:
-                        prefix = names[fs]
-                        new = True
-                    except:
-                        pass
+                # # otherwise check if the splitted functionspace
+                # # is in names
+                # for fs in c._ufl_function_space.split():
+                #     try:
+                #         prefix = names[fs]
+                #         new = True
+                #     except:
+                #         pass
                 # if the coefficient is not in names, it's not going to replaced
                 # so using the normal naming convention for the coefficient
                 if not new:
@@ -690,20 +690,20 @@ class LocalLoopyKernelBuilder(object):
                     else:
                         coeff_dict[c] = mixed
                 except:
-                    # if the coefficient is not splitable
-                    # generate a coefficient for an argument on a mixed fs
-                    # then try to split that coefficient and link to the correct substitue
-                    # FIXME this might not be the right order, unclear how to deduct this from anything
-                    args = self.expression.arguments()
-                    from ufl import Coefficient
-                    missing_coeff = Coefficient(args[0].function_space())
-                    for j,c_ in enumerate((c,)+(missing_coeff,)):
-                        if new:
-                            name = prefix
-                        else:
-                            name = "w_{}_{}".format(i, j)
-                        info = (name, self.extent(c_))
-                        mixed.update({c_: info})
+                    # # if the coefficient is not splitable
+                    # # generate a coefficient for an argument on a mixed fs
+                    # # then try to split that coefficient and link to the correct substitue
+                    # # FIXME this might not be the right order, unclear how to deduct this from anything
+                    # args = self.expression.arguments()
+                    # from firedrake.ufl_expr import Coefficient
+                    # missing_coeff = Coefficient(args[0].function_space())
+                    # for j,c_ in enumerate((c,)+(missing_coeff,)):
+                    #     if new:
+                    #         name = prefix
+                    #     else:
+                    #         name = "w_{}_{}".format(i, j)
+                    #     info = (name, self.extent(c_))
+                    #     mixed.update({c_: info})
                     if new:
                         new_coeff_dict[c] = mixed
                     else:
