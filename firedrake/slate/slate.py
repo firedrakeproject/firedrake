@@ -19,7 +19,6 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict
 
 from ufl import Coefficient, Constant
-from firedrake.ufl_expr import Coefficient as fd_Coefficient
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -1275,7 +1274,7 @@ class Action(BinaryOp):
             # which is then used to the "placeholder coefficient" within the ufl form
             # corresponding to the tensor A
             cfs, = self.coeff.arguments()
-            coeff = fd_Coefficient(cfs.ufl_function_space())
+            coeff = Coefficient(cfs.ufl_function_space())
 
         # Keep track of the (potentially new) coefficient and replace
         # one of the arguments in the form corresponding to the tensor A
