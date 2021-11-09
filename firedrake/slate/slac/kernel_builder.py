@@ -456,7 +456,13 @@ class LocalLoopyKernelBuilder(object):
         if element.family() == "Real":
             return (coefficient.dat.cdim, )
         else:
-            return (create_element(element).space_dimension(), )
+            dimension = lambda element: create_element(element).space_dimension()
+            if type(element) == MixedElement:
+                shapes = [dimension(element) for element in coefficient.ufl_element().sub_elements()]
+            else:
+                shapes = [dimension(coefficient.ufl_element())]
+            shape = (sum(shapes),)
+            return shape
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -538,19 +544,7 @@ class LocalLoopyKernelBuilder(object):
             # kernel data is restructured
             if isinstance(c, tuple):  # then the coeff is coming from a mixed background
                 mixed_c, split_c = c
-                def arg_function_spaces(coeff):
-                    return (coeff.ufl_function_space(),)
-                def shapes(coeff):
-                    shapes = OrderedDict()
-                    for i, fs in enumerate(arg_function_spaces(coeff)):
-                        shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
-                                        for V in fs)
-                    return shapes
-                def shape(coeff):
-                    return tuple(sum(shapelist) for shapelist in shapes(coeff).values())
-                shp2 = shape(split_c)
-                if name == "S1":
-                    shp2 = (8,)
+                shp2 = self.extent(split_c)
                 shp, = shp2 if shp2 else (1,)
                 idx = self.bag.index_creator((shp,))
                 offset_index = (pym.Sum((offset, idx[0])),)
@@ -636,7 +630,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, new_coeffs=None, names=None, action_node=None):
+    def collect_coefficients(self, names=None, action_node=None):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
@@ -658,56 +652,25 @@ class LocalLoopyKernelBuilder(object):
                 prefix = names[c]
                 new = True
             except:
-                # # otherwise check if the splitted functionspace
-                # # is in names
-                # for fs in c._ufl_function_space.split():
-                #     try:
-                #         prefix = names[fs]
-                #         new = True
-                #     except:
-                #         pass
-                # if the coefficient is not in names, it's not going to replaced
-                # so using the normal naming convention for the coefficient
                 if not new:
                     prefix = "w_{}".format(i)
             element = c.ufl_element()
             if type(element) == MixedElement:
                 mixed = OrderedDict()
-                try:
-                    # try to split the coefficient
-                    # for some reason there are coefficients defined on mixed function space
-                    # which cannot be split, I assume they are somehow already indexed
-                    loop = c.split()
-                    for j, c_ in enumerate(loop):
-                        if new:
-                            name = prefix
-                        else:
-                            name = prefix+"_{}".format(j)
-                        info = (name, self.extent(c_))
-                        mixed.update({c_: info})
+                from ufl import Coefficient, FunctionSpace
+                loop = [Coefficient(FunctionSpace(c.ufl_domain(), element))
+                                for element in c.ufl_element().sub_elements()]
+                for j, c_ in enumerate(loop):
                     if new:
-                        new_coeff_dict[c] = mixed
+                        name = prefix
                     else:
-                        coeff_dict[c] = mixed
-                except:
-                    # # if the coefficient is not splitable
-                    # # generate a coefficient for an argument on a mixed fs
-                    # # then try to split that coefficient and link to the correct substitue
-                    # # FIXME this might not be the right order, unclear how to deduct this from anything
-                    # args = self.expression.arguments()
-                    # from firedrake.ufl_expr import Coefficient
-                    # missing_coeff = Coefficient(args[0].function_space())
-                    # for j,c_ in enumerate((c,)+(missing_coeff,)):
-                    #     if new:
-                    #         name = prefix
-                    #     else:
-                    #         name = "w_{}_{}".format(i, j)
-                    #     info = (name, self.extent(c_))
-                    #     mixed.update({c_: info})
-                    if new:
-                        new_coeff_dict[c] = mixed
-                    else:
-                        coeff_dict[c] = mixed
+                        name = prefix+"_{}".format(j)
+                    info = (name, self.extent(c_))
+                    mixed.update({c_: info})
+                if new:
+                    new_coeff_dict[c] = mixed
+                else:
+                    coeff_dict[c] = mixed
             else:
                 # if we don't deal with a mixed coefficient we can just append it
                 name = prefix
