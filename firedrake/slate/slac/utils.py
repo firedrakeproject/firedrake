@@ -582,6 +582,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
 
                 else:
+                    # ----- Codepath for matrix-free solves on terminal tensors ----
+
                     # Generate matfree solve call and knl
                     action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg, ctx_g2l = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
                     
@@ -602,7 +604,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
   
                     # Prepare data structures of tensor2temp for a new swipe
                     _, child2 = slate_node.children
-                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[3]}
+                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     
