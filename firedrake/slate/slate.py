@@ -998,7 +998,7 @@ class Inverse(UnaryOp):
         self.diagonal = A.diagonal
 
         if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
-            A = Factorization(A, decomposition="PartialPivLU")
+            A = A #Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 
@@ -1370,8 +1370,8 @@ class Solve(BinaryOp):
         # For matrices smaller than 5x5, exact formulae can be used
         # to evaluate the inverse. Otherwise, this class will trigger
         # a factorization method in the code-generation.
-        if A.shape < (5, 5) and not ("matfree" in kwargs.keys() and kwargs["matfree"]):
-            return A.inv * B
+        # if A.shape < (5, 5) and not ("matfree" in kwargs.keys() and kwargs["matfree"]):
+        #     return A.inv * B
 
         return super().__new__(cls)
 
