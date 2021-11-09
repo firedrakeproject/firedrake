@@ -427,7 +427,16 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, tensor2temp={}, output_arg=None, matshell=False):
+    # FIXME This function needs some refactoring
+    # Essentially there are 4 codepath: 1) insn is no matrix-free special insn
+    #                                   2) insn is an Action
+    #                                   3) insn is a Solve
+    #                                       a) the matrix is terminal
+    #                                       b) the matrix is a TensorShell
+    # My idea would be to subclass CallInstruction from loopy to ActionInstruction, SolveInstruction, ...
+    # and then we can use a dispatcher
+    
     insns = []
     tensor2temps = tensor2temp
     knl_list = {}
@@ -472,6 +481,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
             tensor_shell_node, coeff_node = slate_node.children
             if isinstance(slate_node, sl.Action) and not matshell:
+                # ----- this is the code path for "pure" Actions ----
+
                 def link_action_coeff(builder, coeffs=None, names=None, terminals=None):
                     # split coefficients into a set of original coefficients (old_coeffs)
                     # and coefficients coming from the result of an action (new_coeffs)
@@ -525,6 +536,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
             else:
                 if not (isinstance(slate_node, sl.Solve)):
+                    # ----- Codepath for matrix-free solves on tensor shells ----
 
                     # This path handles the inlining of action which don't have a 
                     # terminal as the tensor to be acted on
@@ -700,6 +712,12 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=Fal
     updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
 
     return updated_bag, tensor2temps, inits
+
+#### A note on the helper functions:
+#### There are two update functions.
+#### One is updating the args and so on of the inner kernel, e.g. the matrix-free solve in a slate loopy kernel.
+#### The other is updating the call to that inner kernel inside the outer loopy, e.g. in the slate loopy kernel.
+#### The later is inherting information from the result of the former.
 
 def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy):
     # 1) Prepare the wrapper kernel: scheduling of instructions
