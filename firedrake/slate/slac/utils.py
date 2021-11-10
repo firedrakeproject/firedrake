@@ -588,7 +588,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name:new_var})
                     action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
                     action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
-
+                    it = "only_action"
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
@@ -615,6 +615,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
+                    it = False
                     
                 # Repeat for the actions which might be in the action wrapper kernel
                 ctx_g2l_action.kernel_name = action_wrapper_knl_name
@@ -625,7 +626,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     ctx_g2l_action,
                                                                     tsfc_parameters,
                                                                     slate_parameters,
-                                                                    init_temporaries=False,
+                                                                    init_temporaries=it,
                                                                     tensor2temp=action_tensor2temp,
                                                                     output_arg=action_output_arg,
                                                                     matshell=isinstance(tensor_shell_node, sl.TensorShell))
@@ -656,10 +657,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
-        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index)
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index, init_temporaries=init_temporaries)
         builder.bag = updated_bag
         for i in inits:
-            insns.insert(0, i)
+            if i.id not in [insn.id for insn in insns]:
+                insns.insert(0, i)
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
@@ -696,7 +698,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index=None):
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index=None, init_temporaries=""):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
@@ -704,15 +706,23 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=Fal
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
                                 for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
-                                and t._function == cv}
+                                and t._function == cv
+                                or isinstance(t, sl.Action)}
+    if init_temporaries == "only_action":
+        var2terminal_vectors = {v:t for (v,t) in var2terminal_vectors.items()
+                                    if isinstance(t, sl.Action)}
+
+
     pos = coeff_init_index
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)   
     tensor2temps.update(tensor2temp)        
 
     # Get all coeffs into the wrapper kernel
     # so that we can generate the right wrapper kernel args of it
-    updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
-
+    if not init_temporaries == "only_action":
+        updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
+    else:
+        updated_bag = builder.bag
     return updated_bag, tensor2temps, inits
 
 #### A note on the helper functions:
