@@ -142,6 +142,27 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
     sys.exit(1)
 
+# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
+# But only for Linux
+if platform.system() == "Linux":
+    # Get the cpu information
+    cpuinfostring = os.popen('lscpu').read()
+    # Check if it is a tigerlake processor
+    if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
+        # Get the compiler versions
+        gccversionstring = os.popen('gcc --version').read()
+        gccversionstring = gccversionstring[gccversionstring.find(')')+2:gccversionstring.find('\n')]
+
+        gppversionstring = os.popen('g++ --version').read()
+        gppversionstring = gppversionstring[g++versionstring.find(')')+2:gppversionstring.find('\n')]
+
+        gfortranversionstring = os.popen('gfortran --version').read()
+        gfortranversionstring = gfortranversionstring[gfortranversionstring.find(')')+2:gfortranversionstring.find('\n')]
+
+        # Check if the combination is a problem
+        if float(gccversionstring[0:gccversionstring.find('.') + 2]) <= 9.3 or float(g++versionstring[0:g++versionstring.find('.') + 2]) <= 9.3 or float(gfortranversionstring[0:gfortranversionstring.find('.') + 2]) <= 9.3:
+            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible.""")
+            sys.exit(1)
 
 branches = {}
 
