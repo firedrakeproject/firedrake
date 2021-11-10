@@ -99,8 +99,8 @@ class CoordinatesKernelArg(RankOneKernelArg):
     name = "coords"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, interior_facet=False, interior_facet_horiz=False):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+    def __init__(self, elem, isreal, dtype, interior_facet=False, interior_facet_horiz=False):
+        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz, isreal)
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -151,9 +151,9 @@ class ConstantKernelArg(RankZeroKernelArg):
 
 class CoefficientKernelArg(RankOneKernelArg):
 
-    def __init__(self, name, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
+    def __init__(self, name, elem, isreal, dtype, *, interior_facet=False, interior_facet_horiz=False):
         self._name = name
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz, isreal)
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -216,8 +216,8 @@ class CellSizesKernelArg(RankOneKernelArg):
     name = "cell_sizes"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+    def __init__(self, elem, isreal, dtype, *, interior_facet=False, interior_facet_horiz=False):
+        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz, isreal)
         self._dtype = dtype
 
     @property
@@ -317,9 +317,9 @@ class ScalarOutputKernelArg(RankZeroKernelArg, OutputKernelArg):
 class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
     def __init__(
-        self, elem, dtype, *, interior_facet=False, diagonal=False, interior_facet_horiz=False
+        self, elem, isreal, dtype, *, interior_facet=False, diagonal=False, interior_facet_horiz=False
     ):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz, isreal)
         self._dtype = dtype
 
         self._interior_facet = interior_facet
@@ -369,9 +369,9 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
 class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
-    def __init__(self, relem, celem, dtype, *, interior_facet=False, interior_facet_horiz=False):
-        self._relem = _ElementHandler(relem, interior_facet, interior_facet_horiz)
-        self._celem = _ElementHandler(celem, interior_facet, interior_facet_horiz)
+    def __init__(self, relem, risreal, celem, cisreal, dtype, *, interior_facet=False, interior_facet_horiz=False):
+        self._relem = _ElementHandler(relem, interior_facet, interior_facet_horiz, risreal)
+        self._celem = _ElementHandler(celem, interior_facet, interior_facet_horiz, cisreal)
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -426,10 +426,11 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
 class _ElementHandler:
 
-    def __init__(self, elem, interior_facet=False, interior_facet_horiz=False):
+    def __init__(self, elem, interior_facet=False, interior_facet_horiz=False, is_real_tensor_product=False):
         self._elem = elem
         self._interior_facet = interior_facet
         self._interior_facet_horiz = interior_facet_horiz
+        self._is_real_tensor_product = is_real_tensor_product
 
     @property
     def node_shape(self):
