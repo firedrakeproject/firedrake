@@ -3,6 +3,7 @@ from functools import singledispatch
 from itertools import repeat
 from firedrake.slate.slate import *
 from collections import namedtuple
+from firedrake.ufl_expr import adjoint
 
 """ ActionBag class
 :arg coeff:     what we contract with.
@@ -235,6 +236,8 @@ def _drop_double_transpose_transpose(expr, self):
     if isinstance(child, Transpose):
         grandchild, = child.children
         return self(grandchild)
+    elif child.terminal and child.rank > 1:
+        return Tensor(adjoint(child.form))
     else:
         return type(expr)(*map(self, expr.children))
 
