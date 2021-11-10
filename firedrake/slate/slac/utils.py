@@ -402,7 +402,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
 
     elif strategy == "when_needed":
         tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr,
-                                                    ctx_g2l, tsfc_parameters, slate_parameters, {}, output_arg)
+                                                    ctx_g2l, tsfc_parameters, slate_parameters, True, {}, output_arg)
         return slate_loopy
 
 
@@ -444,21 +444,27 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     # Keeping track off all coefficients upfront
     # saves us the effort of one of those ugly dict comparisons
+    coeffs = {}  # all coefficients including the ones for the action
     new_coeffs = {}  # coeffs coming from action
     old_coeffs = {}  # only old coeffs minus the ones replaced by the action coefficients
 
     # invert dict
     pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
-
+    c = 0 
     slate_loopy_name = builder.slate_loopy_name
+    # this index is needed so that we find the right bit of an AssembledVector to intialise
+    # this is in particular needed for acting blocks of tensor on a coefficient
+    coeff_init_index = None
     for insn in slate_loopy[slate_loopy_name].instructions:
+        # TODO specialise the call instruction node and dispatch based on its type
         if (not isinstance(insn, lp.kernel.instruction.CallInstruction) or
             not (insn.expression.function.name.startswith("action") or
                 insn.expression.function.name.startswith("mtf"))):
                     # normal instructions can stay as they are
                     insns.append(insn)
         else:
+            c += 1
             # gem node correponding to current instruction
             gem_action_node = pym2gem[insn.assignee_name]
 
@@ -484,8 +490,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     new_coeffs = {}
                     old_coeffs = {}
                     for coeff, name, terminal in zip(coeffs, names, terminals):  
-                        old_coeff, new_coeff = builder.collect_coefficients(names=name,
-                                                                            action_node=terminal)
+                        old_coeff, new_coeff = builder.collect_coefficients([coeff],
+                                                                            names=name)
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
@@ -545,6 +551,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     slate_node = optimise(slate_node, slate_parameters)
                     gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
 
+
+                    sl_node = var2terminal_actions[gem_action_node]
                     # B) we walk through the gem node and fetch what we need
                     # find var -> terminals which belong to this insn
                     # var2terminal_actions = {}
@@ -617,6 +625,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                     ctx_g2l_action,
                                                                     tsfc_parameters,
                                                                     slate_parameters,
+                                                                    init_temporaries=False,
                                                                     tensor2temp=action_tensor2temp,
                                                                     output_arg=action_output_arg,
                                                                     matshell=isinstance(tensor_shell_node, sl.TensorShell))
@@ -645,11 +654,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # Update {slate_node -> loopy lhs} for processing of next instruction
                 tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
 
-    # We need to do this at the end, when we know all temps
-    updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
-    builder.bag = updated_bag
-    for i in inits:
-        insns.insert(0, i)
+    if init_temporaries:
+        # We need to do this at the end, when we know all temps
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index)
+        builder.bag = updated_bag
+        for i in inits:
+            insns.insert(0, i)
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
@@ -686,7 +696,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index=None):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
@@ -695,6 +705,7 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
                                 for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
                                 and t._function == cv}
+    pos = coeff_init_index
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)   
     tensor2temps.update(tensor2temp)        
 
