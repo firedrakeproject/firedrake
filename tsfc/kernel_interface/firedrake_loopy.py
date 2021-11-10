@@ -446,8 +446,11 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
 
 
 def _is_real_tensor_product_element(elem):
-    if isinstance(elem, ufl.TensorProductElement):
-        a, b = elem.sub_elements()
+    scalar_element = elem
+    if isinstance(elem, (ufl.VectorElement, ufl.TensorElement)):
+        scalar_element = elem.sub_elements()[0]
+    if isinstance(scalar_element, ufl.TensorProductElement):
+        a, b = scalar_element.sub_elements()
         return b.family() == "Real"
 
     return False
