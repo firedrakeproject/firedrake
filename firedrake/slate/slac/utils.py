@@ -491,8 +491,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     new_coeffs = {}
                     old_coeffs = {}
                     for coeff, name, terminal in zip(coeffs, names, terminals):  
-                        old_coeff, new_coeff = builder.collect_coefficients([coeff],
-                                                                            names=name)
+                        old_coeff, new_coeff = builder.collect_coefficients(names=name, action_node=slate_node)
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
