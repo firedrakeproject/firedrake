@@ -428,7 +428,7 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     return tensor2temp, tsfc_kernels, insns, builder
 
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, tensor2temp={}, output_arg=None, matshell=False):
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
     # FIXME This function needs some refactoring
     # Essentially there are 4 codepath: 1) insn is no matrix-free special insn
     #                                   2) insn is an Action
@@ -550,7 +550,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # There are two ways go do this:
                     # A) we retrigger the slate2gem compilation
                     slate_node = optimise(slate_node, slate_parameters)
-                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters, prefix="_"+"action_wrapper_knl_name)
+                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters, prefix="_"+action_wrapper_knl_name)
 
 
                     sl_node = var2terminal_actions[gem_action_node]
