@@ -686,12 +686,12 @@ class LocalLoopyKernelBuilder(object):
 
             :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
         """
-        from gem import Variable as gVar
-        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar), var2tensor.items()))
+        from gem import Variable as gVar, Action
+        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
-            assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
+            # assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
@@ -777,14 +777,16 @@ class LocalLoopyKernelBuilder(object):
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
-                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,ii_3,iii_3,iiii_3, j_0]: 
+                """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,i_18, i_19, i_20, i_21, ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
-                    and 0<=i_5<n and 0<=i_6<=100*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_5<n and 0<=i_6<=2*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
                     and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
-                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n}""" ,
+                    and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n
+                    and 0<=i_18<n and 0<=i_19<n and 0<=i_20<n and 0<=i_21<n}""" ,
                 ["""
-                    x[i_0] = -{b}[i_0] {{id=x0}} 
-                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
+                    x[i_0] = -{b}[i_0] {{id=x0}}
+                    {A_on_x}[i_18] = 0. {{dep=x0, id=Aonx0}}
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=Aonx0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
@@ -793,7 +795,7 @@ class LocalLoopyKernelBuilder(object):
                     <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
                     for i_6
-                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
                         <> projector_is_zero = abs(p_on_Ap) < 1.e-18 {{id=zeroproj, dep=ponAp}}
@@ -1035,7 +1037,7 @@ class LocalLoopyKernelBuilder(object):
                                              predicates=predicates, id=key)
 
                 code = kinfo.kernel.code
-                # code = match_kernel_argnames(insn, code)
+                a = code[kinfo.kernel.name].args
                 yield insn, {kinfo.kernel.name: code}
 
         if not cxt_kernels:
