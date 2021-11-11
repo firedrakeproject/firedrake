@@ -294,35 +294,40 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
                           argument_slots=argument_slots or self.argument_slots(),
                           operator_data=operator_data or self.operator_data,
                           **add_kwargs)
-    """
-    def _ufl_compute_hash_(self):
-        # Can we always hash self.operator_data ?
-        hash_operator_data = hash(self.operator_data)
-        return ExternalOperator._ufl_compute_hash_(self, hash_operator_data)
+
+    def __hash__(self):
+        "Hash code for use in dicts."
+        hashdata = (type(self),
+                    tuple(hash(op) for op in self.ufl_operands),
+                    tuple(hash(arg) for arg in self._argument_slots),
+                    self.derivatives,
+                    hash(self.ufl_function_space()),
+                    # Mutable objects are not hashable
+                    id(self.operator_data))
+        return hash(hashdata)
 
     def __eq__(self, other):
-        print('\n here: ')
-        import ipdb; ipdb.set_trace()
         if not isinstance(other, AbstractExternalOperator):
             return False
         if self is other:
             return True
-        import ipdb; ipdb.set_trace()
         return (type(self) == type(other) and
-                # What about Interpolation/ExternalOperator inside operands that
-                # get evaluated and turned into Coefficients ?
-                all(type(a) == type(b) for a, b in zip(self.ufl_operands, other.ufl_operands)) and
-                # all(type(a) == type(b) and a.function_space() == b.function_space()
-                #    for a, b in zip(self.ufl_operands, other.ufl_operands)) and
+                # Operands' output spaces will be taken into account via Interp.__eq__
+                # -> N(Interp(u, V1); v*) and N(Interp(u, V2); v*) will compare different.
+                all(a == b for a, b in zip(self.ufl_operands, other.ufl_operands)) and
+                all(a == b for a, b in zip(self._argument_slots, other._argument_slots)) and
                 self.derivatives == other.derivatives and
-                self.function_space() == other.function_space()) and
+                self.ufl_function_space() == other.ufl_function_space() and
                 self.operator_data == other.operator_data)
-    """
 
     def __repr__(self):
-        "Default repr string construction for AbstractExternalOperator operators."
-        # This should work for most cases
-        r = "%s(%s,%s,%s,%s,%s)" % (type(self).__name__, ", ".join(repr(op) for op in self.ufl_operands), repr(self.ufl_function_space()), repr(self.derivatives), repr(self.ufl_shape), repr(self.operator_data))
+        "Default repr string construction for AbstractExternalOperator."
+        r = "%s(%s; %s; %s; derivatives=%s; operator_data=%s)" % (type(self).__name__,
+                                                                  ", ".join(repr(op) for op in self.ufl_operands),
+                                                                  repr(self.ufl_function_space()),
+                                                                  ", ".join(repr(arg) for arg in self.argument_slots()),
+                                                                  repr(self.derivatives),
+                                                                  repr(self.operator_data))
         return r
 
 
