@@ -176,7 +176,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=slate_loopy_name)
 
-    if compiler_parameters["slate_compiler"]["optimise"]:
+    if compiler_parameters["slate_compiler"]["replace_mul"]:
         name = "slate_loopy"
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
                                    name, ctx_g2l, "when_needed", slate_expr,
