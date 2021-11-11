@@ -11,3 +11,7 @@ from firedrake import *
 Citations.print_at_exit()
 ```
 Alternatively, you can pass a command-line option `-citations` to obtain the same result.
+
+## Archiving your code with Zenodo
+
+In order to make your simulation results traceable and reproducible, we can provide you with a citeable archive of the exact version of Firedrake and its key dependencies that you used in your simulations. For information on how to do this see https://firedrakeproject.org/zenodo.html.
