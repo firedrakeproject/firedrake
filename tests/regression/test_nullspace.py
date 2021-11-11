@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import PETSc
 import pytest
 import numpy as np
 
@@ -116,7 +117,11 @@ def test_nullspace_mixed():
     # Null space is constant functions in DG and empty in BDM.
     nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
 
-    solve(a == L, w, bcs=bcs, nullspace=nullspace)
+    solve(a == L, w, bcs=bcs, nullspace=nullspace,
+          solver_parameters={
+              'ksp_type': 'minres',
+              'ksp_converged_reason': None,
+              'pc_type': 'none'})
 
     exact = Function(DG)
     exact.interpolate(x[1] - 0.5)

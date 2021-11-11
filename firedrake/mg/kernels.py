@@ -200,11 +200,18 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 
 def prolong_kernel(expression):
+    meshc = expression.ufl_domain()
     hierarchy, level = utils.get_level(expression.ufl_domain())
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = expression.ufl_domain().coordinates
-    key = (("prolong", )
+    if meshc.cell_set._extruded:
+        idx = levelf * hierarchy.refinements_per_level
+        assert idx == int(idx)
+        level_ratio = (hierarchy._meshes[int(idx)].layers - 1) // (meshc.layers - 1)
+    else:
+        level_ratio = 1
+    key = (("prolong", level_ratio)
            + expression.ufl_element().value_shape()
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -273,7 +280,7 @@ def prolong_kernel(expression):
                "R": R,
                "spacedim": element.cell.get_spatial_dimension(),
                "coarse": coarse,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
@@ -289,7 +296,12 @@ def restrict_kernel(Vf, Vc):
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.ufl_domain().coordinates
-    key = (("restrict", )
+    if Vf.extruded:
+        assert Vc.extruded
+        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    key = (("restrict", level_ratio)
            + Vf.ufl_element().value_shape()
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -356,7 +368,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": str(evaluate_kernel),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -374,7 +386,12 @@ def inject_kernel(Vf, Vc):
     hierarchy, level = utils.get_level(Vc.ufl_domain())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vf.ufl_domain().coordinates
-    key = (("inject", )
+    if Vf.extruded:
+        assert Vc.extruded
+        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    key = (("inject", level_ratio)
            + Vf.ufl_element().value_shape()
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -383,7 +400,7 @@ def inject_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
@@ -521,12 +538,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"])
 
-    fexpr, = fem.compile_ufl(f, **macro_cfg)
+    macro_context = fem.PointSetContext(**macro_cfg)
+    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
-    C_a, = fem.compile_ufl(X, **macro_cfg)
+    C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
                                            complex_mode=complex_mode)
-    macro_detJ, = fem.compile_ufl(detJ, **macro_cfg)
+    macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
     Vce = create_element(Vc.ufl_element())
 
@@ -551,8 +569,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     X = ufl.SpatialCoordinate(Vc.mesh())
     K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
                                         complex_mode=complex_mode)
-    C_0, = fem.compile_ufl(X, **coarse_cfg)
-    K, = fem.compile_ufl(K, **coarse_cfg)
+    coarse_context = fem.PointSetContext(**coarse_cfg)
+    C_0, = fem.compile_ufl(X, coarse_context)
+    K, = fem.compile_ufl(K, coarse_context)
 
     i = gem.Index()
     j = gem.Index()

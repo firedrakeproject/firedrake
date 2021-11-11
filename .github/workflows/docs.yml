@@ -1,0 +1,51 @@
+name: Check docs build cleanly
+
+on:
+  # Run on pushes to master
+  push:
+    branches:
+      - master
+  # And all pull requests
+  pull_request:
+
+
+jobs:
+  build:
+    name: "Run doc build"
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    # The docker container to use.
+    container:
+      image: firedrakeproject/firedrake-vanilla:latest
+    # Steps represent a sequence of tasks that will be executed as
+    # part of the jobs
+    steps:
+      - name: Fix permissions
+        # Firedrake's Dockerfile sets USER to firedrake instead of
+        # using the default user, so we need to update file
+        # permissions for this image to work on GH Actions.
+        # See https://help.github.com/en/actions/reference/virtual-environments-for-github-hosted-runners#docker-container-filesystem
+        # (copied from https://help.github.com/en/actions/migrating-to-github-actions/migrating-from-circleci-to-github-actions)
+        run: |
+          sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
+      - uses: actions/checkout@v2
+      - name: Install
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          python -m pip install -e .
+          python -m pip install sphinx
+          python -m pip install sphinxcontrib-bibtex
+          python -m pip install bibtexparser
+          python -m pip install git+https://github.com/sphinx-contrib/youtube.git
+      - name: Check bibtex
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          cd docs
+          firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
+          firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+          firedrake-preprocess-bibtex --validate source/_static/references.bib
+      - name: Build docs
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          cd docs
+          make html

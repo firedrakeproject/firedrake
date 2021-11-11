@@ -133,8 +133,9 @@ to hold the solution on the mixed space. ::
   w = Function(W)
 
 Then we solve the linear variational problem ``a == L`` for ``w`` under the
-given boundary conditions ``bc0`` and ``bc1``. Afterwards we extract the
-components ``sigma`` and ``u`` on each of the subspaces with ``split``. ::
+given boundary conditions ``bc0`` and ``bc1`` using Firedrake's default
+solver parameters. Afterwards we extract the components ``sigma`` and ``u``
+on each of the subspaces with ``split``. ::
 
   solve(a == L, w, bcs=[bc0, bc1])
   sigma, u = w.split()

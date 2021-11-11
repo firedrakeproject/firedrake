@@ -11,6 +11,8 @@ digraph triage {
     python_version [label="Python 3.5?"];
     using_macos [label="Using\nMacOS?"];
     using_homebrew [label="Using\nHomebrew?"];
+    url_error [label="URL Error with SSL\ncertificate failure?"];
+    which_python [label="<which python3> points\nat <$(brew --prefix)/bin/python3>?"];
 
     activate_venv [label="Activate the\nvenv first."];
     uninstall_anaconda [label="Deactivate\nAnaconda."];
@@ -18,6 +20,7 @@ digraph triage {
     update_install_script [label="Fetch new\ninstall script"];
     get_homebrew [label="Use Homebrew."];
     brew_doctor [label="brew doctor"];
+    explicit_path [label="Run <$(brew --prefix)/bin/python3\n firedrake-install>"];
 
     can_install -> install_succeeded;
     install_succeeded -> can_import;
@@ -32,4 +35,7 @@ digraph triage {
     using_macos -> using_homebrew [label="yes"];
     using_homebrew -> get_homebrew [label="no"];
     using_homebrew -> brew_doctor [label="yes"];
+    using_macos -> url_error [label="yes"];
+    url_error -> which_python [label="yes"];
+    which_python -> explicit_path [label="no"];
 }

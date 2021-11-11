@@ -10,7 +10,7 @@ BUILDDIR      = build
 # Internal variables.
 PAPEROPT_a4     = -D latex_paper_size=a4
 PAPEROPT_letter = -D latex_paper_size=letter
-ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
+ALLSPHINXOPTS   = -W -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 # the i18n builder cannot share the environment and doctrees with the others
 I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
@@ -48,12 +48,12 @@ GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos sourc
 publish: html
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'o3ce6600@146.255.44.1:html/'
+	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
 
 scp:
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'o3ce6600@146.255.44.1:html/'
+	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
 
 livehtml: html
 	python server.py
@@ -80,7 +80,7 @@ source/teaminactive.rst: source/team.py
 	cd source; python team.py teaminactive.rst
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc ../firedrake -o source/ -f -T
+	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*

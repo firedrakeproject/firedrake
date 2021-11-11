@@ -4,11 +4,14 @@ import numpy
 import islpy as isl
 
 from pyop2 import op2
+from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
+@PETSc.Log.EventDecorator()
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """
@@ -21,7 +24,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
          coordinates from.
     :arg ext_coords: a :class:`~.Function` to write the extruded
          coordinates into.
-    :arg layer_height: an equi-spaced height for each layer.
+    :arg layer_height: the height for each layer.  Either a scalar,
+         where layers will be equi-spaced at the specified height, or a
+         1D array of variable layer heights to use through the extrusion.
     :arg extrusion_type: the type of extrusion to use.  Predefined
          options are either "uniform" (creating equi-spaced layers by
          extruding in the (n+1)dth direction), "radial" (creating
@@ -46,7 +51,18 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
         raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
-    layer_height = op2.Global(1, layer_height, dtype=RealType)
+
+    layer_height = numpy.atleast_1d(numpy.array(layer_height, dtype=RealType))
+
+    if layer_height.ndim > 1:
+        raise RuntimeError('Extrusion layer height should be 1d or scalar')
+
+    if layer_height.size > 1:
+        layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
+
+    layer_heights = layer_height.size
+    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType)
+
     if kernel is not None:
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
@@ -63,11 +79,17 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data = []
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
-    data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=()))
+    data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=(layer_heights,)))
     data.append(lp.ValueArg('layer'))
     base_coord_dim = base_coords.function_space().value_size
     # Deal with tensor product cells
     adim = len(ext_shape) - 2
+
+    # handle single or variable layer heights
+    if layer_heights == 1:
+        height_var = "layer_height[0] * (layer + l)"
+    else:
+        height_var = "layer_height[layer + l]"
 
     def _get_arity_axis_inames(_base):
         return tuple(_base + str(i) for i in range(adim))
@@ -83,19 +105,27 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains = []
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', 'l'), (base_coord_dim, 2)))
+        domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
+        if layer_heights == 1:
+            domains.extend(_get_lp_domains(('l',), (2,)))
+        else:
+            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
-        ext_coords[{dd}, l, {base_coord_dim}] = layer_height[0] * (layer + l)
+        ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
         """.format(dd=', '.join(dd),
-                   base_coord_dim=base_coord_dim)
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_uniform_extrusion", target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                   base_coord_dim=base_coord_dim,
+                   hv=height_var)
+        name = "pyop2_kernel_uniform_extrusion"
     elif extrusion_type == 'radial':
         domains = []
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c', 'k', 'l'), (base_coord_dim, ) * 2 + (2, )))
+        domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
+        if layer_heights == 1:
+            domains.extend(_get_lp_domains(('l',), (2,)))
+        else:
+            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0
@@ -104,11 +134,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             tt[{dd}] = tt[{dd}] + bc[{dd}] * bc[{dd}]
         end
         tt[{dd}] = sqrt(tt[{dd}])
-        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + base_coords[{dd}, c] * layer_height[0] * (layer+l) / tt[{dd}]
+        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + base_coords[{dd}, c] * ({hv}) / tt[{dd}]
         """.format(RealType=RealType,
-                   dd=', '.join(dd))
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_extrusion", target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                   dd=', '.join(dd),
+                   hv=height_var)
+        name = "pyop2_kernel_radial_extrusion"
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
@@ -176,17 +206,19 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         end
         norm = sqrt(norm)
         norm = -norm if dot < 0 else norm
-        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * layer_height[dd] * (layer + l) / norm
+        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * ({hv}) / norm
         """.format(RealType=RealType,
                    dd=', '.join(dd),
                    _dd=', '.join(_dd),
-                   ninst=n_dict[tdim][adim])
-        ast = lp.make_function(domains, instructions, data, name="pyop2_kernel_radial_hedgehog_extrusion", target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                   ninst=n_dict[tdim][adim],
+                   hv=height_var)
+        name = "pyop2_kernel_radial_hedgehog_extrusion"
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    kernel = op2.Kernel(ast, ast.name)
+    ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+    kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
                 ext_coords.cell_set,
                 ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
@@ -213,6 +245,25 @@ def flat_entity_dofs(entity_dofs):
                                       + entity_dofs[(b, 1)][i]
                                       + entity_dofs[(b, 0)][2*i+1])
     return flat_entity_dofs
+
+
+def flat_entity_permutations(entity_permutations):
+    flat_entity_permutations = {}
+    for b in set(b for b, v in entity_permutations):
+        flat_entity_permutations[b] = {}
+        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
+            flat_entity_permutations[b][eb] = {}
+            for ob in set(ob for ob, ov in entity_permutations[(b, 0)][2 * eb]):
+                # Orientation in the extruded direction is always 0
+                ov = 0
+                perm0 = entity_permutations[(b, 0)][2 * eb][(ob, ov)]
+                perm1 = entity_permutations[(b, 1)][eb][(ob, ov)]
+                n0, n1 = len(perm0), len(perm1)
+                flat_entity_permutations[b][eb][ob] = \
+                    list(perm0) + \
+                    [n0 + p for p in perm1] + \
+                    [n0 + n1 + p for p in perm0]
+    return flat_entity_permutations
 
 
 def entity_indices(cell):

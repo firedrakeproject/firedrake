@@ -6,15 +6,10 @@
 
      Latest Firedrake status: |firedrakebuild|
 
-     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrake/job/master/badge/icon
-                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrake/branches
+     .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml/badge.svg
+                                 :target: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml
 
-     Latest PyOP2 status: |pyop2build|
-
-     .. |pyop2build| image:: https://travis-ci.org/OP2/PyOP2.png?branch=master
-                             :target: https://travis-ci.org/OP2/PyOP2
-
-     Firedrake and PyOP2 are developed on `GitHub
+     Firedrake and its components are developed on `GitHub
      <http://github.com>`__ where we also maintain Firedrake-ready
      versions of the `FEniCS <http://fenicsproject.org>`__ components
      UFL and FIAT.
@@ -56,7 +51,7 @@ Jupyter notebooks
 
 In addition to the documented tutorials, we also have some `Jupyter
 notebooks <https://jupyter.org/>`__ that are a more interactive way of
-getting to know Firedrake.  They are described in more detail :doc:`on
+getting to know Firedrake. They are described in more detail :doc:`on
 their own page <notebooks>`.
 
 Youtube Channel
@@ -94,9 +89,11 @@ finite element problems in Firedrake.
    visualisation
    checkpointing
    matrix-free
+   preconditioning
    petsc-interface
    parallelism
    zenodo
+   optimising
 
 Advanced tutorials
 ==================
@@ -118,3 +115,7 @@ element systems.
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
    Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>
    Linear mixed fluid-structure interaction system.<demos/linear_fluid_structure_interaction.py>
+   Mass lumping for a high order spectral wave equation.<demos/higher_order_mass_lumping.py>
+   Block preconditioning for the Stokes equation.<demos/stokes.py>
+   A pressure-convection-diffusion preconditioner for the Navier-Stokes equations.</demos/navier_stokes.py>
+   Rayleigh-Benard convection.<demos/rayleigh-benard.py>

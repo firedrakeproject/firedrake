@@ -19,8 +19,8 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2 import base as pyop2
-from pyop2 import sequential as seq
+import pyop2.types
+import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -56,7 +56,7 @@ class LocalMatPack(LocalPack, MatPack):
                        True: "MatSetValues"}
 
 
-class LocalMat(pyop2.Mat):
+class LocalMat(pyop2.types.AbstractMat):
     pack = LocalMatPack
 
     def __init__(self, dset):
@@ -76,7 +76,7 @@ class LocalDatPack(LocalPack, DatPack):
             return None
 
 
-class LocalDat(pyop2.Dat):
+class LocalDat(pyop2.types.AbstractDat):
     def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
@@ -167,7 +167,7 @@ def matrix_funptr(form, state):
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
-        for n in kinfo.coefficient_map:
+        for n, _ in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
                 statearg.position = len(args)
@@ -183,8 +183,8 @@ def matrix_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        iterset = op2.Subset(iterset, [])
+        mod = pyop2.parloop.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
 
@@ -259,7 +259,7 @@ def residual_funptr(form, state):
             arg = c.dat(op2.READ, get_map(c))
             arg.position = len(args)
             args.append(arg)
-        for n in kinfo.coefficient_map:
+        for n, _ in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
                 statearg.position = len(args)
@@ -275,8 +275,8 @@ def residual_funptr(form, state):
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             arg.position = len(args)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
+        iterset = op2.Subset(iterset, [])
+        mod = pyop2.parloop.JITModule(kinfo.kernel, iterset, *args)
         kernels.append(CompiledKernel(mod._fun, kinfo))
     return cell_kernels, int_facet_kernels
 
@@ -479,7 +479,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(form.ufl_domain().cell_sizes)
-    for n in kernel.kinfo.coefficient_map:
+    for n, _ in kernel.kinfo.coefficient_map:
         coeffs.append(form.coefficients()[n])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
@@ -820,12 +820,24 @@ class PatchBase(PCSNESBase):
         self.patch = patch
 
     def destroy(self, obj):
-        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
-        d = self.plex.getDict()
-        try:
-            del d["__firedrake_mesh__"]
-        except KeyError:
-            pass
+        # In this destructor we clean up the __firedrake_mesh__ we set
+        # on the plex and the context we set on the patch object.
+        # We have to check if these attributes are available because
+        # the destroy function will be called by petsc4py when
+        # PCPythonSetContext is called (which occurs before
+        # initialize).
+        if hasattr(self, "plex"):
+            d = self.plex.getDict()
+            try:
+                del d["__firedrake_mesh__"]
+            except KeyError:
+                pass
+        if hasattr(self, "patch"):
+            try:
+                del self.patch.getDict()["ctx"]
+            except KeyError:
+                pass
+            self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()

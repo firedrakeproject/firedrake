@@ -47,12 +47,6 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
             Function(VFS(mesh, "CG", order)).interpolate(mesh.coordinates)
             for mesh in mh]
         ho_meshes = [Mesh(T) for T in Ts]
-        from collections import defaultdict
-        for i, m in enumerate(ho_meshes):
-            m._shared_data_cache = defaultdict(dict)
-            for k in mh[i]._shared_data_cache:
-                if k != "hierarchy_physical_node_locations":
-                    m._shared_data_cache[k] = mh[i]._shared_data_cache[k]
         mh = HierarchyBase(
             ho_meshes, mh.coarse_to_fine_cells,
             mh.fine_to_coarse_cells,
@@ -145,7 +139,7 @@ def project_mesh_to_cad_3d(mesh, cad):
     ids = mesh.exterior_facets.unique_markers
 
     filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
-    boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id), "topological")) for id in ids}
+    boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id))) for id in ids}
 
     for (id, face) in zip(ids, cad.faces()):
         owned_nodes = boundary_nodes[id]
@@ -220,7 +214,7 @@ def project_mesh_to_cad_2d(mesh, cad):
     ids = mesh.exterior_facets.unique_markers
 
     filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
-    boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id), "topological")) for id in ids}
+    boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id))) for id in ids}
 
     for (id, edge) in zip(ids, cad.edges()):
         owned_nodes = boundary_nodes[id]

@@ -13,10 +13,25 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
 elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
-del os, sys, config
+del sys, config
 
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
+
+# Initialise PETSc events for both import and entire duration of program
+_is_logging = "log_view" in petsc.OptionsManager.commandline_options
+if _is_logging:
+    _main_event = petsc.PETSc.Log.Event("firedrake")
+    _main_event.begin()
+
+    _init_event = petsc.PETSc.Log.Event("firedrake.__init__")
+    _init_event.begin()
+
+    import atexit
+    atexit.register(lambda: _main_event.end())
+    del atexit
+
+_blas_lib_path = petsc.get_blas_library()
 del petsc
 
 # UFL Exprs come with a custom __del__ method, but we hold references
@@ -59,7 +74,6 @@ from firedrake.bcs import *
 from firedrake.checkpointing import *
 from firedrake.constant import *
 from firedrake.exceptions import *
-from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
@@ -100,3 +114,46 @@ del check
 from firedrake._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
+
+# Try to detect threading and either disable or warn user
+# Threading may come from
+# - OMP_NUM_THREADS: openmp,
+# - OPENBLAS_NUM_THREADS: openblas,
+# - MKL_NUM_THREADS: mkl,
+# - VECLIB_MAXIMUM_THREADS: accelerate,
+# - NUMEXPR_NUM_THREADS: numexpr
+# We only handle the first three cases
+from ctypes import cdll
+try:
+    _blas_lib = cdll.LoadLibrary(_blas_lib_path)
+    _method_name = None
+    if "openblas" in _blas_lib_path:
+        _method_name = "openblas_set_num_threads"
+    elif "libmkl" in _blas_lib_path:
+        _method_name = "MKL_Set_Num_Threads"
+
+    if _method_name:
+        try:
+            getattr(_blas_lib, _method_name)(1)
+        except AttributeError:
+            info("Cannot set number of threads in BLAS library")
+except OSError:
+    info("Cannot set number of threads in BLAS library because the library could not be loaded")
+except TypeError:
+    info("Cannot set number of threads in BLAS library because the library could not be found")
+
+# OMP_NUM_THREADS can be set to a comma-separated list of positive integers
+try:
+    _omp_num_threads = int(os.environ.get('OMP_NUM_THREADS'))
+except (ValueError, TypeError):
+    _omp_num_threads = None
+if (_omp_num_threads is None) or (_omp_num_threads > 1):
+    warning('OMP_NUM_THREADS is not set or is set to a value greater than 1,'
+            ' we suggest setting OMP_NUM_THREADS=1 to improve performance')
+del _blas_lib, _method_name, _omp_num_threads, os, cdll
+
+# Stop profiling Firedrake import
+if _is_logging:
+    _init_event.end()
+    del _init_event
+del _is_logging

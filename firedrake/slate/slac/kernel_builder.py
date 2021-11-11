@@ -263,7 +263,7 @@ class LocalKernelBuilder(object):
                 kint_type = kinfo.integral_type
                 needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
-                args = [c for i in kinfo.coefficient_map
+                args = [c for i, _ in kinfo.coefficient_map
                         for c in self.coefficient(local_coefficients[i])]
 
                 if kinfo.oriented:
@@ -483,7 +483,7 @@ class LocalLoopyKernelBuilder(object):
                                 self.cell_size_arg))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i in kinfo.coefficient_map]
+        tsfc_coefficients = [tsfc_coefficients[i] for i, _ in kinfo.coefficient_map]
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):
@@ -512,9 +512,9 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer),
+        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
                  "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer),
+                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
                  "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
 
         return [which]
@@ -598,6 +598,7 @@ class LocalLoopyKernelBuilder(object):
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
+            assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
@@ -605,19 +606,21 @@ class LocalLoopyKernelBuilder(object):
                                                    address_space=loopy.AddressSpace.LOCAL)
             tensor2temp[slate_tensor] = loopy_tensor
 
-            if isinstance(slate_tensor, slate.Tensor):
+            if not slate_tensor.assembled:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
                 inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
                                               within_inames=frozenset(inames)))
 
-            elif isinstance(slate_tensor, slate.AssembledVector):
-                f = slate_tensor._function
-                coeff = coefficients[f]
+            else:
+                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
+                coeff = tuple(coefficients[c] for c in f)
                 offset = 0
-                ismixed = (type(f.ufl_element()) == MixedElement)
-                names = [name for (name, ext) in coeff.values()] if ismixed else coeff[0]
+                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                names = []
+                for (im, c) in zip(ismixed, coeff):
+                    names += [name for (name, ext) in c.values()] if im else [c[0]]
 
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
@@ -633,9 +636,12 @@ class LocalLoopyKernelBuilder(object):
 
         return inits, tensor2temp
 
-    def slate_call(self, kernel, temporaries):
+    def slate_call(self, prg, temporaries):
+        name, = prg.callables_table.keys()
+        kernel = prg.callables_table[name].subkernel
+        output_var = pym.Variable(kernel.args[0].name)
         # Slate kernel call
-        reads = []
+        reads = [output_var]
         for t in temporaries:
             shape = t.shape
             name = t.name
@@ -647,17 +653,22 @@ class LocalLoopyKernelBuilder(object):
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return insn
 
-    def generate_wrapper_kernel_args(self, tensor2temp, templated_subkernels):
+    def generate_wrapper_kernel_args(self, tensor2temp):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"])]
 
-        for loopy_inner in templated_subkernels:
-            for arg in loopy_inner.args[1:]:
-                if arg.name == self.cell_orientations_arg or\
-                   arg.name == self.cell_size_arg:
-                    if arg not in args:
-                        args.append(arg)
+        if self.bag.needs_cell_orientations:
+            ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
+            args.append(loopy.GlobalArg(self.cell_orientations_arg,
+                                        shape=ori_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
+
+        if self.bag.needs_cell_sizes:
+            siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
+            args.append(loopy.GlobalArg(self.cell_size_arg,
+                                        shape=siz_extent,
+                                        dtype=self.tsfc_parameters["scalar_type"]))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
@@ -687,8 +698,7 @@ class LocalLoopyKernelBuilder(object):
         if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(),
                         dtype=np.int32))
-            args.append(loopy.TemporaryVariable(self.layer_arg, shape=(),
-                        dtype=np.int32, address_space=loopy.AddressSpace.GLOBAL))
+            args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
         for tensor_temp in tensor2temp.values():
             args.append(tensor_temp)
@@ -715,7 +725,9 @@ class LocalLoopyKernelBuilder(object):
                     raise ValueError("Integral type '%s' not recognized" % integral_type)
 
                 # Prepare lhs and args for call to tsfc kernel
-                output = self.generate_lhs(slate_tensor, pym.Variable(loopy_tensor.name))
+                output_var = pym.Variable(loopy_tensor.name)
+                reads.append(output_var)
+                output = self.generate_lhs(slate_tensor, output_var)
                 kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
@@ -757,8 +769,9 @@ class SlateWrapperBag(object):
 
 
 class IndexCreator(object):
-    inames = OrderedDict()  # pym variable -> extent
-    namer = UniqueNameGenerator(forced_prefix="i_")
+    def __init__(self):
+        self.inames = OrderedDict()  # pym variable -> extent
+        self.namer = UniqueNameGenerator(forced_prefix="i_")
 
     def __call__(self, extents):
         """Create new indices with specified extents.

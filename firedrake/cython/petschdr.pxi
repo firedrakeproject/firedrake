@@ -22,7 +22,9 @@ cdef extern from "petsc.h":
 
 cdef extern from "petscsys.h" nogil:
    int PetscMalloc1(PetscInt,void*)
+   int PetscMalloc2(PetscInt,void*,PetscInt,void*)
    int PetscFree(void*)
+   int PetscFree2(void*,void*)
    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
 cdef extern from "petscdmplex.h" nogil:
@@ -41,6 +43,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
     int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
+    int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
@@ -59,10 +62,15 @@ cdef extern from "petscdm.h" nogil:
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
 
+cdef extern from "petscvec.h" nogil:
+    int VecGetArray(PETSc.PetscVec,PetscScalar**)
+    int VecRestoreArray(PETSc.PetscVec,PetscScalar**)
+
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
+    int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])

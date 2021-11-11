@@ -45,6 +45,12 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_tensor_rectangle():
+    xcoords = [0.0, 0.2, 0.8, 1.2]
+    ycoords = [1.0, 1.4, 2.0]
+    assert abs(integrate_one(TensorRectangleMesh(xcoords, ycoords)) - 1.2) < 1e-3
+
+
 def test_unit_disk():
     assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
 
@@ -200,6 +206,13 @@ def test_periodic_interval_parallel():
 @pytest.mark.parallel
 def test_unit_square_parallel():
     assert abs(integrate_one(UnitSquareMesh(5, 5)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_tensor_rectangle_parallel():
+    xcoords = [0.5, 0.9, 1.0, 1.1, 2.5]
+    ycoords = [1.0, 1.1, 1.4, 2.0]
+    assert abs(integrate_one(TensorRectangleMesh(xcoords, ycoords)) - 2.0) < 1e-3
 
 
 @pytest.mark.parallel

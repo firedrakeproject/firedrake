@@ -8,14 +8,12 @@ from collections import OrderedDict
 
 import numpy
 
-import finat
 import ufl
 
 from pyop2 import op2
-from tsfc.finatinterface import create_element
 
 from firedrake import dmhooks, utils
-from firedrake.functionspacedata import get_shared_data
+from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
 
@@ -66,6 +64,7 @@ class WithGeometry(ufl.FunctionSpace):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
+    @PETSc.Log.EventDecorator()
     def split(self):
         r"""Split into a tuple of constituent spaces."""
         return self._split
@@ -78,6 +77,7 @@ class WithGeometry(ufl.FunctionSpace):
         else:
             return self._split
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         if len(self) == 1:
             bound = self.value_size
@@ -235,6 +235,19 @@ class WithGeometry(ufl.FunctionSpace):
         current = super(WithGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    def boundary_nodes(self, sub_domain):
+        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        # Have to replicate the definition from FunctionSpace because
+        # we want to access the DM on the WithGeometry object.
+        return self._shared_data.boundary_nodes(self, sub_domain)
+
     def collapse(self):
         return type(self)(self.topological.collapse(), self.mesh())
 
@@ -270,28 +283,24 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
-    def __init__(self, mesh, element, name=None, real_tensorproduct=False):
+    @PETSc.Log.EventDecorator()
+    def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        finat_element = create_element(element)
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            # Retrieve scalar element
-            finat_element = finat_element.base_element
-        # Used for reconstruction of mixed/component spaces
-        self.real_tensorproduct = real_tensorproduct
-        sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
+        sdata = get_shared_data(mesh, element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
-        if type(element) is ufl.TensorElement:
-            # UFL enforces value_shape of the subelement to be empty
-            # on a TensorElement.
-            self.shape = element.value_shape()
-        elif type(element) is ufl.VectorElement:
-            # First dimension of the value_shape is the VectorElement
-            # shape.
-            self.shape = element.value_shape()[:1]
+        if type(element) in {ufl.TensorElement, ufl.VectorElement}:
+            # The number of "free" dofs is given by reference_value_shape,
+            # not value_shape due to symmetry specifications
+            rvs = element.reference_value_shape()
+            # This requires that the sub element is not itself a
+            # tensor element (which is checked by the top level
+            # constructor of function spaces)
+            sub = element.sub_elements()[0].value_shape()
+            self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
@@ -319,7 +328,12 @@ class FunctionSpace(object):
         degrees of freedom."""
 
         self.comm = self.node_set.comm
-        self.finat_element = finat_element
+        # Need to create finat element again as sdata does not
+        # want to carry finat_element.
+        self.finat_element = create_element(element)
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.cell_boundary_masks = sdata.cell_boundary_masks
@@ -501,18 +515,18 @@ class FunctionSpace(object):
                              "exterior_facet_node",
                              self.offset)
 
-    def boundary_nodes(self, sub_domain, method):
+    def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-        :arg method: the method for determining boundary nodes.
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        return self._shared_data.boundary_nodes(self, sub_domain, method)
+        return self._shared_data.boundary_nodes(self, sub_domain)
 
+    @PETSc.Log.EventDecorator()
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
@@ -772,7 +786,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None, real_tensorproduct=False):
+    def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
@@ -827,8 +841,7 @@ def IndexedFunctionSpace(index, space, parent):
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name,
-                                 real_tensorproduct=space.real_tensorproduct)
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -850,8 +863,7 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name,
-                             real_tensorproduct=parent.real_tensorproduct)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent

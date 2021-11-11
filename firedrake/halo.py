@@ -126,20 +126,23 @@ class Halo(op2.Halo):
         gsec = self.dm.getDefaultGlobalSection()
         return dmcommon.make_global_numbering(lsec, gsec)
 
+    @PETSc.Log.EventDecorator()
     def global_to_local_begin(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
             return
         mtype, _ = _get_mtype(dat)
-        dmcommon.halo_begin(self.sf, dat, mtype, False)
+        self.sf.bcastBegin(mtype, dat._data, dat._data, MPI.REPLACE)
 
+    @PETSc.Log.EventDecorator()
     def global_to_local_end(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
             return
         mtype, _ = _get_mtype(dat)
-        dmcommon.halo_end(self.sf, dat, mtype, False)
+        self.sf.bcastEnd(mtype, dat._data, dat._data, MPI.REPLACE)
 
+    @PETSc.Log.EventDecorator()
     def local_to_global_begin(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
@@ -151,8 +154,9 @@ class Halo(op2.Halo):
               (True, op2.MIN): MPI.MIN,
               (False, op2.MAX): _contig_max_op,
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
-        dmcommon.halo_begin(self.sf, dat, mtype, True, op=op)
+        self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
+    @PETSc.Log.EventDecorator()
     def local_to_global_end(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
@@ -164,4 +168,4 @@ class Halo(op2.Halo):
               (True, op2.MIN): MPI.MIN,
               (False, op2.MAX): _contig_max_op,
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
-        dmcommon.halo_end(self.sf, dat, mtype, True, op=op)
+        self.sf.reduceEnd(mtype, dat._data, dat._data, op)
