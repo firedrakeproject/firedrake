@@ -638,7 +638,7 @@ class LocalLoopyKernelBuilder(object):
         # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
         # the coefficient in the right way. (Its space is FunctionSpace instead of
         # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
-        coeffs = self.expression.coefficients() if not action_node else action_node.coefficients()
+        coeffs = self.expression.coefficients() if not action_node else [action_node.ufl_coefficient]
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
         new = False

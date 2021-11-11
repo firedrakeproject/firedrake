@@ -711,14 +711,18 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=Fal
     if init_temporaries == "only_action":
         var2terminal_vectors = {v:t for (v,t) in var2terminal_vectors.items()
                                     if isinstance(t, sl.Action)}
+    else:
+        var2terminal_vectors = {v:t for (v,t) in var2terminal_vectors.items()
+                                    if not isinstance(t, sl.Action)}
 
 
     pos = coeff_init_index
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)   
-    tensor2temps.update(tensor2temp)        
+    if not init_temporaries == "only_action":
+        tensor2temps.update(tensor2temp)
 
-    # Get all coeffs into the wrapper kernel
-    # so that we can generate the right wrapper kernel args of it
+    # # Get all coeffs into the wrapper kernel
+    # # so that we can generate the right wrapper kernel args of it
     if not init_temporaries == "only_action":
         updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
     else:
@@ -772,6 +776,8 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     # because tsfc kernels have flattened indices
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
+        print(slate_loopy)
+        print(knl)
         slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
     
         print(slate_loopy)
