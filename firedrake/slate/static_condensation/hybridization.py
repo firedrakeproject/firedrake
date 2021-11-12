@@ -321,16 +321,14 @@ class HybridizationPC(SCBase):
                 S = Shat * S
                 rhs = Shat * rhs
 
-        u_rec = S.solve(rhs, decomposition="PartialPivLU", matfree=self.schur_builder.local_matfree)
+        u_rec = S.solve(rhs)
         self._sub_unknown = functools.partial(assemble,
                                               u_rec,
                                               tensor=u,
                                               form_compiler_parameters=self.ctx.fc_params,
                                               assembly_type="residual")
 
-        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU",
-                            matfree=self.schur_builder.local_matfree)
+        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar)
         self._elim_unknown = functools.partial(assemble,
                                                sigma_rec,
                                                tensor=sigma,
