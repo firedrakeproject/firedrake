@@ -694,7 +694,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
         rhs = pym.Subscript(rhs.subscript.aggregate, insn.assignees[0].subscript.index)
         inames = [i.name for i in insn.assignees[0].subscript.index]
         wi = frozenset(i for i in itertools.chain(insn.within_inames, inames))
-        insns.append(lp.kernel.instruction.Assignment(lhs, 0., id=insn.id+"_whatsthis", within_inames=wi))
+        insns.append(lp.kernel.instruction.Assignment(lhs, rhs, id=insn.id+"_whatsthis", within_inames=wi))
     return insns, knl_list, builder
 
 
