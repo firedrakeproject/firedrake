@@ -589,6 +589,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
                     action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
                     it = "only_action"
+                    if new_var.name in pym2gem.keys() and slate_loopy_name.startswith("wrap_action_A13"):
+                        tensor2temp.update(action_tensor2temp)
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
@@ -653,7 +655,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
                 
                 # Update {slate_node -> loopy lhs} for processing of next instruction
-                tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
+                if slate_node not in tensor2temps.keys():
+                    tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
