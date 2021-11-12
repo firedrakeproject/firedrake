@@ -16,6 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+import packaging
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -151,17 +152,14 @@ if platform.system() == "Linux":
     if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
         # Get the compiler versions
         gccversionstring = os.popen('gcc --version').read()
-        gccversionstring = gccversionstring[gccversionstring.find(')')+2:gccversionstring.find('\n')]
 
         gppversionstring = os.popen('g++ --version').read()
-        gppversionstring = gppversionstring[g++versionstring.find(')')+2:gppversionstring.find('\n')]
 
         gfortranversionstring = os.popen('gfortran --version').read()
-        gfortranversionstring = gfortranversionstring[gfortranversionstring.find(')')+2:gfortranversionstring.find('\n')]
 
         # Check if the combination is a problem
-        if float(gccversionstring[0:gccversionstring.find('.') + 2]) <= 9.3 or float(gppversionstring[0:gppversionstring.find('.') + 2]) <= 9.3 or float(gfortranversionstring[0:gfortranversionstring.find('.') + 2]) <= 9.3:
-            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible.""")
+        if packaging.version.parse(gccversionstring) <= packaging.version.parse("9.3") or packaging.version.parse(gppversionstring) <= packaging.version.parse("9.3") or packaging.version.parse(gfortranversionstring) <= packaging.version.parse("9.3"):
+            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
             sys.exit(1)
 
 branches = {}
