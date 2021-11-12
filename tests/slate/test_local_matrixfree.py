@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 
-
 @pytest.fixture
 def mymesh():
     return UnitSquareMesh(6, 6)
@@ -112,7 +111,7 @@ def A4(W4, mymesh):
 
     _A = Tensor(a)
     A = _A.blocks
-    return A
+    return _A
 
 
 @pytest.fixture
@@ -135,9 +134,17 @@ def f4(W4, mymesh):
     f = Function(W4[3]).assign(Constant(0.2))
     return AssembledVector(f)
 
+@pytest.fixture
+def f5(W4, mymesh):
+    f = Function(W4[0])
+    return AssembledVector(f)
 
-@pytest.fixture(params=["tensorshell"])
-def expr(request, A, A2, A3, f, f2):
+
+@pytest.fixture(params=["A+A", "A-A", "A+A+A2", "A+A2+A", "A+A2-A", "A-A+A2"
+                        "A*A.inv", "A.inv", "A.inv*A", "A2*A.inv", "A.inv*A2"
+                        "A2*A.inv*A", "A-A.inv*A", "A+A-A2*A.inv*A"
+                        "advection", "advectionT", "tensorshell", "facet"])
+def expr(request, A, A2, A3, A4, f, f2, f5):
     if request.param == "A+A":
         return (A+A)*f
     elif request.param == "A-A":
@@ -172,6 +179,8 @@ def expr(request, A, A2, A3, f, f2):
         return Transpose(A3)*f2
     elif request.param == "tensorshell":
         return (A+A).inv*f
+    elif request.param == "facet":
+        return A4*f5
     # TODO Add test for a partially optimised expression
 
 
@@ -179,7 +188,7 @@ def test_new_slateoptpass(expr):
     print("Test is running for expresion " + str(expr))
     tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     tmp_opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
+    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-6)
 
 
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
@@ -246,8 +255,10 @@ def test_full_hybridisation():
     w = Function(W)
     solve(a == L, w, solver_parameters=matfree_params)
     w2 = Function(W)
-    solve(a == L, w, solver_parameters=params)
-    assert np.allclose(w.dat.data, w2.dat.data, rtol=1e-8)
+    solve(a == L, w2, solver_parameters=params)
+
+    for sub0, sub1 in zip(w.dat.data, w2.dat.data):
+        assert np.allclose(sub0, sub1, rtol=1e-6)
 
 
 def test_schur_complements():
@@ -277,16 +288,27 @@ def test_schur_complements():
     _A = Tensor(a)
     A = _A.blocks
 
-    # outer schur complement
-    S = A[2, 2] - A[2, :2] * A[:2, :2].inv * A[:2, 2]
+    # outer schur complement nested for static condensation
+    outer_S = A[2, :2] * A[:2, :2].inv * A[:2, 2]
     C = AssembledVector(Function(T).assign(Constant(2.)))
-    matfree_schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
+    matfree_schur = assemble(outer_S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(outer_S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
 
-    # inner schur complement
+    # # inner schur complement for reconstruction
     S = A[1, 1] - A[1, :1] * A[:1, :1].inv * A[:1, 1]
-    C = AssembledVector(Function(T).assign(Constant(2.)))
+    C = AssembledVector(Function(V).assign(Constant(2.)))
     matfree_schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, atol=0.000001)
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
+    # reconstruction
+    lambdar = AssembledVector(Function(T).assign(Constant(2.)))
+    f = AssembledVector(Function(V).assign(Constant(2.)))
+    g = AssembledVector(Function(U).assign(Constant(2.)))
+    R = A[2,1].T - A[1, 0] * A[0,0].inv * A[2, 0].T
+    rhs = (f  - A[1, 0] * A[0,0].inv * g
+           - R * lambdar)
+    matfree_schur = assemble(S.solve(rhs), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(S.solve(rhs), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
