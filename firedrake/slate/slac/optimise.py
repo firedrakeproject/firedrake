@@ -95,13 +95,17 @@ def _push_block_shell(expr, self, indices):
 
 @_push_block.register(Factorization)
 @_push_block.register(Inverse)
-@_push_block.register(Solve)
 @_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())))
     return Block(expr, indices) if indices else expr
 
+@_push_block.register(Solve)
+def _push_block_stop(expr, self, indices):
+    """Blocks cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp)
+    return Block(expr, indices) if indices else expr
 
 @_push_block.register(Action)
 def _push_block_stop(expr, self, indices):
