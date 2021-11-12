@@ -770,7 +770,7 @@ class LocalLoopyKernelBuilder(object):
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
         name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
-        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-18)
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-16)
         shape = expr.shape
         corner_case = self.generate_code_for_converged_pre_iteration()
 
@@ -779,7 +779,7 @@ class LocalLoopyKernelBuilder(object):
         knl = loopy.make_function(
                 """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,i_18, i_19, i_20, i_21, ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
-                    and 0<=i_5<n and 0<=i_6<=2*n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
+                    and 0<=i_5<n and 0<=i_6<=n and 0<=i_7,j_7<n and 0<=i_8,j_8<n 
                     and 0<=i_9<n and 0<=i_10<n and 0<=i_11<n and 0<=i_12<n and 0<=i_13<n
                     and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n
                     and 0<=i_18<n and 0<=i_19<n and 0<=i_20<n and 0<=i_21<n}""" ,
@@ -798,7 +798,7 @@ class LocalLoopyKernelBuilder(object):
                         {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> projector_is_zero = abs(p_on_Ap) < 1.e-18 {{id=zeroproj, dep=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
