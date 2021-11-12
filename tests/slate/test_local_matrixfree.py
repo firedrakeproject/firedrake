@@ -110,7 +110,6 @@ def A4(W4, mymesh):
          - inner(jump(sigma, n=n), gammar('+'))*dS)
 
     _A = Tensor(a)
-    A = _A.blocks
     return _A
 
 
@@ -140,9 +139,9 @@ def f5(W4, mymesh):
     return AssembledVector(f)
 
 
-@pytest.fixture(params=["A+A", "A-A", "A+A+A2", "A+A2+A", "A+A2-A", "A-A+A2"
-                        "A*A.inv", "A.inv", "A.inv*A", "A2*A.inv", "A.inv*A2"
-                        "A2*A.inv*A", "A-A.inv*A", "A+A-A2*A.inv*A"
+@pytest.fixture(params=["A+A", "A-A", "A+A+A2", "A+A2+A", "A+A2-A", "A-A+A2",
+                        "A*A.inv", "A.inv", "A.inv*A", "A2*A.inv", "A.inv*A2",
+                        "A2*A.inv*A", "A-A.inv*A", "A+A-A2*A.inv*A",
                         "advection", "advectionT", "tensorshell", "facet"])
 def expr(request, A, A2, A3, A4, f, f2, f5):
     if request.param == "A+A":
@@ -188,8 +187,11 @@ def test_new_slateoptpass(expr):
     print("Test is running for expresion " + str(expr))
     tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     tmp_opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-6)
-
+    if isinstance(tmp.dat.data, tuple):
+        for sub0, sub1 in zip(tmp.dat.data, tmp_opt.dat.data):
+            assert np.allclose(sub0, sub1, rtol=1e-6)
+    else:
+        assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1.e-6)
 
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2]",
@@ -198,6 +200,7 @@ def test_new_slateoptpass(expr):
                         "A[0, 1] * A[1, 1] * A[1, 2]"
                         ])
 def block_expr(request, A4, f4):
+    A4 = A4.blocks
     if request.param == "A[0, 0] * A[0, 2]":
         return (A4[0, 0] * A4[0, 2])*f4
     elif request.param == "A[0, 2] + A[0, 0] * A[0, 2]":
@@ -213,7 +216,8 @@ def block_expr(request, A4, f4):
 def test_blocks(block_expr):
     tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1e-8)
+    for sub0, sub1 in zip(tmp.dat.data, tmp_opt.dat.data):
+        assert np.allclose(sub0, sub1, rtol=1e-6)
 
 
 def test_full_hybridisation():
