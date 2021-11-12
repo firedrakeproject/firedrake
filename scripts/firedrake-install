@@ -1085,7 +1085,8 @@ def build_and_install_libsupermesh():
                             "-DMPI_C_COMPILER=" + cc,
                             "-DMPI_CXX_COMPILER=" + cxx,
                             "-DMPI_Fortran_COMPILER=" + f90,
-                            "-DCMAKE_Fortran_COMPILER=" + f90])
+                            "-DCMAKE_Fortran_COMPILER=" + f90,
+                            "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"])
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
