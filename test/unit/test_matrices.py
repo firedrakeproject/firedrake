@@ -87,10 +87,20 @@ def elem_node(elements, nodes):
     return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def mat(elem_node, dnodes):
     sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), name="sparsity")
     return op2.Mat(sparsity, valuetype, "mat")
+
+
+@pytest.fixture
+def mass_mat(mass, elements, mat, coords, elem_node):
+    mat.zero()
+    op2.par_loop(mass, elements,
+                 mat(op2.INC, (elem_node, elem_node)),
+                 coords(op2.READ, elem_node))
+    mat.assemble()
+    return mat
 
 
 @pytest.fixture
@@ -101,7 +111,7 @@ def coords(dvnodes):
     return op2.Dat(dvnodes, coord_vals, valuetype, "coords")
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def g(request):
     return op2.Global(1, 1.0, np.float64, "g")
 
@@ -118,16 +128,26 @@ def f_vec(dvnodes):
     return op2.Dat(dvnodes, f_vals, valuetype, "f")
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def b(dnodes):
     b_vals = np.zeros(NUM_NODES, dtype=valuetype)
     return op2.Dat(dnodes, b_vals, valuetype, "b")
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def b_vec(dvnodes):
     b_vals = np.zeros(NUM_NODES * 2, dtype=valuetype)
     return op2.Dat(dvnodes, b_vals, valuetype, "b")
+
+
+@pytest.fixture
+def b_rhs(b, rhs, elements, coords, f, elem_node):
+    b.zero()
+    op2.par_loop(rhs, elements,
+                 b(op2.INC, elem_node),
+                 coords(op2.READ, elem_node),
+                 f(op2.READ, elem_node))
+    return b
 
 
 @pytest.fixture
@@ -667,11 +687,10 @@ class TestMatrices:
         eps = 1.e-12
         assert_allclose(b.data, expected_rhs, eps)
 
-    def test_solve(self, mat, b, x, f):
+    def test_solve(self, mass_mat, b_rhs, x, f):
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
-        mat.assemble()
-        x = np.linalg.solve(mat.values, b.data)
+        x = np.linalg.solve(mass_mat.values, b_rhs.data)
         eps = 1.e-8
         assert_allclose(x, f.data, eps)
 
@@ -699,7 +718,6 @@ class TestMatrices:
                      g(op2.READ))
         mat.assemble()
         assert mat.values.sum() == (3 * 3 - 2) * elements.size
-        mat.zero()
 
     def test_zero_rhs(self, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
@@ -743,32 +761,35 @@ class TestMatrices:
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
-    def test_zero_rows(self, mat, expected_matrix):
+    def test_zero_rows(self, mass_mat, expected_matrix):
         """Zeroing a row in the matrix should set the diagonal to the given
         value and all other values to 0."""
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
-        mat.zero_rows([0], 12.0)
+        mass_mat.zero_rows([0], 12.0)
         eps = 1.e-5
-        assert_allclose(mat.values, expected_matrix, eps)
+        assert_allclose(mass_mat.values, expected_matrix, eps)
 
-    def test_zero_rows_subset(self, nodes, mat, expected_matrix):
+    def test_zero_rows_subset(self, nodes, mass_mat, expected_matrix):
         """Zeroing rows in the matrix given by a :class:`op2.Subset` should
         set the diagonal to the given value and all other values to 0."""
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         ss = op2.Subset(nodes, [0])
-        mat.zero_rows(ss, 12.0)
-        assert_allclose(mat.values, expected_matrix, 1e-5)
+        mass_mat.zero_rows(ss, 12.0)
+        assert_allclose(mass_mat.values, expected_matrix, 1e-5)
 
-    def test_zero_last_row(self, mat, expected_matrix):
+    def test_zero_last_row(self, nodes, mass_mat, expected_matrix):
         """Zeroing a row in the matrix should set the diagonal to the given
         value and all other values to 0."""
+        expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
+        ss = op2.Subset(nodes, [0])
+        mass_mat.zero_rows(ss, 12.0)
+
         which = NUM_NODES - 1
-        # because the previous test zeroed the first row
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         expected_matrix[which] = [0.0, 0.0, 0.0, 4.0]
-        mat.zero_rows([which], 4.0)
+        mass_mat.zero_rows([which], 4.0)
         eps = 1.e-5
-        assert_allclose(mat.values, expected_matrix, eps)
+        assert_allclose(mass_mat.values, expected_matrix, eps)
 
     def test_mat_nbytes(self, mat):
         """Check that the matrix uses the amount of memory we expect."""
