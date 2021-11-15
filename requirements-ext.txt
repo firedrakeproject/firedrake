@@ -10,3 +10,4 @@ pkgconfig
 cached_property
 requests
 nbval
+packaging
