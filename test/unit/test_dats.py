@@ -130,6 +130,47 @@ class TestDat:
         mdat2.load(output)
         assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
 
+    def test_dat_version(self, s, d1, mdat):
+        """Check object versioning"""
+        d2 = op2.Dat(s)
+
+        assert d1.dat_version == 0
+        assert d2.dat_version == 0
+
+        # Access data property
+        d1.data
+
+        assert d1.dat_version == 1
+        assert d2.dat_version == 0
+
+        # Access data property
+        d2.data[:] += 1
+
+        assert d1.dat_version == 1
+        assert d2.dat_version == 1
+
+        # Access zero property
+        d1.zero()
+
+        assert d1.dat_version == 2
+        assert d2.dat_version == 1
+
+        # Copy d2 into d1
+        d2.copy(d1)
+
+        assert d1.dat_version == 3
+        assert d2.dat_version == 1
+
+        # Context managers
+        with d1.vec_wo as _:
+            pass
+
+        with d2.vec as _:
+            pass
+
+        assert d1.dat_version == 4
+        assert d2.dat_version == 2
+
 
 if __name__ == '__main__':
     import os
