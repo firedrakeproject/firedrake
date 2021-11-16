@@ -18,9 +18,6 @@ class DataCarrier(abc.ABC):
     (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
-    def __init__(self):
-        self.dat_version = 0
-
     @utils.cached_property
     def dtype(self):
         """The Python type of the data."""
@@ -47,8 +44,12 @@ class DataCarrier(abc.ABC):
         the product of the dim tuple."""
         return self._cdim
 
+    @property
+    def dat_version(self):
+        pass
+
     def increment_dat_version(self):
-        self.dat_version += 1
+        pass
 
 
 class EmptyDataMixin(abc.ABC):

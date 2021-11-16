@@ -83,7 +83,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             # a dataset dimension of 1.
             dataset = dataset ** 1
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
-        DataCarrier.__init__(self)
         EmptyDataMixin.__init__(self, data, dtype, self._shape)
 
         self._dataset = dataset
@@ -680,6 +679,31 @@ class DatView(AbstractDat):
 
 
 class Dat(AbstractDat, VecAccessMixin):
+
+    def __init__(self, *args, **kwargs):
+        AbstractDat.__init__(self, *args, **kwargs)
+        self._make_dat_version()
+
+    def _make_dat_version(self):
+        if self.dtype == PETSc.ScalarType:
+            # Use lambda since `_vec` allocates the data buffer
+            # -> Dats should not allocate storage until accessed
+            self._dat_version = lambda: self._vec.stateGet()
+            self.increment_dat_version = lambda: self._vec.stateIncrease()
+        else:
+            # No associated PETSc Vec if incompatible type:
+            # -> Equip Dat with its own counter.
+            self._version = 0
+            self._dat_version = lambda: self._version
+
+            def _inc():
+                self._version += 1
+            self.increment_dat_version = _inc
+
+    @property
+    def dat_version(self):
+        return self._dat_version()
+
     @utils.cached_property
     def _vec(self):
         assert self.dtype == PETSc.ScalarType, \
@@ -732,9 +756,6 @@ class MixedDat(AbstractDat, VecAccessMixin):
                 return Dat
             else:
                 raise ex.DataSetTypeError("Huh?!")
-
-        # Set dat_version
-        DataCarrier.__init__(self)
 
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(what(d)(d) for d in mdset_or_dats)

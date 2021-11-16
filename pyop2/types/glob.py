@@ -47,11 +47,32 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
             return
         self._dim = utils.as_tuple(dim, int)
         self._cdim = np.prod(self._dim).item()
-        DataCarrier.__init__(self)
         EmptyDataMixin.__init__(self, data, dtype, self._dim)
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_#x%x" % id(self)
         self.comm = comm
+        # Object versioning setup
+        self._make_dat_version()
+
+    def _make_dat_version(self):
+        if self.comm and self.dtype == PETSc.ScalarType:
+            # Use lambda since `_vec` allocates the data buffer
+            # -> Avoid allocating storage until accessed
+            self._dat_version = self._vec.stateGet
+            self.increment_dat_version = self._vec.stateIncrease
+        else:
+            # No associated PETSc Vec if incompatible type:
+            # -> Equip Global with its own counter.
+            self._version = 0
+            self._dat_version = lambda: self._version
+
+            def _inc():
+                self._version += 1
+            self.increment_dat_version = _inc
+
+    @property
+    def dat_version(self):
+        return self._dat_version()
 
     @utils.cached_property
     def _kernel_args_(self):
