@@ -644,8 +644,7 @@ class LocalLoopyKernelBuilder(object):
         new_coeff_dict = OrderedDict()
         new = False
 
-        # FIXME the coefficient business here is awful
-
+        # TODO is there are better way to do this?
         for i, c in enumerate(coeffs):
             try:
                 # check if the coefficient is in names,
@@ -653,32 +652,31 @@ class LocalLoopyKernelBuilder(object):
                 prefix = names[c]
                 new = True
             except:
+                # if coefficient is not in names it is not an
+                # an action coefficient so we can use usual naming conventions
                 if not new:
                     prefix = "w_{}".format(i)
             element = c.ufl_element()
+            # collect information about the coefficient that are name and extent
             if type(element) == MixedElement:
-                mixed = OrderedDict()
+                # when dealing with a mixed coefficient
+                # collect information about the splits of the coefficient
+                info = OrderedDict()
                 from ufl import Coefficient, FunctionSpace
                 loop = [Coefficient(FunctionSpace(c.ufl_domain(), element))
-                                for element in c.ufl_element().sub_elements()]
+                        for element in c.ufl_element().sub_elements()]
                 for j, c_ in enumerate(loop):
-                    if new:
-                        name = prefix
-                    else:
-                        name = prefix+"_{}".format(j)
-                    info = (name, self.extent(c_))
-                    mixed.update({c_: info})
-                if new:
-                    new_coeff_dict[c] = mixed
-                else:
-                    coeff_dict[c] = mixed
+                    name = prefix if new else prefix+"_{}".format(j)
+                    split_info = (name, self.extent(c_))
+                    info.update({c_: split_info})
             else:
-                # if we don't deal with a mixed coefficient we can just append it
-                name = prefix
-                if new:
-                    new_coeff_dict[c] = (name, self.extent(c))
-                else:
-                    coeff_dict[c] = (name, self.extent(c))
+                # when not dealing with a mixed coefficient
+                # just append it to the right dictionary
+                info = (prefix, self.extent(c))  # prefix is the name of the Coefficient
+            if new:
+                new_coeff_dict[c] = info
+            else:
+                coeff_dict[c] = info
         return coeff_dict, new_coeff_dict
 
     def initialise_terminals(self, var2tensor, coefficients):
