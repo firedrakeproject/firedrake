@@ -488,7 +488,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                         new_coeffs.update(new_coeff)
                         old_coeffs.update(old_coeff)
 
-                    updated_bag = builder.update_bag_with_coefficients(old_coeffs, new_coeff, builder.bag.name)
+                    updated_bag = builder.update_bag_with_coefficients(old_coeffs, new_coeff)
                     return updated_bag, new_coeffs, old_coeffs
                 def get_coeff(slate_nodes, coeff_names):
                         # get a terminal, ufl coeffiecient and ufl coefficient->name dict
@@ -548,12 +548,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # Prepare data structures of builder for a new swipe
                     from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
                     action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
-                    # FIXME use a copy function
-                    action_builder.kernel_counter = builder.kernel_counter
-                    action_builder.bag.action_coefficients = builder.bag.action_coefficients
-                    action_builder.bag.coefficients = builder.bag.coefficients
-                    action_builder.bag = action_builder.bag.copy(builder.bag.index_creator.namer.forced_prefix+"l_",
-                                                    action_wrapper_knl_name)
+                    action_builder.bag = action_builder.bag.copy(action_wrapper_knl_name)
 
                     # link the action coeff to the newly generated kernel
                     old_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
@@ -574,12 +569,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
                     action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
                     # FIXME use a copy function
-                    action_builder.kernel_counter = builder.kernel_counter
-                    action_builder.bag.action_coefficients = builder.bag.action_coefficients
-                    action_builder.bag.coefficients = builder.bag.coefficients
-                    action_builder.slate_loopy_name = action_wrapper_knl_name
-                    action_builder.bag = action_builder.bag.copy(builder.bag.index_creator.namer.forced_prefix+"j_",
-                                                    action_wrapper_knl_name)
+                    action_builder.bag = action_builder.bag.copy(action_wrapper_knl_name)
                     action_builder.bag.index_creator.inames.update(builder.bag.index_creator.inames)
                     action_builder.bag.index_creator.domains.extend(builder.bag.index_creator.domains)
                     builder.bag.index_creator.inames.update(action_builder.bag.index_creator.inames)
@@ -698,7 +688,7 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, init_tempo
     # # Get all coeffs into the wrapper kernel
     # # so that we can generate the right wrapper kernel args of it
     if not init_temporaries == "only_action":
-        updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs, builder.bag.name)
+        updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs)
     else:
         updated_bag = builder.bag
     return updated_bag, tensor2temps, inits
