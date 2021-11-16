@@ -239,7 +239,7 @@ def _slate2gem_action(expr, self):
 def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
-        var = Solve(*map(self, expr.children), expr.name, expr.matfree, self(expr.Aonx), self(expr.Aonp))
+        var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp))
         self.gem2slate[var.name] =expr
         return var
     else:
