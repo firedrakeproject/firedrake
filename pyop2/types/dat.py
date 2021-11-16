@@ -600,7 +600,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         halo = self.dataset.halo
         if halo is None:
             return
-        if insert_mode is {Access.WRITE, Access.RW}:
+        if insert_mode in {Access.WRITE, Access.RW}:
             self.increment_dat_version()
         halo.local_to_global_end(self, insert_mode)
         self.halo_valid = False
