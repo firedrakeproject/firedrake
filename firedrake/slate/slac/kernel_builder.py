@@ -775,6 +775,7 @@ class LocalLoopyKernelBuilder(object):
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
+        # FIXME {A_on_x}[i_18] = 0. {{dep=x0, id=Aonx0}} is translated into the C code twice, and currently I am thinking it might be loopys fault
         knl = loopy.make_function(
                 """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,i_18, i_19, i_20, i_21, ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
@@ -829,8 +830,6 @@ class LocalLoopyKernelBuilder(object):
         # update gem to pym mapping
         # by linking the actions of the matrix-free solve kernel
         # to the their pymbolic variables
-        name2 = knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name
-        print(name2)
         _ = ctx.pymbolic_variable(expr.Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         _ = ctx.pymbolic_variable(expr.Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
         
@@ -1036,7 +1035,6 @@ class LocalLoopyKernelBuilder(object):
                                              predicates=predicates, id=key)
 
                 code = kinfo.kernel.code
-                a = code[kinfo.kernel.name].args
                 yield insn, {kinfo.kernel.name: code}
 
         if not cxt_kernels:
@@ -1048,27 +1046,6 @@ class LocalLoopyKernelBuilder(object):
         bag.coefficients = coeffs
         bag.action_coefficients = new_coeffs
         return bag
-
-
-# def match_kernel_argnames(insn, code):
-#     # FIXME we should do this before generating the knl
-#     knl_name, = code.callables_table
-#     knl = code.callables_table[knl_name].subkernel
-#     last_arg = None
-#     for c, arg in enumerate(insn.expression.parameters):
-#         if not isinstance(arg, pym.Variable):
-#             name_call = arg.subscript.aggregate.name
-#             name_code = knl.args[c].name
-#             if last_arg:
-#                 if name_call == last_arg.name:
-#                     # In this case we are dealing with coefficients coming from a mixed background.
-#                     # The tsfc kernels see these as w_0 and w_1 etc with each of them being one split of the mixed coefficient,
-#                     # but we pass them as one temporary which contains them both, so we need to adjust the shape
-#                     wrongly_shaped_arg = knl.arg_dict[name_call].copy()
-#                     wrongly_shaped_arg.shape = (wrongly_shaped_arg.shape[0]+last_arg.shape[0],)
-#                     knl.arg_dict[name_call] = wrongly_shaped_arg
-#             last_arg = knl.arg_dict[name_code]
-#     return code
 
 
 class SlateWrapperBag(object):

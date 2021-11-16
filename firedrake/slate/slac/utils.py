@@ -447,11 +447,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     # invert dict
     pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
-    c = 0 
     slate_loopy_name = builder.slate_loopy_name
-    # this index is needed so that we find the right bit of an AssembledVector to intialise
-    # this is in particular needed for acting blocks of tensor on a coefficient
-    coeff_init_index = None
     for insn in slate_loopy[slate_loopy_name].instructions:
         # TODO specialise the call instruction node and dispatch based on its type
         if (not isinstance(insn, lp.kernel.instruction.CallInstruction) or
@@ -460,7 +456,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # normal instructions can stay as they are
                     insns.append(insn)
         else:
-            c += 1
             # gem node correponding to current instruction
             gem_action_node = pym2gem[insn.assignee_name]
 
@@ -469,6 +464,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # FIXME something is happening to the solve action node hash
                 # so that gem node cannot be found in var2terminal even though it is there
                 # so we save solve node by name for now
+                # [Update: the reason for that is
+                # that the gem preprocessing in the loopy kernel generation is rewriting some of
+                # the gem expression and the gem action node here is the preprocessed]
                 slate_node = var2terminal[insn.assignee_name]
             else:
                 slate_node = var2terminal[gem_action_node]
@@ -532,15 +530,10 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             else:
                 if not (isinstance(slate_node, sl.Solve)):
                     # ----- Codepath for matrix-free solves on tensor shells ----
-
                     # This path handles the inlining of action which don't have a 
                     # terminal as the tensor to be acted on
-                    
 
-                    # We need to get the var2terminal which only contains information 
-                    # about the gem nodes which correspond to the currently looked at insn
-                    # There are two ways go do this:
-                    # A) we retrigger the slate2gem compilation
+                    # We need to compile the tensor shell node to gem
                     slate_node = optimise(slate_node, slate_parameters)
                     gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
 
@@ -571,8 +564,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
                     action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
                     it = "only_action"
-                    if new_var.name in pym2gem.keys() and slate_loopy_name.startswith("wrap_action_A13"):
-                        tensor2temp.update(action_tensor2temp)
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
@@ -599,6 +590,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
+                    # we don't need extra inits for matfree solves because they are already encoded in the loopy kernel
                     it = False
                     
                 # Repeat for the actions which might be in the action wrapper kernel
@@ -637,12 +629,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
                 
                 # Update {slate_node -> loopy lhs} for processing of next instruction
-                if slate_node not in tensor2temps.keys():
-                    tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
+                tensor2temps[slate_node] = slate_loopy[slate_loopy_name].temporary_variables[insn.assignee_name].copy(target=lp.CTarget())
 
     if init_temporaries:
         # We need to do this at the end, when we know all temps
-        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, coeff_init_index=coeff_init_index, init_temporaries=init_temporaries)
+        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, init_temporaries=init_temporaries)
         builder.bag = updated_bag
         for i in inits:
             if i.id not in [insn.id for insn in insns]:
@@ -683,7 +674,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=False, coeff_init_index=None, init_temporaries=""):
+def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, init_temporaries=""):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
@@ -700,8 +691,6 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs, reinit=Fal
         var2terminal_vectors = {v:t for (v,t) in var2terminal_vectors.items()
                                     if not isinstance(t, sl.Action)}
 
-
-    pos = coeff_init_index
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)   
     if not init_temporaries == "only_action":
         tensor2temps.update(tensor2temp)
