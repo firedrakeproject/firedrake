@@ -17,6 +17,8 @@ import pymbolic.primitives as pym
 from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
+from firedrake.slate.slac.kernel_settings import knl_counter, indexset_counter
+import firedrake.slate.slate as sl
 
 from tsfc.loopy import create_domains, assign_dtypes
 
@@ -1066,10 +1068,7 @@ class SlateWrapperBag(object):
         new = SlateWrapperBag(self.coefficients)
         new.action_coefficients = self.action_coefficients
         new.inames = self.inames
-        new.needs_cell_orientations = self.needs_cell_orientations
-        new.needs_cell_sizes = self.needs_cell_sizes
-        new.needs_cell_facets = self.needs_cell_facets
-        new.needs_mesh_layers = self.needs_mesh_layers
+        new = self.copy_extra_args(new)
         new.call_name_generator = self.call_name_generator
         new.index_creator = self.index_creator
         if rename_indices:
@@ -1077,6 +1076,12 @@ class SlateWrapperBag(object):
         new.name = name if name else self.name
         return new
 
+    def copy_extra_args(self, new):
+        new.needs_cell_orientations = self.needs_cell_orientations
+        new.needs_cell_sizes = self.needs_cell_sizes
+        new.needs_cell_facets = self.needs_cell_facets
+        new.needs_mesh_layers = self.needs_mesh_layers
+        return new
 
 class IndexCreator(object):
     
