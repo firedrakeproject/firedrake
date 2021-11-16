@@ -16,7 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
-from packaging import version as pversion
+from pkg_resources import parse_version
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -158,7 +158,7 @@ if platform.system() == "Linux":
         gfortranversionstring = os.popen('gfortran -dumpfullversion').read()
 
         # Check if the combination is a problem
-        if pversion.parse(gccversionstring) < pversion.parse("9.4") or pversion.parse(gppversionstring) < pversion.parse("9.4") or pversion.parse(gfortranversionstring) < pversion.parse("9.4"):
+        if parse_version(gccversionstring) < parse_version("9.4") or parse_version(gppversionstring) < parse_version("9.4") or parse_version(gfortranversionstring) < parse_version("9.4"):
             print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
             sys.exit(1)
 
