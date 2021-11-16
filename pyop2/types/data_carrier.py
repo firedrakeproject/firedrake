@@ -90,18 +90,12 @@ class VecAccessMixin(abc.ABC):
     def _vec(self):
         pass
 
-    @abc.abstractmethod
-    def increment_dat_version(self):
-        pass
-
     @property
     @mpi.collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
-        # Increment dat_version of DataCarrier objects (relies on MRO of self)
-        self.increment_dat_version()
         return self.vec_context(access=Access.RW)
 
     @property
@@ -111,8 +105,6 @@ class VecAccessMixin(abc.ABC):
 
         You're allowed to modify the data you get back from this view,
         but you cannot read from it."""
-        # Increment dat_version of DataCarrier objects (relies on MRO of self)
-        self.increment_dat_version()
         return self.vec_context(access=Access.WRITE)
 
     @property
