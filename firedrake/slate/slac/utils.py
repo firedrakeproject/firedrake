@@ -230,7 +230,7 @@ def _slate2gem_reciprocal(expr, self):
 
 @_slate2gem.register(sl.Action)
 def _slate2gem_action(expr, self):
-    assert expr not in self.var2terminal.values()
+    assert expr not in self.gem2slate.values()
     children = list(map(self, expr.children))
     name = f"A{len(self.var2terminal)}" + self.prefix
     var = Action(*children, name, expr.pick_op)
@@ -240,9 +240,7 @@ def _slate2gem_action(expr, self):
 @_slate2gem.register(sl.Solve)
 def _slate2gem_solve(expr, self):
     if expr.matfree:
-        name = f"S{len(self.var2terminal)}" + self.prefix
-        assert expr not in self.var2terminal.values()
-        self.var2terminal[name] = expr
+        assert expr not in self.gem2slate.values()
         var = Solve(*map(self, expr.children), name, expr.matfree, self(expr.Aonx), self(expr.Aonp))
         self.var2terminal[var] = expr
         # FIXME something is happening to the solve action node hash
@@ -258,7 +256,7 @@ def _slate2gem_transpose(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
     var = ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -269,7 +267,7 @@ def _slate2gem_negative(expr, self):
     var = ComponentTensor(Product(Literal(-1),
                            Indexed(child, indices)),
                            indices)
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -280,7 +278,7 @@ def _slate2gem_add(expr, self):
     var = ComponentTensor(Sum(Indexed(A, indices),
                            Indexed(B, indices)),
                            indices)
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -292,7 +290,7 @@ def _slate2gem_mul(expr, self):
     ABikj = Product(Indexed(A, tuple(i + [k])),
                     Indexed(B, tuple([k] + j)))
     var = ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -305,9 +303,11 @@ def _slate2gem_factorization(expr, self):
 def slate2gem(expression, options, prefix=""):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
+    mapper.gem2slate = OrderedDict()
     mapper.matfree = options["replace_mul"]
-    mapper.prefix = prefix
-    return mapper(expression), mapper.var2terminal
+    m = mapper(expression)
+    mapper.var2terminal.update(mapper.gem2slate)
+    return m, mapper.var2terminal
 
 
 def depth_first_search(graph, node, visited, schedule):
