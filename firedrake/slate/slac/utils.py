@@ -541,7 +541,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     (action_wrapper_knl, ctx_g2l_action), action_output_arg, action_wrapper_knl_name = gem_to_loopy(gem_action_node,
                                                                                     var2terminal_actions,
                                                                                     tsfc_parameters["scalar_type"],
-                                                                                    action_wrapper_knl_name,
+                                                                                    "tensorshell",
                                                                                     insn.assignee_name,
                                                                                     matfree=True)
                     
