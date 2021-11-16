@@ -170,19 +170,18 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    slate_loopy_name = "slate_loopy"
-    (slate_loopy, ctx_g2l), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, slate_loopy_name)
+    (slate_loopy, ctx_g2l), output_arg, slate_loopy_name = gem_to_loopy(gem_expr, var2terminal, scalar_type, "slate_loopy")
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=slate_loopy_name)
 
     if compiler_parameters["slate_compiler"]["replace_mul"]:
-        name = "slate_loopy"
+        name = slate_loopy_name
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
                                    name, ctx_g2l, "when_needed", slate_expr,
                                    compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     else:
-        name = "wrap_slate_loopy"
+        name = "wrap_" + slate_loopy_name
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
                                    name, ctx_g2l, "terminals_first", slate_expr,
                                    compiler_parameters["form_compiler"])
@@ -647,7 +646,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output", matfree=False):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="output", matfree=False):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
     :return slate_loopy: 2-tuple of loopy kernel for slate operations
@@ -679,7 +678,9 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_name, out_name="output
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    return generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True, iname_prefix=knl_name+"_"), args[0].copy()
+    knl_name = knl_prefix + "_knl_%d" % knl_counter()
+    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True, iname_prefix=knl_name+"_"),
+            args[0].copy(), knl_name)
 
 
 def slate_to_cpp(expr, temps, prec=None):

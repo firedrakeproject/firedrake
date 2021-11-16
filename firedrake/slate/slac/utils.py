@@ -157,7 +157,7 @@ class Transformer(Visitor):
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
 
 
-def slate_to_gem(expression, options, prefix=""):
+def slate_to_gem(expression, options):
     """Convert a slate expression to gem.
 
     :arg expression: A slate expression.
@@ -165,7 +165,7 @@ def slate_to_gem(expression, options, prefix=""):
         gem variables to UFL "terminal" forms.
     """
 
-    mapper, var2terminal = slate2gem(expression, options, prefix)
+    mapper, var2terminal = slate2gem(expression, options)
     return mapper, var2terminal
 
 
@@ -180,9 +180,8 @@ def _slate2gem(expr, self):
 @_slate2gem.register(sl.TensorShell)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
-    name = f"T{len(self.var2terminal)}" + self.prefix
     assert expr not in self.var2terminal.values()
-    var = Variable(name, shape)
+    var = Variable(None, shape)
     self.var2terminal[var] = expr
     return var
 
@@ -232,8 +231,7 @@ def _slate2gem_reciprocal(expr, self):
 def _slate2gem_action(expr, self):
     assert expr not in self.gem2slate.values()
     children = list(map(self, expr.children))
-    name = f"A{len(self.var2terminal)}" + self.prefix
-    var = Action(*children, name, expr.pick_op)
+    var = Action(*children, expr.pick_op)
     self.var2terminal[var] = expr
     return var
 
@@ -241,11 +239,8 @@ def _slate2gem_action(expr, self):
 def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
-        var = Solve(*map(self, expr.children), name, expr.matfree, self(expr.Aonx), self(expr.Aonp))
-        self.var2terminal[var] = expr
-        # FIXME something is happening to the solve action node hash
-        # so that gem node cannot be found in var2terminal even though it is there
-        # so we save solve node by name for now (there is a corresponding FIXME in the merger)
+        var = Solve(*map(self, expr.children), expr.name, expr.matfree, self(expr.Aonx), self(expr.Aonp))
+        self.gem2slate[var.name] =expr
         return var
     else:
         return Solve(*map(self, expr.children))
@@ -300,7 +295,7 @@ def _slate2gem_factorization(expr, self):
     return A
 
 
-def slate2gem(expression, options, prefix=""):
+def slate2gem(expression, options):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
     mapper.gem2slate = OrderedDict()
@@ -540,8 +535,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                     # This path handles the inlining of action which don't have a 
                     # terminal as the tensor to be acted on
-                    action_wrapper_knl_name = ("wrap_" + insn.expression.function.name
-                                                + "_" + insn.assignee_name + "_in_" + slate_loopy_name)
                     
 
                     # We need to get the var2terminal which only contains information 
@@ -549,21 +542,10 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # There are two ways go do this:
                     # A) we retrigger the slate2gem compilation
                     slate_node = optimise(slate_node, slate_parameters)
-                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters, prefix="_"+action_wrapper_knl_name)
-
-
-                    sl_node = var2terminal_actions[gem_action_node]
-                    # B) we walk through the gem node and fetch what we need
-                    # find var -> terminals which belong to this insn
-                    # var2terminal_actions = {}
-                    # for node in traverse_dags([gem_action_node]):
-                    #     try:
-                    #         var2terminal_actions[node] = var2terminal[node]
-                    #     except:
-                    #         continue
+                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
 
                     from firedrake.slate.slac.compiler import gem_to_loopy
-                    (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
+                    (action_wrapper_knl, ctx_g2l_action), action_output_arg, action_wrapper_knl_name = gem_to_loopy(gem_action_node,
                                                                                     var2terminal_actions,
                                                                                     tsfc_parameters["scalar_type"],
                                                                                     action_wrapper_knl_name,

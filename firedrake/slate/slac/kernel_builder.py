@@ -429,7 +429,6 @@ class LocalLoopyKernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.bag = SlateWrapperBag({})
-        self.kernel_counter = count()
         self.slate_loopy_name = slate_loopy_name
         self.matfree_solve_knls = []
 
@@ -438,7 +437,7 @@ class LocalLoopyKernelBuilder(object):
         and integral type information.
         """
 
-        return compile_terminal_form(terminal, prefix=f"subkernel{next(self.kernel_counter)}_",
+        return compile_terminal_form(terminal, prefix="subkernel%d_" % knl_counter(),
                                      tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
@@ -769,7 +768,7 @@ class LocalLoopyKernelBuilder(object):
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
-        name = "mtf"+str(len(self.matfree_solve_knls))+"_cg_kernel_in_" + ctx.kernel_name  # FIXME Use UniqueNameGenerator
+        name = "mtf_solve_%d" % knl_counter()
         stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-16)
         shape = expr.shape
         corner_case = self.generate_code_for_converged_pre_iteration()
@@ -1044,8 +1043,8 @@ class LocalLoopyKernelBuilder(object):
             yield (None, None)
 
 
-    def update_bag_with_coefficients(self, coeffs, new_coeffs, name):
-        bag = self.bag.copy(name=name)
+    def update_bag_with_coefficients(self, coeffs, new_coeffs):
+        bag = self.bag.copy(rename_indices=False)
         bag.coefficients = coeffs
         bag.action_coefficients = new_coeffs
         return bag
@@ -1086,7 +1085,7 @@ class SlateWrapperBag(object):
         self.index_creator = IndexCreator(prefix)
         self.name = name
 
-    def copy(self, prefix=None, name=None):
+    def copy(self, name=None, rename_indices=True):
         new = SlateWrapperBag(self.coefficients)
         new.action_coefficients = self.action_coefficients
         new.inames = self.inames
@@ -1096,9 +1095,9 @@ class SlateWrapperBag(object):
         new.needs_mesh_layers = self.needs_mesh_layers
         new.call_name_generator = self.call_name_generator
         new.index_creator = self.index_creator
-        if prefix:
-            new.index_creator.rename(prefix)
-        new.name = name
+        if rename_indices:
+            new.index_creator.rename("_%d" % indexset_counter())
+        new.name = name if name else self.name
         return new
 
 
