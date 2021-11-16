@@ -47,6 +47,7 @@ import loopy
 import gem
 from gem import indices as make_indices
 from tsfc.loopy import generate as generate_loopy
+from firedrake.slate.slac.kernel_settings import knl_counter
 import copy
 
 __all__ = ['compile_expression']
@@ -189,7 +190,6 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    print("LOOPYMERGED", loopy_merged)
     loopykernel = op2.Kernel(loopy_merged,
                              name,
                              include_dirs=BLASLAPACK_INCLUDE.split(),
