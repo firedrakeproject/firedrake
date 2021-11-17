@@ -8,7 +8,7 @@ from firedrake.slate.slac.utils import traverse_dags, Transformer
 from firedrake.utils import cached_property
 
 from tsfc.finatinterface import create_element
-from ufl import MixedElement
+from ufl import MixedElement, Coefficient, FunctionSpace
 import loopy
 
 from loopy.symbolic import SubArrayRef
@@ -659,15 +659,14 @@ class LocalLoopyKernelBuilder(object):
                 if not new:
                     prefix = "w_{}".format(i)
             element = c.ufl_element()
-            # collect information about the coefficient that are name and extent
+            # collect information about the coefficient in particular name and extent
             if type(element) == MixedElement:
                 # when dealing with a mixed coefficient
                 # collect information about the splits of the coefficient
                 info = OrderedDict()
-                from ufl import Coefficient, FunctionSpace
-                loop = [Coefficient(FunctionSpace(c.ufl_domain(), element))
-                        for element in c.ufl_element().sub_elements()]
-                for j, c_ in enumerate(loop):
+                splits = [Coefficient(FunctionSpace(c.ufl_domain(), element))
+                          for element in c.ufl_element().sub_elements()]
+                for j, c_ in enumerate(splits):
                     name = prefix if new else prefix+"_{}".format(j)
                     split_info = (name, self.extent(c_))
                     info.update({c_: split_info})
