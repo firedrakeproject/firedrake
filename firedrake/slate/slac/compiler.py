@@ -171,20 +171,21 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    (slate_loopy, ctx_g2l), output_arg, slate_loopy_name = gem_to_loopy(gem_expr, var2terminal, scalar_type, "slate_loopy")
+    (slate_loopy, ctx), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, "slate_loopy",
+                                                  matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
-                                      slate_loopy_name=slate_loopy_name)
+                                      slate_loopy_name=ctx.kernel_name)
 
     if compiler_parameters["slate_compiler"]["replace_mul"]:
-        name = slate_loopy_name
+        name = ctx.kernel_name
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
-                                   name, ctx_g2l, "when_needed", slate_expr,
+                                   name, ctx, "when_needed", slate_expr,
                                    compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     else:
-        name = "wrap_" + slate_loopy_name
+        name = "wrap_" + ctx.kernel_name
         loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
-                                   name, ctx_g2l, "terminals_first", slate_expr,
+                                   name, ctx, "terminals_first", slate_expr,
                                    compiler_parameters["form_compiler"])
 
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
@@ -649,8 +650,9 @@ def parenthesize(arg, prec=None, parent=None):
 def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="output", matfree=False):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return slate_loopy: 2-tuple of loopy kernel for slate operations
-        and loopy GlobalArg for the output variable.
+    :return (slate_loopy, ctx): 2-tuple of loopy kernel for slate operations,
+                                and a ctx which most importantly contains gem->loopy mappings
+    :return output_variable:    a loopy GlobalArg for the output variable
     """
     # Creation of return variables for outer loopy
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
@@ -658,11 +660,11 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="o
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
     args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
     for var, terminal in var2terminal.items():
+        # FIXME for the matrixfree case we should probably just have two dicts
+        # From the var2terminal dict we only want to append vector-shaped args
+        # which are coming from AssembledVectors to the global args of the Slate kernel,
+        # meaning we don't want to append anything matrix shaped and also no solves or actions
         if hasattr(var, "name") and var.name not in [a.name for a in args]:
-            # FIXME we should probably just have two dicts
-            # From the var2terminal dict we only want to append vector-shaped args
-            # which are coming from AssembledVectors to the global args of the Slate kernel,
-            # meaning we don't want to append anything matrix shaped and also no solves or actions
             if not terminal.terminal or (terminal.rank > 1 and matfree):
                 t_shape = var.shape if var.shape else (1,)
                 args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
@@ -678,9 +680,9 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="o
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    knl_name = knl_prefix + "_knl_%d" % knl_counter()
-    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True, iname_prefix=knl_name+"_"),
-            args[0].copy(), knl_name)
+    knl_name = knl_prefix + "_knl_%d" % knl_counter()  # auto generate a unique name
+    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True),
+            args[0].copy())
 
 
 def slate_to_cpp(expr, temps, prec=None):
