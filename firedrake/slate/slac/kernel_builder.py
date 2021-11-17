@@ -708,7 +708,7 @@ class LocalLoopyKernelBuilder(object):
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
             else:
-                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor._function,)
+                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
                 coeff = tuple(coefficients[c] for c in f)
                 offset = 0
                 ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
