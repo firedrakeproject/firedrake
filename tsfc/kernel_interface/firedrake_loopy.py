@@ -2,7 +2,6 @@ import numpy
 from collections import namedtuple
 from functools import partial
 
-import ufl
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
@@ -368,7 +367,6 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior
         return kernel_arg, expression
 
     finat_element = create_element(coefficient.ufl_element())
-    isreal = _is_real_tensor_product_element(coefficient.ufl_element())
 
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
@@ -384,13 +382,13 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior
 
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
-        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, isreal, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
+        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
     elif name == "coords":
-        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, isreal, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
+        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
     else:
         kernel_arg = kernel_args.CoefficientKernelArg(
             name,
-            finat_element, isreal,
+            finat_element,
             dtype,
             interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
         )
@@ -416,8 +414,6 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
         return kernel_args.ScalarOutputKernelArg(scalar_type)
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    is_real_tensor_products = tuple(_is_real_tensor_product_element(arg.ufl_element())
-                                    for arg in arguments)
 
     if diagonal:
         if len(arguments) != 2:
@@ -428,29 +424,15 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
         elements = (element,)
-        is_real_tensor_products = (is_real_tensor_products[0],)
 
     if len(arguments) == 1 or diagonal:
         finat_element, = elements
-        is_real_tensor_product, = is_real_tensor_products
-        return kernel_args.VectorOutputKernelArg(finat_element, is_real_tensor_product, scalar_type, interior_facet=interior_facet, diagonal=diagonal, interior_facet_horiz=interior_facet_horiz)
+        return kernel_args.VectorOutputKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal, interior_facet_horiz=interior_facet_horiz)
     elif len(arguments) == 2:
         rfinat_element, cfinat_element = elements
-        ris_real, cisreal = is_real_tensor_products
         return kernel_args.MatrixOutputKernelArg(
-            rfinat_element, ris_real, cfinat_element, cisreal, scalar_type,
+            rfinat_element, cfinat_element, scalar_type,
             interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
         )
     else:
         raise AssertionError
-
-
-def _is_real_tensor_product_element(elem):
-    scalar_element = elem
-    if isinstance(elem, (ufl.VectorElement, ufl.TensorElement)):
-        scalar_element = elem.sub_elements()[0]
-    if isinstance(scalar_element, ufl.TensorProductElement):
-        a, b = scalar_element.sub_elements()
-        return b.family() == "Real"
-
-    return False
