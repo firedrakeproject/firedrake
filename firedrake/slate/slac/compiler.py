@@ -650,6 +650,17 @@ def parenthesize(arg, prec=None, parent=None):
 def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="output", matfree=False):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
+
+    :arg gem_expr: the GEM expression which is supposed to be compiled into a loopy kernel
+    :arg var2terminal: originally a mapping from GEM variables to Slate terminal tensors,
+                       but in the matrix-free case it currently contains a mapping
+                       from arbitrary GEM expressions to arbitrary Slate nodes
+    :arg scalar_type: dtype of the variables in the loopy kernel
+    :arg out_name: name of the the final (output) GEM variable
+                   matching the last variable in the loopy kernel
+    :arg matfree: needed for seperating some expressions in var2terminal,
+                  can probably be dropped after FIXME is fixed
+
     :return (slate_loopy, ctx): 2-tuple of loopy kernel for slate operations,
                                 and a ctx which most importantly contains gem->loopy mappings
     :return output_variable:    a loopy GlobalArg for the output variable
