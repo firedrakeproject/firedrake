@@ -699,7 +699,7 @@ class LocalLoopyKernelBuilder(object):
                                                    address_space=loopy.AddressSpace.LOCAL,
                                                    target=loopy.CTarget())
             tensor2temp[slate_tensor] = loopy_tensor
-           
+
             if not slate_tensor.assembled:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
@@ -786,8 +786,7 @@ class LocalLoopyKernelBuilder(object):
                     and 0<=i_18<n and 0<=i_19<n and 0<=i_20<n and 0<=i_21<n}""" ,
                 ["""
                     x[i_0] = -{b}[i_0] {{id=x0}}
-                    {A_on_x}[i_18] = 0. {{dep=x0, id=Aonx0}}
-                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=Aonx0, id=Aonx}}
+                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
