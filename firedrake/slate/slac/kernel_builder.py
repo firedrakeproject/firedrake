@@ -541,6 +541,7 @@ class LocalLoopyKernelBuilder(object):
             # subkernel3_cell_to__cell_integral_otherwise(&(T8_x[0]), &(coords[0]), &(x[0]), &(x[3]));
             # rather than 
             # subkernel3_cell_to__cell_integral_otherwise(&(T8_x[0]), &(coords[0]), &(x[0]), &(x[0]));
+            # FIXME probably we can do this a bit nicer
 
             if isinstance(c, tuple):  # then the coeff is coming from a mixed background
                 mixed_c, split_c = c
