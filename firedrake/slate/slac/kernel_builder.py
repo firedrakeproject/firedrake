@@ -485,37 +485,37 @@ class LocalLoopyKernelBuilder(object):
             kernel_data.append((mesh.cell_sizes,
                                 self.cell_size_arg))
 
-        # Append coefficients from the expression
+        # Append original coefficients from the expression
         if self.bag.coefficients:
             kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
-                                                            kinfo,
-                                                            self.bag.coefficients))
+                                                              kinfo,
+                                                              self.bag.coefficients))
         
-        # Append coefficients for action
+        # Append artificial coefficients for action
         if self.bag.action_coefficients:
             kernel_data.extend(self.collect_tsfc_coefficients(tsfc_coefficients,
-                                                            kinfo,
-                                                            self.bag.action_coefficients,
-                                                            True))
+                                                              kinfo,
+                                                              self.bag.action_coefficients,
+                                                              True))
         return kernel_data
 
 
     def collect_tsfc_coefficients(self, tsfc_coefficients, kinfo, wrapper_coefficients, action=False):
         kernel_data = []
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i,_ in kinfo.coefficient_map]
-        added_coefficients = []
+        tsfc_coefficients = [tsfc_coefficients[i] for i, _ in kinfo.coefficient_map]
         for c, cinfo in wrapper_coefficients.items():
+            # All artificial coefficients, coming from actions, and
+            # all original coefficients, which are also present in the TSFC kernel,
+            # are relevant data for the kernel
             if c in tsfc_coefficients or action:
                 if isinstance(cinfo, tuple):
-                    if cinfo[0] not in added_coefficients:
-                        kernel_data.extend([(c, cinfo[0])])
-                        added_coefficients.append(cinfo[0])
+                    # info for coefficients on non-mixed spaces is a tuple 
+                    kernel_data.extend([(c, cinfo[0])])
                 else:
+                    # info for coefficients on mixed spaces is a dict 
                     for c_, info in cinfo.items():
-                        if info[0] not in added_coefficients:
-                            kernel_data.extend([((c, c_), info[0])])
-                            added_coefficients.append(info)
+                        kernel_data.extend([((c, c_), info[0])])
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
