@@ -343,3 +343,29 @@ def test_multiple_external_operators(mesh):
     solve(F3 == 0, u)
 
     assert assemble((w-u)**2*dx)/assemble(w**2*dx) < 1e-9
+
+
+def test_mixed_function_space(mesh):
+
+    V = FunctionSpace(mesh, "CG", 1)
+    W = MixedFunctionSpace((V, V))
+
+    u = Function(W)
+    w = TestFunction(W)
+    v1, v2 = TestFunctions(W)
+
+    x, y = SpatialCoordinate(mesh)
+    u1, u2 = u.split()
+    u1.interpolate(cos(x))
+    u2.interpolate(sin(x))
+
+    p = point_expr(lambda x: x, function_space=W)
+    N = p(u)
+
+    # split N
+    N1, N2 = split(N)
+
+    a = assemble(inner(N1, v1) * dx + inner(N2, v2) * dx)
+    b = assemble(inner(N, w) * dx)
+
+    assert (a.dat.norm - b.dat.norm) < 1e-9
