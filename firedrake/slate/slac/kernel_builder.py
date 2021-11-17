@@ -457,13 +457,7 @@ class LocalLoopyKernelBuilder(object):
         if element.family() == "Real":
             return (coefficient.dat.cdim, )
         else:
-            dimension = lambda element: create_element(element).space_dimension()
-            if type(element) == MixedElement:
-                shapes = [dimension(element) for element in coefficient.ufl_element().sub_elements()]
-            else:
-                shapes = [dimension(coefficient.ufl_element())]
-            shape = (sum(shapes),)
-            return shape
+            return (create_element(element).space_dimension(), )
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
