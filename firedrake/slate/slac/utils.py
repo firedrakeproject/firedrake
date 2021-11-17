@@ -353,7 +353,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
         all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
         # Construct args
-        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp.values(), list(all_kernels))
+        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp.values())
         for a in slate_loopy.args:
             if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
                 ac = a.copy(address_space=lp.AddressSpace.LOCAL)
@@ -534,12 +534,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     slate_node = optimise(slate_node, slate_parameters)
                     gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
                     from firedrake.slate.slac.compiler import gem_to_loopy
-                    (action_wrapper_knl, ctx_g2l_action), action_output_arg, action_wrapper_knl_name = gem_to_loopy(gem_action_node,
-                                                                                                                    var2terminal_actions,
-                                                                                                                    tsfc_parameters["scalar_type"],
-                                                                                                                    "tensorshell",
-                                                                                                                    insn.assignee_name,
-                                                                                                                    matfree=True)
+                    (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
+                                                                                           var2terminal_actions,
+                                                                                           tsfc_parameters["scalar_type"],
+                                                                                           "tensorshell",
+                                                                                           insn.assignee_name,
+                                                                                           matfree=True)
+                    action_wrapper_knl_name = ctx_g2l_action.kernel_name
                     
                     # Prepare data structures of builder for a new swipe
                     from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
@@ -556,6 +557,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                     # we need to initialise the action temporaries for kernels
                     # which contain the action of a non terminal tensor on a coefficient
+                    # FIXME maybe we can avoid this similar to in the action
                     it = "only_action"
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
@@ -708,7 +710,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
                 last_id=insn.id
     
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions
-    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values(), list(knl_list.values()))
+    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values())
     # new_args = [a.copy(target=lp.CTarget()) for a in old_new_args]
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables

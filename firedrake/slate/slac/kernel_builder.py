@@ -907,7 +907,7 @@ class LocalLoopyKernelBuilder(object):
             reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
         return args, reads, output_arg
 
-    def generate_wrapper_kernel_args(self, temporaries=[], templated_subkernels=None, append_args=[], prepend_args=[]):
+    def generate_wrapper_kernel_args(self, temporaries=[], append_args=[], prepend_args=[]):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"],
