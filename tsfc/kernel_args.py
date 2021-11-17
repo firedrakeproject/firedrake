@@ -286,6 +286,7 @@ class TabulationKernelArg(RankOneKernelArg):
     def loopy_arg(self):
         return lp.GlobalArg(self._name, self._dtype, shape=self._shape)
 
+
 class OutputKernelArg(KernelArg, abc.ABC):
 
     name = "A"
