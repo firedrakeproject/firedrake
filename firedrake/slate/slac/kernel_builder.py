@@ -637,6 +637,8 @@ class LocalLoopyKernelBuilder(object):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
+            The coefficients are seperated into original coefficients coming from
+            the expression and artificial ones used for actions.
         """
         # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
         # the coefficient in the right way. (Its space is FunctionSpace instead of
@@ -683,15 +685,15 @@ class LocalLoopyKernelBuilder(object):
     def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
+            For marix-free kernels Actions are initialised too.
 
-            :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
+            :arg var2terminal: dictionary that maps gem Variables to Slate tensors
         """
         from gem import Variable as gVar, Action
         var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
-            # assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
