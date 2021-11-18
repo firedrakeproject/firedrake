@@ -946,7 +946,7 @@ class LocalLoopyKernelBuilder(object):
                 arg = loopy.GlobalArg(name, shape=extent,
                                       dtype=self.tsfc_parameters["scalar_type"],
                                       target=loopy.CTarget(),
-                                      is_input=True, is_output=True,
+                                      is_input=True, is_output=False,
                                       dim_tags=None, strides=loopy.auto, order="C")
                 if arg not in args:
                     args.append(arg)
