@@ -2,6 +2,7 @@ from coffee import base as ast
 from coffee.visitor import Visitor
 
 from collections import OrderedDict
+from numpy import isin
 
 from ufl.algorithms.multifunction import MultiFunction
 
@@ -404,7 +405,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
 
 def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-    coeffs, _ = builder.collect_coefficients()
+    coeffs, _ = builder.collect_coefficients(artificial=False)
     builder.bag = SlateWrapperBag(coeffs, name=slate_loopy.name)
 
     # In the initialisation the loopy tensors for the terminals are generated
@@ -523,6 +524,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list.update(action_knl_list)
 
             else:
+                builder.bag.coefficients = {}
                 if not (isinstance(slate_node, sl.Solve)):
                     # ----- Codepath for matrix-free solves on tensor shells ----
                     # This path handles the inlining of action which don't have a 
@@ -581,6 +583,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     
+                
+                action_builder.bag.coefficients = {}
                 # Repeat for the actions which might be in the action wrapper kernel
                 ctx_g2l_action.kernel_name = action_wrapper_knl_name
                 _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
@@ -599,6 +603,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # but the index creation need to match the one of the kernel which is currently processed
                 action_builder.bag = modified_action_builder.bag.copy_extra_args(action_builder.bag)
                 action_builder.bag.index_creator = builder.bag.index_creator
+                action_builder.bag.coefficients = {}
 
                 # Modify action wrapper kernel args and params in the call for this insn based on what the tsfc kernels inside need
                 action_insn, action_wrapper_knl, action_builder = update_kernel_call_and_knl(insn,
@@ -619,6 +624,11 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
         for i in inits:
             if i.id not in [insn.id for insn in insns]:
                 insns.insert(0, i)
+
+
+    if not init_temporaries:
+        c = builder.bag.coefficients
+        builder.bag.coefficients = {}
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
@@ -659,7 +669,7 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
     # Initialise the very first temporary
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
-    init_coeffs,_ = builder.collect_coefficients()
+    init_coeffs,_ = builder.collect_coefficients(artificial=False)
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
                                 for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
@@ -720,6 +730,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     # because tsfc kernels have flattened indices
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
+        print(slate_loopy)
         slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
     return slate_loopy
 

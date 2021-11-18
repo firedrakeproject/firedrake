@@ -202,7 +202,7 @@ class TensorBase(object, metaclass=ABCMeta):
         return len(tuple(filter(lambda x: isinstance(x, Argument), self.arguments())))
 
     @abstractmethod
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
 
     @property
@@ -442,7 +442,7 @@ class AssembledVector(TensorBase):
         """Returns a tuple of arguments associated with the tensor."""
         return (self._argument,)
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
@@ -508,7 +508,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns a tuple of arguments associated with the tensor."""
         return self._argument
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         return self._function
 
@@ -671,10 +671,10 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.assembled
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.coefficients()
+        return tensor.coefficients(artificial)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -757,10 +757,10 @@ class Factorization(TensorBase):
         tensor, = self.operands
         return tensor.arguments()
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.coefficients()
+        return tensor.coefficients(artificial)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -853,7 +853,7 @@ class Tensor(TensorBase):
         r = len(self.form.arguments()) - self.diagonal
         return self.form.arguments()[0:r]
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
@@ -896,9 +896,9 @@ class TensorOp(TensorBase):
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns the expected coefficients of the resulting tensor."""
-        coeffs = [op.coefficients() for op in self.operands]
+        coeffs = [op.coefficients(artificial=artificial) for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     def ufl_domains(self):
@@ -1290,6 +1290,16 @@ class Action(BinaryOp):
         return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
 
 
+    def coefficients(self, artificial=False):
+        """Returns the expected coefficients of the resulting tensor."""
+        if self.ufl_coefficient and artificial:
+            coeffs = [op.coefficients(artificial) for op in self.operands]
+            if (self.ufl_coefficient,) not in coeffs:
+                coeffs.append((self.ufl_coefficient,))
+        else:
+            coeffs = [op.coefficients() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
 class TensorShell(UnaryOp):
     """A representation of a tensor expression which is never explicitly locally assembled.
     TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
@@ -1414,10 +1424,12 @@ class Solve(BinaryOp):
         # In our compiler we sometimes want to pass them which is why we keep them as optionals args
         if self.matfree:
             if not self.Aonx:
-                arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                f1 = Function(A.arg_function_spaces[pick_op])
+                arbitrary_coeff_x = AssembledVector(f1)
                 self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
             if not self.Aonp:
-                arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                f2 = Function(A.arg_function_spaces[pick_op])
+                arbitrary_coeff_p = AssembledVector(f2)
                 self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
 
         # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
@@ -1434,6 +1446,13 @@ class Solve(BinaryOp):
         from applying the inverse of A onto B.
         """
         return self._args
+
+    def coefficients(self, artificial=False):
+        """Returns the expected coefficients of the resulting tensor."""
+        coeffs = [op.coefficients(artificial) for op in self.operands]
+        if artificial:
+            coeffs.append([op.coefficients(artificial)[0] for op in [self.Aonx, self.Aonp]])
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     @cached_property
     def _key(self):

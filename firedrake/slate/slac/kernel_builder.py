@@ -633,7 +633,7 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, names=None, action_node=None):
+    def collect_coefficients(self, names=None, action_node=None, artificial=True):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
@@ -643,13 +643,14 @@ class LocalLoopyKernelBuilder(object):
         # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
         # the coefficient in the right way. (Its space is FunctionSpace instead of
         # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
-        coeffs = self.expression.coefficients() if not action_node else [action_node.ufl_coefficient]
+        coeffs = self.expression.coefficients(artificial=artificial)
+        # coeffs += (action_node.ufl_coefficient,)
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
-        new = False
 
         # TODO is there are better way to do this?
         for i, c in enumerate(coeffs):
+            new = False
             try:
                 # check if the coefficient is in names,
                 # if yes it will be replaced later
@@ -693,6 +694,7 @@ class LocalLoopyKernelBuilder(object):
         var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
+        coeffs = {}
         for gem_tensor, slate_tensor in var2terminal.items():
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
@@ -711,6 +713,7 @@ class LocalLoopyKernelBuilder(object):
                                               within_inames_is_final=True))
             else:
                 f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
+                coeffs.update({c:coefficients[c] for c in f})
                 coeff = tuple(coefficients[c] for c in f)
                 offset = 0
                 ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
