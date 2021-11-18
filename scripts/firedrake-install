@@ -582,6 +582,9 @@ def get_petsc_options():
 
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+    elif osname == "Linux":
+        # PETSc requires cmake version 3.18.1 or higher.
+        petsc_options.add("--download-cmake")
 
     if not options["minimal_petsc"]:
         petsc_options.add("--with-zlib")
