@@ -482,6 +482,16 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     __itruediv__ = __idiv__
 
+    def __float__(self):
+
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            return float(self.dat.data_ro[0])
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
+
     @utils.cached_property
     def _constant_ctypes(self):
         # Retrieve data from Python object
