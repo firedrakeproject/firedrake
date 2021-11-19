@@ -238,8 +238,8 @@ def test_real_space_mixed_assign():
     g.dat.data[:] = 1
     v.assign(g)
 
-    assert np.allclose(g.dat.data_ro, 1.0)
-    assert np.allclose(g.dat.data_ro, v.dat.data_ro)
+    assert np.allclose(float(g), 1.0)
+    assert np.allclose(float(g), float(v))
     assert np.allclose(q.dat.data_ro, 2.0)
 
 
@@ -261,9 +261,9 @@ def test_real_space_assign():
     g.assign(2*f + f**3)
     h = Function(V)
     h.assign(0.0)
-    assert np.allclose(f.dat.data_ro, 2.0)
-    assert np.allclose(g.dat.data_ro, 12.0)
-    assert np.allclose(h.dat.data_ro, 0.0)
+    assert np.allclose(float(f), 2.0)
+    assert np.allclose(float(g), 12.0)
+    assert np.allclose(float(h), 0.0)
 
 
 @pytest.mark.skipcomplex
@@ -272,7 +272,7 @@ def test_real_interpolate():
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
     a_int = interpolate(Constant(1.0), R)
-    assert np.allclose(a_int.dat.data_ro, 1.0)
+    assert np.allclose(float(a_int), 1.0)
 
 
 @pytest.mark.skipcomplex
@@ -281,9 +281,9 @@ def test_real_interpolate_minmaxinc():
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
     x, = SpatialCoordinate(mesh)
-    min_x, = interpolate(x, R, access=MIN).dat.data_ro
-    max_x, = interpolate(x, R, access=MAX).dat.data_ro
-    sum_x, = interpolate(x, R, access=INC).dat.data_ro
+    min_x = float(interpolate(x, R, access=MIN))
+    max_x = float(interpolate(x, R, access=MAX))
+    sum_x = float(interpolate(x, R, access=INC))
 
     # Midpoint evaluation in each cell.
     expect = np.linspace(0 + 1/(2*N), 1 - 1/(2*N), N)
@@ -293,8 +293,8 @@ def test_real_interpolate_minmaxinc():
     assert np.isclose(sum_x, expect.sum())
     min_x = Function(R).assign(-1)
     max_x = Function(R).assign(2)
-    min_x, = interpolate(x, min_x, access=MIN).dat.data_ro
-    max_x, = interpolate(x, max_x, access=MAX).dat.data_ro
+    min_x = float(interpolate(x, min_x, access=MIN))
+    max_x = float(interpolate(x, max_x, access=MAX))
 
     assert np.isclose(min_x, -1)
     assert np.isclose(max_x, 2)
