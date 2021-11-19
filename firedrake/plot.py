@@ -314,7 +314,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
     triangulation = function_plotter.triangulation
-    values = function_plotter(function)
+    values = toreal(function_plotter(function), complex_component)
     return axes.plot_trisurf(triangulation, values, *args, **_kwargs)
 
 
