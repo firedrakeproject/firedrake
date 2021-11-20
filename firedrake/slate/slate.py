@@ -1420,18 +1420,6 @@ class Solve(BinaryOp):
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
-        # Users don't need to specify Aonx and Aonp and can still be using the solve matrix-free
-        # In our compiler we sometimes want to pass them which is why we keep them as optionals args
-        if self.matfree:
-            if not self.Aonx:
-                f1 = Function(A.arg_function_spaces[pick_op])
-                arbitrary_coeff_x = AssembledVector(f1)
-                self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
-            if not self.Aonp:
-                f2 = Function(A.arg_function_spaces[pick_op])
-                arbitrary_coeff_p = AssembledVector(f2)
-                self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
-
         # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property

@@ -343,8 +343,8 @@ def _push_mul_inverse(expr, self, state):
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
         return expr * state.coeff if state.pick_op else state.coeff * expr
     else:
-        expr = (Solve(child, state.coeff, matfree=self.action) if state.pick_op
-                else Transpose(Solve(Transpose(child), Transpose(state.coeff), matfree=self.action)))
+        expr = (Solve(child, state.coeff) if state.pick_op
+                else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
