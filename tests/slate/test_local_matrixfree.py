@@ -2,6 +2,8 @@ import pytest
 import numpy as np
 from firedrake import *
 
+from firedrake.petsc import PETSc
+PETSc.Sys.popErrorHandler()
 @pytest.fixture
 def mymesh():
     return UnitSquareMesh(6, 6)
@@ -299,7 +301,7 @@ def test_schur_complements():
     schur = assemble(outer_S * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
 
-    # # inner schur complement for reconstruction
+    # inner schur complement for reconstruction
     S = A[1, 1] - A[1, :1] * A[:1, :1].inv * A[:1, 1]
     C = AssembledVector(Function(V).assign(Constant(2.)))
     matfree_schur = assemble(S * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
@@ -317,4 +319,96 @@ def test_schur_complements():
     schur = assemble(S.solve(rhs), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
-test_schur_complements()
+
+
+class DGLaplacian(AuxiliaryOperatorPC):
+    def form(self, pc, u, v):
+        W = u.function_space()
+        n = FacetNormal(W.mesh())
+        alpha = Constant(3**3)
+        gamma = Constant(4**3)
+        h = CellSize(W.mesh())
+        h_avg = (h('+') + h('-'))/2
+        a_dg = -(inner(grad(u), grad(v))*dx)
+        bcs = None
+        return (a_dg, bcs)
+
+
+def test_preconditioning_like():
+    # Create a mesh
+    mesh = UnitSquareMesh(6, 6)
+    U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    W = U * V
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+
+    # Define the source function
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V)
+    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+
+    # Define the variational forms
+    a = (( inner(sigma, tau) + inner(sigma, tau) + inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))) * dx
+    L = -inner(f, v) * dx
+
+    matfree_params = {'mat_type': 'matfree',
+                      'ksp_type': 'preonly',
+                      'pc_type': 'python',
+                      'pc_python_type': 'firedrake.HybridizationPC',
+                      'hybridization': {'ksp_type': 'cg',
+                                        'pc_type': 'none',
+                                        'ksp_rtol': 1e-8,
+                                        'mat_type': 'matfree',
+                                        'localsolve': {'ksp_type': 'preonly',
+                                                       'mat_type': 'matfree',
+                                                       'pc_type': 'fieldsplit',
+                                                       'pc_fieldsplit_type': 'schur'}}}
+    
+    
+    w = Function(W)
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=matfree_params)
+    solver.solve()
+
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+
+
+    # Just double checking the single pieces in the hybridisation PC work correctly
+
+    # check if schur complement is garbage
+    A = builder.inner_S_inv_hat
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
+
+    # check if A00 is garbage
+    A = builder.A00_inv_hat
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
+
+    # check if Srhs is garbage
+    rhs, _ = builder.build_schur(builder.rhs)
+    matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
+    # check if preconditioning is garbage
+    A = builder.inner_S_inv_hat
+    _, _, _, A11 = builder.list_split_mixed_ops
+    test, trial = A11.arguments()
+    p = solver.snes.ksp.pc.getPythonContext()
+    auxpc = DGLaplacian()
+    b, _ = auxpc.form(p, test, trial)
+    P = Tensor(b)
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(builder.inner_S.inv * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
