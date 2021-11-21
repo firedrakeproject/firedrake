@@ -682,27 +682,9 @@ class Dat(AbstractDat, VecAccessMixin):
 
     def __init__(self, *args, **kwargs):
         AbstractDat.__init__(self, *args, **kwargs)
-        self._make_dat_version()
-
-    def _make_dat_version(self):
-        if self.dtype == PETSc.ScalarType:
-            # Use lambda since `_vec` allocates the data buffer
-            # -> Dats should not allocate storage until accessed
-            self._dat_version = lambda: self._vec.stateGet()
-            self.increment_dat_version = lambda: self._vec.stateIncrease()
-        else:
-            # No associated PETSc Vec if incompatible type:
-            # -> Equip Dat with its own counter.
-            self._version = 0
-            self._dat_version = lambda: self._version
-
-            def _inc():
-                self._version += 1
-            self.increment_dat_version = _inc
-
-    @property
-    def dat_version(self):
-        return self._dat_version()
+        # Determine if we can rely on PETSc state counter
+        petsc_counter = (self.dtype == PETSc.ScalarType)
+        VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
 
     @utils.cached_property
     def _vec(self):
