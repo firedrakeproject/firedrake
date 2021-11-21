@@ -130,8 +130,8 @@ class TestDat:
         mdat2.load(output)
         assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
 
-    def test_dat_version(self, s, d1, mdat):
-        """Check object versioning"""
+    def test_dat_version(self, s, d1):
+        """Check object versioning for Dat"""
         d2 = op2.Dat(s)
 
         assert d1.dat_version == 0
@@ -170,6 +170,39 @@ class TestDat:
 
         assert d1.dat_version == 4
         assert d2.dat_version == 2
+
+    def test_mixed_dat_version(self, s, d1, mdat):
+        """Check object versioning for MixedDat"""
+        d2 = op2.Dat(s)
+        mdat2 = op2.MixedDat([d1, d2])
+
+        assert mdat.dat_version == 0
+        assert mdat2.dat_version == 0
+
+        # Access data property
+        mdat2.data
+
+        # mdat2.data will call d1.data and d2.data
+        assert d1.dat_version == 1
+        assert d2.dat_version == 1
+        assert mdat.dat_version == 2
+        assert mdat2.dat_version == 2
+
+        # Access zero property
+        mdat.zero()
+
+        # mdat.zero() will call d1.zero() twice
+        assert d1.dat_version == 3
+        assert d2.dat_version == 1
+        assert mdat.dat_version == 6
+        assert mdat2.dat_version == 4
+
+        # Access zero property
+        d1.zero()
+
+        assert d1.dat_version == 4
+        assert mdat.dat_version == 8
+        assert mdat2.dat_version == 5
 
 
 if __name__ == '__main__':

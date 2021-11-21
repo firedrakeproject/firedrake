@@ -748,6 +748,10 @@ class MixedDat(AbstractDat, VecAccessMixin):
         # TODO: Think about different communicators on dats (c.f. MixedSet)
         self.comm = self._dats[0].comm
 
+    @property
+    def dat_version(self):
+        return sum(d.dat_version for d in self._dats)
+
     @utils.cached_property
     def _kernel_args_(self):
         return tuple(itertools.chain(*(d._kernel_args_ for d in self)))
