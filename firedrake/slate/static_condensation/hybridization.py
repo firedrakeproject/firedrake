@@ -50,6 +50,9 @@ class HybridizationPC(SCBase):
         _, P = pc.getOperators()
         self.ctx = P.getPythonContext()
 
+        if not self.ctx.fc_params:
+            self.ctx.fc_params = {}
+
         if not isinstance(self.ctx, ImplicitMatrixContext):
             raise ValueError("The python context must be an ImplicitMatrixContext")
 
@@ -689,7 +692,7 @@ class SchurComplementBuilder(object):
                         block1                      block2                  block3
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
-
+        self.rhs = rhs
         if self.nested:
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
