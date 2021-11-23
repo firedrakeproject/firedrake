@@ -777,8 +777,8 @@ class LocalLoopyKernelBuilder(object):
             str2name["p"] = "p" + str(knl_no) if arg.name == "p" else str2name["p"]
 
         child1, child2 = expr.children
-        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x"
-        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
+        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
+        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"  if not hasattr(expr.Aonp, "name") else expr.Aonp.name
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
         name = "mtf_solve_%d" % knl_no
