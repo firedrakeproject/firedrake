@@ -387,7 +387,7 @@ def _push_mul_solve(expr, self, state):
         # This is a use-case where we generate actions outside of the matrix-free solve
         # reason for which is that we need to let the optimiser run on the actions too
         arbitrary_coeff = AssembledVector(Function(expr.arg_function_spaces[pick_op]))
-        A = self(expr, ActionBag(arbitrary_coeff, pick_op)) if matfree else None
+        A = Action(expr, arbitrary_coeff, pick_op) if matfree else None
         return A
 
     if expr.rank == 2 and state.pick_op == 0:
