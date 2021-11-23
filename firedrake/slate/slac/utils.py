@@ -584,6 +584,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     ctx_g2l_action = ctx_g2l
                     
                 # Repeat for the actions which might be in the action wrapper kernel
+                action_builder.bag.index_creator = builder.bag.index_creator
                 ctx_g2l_action.kernel_name = action_wrapper_knl_name
                 _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
                                                                                      var2terminal_actions,
