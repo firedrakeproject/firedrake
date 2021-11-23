@@ -754,6 +754,7 @@ class LocalLoopyKernelBuilder(object):
         """
             Matrix-free solve. Currently implemented as CG. WIP.
         """
+        knl_no = knl_counter()
 
         dtype = self.tsfc_parameters["scalar_type"]
         args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -768,12 +769,19 @@ class LocalLoopyKernelBuilder(object):
                 local_names.insert(c, arg.name)
             str2name[local_names[c]] = arg.name
 
+        # rename x and p in case they are already arguments
+        str2name["x"] = "x"
+        str2name["p"] = "p"
+        for arg in args:
+            str2name["x"] = "x" + str(knl_no) if arg.name == "x" else str2name["x"]
+            str2name["p"] = "p" + str(knl_no) if arg.name == "p" else str2name["p"]
+
         child1, child2 = expr.children
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x"
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
     
-        name = "mtf_solve_%d" % knl_counter()
+        name = "mtf_solve_%d" % knl_no
         stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-16)
         shape = expr.shape
         corner_case = self.generate_code_for_converged_pre_iteration()
