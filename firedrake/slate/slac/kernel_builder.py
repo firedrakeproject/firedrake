@@ -797,25 +797,25 @@ class LocalLoopyKernelBuilder(object):
                     and 0<=i_14<n and 0<=i_15<n and 0<=i_16<n and 0<=i_17<n and 0<=j_0<n
                     and 0<=i_18<n and 0<=i_19<n and 0<=i_20<n and 0<=i_21<n}""" ,
                 ["""
-                    x[i_0] = -{b}[i_0] {{id=x0}}
-                    {A_on_x}[:] = action_A({A}[:,:], x[:]) {{dep=x0, id=Aonx}}
+                    {x}[i_0] = -{b}[i_0] {{id=x0}}
+                    {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                     <> sum_r = 0.  {{dep=residual0, id=sumr0}}
                     sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
                     <> converged = sum_r < 0.00000000000000001{{dep=sumr, id=converged}}
-                    p[i_4] = -r[i_4] {{dep=converged, id=projector0}}
+                    {p}[i_4] = -r[i_4] {{dep=converged, id=projector0}}
                     <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
                     for i_6
-                        {A_on_p}[:] = action_A_on_p({A}[:,:], p[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
+                        {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
-                        p_on_Ap = p_on_Ap + p[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
+                        p_on_Ap = p_on_Ap + {p}[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
                         <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id=zeroproj, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
                         <> alpha = rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
-                        x[i_10] = x[i_10] + alpha*p[i_10] {{dep=ponAp, id=xk}}
+                        {x}[i_10] = {x}[i_10] + alpha*{p}[i_10] {{dep=ponAp, id=xk}}
                         r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
                         <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
                         rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id=rkp1_normk}}
@@ -823,16 +823,16 @@ class LocalLoopyKernelBuilder(object):
                         stop_criterion,
                         """<> beta = rkp1_norm / rk_norm {{dep=cond, id=beta}}
                         rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
-                        p[i_15] = beta * p[i_15] - r[i_15] {{dep=rk_normk, id=projectork}}
+                        {p}[i_15] = beta * {p}[i_15] - r[i_15] {{dep=rk_normk, id=projectork}}
                         {A_on_p}[i_17] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
                     end
-                    {output}[i_16] = x[i_16] {{dep=Aonp0, id=out}}
+                    {output}[i_16] = {x}[i_16] {{dep=Aonp0, id=out}}
                 """.format(**str2name)],
                 [*args,
-                loopy.TemporaryVariable("x", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+                loopy.TemporaryVariable(str2name["x"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
                 loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
                 loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-                loopy.TemporaryVariable("p", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+                loopy.TemporaryVariable(str2name["p"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
                 target=loopy.CTarget(),
                 name=name,
                 lang_version=(2018, 2))
