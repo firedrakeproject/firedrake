@@ -400,8 +400,11 @@ def test_preconditioning_like():
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if preconditioning is garbage
-    A = builder.inner_S_inv_hat
-    _, _, _, A11 = builder.list_split_mixed_ops
+    # FIXME in this test we use the "normal" CG algorithm in matrix-free manner
+    # while we should actually be using preconditioned CG, the infrastructure
+    # for that will be coming in the future
+    A = builder.inner_S
+    _, A01, A10, A11 = builder.list_split_mixed_ops
     test, trial = A11.arguments()
     p = solver.snes.ksp.pc.getPythonContext()
     auxpc = DGLaplacian()
@@ -410,5 +413,5 @@ def test_preconditioning_like():
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
     matfree_schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(builder.inner_S.inv * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-8)
