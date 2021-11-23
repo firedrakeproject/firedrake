@@ -764,8 +764,9 @@ class LocalLoopyKernelBuilder(object):
         str2name = {}
         local_names = ["A", "output", "b"]
         for c, arg in enumerate(args):
-            if arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
-                            self.cell_size_arg, self.cell_orientations_arg]:
+            if (arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
+                            self.cell_size_arg, self.cell_orientations_arg]
+                or arg.name in [coeff[0] if isinstance(coeff, tuple) else coeff for coeff in self.bag.coefficients.values()]):
                 local_names.insert(c, arg.name)
             str2name[local_names[c]] = arg.name
 
