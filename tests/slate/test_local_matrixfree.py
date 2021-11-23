@@ -325,11 +325,17 @@ class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
         n = FacetNormal(W.mesh())
-        alpha = Constant(3**3)
-        gamma = Constant(4**3)
+        alpha = Constant(3**2)
+        gamma = Constant(4**2)
         h = CellSize(W.mesh())
         h_avg = (h('+') + h('-'))/2
-        a_dg = -(inner(grad(u), grad(v))*dx)
+        a_dg = -(inner(grad(u), grad(v))*dx
+                 - inner(jump(u, n), avg(grad(v)))*dS
+                 - inner(avg(grad(u)), jump(v, n), )*dS
+                 + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS
+                 - inner(u*n, grad(v))*ds
+                 - inner(grad(u), v*n)*ds
+                 + (gamma/h)*inner(u, v)*ds)
         bcs = None
         return (a_dg, bcs)
 
