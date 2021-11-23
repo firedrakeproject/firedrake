@@ -601,7 +601,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # For updating the wrapper kernel args we want to add all extra args needed in any of the subkernels
                 # but the index creation need to match the one of the kernel which is currently processed
                 action_builder.bag = modified_action_builder.bag.copy_extra_args(action_builder.bag)
-                action_builder.bag.index_creator = builder.bag.index_creator
+                if hasattr(modified_action_builder, "num_facets"):
+                    builder.bag = modified_action_builder.bag.copy_extra_args(builder.bag)
+                    builder.num_facets = modified_action_builder.num_facets
 
                 # Modify action wrapper kernel args and params in the call for this insn based on what the tsfc kernels inside need
                 action_insn, action_wrapper_knl, action_builder = update_kernel_call_and_knl(insn,
