@@ -933,14 +933,16 @@ class LocalLoopyKernelBuilder(object):
                                         shape=ori_extent,
                                         dtype=self.tsfc_parameters["scalar_type"],
                                         target=loopy.CTarget(),
-                                        is_input=True, is_output=False))
+                                        is_input=True, is_output=False,
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
         if self.bag.needs_cell_sizes:
             siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
             args.append(loopy.GlobalArg(self.cell_size_arg,
                                         shape=siz_extent,
                                         dtype=self.tsfc_parameters["scalar_type"],
-                                        is_input=True, is_output=False))
+                                        is_input=True, is_output=False,
+                                        dim_tags=None, strides=loopy.auto, order="C"))
 
         for coeff in self.bag.coefficients.values():
             if isinstance(coeff, OrderedDict):
@@ -982,7 +984,8 @@ class LocalLoopyKernelBuilder(object):
         if self.bag.needs_mesh_layers:
             args.append(loopy.GlobalArg(self.layer_count, shape=(1,),
                                         dtype=np.int32, is_input=True, is_output=False,
-                                        target=loopy.CTarget()))
+                                        target=loopy.CTarget(),
+                                        dim_tags=None, strides=loopy.auto, order="C"))
             args.append(loopy.ValueArg(self.layer_arg,
                         dtype=np.int32))
 
