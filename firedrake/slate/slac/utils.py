@@ -609,10 +609,13 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     insns = []
     knl_list = {}
-    # local assembly of the action or the matrix for the solve
+
+    # local assembly kernel for the action
     tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
 
-    #FIXME we need to cover a case for explicit solves I think
+    # FIXME we need to cover a case for explicit solves I think
+    # when do we something mixed - matrix-free and matrix-explicit
+
     if tsfc_calls[0] and tsfc_knls[0]:
         # substitute action call with the generated tsfc call for that action
         # but keep the lhs so that the following instructions still act on the right temporaries
