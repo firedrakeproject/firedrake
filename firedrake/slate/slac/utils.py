@@ -623,8 +623,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
         updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
         builder.bag = updated_bag
         for i in inits:
-            if i.id not in [insn.id for insn in insns]:
-                insns.insert(0, i)
+            insns.insert(0, i)
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
