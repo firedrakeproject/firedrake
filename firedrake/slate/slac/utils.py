@@ -747,18 +747,6 @@ def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_
         reads += [read]
         if not i == 0:
             output += [False]
-    
-
-    # Generate new args with dim tags and so forth set
-    args = []
-    for (output,(arg, var_reads)) in zip(output, zip(knl.args, reads)):
-        args.append(lp.GlobalArg(var_reads.subscript.aggregate.name, 
-                                dtype=builder.tsfc_parameters["scalar_type"],
-                                shape=arg.shape,
-                                target=lp.CTarget(),
-                                dim_tags=None, strides=lp.auto, order="C",
-                                is_output=output, is_input=True))
-
 
     action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name),
                                                 tuple(reads)))
