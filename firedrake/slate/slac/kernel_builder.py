@@ -760,12 +760,15 @@ class LocalLoopyKernelBuilder(object):
         # FIXME maybe we don't need this local to global anymore with the new loopy
         str2name = {}
         local_names = ["A", "output", "b"]
+        coeff_arg = None
         for c, arg in enumerate(args):
             if (arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
                             self.cell_size_arg, self.cell_orientations_arg]
                 or arg.name in [coeff[0] if isinstance(coeff, tuple) else coeff for coeff in self.bag.coefficients.values()]):
                 local_names.insert(c, arg.name)
             str2name[local_names[c]] = arg.name
+            if local_names[c] == "b":
+                coeff_arg = arg
 
         # rename x and p in case they are already arguments
         str2name["x"] = "x"
@@ -847,7 +850,7 @@ class LocalLoopyKernelBuilder(object):
                                              reads))
         
         self.matfree_solve_knls.append(knl)
-        return call, (name, knl), output_arg, ctx
+        return call, (name, knl), output_arg, ctx, coeff_arg
 
     def generate_code_for_converged_pre_iteration(self):
         import pyop2
