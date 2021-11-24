@@ -708,7 +708,14 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     return slate_loopy
 
 
-def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_wrapper_knl, action_wrapper_knl_name, builder):
+def update_kernel_call_and_knl(insn, action_wrapper_knl, action_wrapper_knl_name, builder):
+    """
+        This function is updating the args of the call to the inner kernel.
+        An example: if tfsc produces a local assembly kernel for an action,
+        then this might need some extra information when the assembly kernel is generated for a facet integral.
+        Depending on which args the kernel generated from tsfc take, we generate a CallInstruction
+        which takes the same arguments in the calling kernel.
+    """
     knl = action_wrapper_knl[action_wrapper_knl_name]
 
     # Generate args for the kernel and reads for the call instruction
@@ -723,9 +730,7 @@ def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_
         read = make_reads(a, a.name)
         reads += [read]
 
-    action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name),
-                                                tuple(reads)))
-    action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=args)
+    action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name), tuple(reads)))
     return action_insn, action_wrapper_knl, builder
 
 
