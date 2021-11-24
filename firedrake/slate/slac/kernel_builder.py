@@ -633,18 +633,15 @@ class LocalLoopyKernelBuilder(object):
         else:
             return False
 
-    def collect_coefficients(self, names=None, action_node=None, artificial=True):
+    def collect_coefficients(self, expr=None, names=None, artificial=True):
         """ Saves all coefficients of self.expression, where non mixed coefficient
             are of dict of form {coff: (name, extent)} and mixed coefficient are
             double dict of form {mixed_coeff: {coeff_per_space: (name,extent)}}.
             The coefficients are seperated into original coefficients coming from
             the expression and artificial ones used for actions.
         """
-        # When dealing with an Action defined on a mixed functionspace self.expression.coefficients does not contain
-        # the coefficient in the right way. (Its space is FunctionSpace instead of
-        # MixedFunctionSpace(IndexedProxyFunctionSpace) or similar)
-        coeffs = self.expression.coefficients(artificial=artificial)
-        # coeffs += (action_node.ufl_coefficient,)
+        expr = self.expression if not expr else expr
+        coeffs = expr.coefficients(artificial=artificial)
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
 
