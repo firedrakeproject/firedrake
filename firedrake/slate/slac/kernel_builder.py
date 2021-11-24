@@ -1090,10 +1090,15 @@ class SlateWrapperBag(object):
         return new
 
     def copy_extra_args(self, new):
-        new.needs_cell_orientations = self.needs_cell_orientations
-        new.needs_cell_sizes = self.needs_cell_sizes
-        new.needs_cell_facets = self.needs_cell_facets
-        new.needs_mesh_layers = self.needs_mesh_layers
+        if not new.needs_cell_orientations:
+            new.needs_cell_orientations = self.needs_cell_orientations
+        if not new.needs_cell_sizes:
+            new.needs_cell_sizes = self.needs_cell_sizes
+        if not new.needs_cell_facets:
+            new.needs_cell_facets = self.needs_cell_facets
+            new.num_facets = self.num_facets
+        if not new.needs_mesh_layers:
+            new.needs_mesh_layers = self.needs_mesh_layers
         return new
 
 class IndexCreator(object):

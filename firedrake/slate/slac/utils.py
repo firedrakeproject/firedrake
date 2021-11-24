@@ -581,19 +581,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                                      output_arg=action_output_arg,
                                                                                      matshell=isinstance(tensor_shell_node, sl.TensorShell))
 
-                # For updating the wrapper kernel args we want to add all extra args needed in any of the subkernels
-                # but the index creation need to match the one of the kernel which is currently processed
-                action_builder.bag = modified_action_builder.bag.copy_extra_args(action_builder.bag)
-                builder.bag.coefficients = action_builder.bag.coefficients
-                if hasattr(modified_action_builder, "num_facets"):
-                    builder.bag = modified_action_builder.bag.copy_extra_args(builder.bag)
-                    builder.num_facets = modified_action_builder.num_facets
 
-                # Modify action wrapper kernel args and params in the call for this insn based on what the tsfc kernels inside need
-                action_insn, action_wrapper_knl, action_builder = update_kernel_call_and_knl(insn,
-                                                                                             action_wrapper_knl, action_wrapper_knl_name,
-                                                                                             action_builder)
-                builder.bag.index_creator.inames.update(action_builder.bag.index_creator.inames)
+                # For updating the wrapper kernel args later we want to add all extra args needed in any of the subkernels
+                builder.bag = builder.update_bag_with_coefficients(coeffs=action_builder.bag.coefficients)
+                builder.bag = modified_action_builder.bag.copy_extra_args(builder.bag)
+
+                # Modify action wrapper kernel args and params in the call for this insn
+                # based on what the tsfc kernels inside need
+                action_insn, action_wrapper_knl, builder = update_kernel_call_and_knl(insn,
+                                                                                      action_wrapper_knl,
+                                                                                      action_wrapper_knl_name,
+                                                                                      builder)
 
                 # Update with new insn and its knl
                 params = action_insn.expression.parameters
