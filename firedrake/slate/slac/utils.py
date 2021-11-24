@@ -443,12 +443,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     knl_list = {}
     gem2pym = ctx_g2l.gem_to_pymbolic
 
-    # Keeping track off all coefficients upfront
-    # saves us the effort of one of those ugly dict comparisons
-    coeffs = {}  # all coefficients including the ones for the action
-    new_coeffs = {}  # coeffs coming from action
-    old_coeffs = {}  # only old coeffs minus the ones replaced by the action coefficients
-
     # invert dict
     pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
     pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
