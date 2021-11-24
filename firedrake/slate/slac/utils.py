@@ -363,12 +363,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         # Inames come from initialisations + loopyfying kernel args and lhs
         domains = slate_loopy.domains + builder.bag.index_creator.domains
 
-        # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
-        # So we need to introduce new ids on those calls to keep them unique.
-        # But some the dependencies in the local matfree kernel are hand written and depend on the
-        # original action id. At this point all the instructions should be ensured to be sorted, so
-        # we remove all existing dependencies and make them sequential instead
-        # also help scheduling by setting within_inames_is_final on everything
+        # Help scheduling by setting within_inames_is_final on everything
         insns_new = []
         for i, insn in enumerate(insns):
             if insn:
@@ -669,9 +664,14 @@ def initialise_temps(builder, var2terminal, tensor2temps):
 def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy):
     # 1) Prepare the wrapper kernel: scheduling of instructions
     # We remove all existing dependencies and make them sequential instead
+    # also help scheduling by setting within_inames_is_final on everything.
+    # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
+    # So we need to introduce new ids on those calls to keep them unique.
+    # But some the dependencies in the local matfree kernel are hand written and depend on the
+    # original action id. At this point all the instructions should be ensured to be sorted, so
+    # we remove all existing dependencies and make them sequential instead
     # also help scheduling by setting within_inames_is_final on everything
-    # FIXME not sure we need this anymore
-    new_insns = []
+    new_insns = insns
     for i, insn in enumerate(insns):
         if insn:
             if i == 0:
