@@ -1054,10 +1054,12 @@ class LocalLoopyKernelBuilder(object):
             yield (None, None)
 
 
-    def update_bag_with_coefficients(self, coeffs, new_coeffs):
+    def update_bag_with_coefficients(self, coeffs=None, new_coeffs=None):
         bag = self.bag.copy(rename_indices=False)
-        bag.coefficients = coeffs
-        bag.action_coefficients = new_coeffs
+        if coeffs:
+            bag.coefficients = coeffs
+        if new_coeffs:
+            bag.action_coefficients = new_coeffs
         return bag
 
 
