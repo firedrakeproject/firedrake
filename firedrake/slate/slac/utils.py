@@ -661,12 +661,12 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
 #### There are two update functions.
 #### One is updating the args and so on of the inner kernel, e.g. the matrix-free solve in a slate loopy kernel.
 #### The other is updating the call to that inner kernel inside the outer loopy, e.g. in the slate loopy kernel.
-#### The later is inherting information from the result of the former.
 
 def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy):
     # 1) Prepare the wrapper kernel: scheduling of instructions
     # We remove all existing dependencies and make them sequential instead
     # also help scheduling by setting within_inames_is_final on everything
+    # FIXME not sure we need this anymore
     new_insns = []
     for i, insn in enumerate(insns):
         if insn:
@@ -680,9 +680,9 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
                 within_inames_is_final=True))
                 last_id=insn.id
     
-    # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions
+    # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
+    # which contain the calls to the action, solve and tensorshell kernels
     new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values())
-    # new_args = [a.copy(target=lp.CTarget()) for a in old_new_args]
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:
@@ -691,7 +691,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
         else:
             local_args.update({n.name: n})
 
-    # 3) Prepare the wrapper kernel: generate domains for indices used in the CallInstructions
+    # 3) Prepare the wrapper kernel: generate domains for indices used in the new instructions
     new_domains = slate_loopy[builder.slate_loopy_name].domains 
     new_domains += builder.bag.index_creator.domains
 
@@ -699,7 +699,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     copy_args = {"args": global_args, "domains":new_domains, "temporary_variables":local_args, "instructions":new_insns}
     slate_loopy.callables_table[builder.slate_loopy_name].subkernel = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.copy(**copy_args)
 
-    # Link action/matfree kernels to wrapper kernel
+    # Link action/matfree/tensorshell kernels to wrapper kernel
     # Match tsfc kernel args to the wrapper kernel callinstruction args,
     # because tsfc kernels have flattened indices
     for name, knl in knl_list.items():
