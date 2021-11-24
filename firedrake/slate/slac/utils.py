@@ -477,37 +477,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             tensor_shell_node, coeff_node = slate_node.children
             if isinstance(slate_node, sl.Action) and not matshell:
                 # ----- this is the code path for "pure" Actions ----
-
-                def link_action_coeff(builder, names):
-                    # split coefficients into a set of original coefficients (old_coeffs)
-                    # and coefficients coming from the result of an action (new_coeffs)
-                    # and update the builder bag with them
-                    new_coeffs = {}
-                    old_coeffs = {}
-                    for name in names:  
-                        old_coeff, new_coeff = builder.collect_coefficients(names=name, action_node=slate_node)
-                        new_coeffs.update(new_coeff)
-                        old_coeffs.update(old_coeff)
-
-                    updated_bag = builder.update_bag_with_coefficients(old_coeffs, new_coeff)
-                    return updated_bag, new_coeffs, old_coeffs
-
-                def get_coeff(slate_nodes, coeff_names):
-                    # get a terminal and a ufl coefficient->name dict for an Action node
-                    for slate_node, coeff_name in zip(slate_nodes, coeff_names):
-                        terminal = slate_node.action()
-                        coeff = slate_node.ufl_coefficient
-                        names = {coeff: (coeff_name, slate_node.coeff.shape)}
-                        yield terminal, names
-
-                terminal, names = tuple(*get_coeff([slate_node], [coeff_name]))
-                builder.expression = terminal
+                
+                # get a terminal tensor for the action
+                # and generate a ufl coefficient->name dict
+                # for the coefficient c in action(ufl.form, c)
+                terminal = slate_node.action()
+                coeff = slate_node.ufl_coefficient
+                names = {coeff: (coeff_name, slate_node.coeff.shape)}
 
                 # separate action and non-action coefficients
-                updated_bag, new_coeff, old_coeff = link_action_coeff(builder, [names])
-                new_coeffs.update(new_coeff)
-                old_coeffs.update(old_coeff)
-                builder.bag = updated_bag
+                old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
+                builder.bag = builder.update_bag_with_coefficients(old_coeffs, new_coeffs)
 
                 if terminal not in tensor2temps.keys():
                     # gem terminal node corresponding to lhs of the instructions
@@ -617,7 +597,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function, params)))
                 knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
 
-    builder.expression = slate_expr
     if init_temporaries:
         # We need to do this at the end, when we know all temps
         updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
