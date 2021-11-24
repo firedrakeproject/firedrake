@@ -598,9 +598,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
 
     if init_temporaries:
-        # We need to do this at the end, when we know all temps
-        updated_bag, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps, new_coeffs)
-        builder.bag = updated_bag
+        # We need to do initialise the temporaries at the end, when we collected all the ones we need
+        builder, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps)
         for i in inits:
             insns.insert(0, i)
 
@@ -639,11 +638,12 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
-    # Initialise the very first temporary
+def initialise_temps(builder, var2terminal, tensor2temps):
+    # Initialise the very first temporaries
+    # (with coefficients from the original ufl form)
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it             
-    init_coeffs,_ = builder.collect_coefficients(artificial=False)
+    init_coeffs, _ = builder.collect_coefficients(artificial=False)
     var2terminal_vectors = {v:t for (v,t) in var2terminal.items()
                                 for cv,ct in init_coeffs.items()
                                 if isinstance(t, sl.AssembledVector)
@@ -652,10 +652,10 @@ def initialise_temps(builder, var2terminal, tensor2temps, new_coeffs):
     inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)
     tensor2temps.update(tensor2temp)
 
-    # # Get all coeffs into the wrapper kernel
-    # # so that we can generate the right wrapper kernel args of it
-    updated_bag = builder.update_bag_with_coefficients(init_coeffs, new_coeffs)
-    return updated_bag, tensor2temps, inits
+    # Get all coeffs into the wrapper kernel bag
+    # so that we can generate the right wrapper kernel args of it
+    builder.bag = builder.update_bag_with_coefficients(coeffs=init_coeffs)
+    return builder, tensor2temps, inits
 
 #### A note on the helper functions:
 #### There are two update functions.
