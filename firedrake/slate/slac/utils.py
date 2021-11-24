@@ -741,12 +741,9 @@ def update_kernel_call_and_knl(insn, gem_action_node, action_output_arg, action_
 
     # Generate reads form kernel args
     reads = []
-    output = [True]
     for i, a in enumerate(knl.args):
         read = make_reads(a, a.name)
         reads += [read]
-        if not i == 0:
-            output += [False]
 
     action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name),
                                                 tuple(reads)))
