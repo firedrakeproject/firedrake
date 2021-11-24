@@ -488,12 +488,12 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
                 builder.bag = builder.update_bag_with_coefficients(old_coeffs, new_coeffs)
 
+                # temporaries that have calls assigned, which get inlined later,[
+                # need to be initialised, so e.g. the lhs of an action
+                # that is because TSFC generates kernels with an output like A = A + ...]
                 if terminal not in tensor2temps.keys():
                     # gem terminal node corresponding to lhs of the instructions
                     gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
-                    # temporaries that have calls assigned, which get inlined later,
-                    # need to be initialised, so e.g. the lhs of an action
-                    # that is because TSFC generates kernels with an output like A = A + ...
                     inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
                     tensor2temps.update(tensor2temp)
                     for init in inits:
