@@ -484,7 +484,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 names = {coeff: (coeff_name, slate_node.coeff.shape)}
 
                 # separate action and non-action coefficients, needed because
-                # e.g the old coefficients have to be initialised but action coefficients don't
+                # figuring out which coefficients needs to be in the kernel data
+                # is different for original coefficients and action coefficients
                 old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
                 builder.bag = builder.update_bag_with_coefficients(old_coeffs, new_coeffs)
 
