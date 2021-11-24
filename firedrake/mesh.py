@@ -668,6 +668,35 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
+def add_overlap(dm, overlap_type, depth):
+    """Add overlap to a distributed DM.
+
+    :arg dm: The dm.
+    :arg overlap_type: DistributedMeshOverlapType enum.
+    :arg depth: depth of overlap.
+    :returns: The SF migrating from old to new DM (or None if no
+        migration is required). In the latter case, the overlap was
+        not grown.
+    """
+    if depth < 0:
+        raise ValueError("Overlap depth must be >= 0")
+    if overlap_type == DistributedMeshOverlapType.NONE:
+        if depth > 0:
+            raise ValueError("Can't have NONE overlap with overlap > 0")
+        return None
+    elif overlap_type == DistributedMeshOverlapType.FACET:
+        dmcommon.set_adjacency_callback(dm)
+        sf = dm.distributeOverlap(depth)
+        dmcommon.clear_adjacency_callback(dm)
+        return sf
+    elif overlap_type == DistributedMeshOverlapType.VERTEX:
+        dm.setBasicAdjacency(False, True)
+        sf = dm.distributeOverlap(depth)
+        return sf
+    else:
+        raise ValueError("Unknown overlap type %r" % overlap_type)
+
+
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
@@ -690,29 +719,8 @@ class MeshTopology(AbstractMeshTopology):
         if distribute is None:
             distribute = True
         partitioner_type = distribution_parameters.get("partitioner_type")
-        overlap_type, overlap = distribution_parameters.get("overlap_type",
+        overlap_type, depth = distribution_parameters.get("overlap_type",
                                                             (DistributedMeshOverlapType.FACET, 1))
-
-        if overlap < 0:
-            raise ValueError("Overlap depth must be >= 0")
-        if overlap_type == DistributedMeshOverlapType.NONE:
-            def add_overlap():
-                pass
-            if overlap > 0:
-                raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            def add_overlap():
-                dmcommon.set_adjacency_callback(self.topology_dm)
-                self.topology_dm.distributeOverlap(overlap)
-                dmcommon.clear_adjacency_callback(self.topology_dm)
-                self._grown_halos = True
-        elif overlap_type == DistributedMeshOverlapType.VERTEX:
-            def add_overlap():
-                # Default is FEM (vertex star) adjacency.
-                self.topology_dm.distributeOverlap(overlap)
-                self._grown_halos = True
-        else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
 
         dmcommon.validate_mesh(plex)
         plex.setFromOptions()
@@ -766,7 +774,7 @@ class MeshTopology(AbstractMeshTopology):
             """Finish initialisation."""
             del self._callback
             if self.comm.size > 1:
-                add_overlap()
+                self._grown_halos = add_overlap(self.topology_dm, overlap_type, depth)
             dmcommon.complete_facet_labels(self.topology_dm)
 
             if reorder:
