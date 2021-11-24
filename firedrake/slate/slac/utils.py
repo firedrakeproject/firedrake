@@ -587,7 +587,6 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                 # Modify action wrapper kernel args and params in the call for this insn based on what the tsfc kernels inside need
                 action_insn, action_wrapper_knl, action_builder = update_kernel_call_and_knl(insn,
-                                                                                             gem_action_node, action_output_arg,
                                                                                              action_wrapper_knl, action_wrapper_knl_name,
                                                                                              action_builder)
                 builder.bag.index_creator.inames.update(action_builder.bag.index_creator.inames)
