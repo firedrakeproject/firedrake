@@ -485,7 +485,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 coeff = slate_node.ufl_coefficient
                 names = {coeff: (coeff_name, slate_node.coeff.shape)}
 
-                # separate action and non-action coefficients
+                # separate action and non-action coefficients, needed because
+                # e.g the old coefficients have to be initialised but action coefficients don't
                 old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
                 builder.bag = builder.update_bag_with_coefficients(old_coeffs, new_coeffs)
 
@@ -494,6 +495,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
                     # temporaries that have calls assigned, which get inlined later,
                     # need to be initialised, so e.g. the lhs of an action
+                    # that is because TSFC generates kernels with an output like A = A + ...
                     inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
                     tensor2temps.update(tensor2temp)
                     for init in inits:
@@ -539,6 +541,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                     # we need to initialise the action temporaries for kernels
                     # which contain the action of a non terminal tensor on a coefficient 
+                    # that is because TSFC generates kernels with an output like A = A + ...
                     if tensor_shell_node not in tensor2temps.keys():
                         # gem terminal node corresponding to the output value of the kernel called
                         gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
@@ -564,6 +567,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     ctx_g2l_action = ctx_g2l
                     
                 # Repeat for the actions which might be in the action wrapper kernel
+                # but the index creation need to match the one of the kernel which is currently processed
                 action_builder.bag.index_creator = builder.bag.index_creator
                 ctx_g2l_action.kernel_name = action_wrapper_knl_name
                 _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
