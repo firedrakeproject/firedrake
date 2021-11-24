@@ -594,8 +594,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                                                                                       builder)
 
                 # Update with new insn and its knl
-                params = action_insn.expression.parameters
-                insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function, params)))
+                insns.append(action_insn.copy(expression=pym.Call(action_insn.expression.function,
+                                                                  action_insn.expression.parameters)))
                 knl_list[action_builder.slate_loopy_name] = action_wrapper_knl 
 
     if init_temporaries:
