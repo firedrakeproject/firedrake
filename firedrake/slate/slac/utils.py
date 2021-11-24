@@ -525,7 +525,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     
                     # Prepare data structures of builder for a new swipe
                     action_wrapper_knl_name = ctx_g2l_action.kernel_name
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name,
+                                                             namer=builder.bag.index_creator.namer)
 
                     # glue the action coeff to the newly generated kernel
                     # we need this because the new run through the compiler above generated new temps, also for the coefficient,
@@ -557,18 +558,17 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     
                     # Prepare data structures of builder for a new swipe
                     # in particular the tensor2temp dict needs to hold the rhs of the matrix-solve in Slate and in loopy
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name,
+                                                             namer=builder.bag.index_creator.namer)
                     action_tensor2temp = {slate_coeff_node: loopy_rhs}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
+                    ctx_g2l_action.kernel_name = action_wrapper_knl_name
                     
                     # we don't need inits for this codepath because
                     # the kernel builder generates the matfree solve kernel as A = ...
 
                 # Repeat for the actions which might be in the action wrapper kernel
-                # but the index creation need to match the one of the kernel which is currently processed
-                action_builder.bag.index_creator = builder.bag.index_creator
-                ctx_g2l_action.kernel_name = action_wrapper_knl_name
                 _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
                                                                                      var2terminal_actions,
                                                                                      action_wrapper_knl,

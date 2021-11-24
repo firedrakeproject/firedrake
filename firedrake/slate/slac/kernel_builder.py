@@ -418,7 +418,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, namer=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -430,7 +430,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = SlateWrapperBag({})
+        self.bag = SlateWrapperBag({}, namer=namer)
         self.slate_loopy_name = slate_loopy_name
         self.matfree_solve_knls = []
 
@@ -1065,7 +1065,7 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, prefix="", new_coeffs={}, name=""):
+    def __init__(self, coeffs, prefix="", new_coeffs={}, name="", namer=None):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.inames = OrderedDict()
@@ -1074,7 +1074,7 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
-        self.index_creator = IndexCreator(prefix)
+        self.index_creator = IndexCreator(prefix, namer=namer)
         self.name = name
 
     def copy(self, name=None, rename_indices=True):
@@ -1103,8 +1103,8 @@ class SlateWrapperBag(object):
 
 class IndexCreator(object):
     
-    def __init__(self, forced_prefix):
-        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
+    def __init__(self, forced_prefix, namer=None):
+        self.namer = namer if namer else UniqueNameGenerator(forced_prefix=forced_prefix)
         self.inames = OrderedDict()  # pym variable -> extent
 
     def __call__(self, extents, namer=""):
