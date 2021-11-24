@@ -581,6 +581,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # For updating the wrapper kernel args we want to add all extra args needed in any of the subkernels
                 # but the index creation need to match the one of the kernel which is currently processed
                 action_builder.bag = modified_action_builder.bag.copy_extra_args(action_builder.bag)
+                builder.bag.coefficients = action_builder.bag.coefficients
                 if hasattr(modified_action_builder, "num_facets"):
                     builder.bag = modified_action_builder.bag.copy_extra_args(builder.bag)
                     builder.num_facets = modified_action_builder.num_facets
