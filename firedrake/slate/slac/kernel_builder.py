@@ -1068,7 +1068,6 @@ class SlateWrapperBag(object):
     def __init__(self, coeffs, prefix="", new_coeffs={}, name="", namer=None):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
-        self.inames = OrderedDict()
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
@@ -1081,7 +1080,6 @@ class SlateWrapperBag(object):
     def copy(self, name=None, rename_indices=True):
         new = SlateWrapperBag(self.coefficients)
         new.action_coefficients = self.action_coefficients
-        new.inames = self.inames
         new = self.copy_extra_args(new)
         new.call_name_generator = self.call_name_generator
         new.index_creator = self.index_creator
