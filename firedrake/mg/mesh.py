@@ -14,6 +14,28 @@ __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNested
            "SemiCoarsenedExtrudedHierarchy")
 
 
+def redistribute_dm(dm):
+    """Redistribute a DM without overlap
+    :arg mesh: a mesh
+    :returns: a newly redistributed DM and an SF migrating plex points
+        points from the old to the new DM."""
+    dm = dm.clone()
+    migrationsf = dm.distribute(overlap=0)
+    return dm, migrationsf
+
+    # from firedrake.mesh import add_overlap
+    # overlap_type, depth = dm._distribution_parameters.get("overlap_type",
+    #                                                         (DistributedMeshOverlapType.FACET, 1))
+    # overlapsf = add_overlap(dm, overlap_type, depth)
+    # new_mesh = firedrake.Mesh(dm, distribution_parameters={"partition": False,
+    #                                                        "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
+    # new_mesh._grown_halos = overlapsf is not None
+    # new_mesh._distribution_parameters = dm._distribution_parameters
+    # if overlapsf is not None:
+    #     migrationsf = migrationsf.compose(overlapsf)
+    # return new_mesh, migrationsf
+
+
 class HierarchyBase(object):
     """Create an encapsulation of an hierarchy of meshes.
 
@@ -115,6 +137,7 @@ def MeshHierarchy(mesh, refinement_levels,
     else:
         before = after = lambda dm, i: None
 
+    sfABs = []
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
             before(cdm, i)
@@ -125,8 +148,10 @@ def MeshHierarchy(mesh, refinement_levels,
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
 
-        dms.append(rdm)
-        cdm = rdm
+        newrdm, migrationsf = redistribute_dm(rdm)
+        sfABs.append(migrationsf)
+        dms.append((rdm, newrdm))
+        cdm = newrdm
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
@@ -137,19 +162,66 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
-                                    distribution_parameters=distribution_parameters,
-                                    reorder=reorder)
-                       for dm in dms]
+    # Now we have a load of non-overlapped DMs on every level (both
+    # before and after redistribution).
+    # So we need to add the relevant overlap
+    from firedrake.mesh import add_overlap
+    overlap_type, depth = distribution_parameters.get("overlap_type",
+                                                      (DistributedMeshOverlapType.FACET,
+                                                       1))
+    #                  sfAB
+    #     rdm -------------------> new_rdm
+    #      |                          |
+    #  sfAD|                      sfBC|
+    #      |                          |
+    #      v sfBC o sfAB o sfAD^{-1}  v
+    #  overlapped-------------->new_overlapped
 
-    lgmaps = []
-    for i, m in enumerate(meshes):
-        no = impl.create_lgmap(m.topology_dm)
-        m.init()
-        o = impl.create_lgmap(m.topology_dm)
-        m.topology_dm.setRefineLevel(i)
-        lgmaps.append((no, o))
+    sfADs = []
+    sfBCs = []
+    for rdm, newrdm in dms:
+        sfADs.append(add_overlap(rdm, overlap_type, depth))
+        sfBCs.append(add_overlap(newrdm, overlap_type, depth))
 
+    sfDAs = []
+    for sfAD in sfADs:
+        if sfAD is not None:
+            sfDAs.append(sfAD.createInverse())
+        else:
+            sfDAs.append(None)
+
+    sfDCs = []
+    for sfDA, sfAB, sfBC in zip(sfDAs, sfABs, sfBCs):
+        if sfAB is not None:
+            assert sfDA is not None and sfBC is not None
+            sfDB = sfDA.compose(sfAB)
+            sfDC = sfDB.compose(sfBC)
+            sfDCs.append(sfDC)
+            sfDB.destroy()
+        else:
+            sfDCs.append(None)
+
+    omeshes = []
+    rmeshes = []
+    for (rdm, newrdm), migrationsf in zip(dms, sfDCs):
+        omesh = mesh_builder(rdm, dim=mesh.ufl_cell().geometric_dimension(),
+                             distribution_parameters={"partition": False,
+                                                      "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
+        omesh._distribution_parameters = distribution_parameters.copy()
+        omesh._grown_halos = migrationsf is not None
+        rmesh = mesh_builder(newrdm, dim=mesh.ufl_cell().geometric_dimension(),
+                             distribution_parameters={"partition": False,
+                                                      "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
+        rmesh._distribution_parameters = distribution_parameters.copy()
+        rmesh._grown_halos = migrationsf is not None
+        omeshes.append(omesh)
+        rmeshes.append(rmesh)
+
+    coarse_meshes = [mesh] + rmeshes
+    fine_meshes = omeshes
+
+    for coarse, fine in zip(coarse_meshes, fine_meshes):
+        pass
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
