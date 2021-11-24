@@ -433,6 +433,10 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
     #                                       b) the matrix is a TensorShell
     # My idea would be to subclass CallInstruction from loopy to ActionInstruction, SolveInstruction, ...
     # and then we can use a dispatcher
+
+    # need imports here bc m partially initialized module error
+    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+    from firedrake.slate.slac.compiler import gem_to_loopy
     
     insns = []
     tensor2temps = tensor2temp
@@ -474,7 +478,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
-            tensor_shell_node, coeff_node = slate_node.children
+            tensor_shell_node, slate_coeff_node = slate_node.children
             if isinstance(slate_node, sl.Action) and not matshell:
                 # ----- this is the code path for "pure" Actions ----
                 
@@ -517,27 +521,27 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # and then futher into a loopy kernel
                     slate_node = optimise(slate_node, slate_parameters)
                     gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
-                    from firedrake.slate.slac.compiler import gem_to_loopy
                     (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
                                                                                            var2terminal_actions,
                                                                                            tsfc_parameters["scalar_type"],
                                                                                            "tensorshell",
                                                                                            insn.assignee_name,
                                                                                            matfree=True)
-                    action_wrapper_knl_name = ctx_g2l_action.kernel_name
                     
                     # Prepare data structures of builder for a new swipe
-                    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+                    action_wrapper_knl_name = ctx_g2l_action.kernel_name
                     action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
 
-                    # link the action coeff to the newly generated kernel
+                    # glue the action coeff to the newly generated kernel
+                    # we need this because the new run through the compiler above generated new temps, also for the coefficient,
+                    # but we want the kernel for the tensorshell to work on the coefficient as defined in the instruction we currently deal with
                     old_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
                     new_var = insn.expression.parameters[1].subscript.aggregate
                     new_arg = old_arg.copy(name=new_var.name)
                     new_args = [action_wrapper_knl[action_wrapper_knl_name].args[0], new_arg] + action_wrapper_knl[action_wrapper_knl_name].args[2:]
                     action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name:new_var})
                     action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
-                    action_tensor2temp = {coeff_node:action_wrapper_knl[action_wrapper_knl_name].args[1]}
+                    action_tensor2temp = {slate_coeff_node: action_wrapper_knl[action_wrapper_knl_name].args[1]}
 
                     # we need to initialise the action temporaries for kernels
                     # which contain the action of a non terminal tensor on a coefficient 
@@ -553,19 +557,19 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
                     # Generate matfree solve call and knl
-                    action_insn, (action_wrapper_knl_name, action_wrapper_knl), action_output_arg, ctx_g2l = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
+                    (action_insn, (action_wrapper_knl_name, action_wrapper_knl),
+                     action_output_arg, ctx_g2l, loopy_rhs) = builder.generate_matfsolve_call(ctx_g2l, insn, gem_action_node)
                     
                     # Prepare data structures of builder for a new swipe
-                    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
-
-                    # Prepare data structures of tensor2temp for a new swipe
                     # in particular the tensor2temp dict needs to hold the rhs of the matrix-solve in Slate and in loopy
-                    _, child2 = slate_node.children
-                    action_tensor2temp = {child2:action_wrapper_knl[action_wrapper_knl_name].args[-1]}
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    action_tensor2temp = {slate_coeff_node: loopy_rhs}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
                     
+                    # we don't need inits for this codepath because
+                    # the kernel builder generates the matfree solve kernel as A = ...
+
                 # Repeat for the actions which might be in the action wrapper kernel
                 # but the index creation need to match the one of the kernel which is currently processed
                 action_builder.bag.index_creator = builder.bag.index_creator
