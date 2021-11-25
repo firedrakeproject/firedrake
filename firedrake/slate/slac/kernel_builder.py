@@ -1043,8 +1043,7 @@ class LocalLoopyKernelBuilder(object):
                                              within_inames=frozenset(inames_dep),
                                              predicates=predicates, id=key)
 
-                code = kinfo.kernel.code
-                yield insn, {kinfo.kernel.name: code}
+                yield insn, {kinfo.kernel.name: kinfo.kernel.code}
 
         # tsfc yields no kernels if they'd reduce to T0 = 0
         if not cxt_kernels:
