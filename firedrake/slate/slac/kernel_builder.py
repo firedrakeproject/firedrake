@@ -1080,28 +1080,23 @@ class SlateWrapperBag(object):
         self.index_creator = IndexCreator(prefix, namer=namer)
         self.name = name
 
-    def copy(self, name=None, rename_indices=True):
-        new = SlateWrapperBag(self.coefficients)
-        new.action_coefficients = self.action_coefficients
-        new = self.copy_extra_args(new)
-        new.call_name_generator = self.call_name_generator
-        new.index_creator = self.index_creator
-        if rename_indices:
-            new.index_creator.rename("_%d" % indexset_counter())
-        new.name = name if name else self.name
-        return new
-
-    def copy_extra_args(self, new):
-        if not new.needs_cell_orientations:
-            new.needs_cell_orientations = self.needs_cell_orientations
-        if not new.needs_cell_sizes:
-            new.needs_cell_sizes = self.needs_cell_sizes
-        if not new.needs_cell_facets:
-            new.needs_cell_facets = self.needs_cell_facets
-            new.num_facets = self.num_facets
-        if not new.needs_mesh_layers:
-            new.needs_mesh_layers = self.needs_mesh_layers
-        return new
+    def copy_extra_args(self, other):
+        self.coefficients = other.coefficients
+        if not self.needs_cell_orientations:
+            self.needs_cell_orientations = other.needs_cell_orientations
+        if not self.needs_cell_sizes:
+            self.needs_cell_sizes = other.needs_cell_sizes
+        if not self.needs_cell_facets:
+            self.needs_cell_facets = other.needs_cell_facets
+            self.num_facets = other.num_facets
+        if not self.needs_mesh_layers:
+            self.needs_mesh_layers = other.needs_mesh_layers
+    
+    def copy_coefficients(self, coeffs=None, new_coeffs=None):
+        if coeffs:
+            self.coefficients = coeffs
+        if new_coeffs:
+            self.action_coefficients = new_coeffs
 
 class IndexCreator(object):
     

@@ -482,7 +482,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # figuring out which coefficients needs to be in the kernel data
                 # is different for original coefficients and action coefficients
                 old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
-                builder.bag = builder.update_bag_with_coefficients(old_coeffs, new_coeffs)
+                builder.bag.copy_coefficients(old_coeffs, new_coeffs)
 
                 # temporaries that have calls assigned, which get inlined later,[
                 # need to be initialised, so e.g. the lhs of an action
@@ -578,8 +578,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
 
                 # For updating the wrapper kernel args later we want to add all extra args needed in any of the subkernels
-                builder.bag = builder.update_bag_with_coefficients(coeffs=action_builder.bag.coefficients)
-                builder.bag = modified_action_builder.bag.copy_extra_args(builder.bag)
+                builder.bag.copy_extra_args(modified_action_builder.bag)
 
                 # Modify action wrapper kernel args and params in the call for this insn
                 # based on what the tsfc kernels inside need
@@ -653,7 +652,7 @@ def initialise_temps(builder, var2terminal, tensor2temps):
 
     # Get all coeffs into the wrapper kernel bag
     # so that we can generate the right wrapper kernel args of it
-    builder.bag = builder.update_bag_with_coefficients(coeffs=init_coeffs)
+    builder.bag.copy_coefficients(coeffs=init_coeffs)
     return builder, tensor2temps, inits
 
 #### A note on the helper functions:
