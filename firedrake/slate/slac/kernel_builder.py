@@ -1046,6 +1046,7 @@ class LocalLoopyKernelBuilder(object):
                 code = kinfo.kernel.code
                 yield insn, {kinfo.kernel.name: code}
 
+        # tsfc yields no kernels if they'd reduce to T0 = 0
         if not cxt_kernels:
             yield (None, None)
 
