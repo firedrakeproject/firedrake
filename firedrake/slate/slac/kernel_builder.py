@@ -923,7 +923,9 @@ class LocalLoopyKernelBuilder(object):
             reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
         return args, reads, output_arg
 
-    def generate_wrapper_kernel_args(self, temporaries=[]):
+    def generate_wrapper_kernel_args(self, temporaries={}):
+        # FIXME if we really need the dimtags and so on
+        # maybe we should make a function for generating global args
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"],
