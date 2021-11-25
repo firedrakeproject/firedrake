@@ -44,7 +44,6 @@ class DataCarrier(abc.ABC):
         the product of the dim tuple."""
         return self._cdim
 
-    @abc.abstractmethod
     def increment_dat_version(self):
         pass
 

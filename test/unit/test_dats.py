@@ -161,16 +161,6 @@ class TestDat:
         assert d1.dat_version == 3
         assert d2.dat_version == 1
 
-        # Context managers
-        with d1.vec_wo as _:
-            pass
-
-        with d2.vec as _:
-            pass
-
-        assert d1.dat_version == 4
-        assert d2.dat_version == 2
-
     def test_mixed_dat_version(self, s, d1, mdat):
         """Check object versioning for MixedDat"""
         d2 = op2.Dat(s)
