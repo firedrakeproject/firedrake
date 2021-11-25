@@ -955,8 +955,7 @@ class LocalLoopyKernelBuilder(object):
                                           target=loopy.CTarget(),
                                           is_input=True, is_output=False,
                                           dim_tags=None, strides=loopy.auto, order="C")
-                    if arg not in args:
-                        args.append(arg)
+                    args.append(arg)
             else:
                 (name, extent) = coeff
                 arg = loopy.GlobalArg(name, shape=extent,
@@ -964,8 +963,7 @@ class LocalLoopyKernelBuilder(object):
                                       target=loopy.CTarget(),
                                       is_input=True, is_output=False,
                                       dim_tags=None, strides=loopy.auto, order="C")
-                if arg not in args:
-                    args.append(arg)
+                args.append(arg)
 
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
@@ -989,12 +987,10 @@ class LocalLoopyKernelBuilder(object):
                                         dtype=np.int32, is_input=True, is_output=False,
                                         target=loopy.CTarget(),
                                         dim_tags=None, strides=loopy.auto, order="C"))
-            args.append(loopy.ValueArg(self.layer_arg,
-                        dtype=np.int32))
+            args.append(loopy.ValueArg(self.layer_arg, dtype=np.int32))
 
-        for tensor_temp in temporaries:
-            if tensor_temp.name not in [arg.name for arg in args]:
-                args.append(tensor_temp)
+        for tensor_temp in temporaries.values():
+            args.append(tensor_temp)
 
         return args
 

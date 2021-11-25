@@ -354,7 +354,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal,  wrapper_name, c
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
         all_kernels = itertools.chain([slate_loopy], tsfc_kernels)
         # Construct args
-        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp.values())
+        args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp)
         for a in slate_loopy.args:
             if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
                 ac = a.copy(address_space=lp.AddressSpace.LOCAL)
@@ -683,7 +683,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
     # which contain the calls to the action, solve and tensorshell kernels
-    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps.values())
+    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps)
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:
