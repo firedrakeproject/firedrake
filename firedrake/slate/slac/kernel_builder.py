@@ -910,7 +910,10 @@ class LocalLoopyKernelBuilder(object):
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
                                      target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
 
-        args = self.generate_wrapper_kernel_args(append_args=[arg2], prepend_args=[output_arg, arg1])
+        args = self.generate_wrapper_kernel_args()
+        args.append(arg2)
+        args.insert(0, output_arg)
+        args.insert(0, arg1)
         
         # Generate call parameters
         reads = []
@@ -920,7 +923,7 @@ class LocalLoopyKernelBuilder(object):
             reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
         return args, reads, output_arg
 
-    def generate_wrapper_kernel_args(self, temporaries=[], append_args=[], prepend_args=[]):
+    def generate_wrapper_kernel_args(self, temporaries=[]):
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
                                 dtype=self.tsfc_parameters["scalar_type"],
@@ -992,14 +995,6 @@ class LocalLoopyKernelBuilder(object):
         for tensor_temp in temporaries:
             if tensor_temp.name not in [arg.name for arg in args]:
                 args.append(tensor_temp)
-
-        for append in append_args:
-            if append.name not in [arg.name for arg in args]:
-                args.append(append)
-        
-        for prepend in prepend_args:
-            if prepend.name not in [arg.name for arg in args]:
-                args.insert(0, prepend)
 
         return args
 
