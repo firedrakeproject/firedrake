@@ -21,6 +21,7 @@ from firedrake.slate.slac.kernel_settings import knl_counter, indexset_counter
 import firedrake.slate.slate as sl
 
 from tsfc.loopy import create_domains, assign_dtypes
+from pyop2 import configuration
 
 from pytools import UniqueNameGenerator
 
@@ -749,15 +750,17 @@ class LocalLoopyKernelBuilder(object):
 
     def generate_matfsolve_call(self, ctx, insn, expr):
         """
-            Matrix-free solve. Currently implemented as CG. WIP.
+            Matrix-free solve. Currently implemented as CG.
         """
         knl_no = knl_counter()
-
+        name = "mtf_solve_%d" % knl_no
+        shape = expr.shape
         dtype = self.tsfc_parameters["scalar_type"]
+
+        # Generate the arguments for the kernel from the loopy expression
         args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
         
         # Map from local kernel arg name to global arg name
-        # FIXME maybe we don't need this local to global anymore with the new loopy
         str2name = {}
         local_names = ["A", "output", "b"]
         coeff_arg = None
@@ -777,19 +780,24 @@ class LocalLoopyKernelBuilder(object):
             str2name["x"] = "x" + str(knl_no) if arg.name == "x" else str2name["x"]
             str2name["p"] = "p" + str(knl_no) if arg.name == "p" else str2name["p"]
 
-        child1, child2 = expr.children
+        # name of the lhs to the action call inside the matfree solve kernel
+        child1, _ = expr.children
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p"  if not hasattr(expr.Aonp, "name") else expr.Aonp.name
         str2name.update({"A_on_x":A_on_x_name, "A_on_p":A_on_p_name})
-    
-        name = "mtf_solve_%d" % knl_no
-        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm", 1.e-16)
-        shape = expr.shape
-        corner_case = self.generate_code_for_converged_pre_iteration()
+
+        # setup the stop criterions
+        str2name.update({"stop_criterion_id": "cond", "stop_criterion_dep": "rkp1_normk"})
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm",
+                                                                1.e-16,
+                                                                str2name["stop_criterion_dep"],
+                                                                str2name["stop_criterion_id"])
+        str2name.update({"preconverged_criterion_id": "projis0", "preconverged_criterion_dep": "projector"})
+        corner_case = self.generate_code_for_converged_pre_iteration(str2name["preconverged_criterion_dep"],
+                                                                     str2name["preconverged_criterion_id"])
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
-        # FIXME {A_on_x}[i_18] = 0. {{dep=x0, id=Aonx0}} is translated into the C code twice, and currently I am thinking it might be loopys fault
         knl = loopy.make_function(
                 """{ [i_0,i_1,j_1,i_2,j_2,i_3,i_4,i_5,i_6,i_7,j_7,i_8,j_8,i_9,i_10,i_11,i_12,i_13,i_14,i_15,i_16,i_17,i_18, i_19, i_20, i_21, ii_3,iii_3,iiii_3, j_0]: 
                     0<=i_0<n and 0<=i_1,j_1<n and 0<=i_2,j_2<n and 0<=i_3<n and 0<=i_4<n 
@@ -801,28 +809,25 @@ class LocalLoopyKernelBuilder(object):
                     {x}[i_0] = -{b}[i_0] {{id=x0}}
                     {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                     <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
-                    <> sum_r = 0.  {{dep=residual0, id=sumr0}}
-                    sum_r = sum_r + r[j_0] {{dep=sumr0, id=sumr}}
-                    <> converged = sum_r < 0.00000000000000001{{dep=sumr, id=converged}}
-                    {p}[i_4] = -r[i_4] {{dep=converged, id=projector0}}
+                    {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
                     <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                     rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
                     for i_6
                         {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                         <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                         p_on_Ap = p_on_Ap + {p}[j_2]*{A_on_p}[j_2] {{dep=ponAp0, id=ponAp}}
-                        <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id=zeroproj, dep=ponAp}}
+                        <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id={preconverged_criterion_dep}, dep=ponAp}}
                     """.format(**str2name),
                         corner_case,
                         """
-                        <> alpha = rk_norm / p_on_Ap {{dep=cornercase, id=alpha}}
+                        <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                         {x}[i_10] = {x}[i_10] + alpha*{p}[i_10] {{dep=ponAp, id=xk}}
                         r[i_11] = r[i_11] + alpha*{A_on_p}[i_11] {{dep=xk,id=rk}}
                         <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
-                        rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id=rkp1_normk}}
+                        rkp1_norm = rkp1_norm + r[i_12]*r[i_12] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
                     """.format(**str2name),
                         stop_criterion,
-                        """<> beta = rkp1_norm / rk_norm {{dep=cond, id=beta}}
+                        """<> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
                         rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
                         {p}[i_15] = beta * {p}[i_15] - r[i_15] {{dep=rk_normk, id=projectork}}
                         {A_on_p}[i_17] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
@@ -838,6 +843,7 @@ class LocalLoopyKernelBuilder(object):
                 name=name,
                 lang_version=(2018, 2))
 
+        # set the length of the indices to the size of the temporaries
         knl = loopy.fix_parameters(knl, n=shape[0])
 
         # update gem to pym mapping
@@ -846,24 +852,21 @@ class LocalLoopyKernelBuilder(object):
         _ = ctx.pymbolic_variable(expr.Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         _ = ctx.pymbolic_variable(expr.Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
         
-        call = insn.copy(expression=pym.Call(pym.Variable(name),
-                                             reads))
+        # the expression which call the knl for the matfree solve kernel
+        call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
         
         self.matfree_solve_knls.append(knl)
         return call, (name, knl), output_arg, ctx, coeff_arg
 
-    def generate_code_for_converged_pre_iteration(self):
-        import pyop2
-        if pyop2.configuration["simd_width"]:
+    def generate_code_for_converged_pre_iteration(self, dep, id):
+        if configuration["simd_width"]:
             assert "not vectorised yet"
-        # note that depends_on and id need to match the instructions in the kernel,
-        # which uses the stop criterion
         return loopy.CInstruction("",
                             "if (projector_is_zero) break;",
-                            depends_on="zeroproj",
-                            id="cornercase")
+                            depends_on=dep,
+                            id=id)
 
-    def generate_code_for_stop_criterion(self, var_name, stop_value):
+    def generate_code_for_stop_criterion(self, var_name, stop_value, dep, id):
         """ This method is workaround need since Loo.py does not support while loops yet.
             FIXME whenever while loops become available
 
@@ -879,26 +882,23 @@ class LocalLoopyKernelBuilder(object):
 
             Inlining and vectorisation are made available through this ugly bit of code.
         """
-        import pyop2
-        # not sure where I can get the prefix, which the variable has in a vectorised kernel,
-        # dynamically from variable_name = var_name
         condition = " < " + str(stop_value)
-        if pyop2.configuration["simd_width"]:
+        if configuration["simd_width"]:
             # vectorisation of the stop criterion
-            variable = variable_name+ "["+str(0)+"]" + condition
-            for i in range(int(pyop2.configuration["simd_width"])-1):
-                variable += "&& " + variable_name + "["+str(i+1)+"]" + condition
+            variable = var_name+ "["+str(0)+"]" + condition
+            for i in range(int(configuration["simd_width"])-1):
+                variable += "&& " + var_name + "["+str(i+1)+"]" + condition
         else:
             variable = var_name + condition
-        # note that depends_on and id need to match the instructions in the kernel,
-        # which uses the stop criterion
         return loopy.CInstruction("",
                             "if (" + variable +") break;",
                             read_variables=[var_name],
-                            depends_on="rkp1_normk",
-                            id="cond")
+                            depends_on=dep,
+                            id=id)
 
     def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
+        """A function which is used for generating the arguments to the kernel and the read variables
+           for the call to that kernel of the matrix-free solve."""
         child1, child2 = expr.children
         reads1, reads2 = insn.expression.parameters
         
@@ -917,7 +917,7 @@ class LocalLoopyKernelBuilder(object):
         
         # Generate call parameters
         reads = []
-        for c, arg in enumerate(args):
+        for arg in args:
             var_reads = pym.Variable(arg.name)
             idx_reads = self.bag.index_creator(arg.shape)
             reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
