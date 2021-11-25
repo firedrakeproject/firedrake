@@ -418,7 +418,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, namer=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -430,7 +430,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = SlateWrapperBag({}, namer=namer)
+        self.bag = SlateWrapperBag({})
         self.slate_loopy_name = slate_loopy_name
         self.matfree_solve_knls = []
 
@@ -1057,18 +1057,9 @@ class LocalLoopyKernelBuilder(object):
             yield (None, None)
 
 
-    def update_bag_with_coefficients(self, coeffs=None, new_coeffs=None):
-        bag = self.bag.copy(rename_indices=False)
-        if coeffs:
-            bag.coefficients = coeffs
-        if new_coeffs:
-            bag.action_coefficients = new_coeffs
-        return bag
-
-
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, prefix="", new_coeffs={}, name="", namer=None):
+    def __init__(self, coeffs, new_coeffs={}, name=""):
         self.coefficients = coeffs
         self.action_coefficients = new_coeffs
         self.needs_cell_orientations = False
@@ -1076,8 +1067,8 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.num_facets = None
-        self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
-        self.index_creator = IndexCreator(prefix, namer=namer)
+        self.call_name_generator = UniqueNameGenerator()
+        self.index_creator = IndexCreator()
         self.name = name
 
     def copy_extra_args(self, other):
@@ -1100,11 +1091,11 @@ class SlateWrapperBag(object):
 
 class IndexCreator(object):
     
-    def __init__(self, forced_prefix, namer=None):
-        self.namer = namer if namer else UniqueNameGenerator(forced_prefix=forced_prefix)
+    def __init__(self):
+        self.namer = UniqueNameGenerator()
         self.inames = OrderedDict()  # pym variable -> extent
 
-    def __call__(self, extents, namer=""):
+    def __call__(self, extents):
         """Create new indices with specified extents.
 
         :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors

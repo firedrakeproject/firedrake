@@ -520,8 +520,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     
                     # Prepare data structures of builder for a new swipe
                     action_wrapper_knl_name = ctx_g2l_action.kernel_name
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name,
-                                                             namer=builder.bag.index_creator.namer)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
 
                     # glue the action coeff to the newly generated kernel
                     # we need this because the new run through the compiler above generated new temps, also for the coefficient,
@@ -553,8 +552,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     
                     # Prepare data structures of builder for a new swipe
                     # in particular the tensor2temp dict needs to hold the rhs of the matrix-solve in Slate and in loopy
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name,
-                                                             namer=builder.bag.index_creator.namer)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
                     action_tensor2temp = {slate_coeff_node: loopy_rhs}
                     var2terminal_actions = var2terminal
                     ctx_g2l_action = ctx_g2l
