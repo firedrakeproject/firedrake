@@ -569,17 +569,12 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         if halo is None:
             return
         if not self.halo_valid and access_mode in {Access.READ, Access.RW}:
-            # Dat's halos not up-to-date -> Increment dat_version
-            self.increment_dat_version()
             halo.global_to_local_end(self, Access.WRITE)
             self.halo_valid = True
         elif access_mode in {Access.INC, Access.MIN, Access.MAX}:
             self.halo_valid = False
         else:
             # WRITE
-            if access_mode in {Access.WRITE, Access.RW}:
-                # Dat's halos up-to-date and access_mode is READ -> data will not be modified
-                self.increment_dat_version()
             pass
 
     @mpi.collective
@@ -600,8 +595,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         halo = self.dataset.halo
         if halo is None:
             return
-        if insert_mode in {Access.WRITE, Access.RW}:
-            self.increment_dat_version()
         halo.local_to_global_end(self, insert_mode)
         self.halo_valid = False
 
@@ -703,11 +696,6 @@ class Dat(AbstractDat, VecAccessMixin):
         r"""A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
-        # PETSc Vecs have a state counter and cache norm computations
-        # to return immediately if the state counter is unchanged.
-        # Since we've updated the data behind their back, we need to
-        # change that state counter.
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             self.halo_valid = False
@@ -1031,7 +1019,6 @@ class MixedDat(AbstractDat, VecAccessMixin):
                     size = v.local_size
                     array[offset:offset+size] = v.array_r[:]
                     offset += size
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             # Reverse scatter to get the values back to their original locations

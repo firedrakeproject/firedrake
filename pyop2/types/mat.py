@@ -821,6 +821,8 @@ class Mat(AbstractMat):
 
     @property
     def dat_version(self):
+        if self.assembly_state != Mat.ASSEMBLED:
+            raise RuntimeError("Should not ask for state counter if the matrix is not assembled.")
         return self.handle.stateGet()
 
     @mpi.collective

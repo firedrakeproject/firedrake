@@ -286,11 +286,6 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
-        # PETSc Vecs have a state counter and cache norm computations
-        # to return immediately if the state counter is unchanged.
-        # Since we've updated the data behind their back, we need to
-        # change that state counter.
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             data = self._data
