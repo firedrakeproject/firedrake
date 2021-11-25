@@ -1149,5 +1149,3 @@ class IndexCreator(object):
         """ISL domains for the currently known indices."""
         return create_domains(self.inames.items())
 
-    def rename(self, forced_prefix):
-        self.namer = UniqueNameGenerator(forced_prefix=forced_prefix)
