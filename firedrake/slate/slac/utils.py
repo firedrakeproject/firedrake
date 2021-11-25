@@ -670,7 +670,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     # original action id. At this point all the instructions should be ensured to be sorted, so
     # we remove all existing dependencies and make them sequential instead
     # also help scheduling by setting within_inames_is_final on everything
-    new_insns = insns
+    new_insns = []
     for i, insn in enumerate(insns):
         if insn:
             if i == 0:
