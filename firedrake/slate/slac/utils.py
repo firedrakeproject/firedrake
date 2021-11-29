@@ -672,15 +672,13 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     new_insns = []
     for i, insn in enumerate(insns):
         if insn:
-            if i == 0:
-                last_id=insns[0].id
-                new_insns.append(insn.copy(priority=len(insns)-i,
-                within_inames_is_final=True))
-            else:
-                new_insns.append(insn.copy(depends_on=frozenset({last_id}),
-                priority=len(insns)-i,
-                within_inames_is_final=True))
-                last_id=insn.id
+            kwargs = {}
+            if i != 0:
+                kwargs["depends_on"] = frozenset({last_id})
+            kwargs["priority"] = len(insns)-i
+            kwargs["within_inames_is_final"]=True
+            new_insns.append(insn.copy(**kwargs))
+            last_id=insn.id
 
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
     # which contain the calls to the action, solve and tensorshell kernels
