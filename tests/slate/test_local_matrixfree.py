@@ -2,8 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 
-from firedrake.petsc import PETSc
-PETSc.Sys.popErrorHandler()
+
 @pytest.fixture
 def mymesh():
     return UnitSquareMesh(6, 6)
@@ -135,6 +134,7 @@ def f4(W4, mymesh):
     f = Function(W4[3]).assign(Constant(0.2))
     return AssembledVector(f)
 
+
 @pytest.fixture
 def f5(W4, mymesh):
     f = Function(W4[0])
@@ -194,6 +194,7 @@ def test_new_slateoptpass(expr):
             assert np.allclose(sub0, sub1, rtol=1e-6)
     else:
         assert np.allclose(tmp.dat.data, tmp_opt.dat.data, rtol=1.e-6)
+
 
 @pytest.fixture(params=["A[0, 0] * A[0, 2]",
                         "A[0, 2] + A[0, 0] * A[0, 2]",
@@ -312,13 +313,11 @@ def test_schur_complements():
     lambdar = AssembledVector(Function(T).assign(Constant(2.)))
     f = AssembledVector(Function(V).assign(Constant(2.)))
     g = AssembledVector(Function(U).assign(Constant(2.)))
-    R = A[2,1].T - A[1, 0] * A[0,0].inv * A[2, 0].T
-    rhs = (f  - A[1, 0] * A[0,0].inv * g
-           - R * lambdar)
+    R = A[2, 1].T - A[1, 0] * A[0, 0].inv * A[2, 0].T
+    rhs = f - A[1, 0] * A[0, 0].inv * g - R * lambdar
     matfree_schur = assemble(S.solve(rhs), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     schur = assemble(S.solve(rhs), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
-
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
@@ -370,8 +369,7 @@ def test_preconditioning_like():
                                                        'mat_type': 'matfree',
                                                        'pc_type': 'fieldsplit',
                                                        'pc_fieldsplit_type': 'schur'}}}
-    
-    
+
     w = Function(W)
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -380,9 +378,7 @@ def test_preconditioning_like():
 
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
 
-
     # Just double checking the single pieces in the hybridisation PC work correctly
-
     # check if schur complement is garbage
     A = builder.inner_S_inv_hat
     _, arg = A.arguments()
