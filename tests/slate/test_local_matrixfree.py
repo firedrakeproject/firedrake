@@ -352,10 +352,10 @@ def test_preconditioning_like():
     # Define the source function
     x, y = SpatialCoordinate(mesh)
     f = Function(V)
-    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    f.interpolate(100*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
     # Define the variational forms
-    a = (( inner(sigma, tau) + inner(sigma, tau) + inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))) * dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
     L = -inner(f, v) * dx
 
     matfree_params = {'mat_type': 'matfree',
@@ -410,7 +410,7 @@ def test_preconditioning_like():
     # while we should actually be using preconditioned CG, the infrastructure
     # for that will be coming in the future
     A = builder.inner_S
-    _, A01, A10, A11 = builder.list_split_mixed_ops
+    _, _, _, A11 = builder.list_split_mixed_ops
     test, trial = A11.arguments()
     p = solver.snes.ksp.pc.getPythonContext()
     auxpc = DGLaplacian()
