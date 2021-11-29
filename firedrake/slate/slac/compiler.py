@@ -178,16 +178,16 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                       slate_loopy_name=ctx.kernel_name)
 
     if compiler_parameters["slate_compiler"]["replace_mul"]:
+        # Matrix-free Slate
         name = ctx.kernel_name
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
-                                   name, ctx, "when_needed", slate_expr,
-                                   compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
+        assembly_strategy = "when_needed"
     else:
         name = "wrap_" + ctx.kernel_name
-        loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
-                                   name, ctx, "terminals_first", slate_expr,
-                                   compiler_parameters["form_compiler"])
+        assembly_strategy = "terminals_first"
 
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
+                               name, ctx, assembly_strategy, slate_expr,
+                               compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
     print(loopy_merged)
