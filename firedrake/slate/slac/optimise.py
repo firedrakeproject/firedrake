@@ -3,6 +3,7 @@ from functools import singledispatch
 from itertools import repeat
 from firedrake.slate.slate import *
 from collections import namedtuple
+from firedrake.ufl_expr import adjoint
 
 """ ActionBag class
 :arg coeff:     what we contract with.
@@ -27,8 +28,11 @@ def optimise(expression, parameters):
 
     Returns: An optimised Slate expression
     """
-    # 1) Block optimisation
+    # 0) Block optimisation
     expression = push_block(expression)
+
+    # 1) DiagonalTensor optimisation
+    expression = push_diag(expression)
 
     # 2) Multiplication optimisation
     if expression.rank < 2:
@@ -70,6 +74,8 @@ def _push_block_transpose(expr, self, indices):
 
 @_push_block.register(Add)
 @_push_block.register(Negative)
+@_push_block.register(DiagonalTensor)
+@_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
     return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
@@ -109,6 +115,66 @@ def _push_block_block(expr, self, indices):
     indices = expr._indices if not indices else reindexed
     block, = map(self, expr.children, repeat(indices))
     return block
+
+
+def push_diag(expression):
+    """Executes a Slate compiler optimisation pass.
+    The optimisation is achieved by pushing DiagonalTensor from the outside to the inside of an expression.
+
+    :arg expression: A (potentially unoptimised) Slate expression.
+
+    Returns: An optimised Slate expression, where DiagonalTensors are sitting
+    on terminal tensors whereever possible.
+    """
+    mapper = MemoizerArg(_push_diag)
+    return mapper(expression, False)
+
+
+@singledispatch
+def _push_diag(expr, self, diag):
+    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+
+
+@_push_diag.register(Transpose)
+@_push_diag.register(Add)
+@_push_diag.register(Negative)
+def _push_diag_distributive(expr, self, diag):
+    """Distributes the DiagonalTensors into these nodes"""
+    return type(expr)(*map(self, expr.children, repeat(diag)))
+
+
+@_push_diag.register(Factorization)
+@_push_diag.register(Inverse)
+@_push_diag.register(Solve)
+@_push_diag.register(Mul)
+@_push_diag.register(Tensor)
+def _push_diag_stop(expr, self, diag):
+    """Diagonal Tensors cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(False))) if not expr.terminal else expr
+    return DiagonalTensor(expr) if diag else expr
+
+
+@_push_diag.register(Block)
+def _push_diag_block(expr, self, diag):
+    """Diagonal Tensors cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(False)), expr._indices) if not expr.terminal else expr
+    return DiagonalTensor(expr) if diag else expr
+
+
+@_push_diag.register(AssembledVector)
+@_push_diag.register(Reciprocal)
+def _push_diag_vectors(expr, self, diag):
+    """DiagonalTensors should not be pushed onto rank-1 tensors."""
+    if diag:
+        raise AssertionError("It is not legal to define DiagonalTensors on rank-1 tensors.")
+    else:
+        return expr
+
+
+@_push_diag.register(DiagonalTensor)
+def _push_diag_diag(expr, self, diag):
+    """DiagonalTensors are either pushed down or ignored when wrapped into another DiagonalTensor."""
+    return self(*expr.children, not diag)
 
 
 def push_mul(tensor, options):
@@ -170,6 +236,8 @@ def _drop_double_transpose_transpose(expr, self):
     if isinstance(child, Transpose):
         grandchild, = child.children
         return self(grandchild)
+    elif child.terminal and child.rank > 1:
+        return Tensor(adjoint(child.form))
     else:
         return type(expr)(*map(self, expr.children))
 
@@ -179,6 +247,8 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
 @_drop_double_transpose.register(Inverse)
+@_drop_double_transpose.register(DiagonalTensor)
+@_drop_double_transpose.register(Reciprocal)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
@@ -202,6 +272,8 @@ def _push_mul_tensor(expr, self, state):
 
 
 @_push_mul.register(AssembledVector)
+@_push_mul.register(DiagonalTensor)
+@_push_mul.register(Reciprocal)
 def _push_mul_vector(expr, self, state):
     """Do not push into AssembledVectors."""
     return expr
@@ -220,8 +292,12 @@ def _push_mul_inverse(expr, self, state):
     with a coefficient into a Solve via A.inv*b = A.solve(b)
     or b*A^{-1}= (A.T.inv*b.T).T = A.T.solve(b.T).T ."""
     child, = expr.children
-    return (Solve(child, state.coeff) if state.pick_op
-            else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
+    if expr.diagonal:
+        # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
+        return expr * state.coeff if state.pick_op else state.coeff * expr
+    else:
+        return (Solve(child, state.coeff) if state.pick_op
+                else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
 
 
 @_push_mul.register(Transpose)

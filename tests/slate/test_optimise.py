@@ -328,6 +328,35 @@ def test_drop_transposes(TC_non_symm):
     compare_vector_expressions(expressions)
     compare_slate_tensors(expressions, opt_expressions)
 
+    assert A != A.T
+    from firedrake.slate.slac.optimise import optimise
+    T_opt = optimise(A.T, {"optimise": True})
+    assert isinstance(T_opt, Tensor)
+    assert np.allclose(assemble(T_opt.T).M.values,
+                       assemble(adjoint(T_opt.form)).M.values)
+
+
+#######################################
+# Test diagonal optimisation pass
+#######################################
+def test_push_diagonal(TC_non_symm):
+    """Test Optimisers's ability to push DiagonalTensors inside expressions."""
+    A, C = TC_non_symm
+
+    expressions = [DiagonalTensor(A), DiagonalTensor(A+A),
+                   DiagonalTensor(-A), DiagonalTensor(A*A),
+                   DiagonalTensor(A).inv]
+    opt_expressions = [DiagonalTensor(A), DiagonalTensor(A)+DiagonalTensor(A),
+                       -DiagonalTensor(A), DiagonalTensor(A*A),
+                       DiagonalTensor(A).inv]
+    compare_tensor_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
+    expressions = [DiagonalTensor(A+A).solve(C)]
+    opt_expressions = [(DiagonalTensor(A)+DiagonalTensor(A)).solve(C)]
+    compare_vector_expressions(expressions)
+    compare_slate_tensors(expressions, opt_expressions)
+
 
 #######################################
 # Helper functions

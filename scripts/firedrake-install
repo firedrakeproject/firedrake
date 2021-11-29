@@ -16,6 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+from pkg_resources import parse_version
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -142,6 +143,24 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
     sys.exit(1)
 
+# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
+# But only for Linux
+if platform.system() == "Linux":
+    # Get the cpu information
+    cpuinfostring = os.popen('lscpu').read()
+    # Check if it is a tigerlake processor
+    if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
+        # Get the compiler versions
+        gccversionstring = os.popen('gcc -dumpfullversion').read()
+
+        gppversionstring = os.popen('g++ -dumpfullversion').read()
+
+        gfortranversionstring = os.popen('gfortran -dumpfullversion').read()
+
+        # Check if the combination is a problem
+        if parse_version(gccversionstring) < parse_version("9.4") or parse_version(gppversionstring) < parse_version("9.4") or parse_version(gfortranversionstring) < parse_version("9.4"):
+            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
+            sys.exit(1)
 
 branches = {}
 
@@ -1080,12 +1099,18 @@ def build_and_install_libsupermesh():
             check_call(["git", "clean", "-f", "-x", "-d"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
-                check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                            "-DMPI_C_COMPILER=" + cc,
-                            "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90,
-                            "-DCMAKE_Fortran_COMPILER=" + f90])
+                cmd = ["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                       "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                       "-DMPI_C_COMPILER=" + cc,
+                       "-DMPI_CXX_COMPILER=" + cxx,
+                       "-DMPI_Fortran_COMPILER=" + f90,
+                       "-DCMAKE_Fortran_COMPILER=" + f90,
+                       "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
+                if osname == "Darwin":
+                    # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
+                    # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
+                    cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
+                check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -1438,14 +1463,17 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
-
-            if args.with_blas is None and mode == "install":
-                config["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
-
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 
+        # Unconditionally require openblas ("brew" is required above)
+        if args.with_blas is None and mode == "install":
+            config["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
+            blas_location = config["with_blas"]
+            if not os.path.exists(blas_location):
+                raise InstallError("Automatic determination of BLAS looked for openblas in %s but didn't find it\n"
+                                   "Please provide location of a BLAS library with --with-blas (or use --with-blas=download)" % blas_location)
     elif osname == "Linux":
         # Check for apt.
         try:
@@ -1461,6 +1489,7 @@ if mode == "install" or not args.update_script:
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 else:
+    # Only actually relevant on MacOS
     blas_location = config["options"].get("with_blas")
 
 if mode == "install":
@@ -1537,6 +1566,7 @@ if blas_location == "download":
 if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
+log.info("BLAS config is %s" % blas)
 
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update

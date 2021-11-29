@@ -51,7 +51,7 @@ example). Hence, the fully discrete scheme,
 .. math::
    \int p(m^{n+1}-m^n) + \Delta t(pm^{n+1/2}u^{n+1/2}_x - p_xm^{n+1/2}u^{n+1/2})\,\mathrm{d}x=0, \quad \forall p\in V,
 
-   \int qu + \alpha^2q_xu_x - qm\, \mathrm{d}x=0, \quad \forall q \in V,
+   \int qu^{n+1/2} + \alpha^2q_xu^{n+1/2}_x - qm^{n+1/2}\, \mathrm{d}x=0, \quad \forall q \in V,
 
 where :math:`u^{n+1/2}=(u^{n+1}+u^n)/2`,
 :math:`m^{n+1/2}=(m^{n+1}+m^n)/2`, conserves the energy exactly. This
