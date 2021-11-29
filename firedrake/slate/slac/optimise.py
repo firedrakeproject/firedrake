@@ -101,14 +101,16 @@ def _push_block_stop(expr, self, indices):
     expr = type(expr)(*map(self, expr.children, repeat(tuple())))
     return Block(expr, indices) if indices else expr
 
+
 @_push_block.register(Solve)
-def _push_block_stop(expr, self, indices):
+def _push_block_solve(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp)
     return Block(expr, indices) if indices else expr
 
+
 @_push_block.register(Action)
-def _push_block_stop(expr, self, indices):
+def _push_block_action(expr, self, indices):
     """Blocks cannot be pushed further into Action nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())), expr.pick_op)
     return Block(expr, indices) if indices else expr
