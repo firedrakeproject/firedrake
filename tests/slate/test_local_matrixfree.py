@@ -382,3 +382,48 @@ def test_preconditioning_like(MP_forms, MP_fs):
     matfree_schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
+
+def test_hyb_with_GTMGPC(MP_forms, MP_fs):
+    a, L = MP_forms
+    W = MP_fs[0]
+
+    matfree_params = {'mat_type': 'matfree',
+                      'ksp_type': 'preonly',
+                      'pc_type': 'python',
+                      'pc_python_type': 'firedrake.HybridizationPC',
+                      'hybridization': {'ksp_type': 'cg',
+                                        'pc_type': 'python',
+                                        'ksp_rtol': 1e-8,
+                                        'mat_type': 'matfree',
+                                        'localsolve': {'ksp_type': 'preonly',
+                                                       'mat_type': 'matfree',
+                                                       'pc_type': 'fieldsplit',
+                                                       'pc_fieldsplit_type': 'schur'},
+                                        'pc_python_type': 'firedrake.GTMGPC',
+                                        'gt': {'mg_levels': {'ksp_type': 'chebyshev',
+                                                             'pc_type': 'jacobi',
+                                                             'ksp_max_it': 3},
+                                               'mg_coarse': {'ksp_type': 'preonly',
+                                                             'pc_type': 'mg',
+                                                             'pc_mg_type': 'full',
+                                                             'mg_levels': {'ksp_type': 'chebyshev',
+                                                                           'pc_type': 'jacobi',
+                                                                           'ksp_max_it': 3}}}}}
+
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'ksp_rtol': 1e-8,
+                                'mat_type': 'matfree'}}
+
+    w = Function(W)
+    solve(a == L, w, solver_parameters=matfree_params)
+    w2 = Function(W)
+    solve(a == L, w2, solver_parameters=params)
+
+    for sub0, sub1 in zip(w.dat.data, w2.dat.data):
+        assert np.allclose(sub0, sub1, rtol=1e-6)
