@@ -1289,9 +1289,10 @@ class Action(BinaryOp):
         op1, op2 = self.operands
         return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
 
-
     def coefficients(self, artificial=False):
-        """Returns the expected coefficients of the resulting tensor."""
+        """Returns the expected coefficients of the resulting tensor.
+           Artificial coefficients (extra temporaries needed for Actions)
+           are returned if requested."""
         if self.ufl_coefficient and artificial:
             coeffs = [op.coefficients(artificial) for op in self.operands]
             if (self.ufl_coefficient,) not in coeffs:
@@ -1299,6 +1300,7 @@ class Action(BinaryOp):
         else:
             coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
 
 class TensorShell(UnaryOp):
     """A representation of a tensor expression which is never explicitly locally assembled.
@@ -1419,6 +1421,16 @@ class Solve(BinaryOp):
 
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
+
+        # Users don't need to specify Aonx and Aonp and can still be using the solve matrix-free
+        # In our compiler we sometimes want to pass them which is why we keep them as optionals args
+        if self.matfree:
+            if self.Aonx.pick_op != pick_op:
+                arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
+            if self.Aonp.pick_op != pick_op:
+                arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
 
         # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
