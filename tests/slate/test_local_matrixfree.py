@@ -182,10 +182,9 @@ def expr(request, A, A2, A3, A4, f, f2, f5):
         return (A+A).inv*f
     elif request.param == "facet":
         return A4*f5
-    # TODO Add test for a partially optimised expression
 
 
-def test_new_slateoptpass(expr):
+def test_simple_expressions(expr):
     print("Test is running for expresion " + str(expr))
     tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     tmp_opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
