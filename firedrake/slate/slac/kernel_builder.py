@@ -651,7 +651,7 @@ class LocalLoopyKernelBuilder(object):
                 # if yes it will be replaced later
                 prefix = names[c]
                 new = True
-            except KeyError:
+            except (KeyError, TypeError):
                 # if coefficient is not in names it is not an
                 # an action coefficient so we can use usual naming conventions
                 if not new:
