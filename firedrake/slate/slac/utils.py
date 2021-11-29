@@ -720,16 +720,15 @@ def update_kernel_call_and_knl(insn, action_wrapper_knl, action_wrapper_knl_name
     knl = action_wrapper_knl[action_wrapper_knl_name]
 
     # Generate args for the kernel and reads for the call instruction
-    def make_reads(arg, name):
+    # FIXME something similar is reappearing in lot of places
+    # so maybe this function should go in the kernel builder
+    def make_reads(shape, name):
         var_reads = pym.Variable(name)
-        idx_reads = builder.bag.index_creator(arg.shape)
+        idx_reads = builder.bag.index_creator(shape)
         return SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
 
     # Generate reads form kernel args
-    reads = []
-    for i, a in enumerate(knl.args):
-        read = make_reads(a, a.name)
-        reads += [read]
+    reads = [make_reads(a.shape, a.name) for a in knl.args]
 
     action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name), tuple(reads)))
     return action_insn, action_wrapper_knl, builder
