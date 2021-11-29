@@ -130,7 +130,7 @@ say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
 :py:meth:`~.Mesh.init_cell_orientations`, which
-takes a UFL expression or an :py:class:`~.Expression` used to produce
+takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
@@ -499,8 +499,8 @@ for the various :ref:`utility meshes <utility_mesh_functions>` are
 described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
-more generally an :py:class:`~.Expression`, :py:class:`~.Function` or
-:py:class:`~.Constant` of the appropriate shape.  You may also supply
+more generally a UFL expression, for example a :class:`~.Function` or
+:py:class:`~.Constant`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
 .. code-block:: python3

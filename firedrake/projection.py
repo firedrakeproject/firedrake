@@ -5,38 +5,16 @@ import ufl
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
-from firedrake import expression
-from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint import annotate_project
-from pyop2.utils import as_tuple
 
 
 __all__ = ['project', 'Projector']
 
 
 def sanitise_input(v, V):
-    if isinstance(v, expression.Expression):
-        shape = v.value_shape()
-        # Build a function space that supports PointEvaluation so that
-        # we can interpolate into it.
-        deg = max(as_tuple(V.ufl_element().degree()))
-
-        if v.rank() == 0:
-            fs = functionspace.FunctionSpace(V.mesh(), 'DG', deg+1)
-        elif v.rank() == 1:
-            fs = functionspace.VectorFunctionSpace(V.mesh(), 'DG',
-                                                   deg+1,
-                                                   dim=shape[0])
-        else:
-            fs = functionspace.TensorFunctionSpace(V.mesh(), 'DG',
-                                                   deg+1,
-                                                   shape=shape)
-        f = function.Function(fs)
-        f.interpolate(v)
-        return f
-    elif isinstance(v, function.Function):
+    if isinstance(v, function.Function):
         return v
     elif isinstance(v, ufl.classes.Expr):
         return v
@@ -72,19 +50,20 @@ def project(v, V, bcs=None,
             solver_parameters=None,
             form_compiler_parameters=None,
             use_slate_for_inverse=True,
-            name=None):
-    """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
+            name=None,
+            ad_block_tag=None):
+    """Project a UFL expression into a :class:`.FunctionSpace`
 
-    :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
-         :class:`.Function` to project
+    :arg v: the :class:`ufl.Expr` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
-    :arg bcs: boundary conditions to apply in the projection
-    :arg solver_parameters: parameters to pass to the solver used when
+    :kwarg bcs: boundary conditions to apply in the projection
+    :kwarg solver_parameters: parameters to pass to the solver used when
          projecting.
-    :arg form_compiler_parameters: parameters to the form compiler
-    :arg use_slate_for_inverse: compute mass inverse cell-wise using
+    :kwarg form_compiler_parameters: parameters to the form compiler
+    :kwarg use_slate_for_inverse: compute mass inverse cell-wise using
          SLATE (ignored for non-DG function spaces).
-    :arg name: name of the resulting :class:`.Function`
+    :kwarg name: name of the resulting :class:`.Function`
+    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
     ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`

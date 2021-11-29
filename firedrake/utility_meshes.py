@@ -19,7 +19,8 @@ from pyadjoint.tape import no_annotations
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTriangleMesh',
-           'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
+           'RectangleMesh', 'TensorRectangleMesh',
+           'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
            'CircleManifoldMesh', 'UnitDiskMesh',
@@ -194,48 +195,46 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     for e in range(*cell_range):
 
-        closure, orient = plex.getTransitiveClosure(e)
+        closure, _ = plex.getTransitiveClosure(e)
 
         # get the row for this cell
         row = cell_numbering.getOffset(e)
 
         # run some checks
         assert(closure[0] == e)
-        assert len(closure) == 7, closure
+        assert len(closure) == 6, closure
         edge_range = plex.getHeightStratum(1)
-        assert(all(closure[1:5] >= edge_range[0]))
-        assert(all(closure[1:5] < edge_range[1]))
+        assert(all(closure[1:4] >= edge_range[0]))
+        assert(all(closure[1:4] < edge_range[1]))
         vertex_range = plex.getHeightStratum(2)
-        assert(all(closure[5:] >= vertex_range[0]))
-        assert(all(closure[5:] < vertex_range[1]))
+        assert(all(closure[4:] >= vertex_range[0]))
+        assert(all(closure[4:] < vertex_range[1]))
 
         # enter the cell number
         cell_closure[row][8] = e
 
         # Get a list of unique edges
-        edge_set = list(set(closure[1:5]))
+        edge_set = list(closure[1:4])
 
         # there are two vertices in the cell
-        cell_vertices = closure[5:]
+        cell_vertices = closure[4:]
         cell_X = np.array([0., 0.], dtype=ScalarType)
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
         # Add in the edges
         for i in range(3):
-            # count up how many times each edge is repeated
-            repeats = list(closure[1:5]).count(edge_set[i])
-            if repeats == 2:
+            edge_vertex, edge_vertex_ = plex.getCone(edge_set[i])
+            if edge_vertex_ != edge_vertex:
                 # we have a y-periodic edge
                 cell_closure[row][6] = edge_set[i]
                 cell_closure[row][7] = edge_set[i]
-            elif repeats == 1:
+            else:
                 # in this code we check if it is a right edge, or a left edge
                 # by inspecting the x coordinates of the edge vertex (1)
                 # and comparing with the x coordinates of the cell vertices (2)
 
                 # there is only one vertex on the edge in this case
-                edge_vertex = plex.getCone(edge_set[i])[0]
 
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
@@ -266,7 +265,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                         cell_closure[row][5] = edge_set[i]
 
         # Add in the vertices
-        vertices = closure[5:]
+        vertices = closure[4:]
         v1 = vertices[0]
         v2 = vertices[1]
         x1 = coords[coords_sec.getOffset(v1)]
@@ -360,14 +359,52 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
 
     xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
     ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    return TensorRectangleMesh(xcoords, ycoords,
+                               quadrilateral=quadrilateral,
+                               reorder=reorder,
+                               diagonal=diagonal,
+                               distribution_parameters=distribution_parameters,
+                               comm=comm)
+
+
+def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
+                        reorder=None,
+                        diagonal="left", distribution_parameters=None,
+                        comm=COMM_WORLD):
+    """Generate a rectangular mesh
+
+    :arg xcoords: mesh points for the x direction
+    :arg ycoords: mesh points for the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    :kwarg diagonal: For triangular meshes, should the diagonal got
+        from bottom left to top right (``"right"``), or top left to
+        bottom right (``"left"``), or put in both diagonals (``"crossed"``).
+
+    The boundary edges in this mesh are numbered as follows:
+
+    * 1: plane x == xcoords[0]
+    * 2: plane x == xcoords[-1]
+    * 3: plane y == ycoords[0]
+    * 4: plane y == ycoords[-1]
+    """
+    xcoords = np.unique(xcoords)
+    ycoords = np.unique(ycoords)
+    nx = np.size(xcoords)-1
+    ny = np.size(ycoords)-1
+
+    for n in (nx, ny):
+        if n <= 0:
+            raise ValueError("Number of cells must be a postive integer")
+
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
     if not quadrilateral and diagonal == "crossed":
-        dx = Lx * 0.5 / nx
-        dy = Ly * 0.5 / ny
-        xs = np.linspace(dx, Lx - dx, nx, dtype=np.double)
-        ys = np.linspace(dy, Ly - dy, ny, dtype=np.double)
+        xs = 0.5*(xcoords[1:] + xcoords[:-1])
+        ys = 0.5*(ycoords[1:] + ycoords[:-1])
         extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
         coords = np.vstack([coords, extra])
         #
@@ -406,17 +443,21 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = Lx/(2*nx)
-        ytol = Ly/(2*ny)
+        xtol = 0.5*min(xcoords[1]-xcoords[0], xcoords[-1]-xcoords[-2])
+        ytol = 0.5*min(ycoords[1]-ycoords[0], ycoords[-1]-ycoords[-2])
+        x0 = xcoords[0]
+        x1 = xcoords[-1]
+        y0 = ycoords[0]
+        y1 = ycoords[-1]
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
-            if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
+            if abs(face_coords[0]-x0) < xtol and abs(face_coords[2]-x0) < xtol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-            if abs(face_coords[0] - Lx) < xtol and abs(face_coords[2] - Lx) < xtol:
+            if abs(face_coords[0] - x1) < xtol and abs(face_coords[2] - x1) < xtol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
-            if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
+            if abs(face_coords[1]-y0) < ytol and abs(face_coords[3]-y0) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
-            if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
+            if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
     return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
@@ -639,13 +680,15 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
 
 
 @PETSc.Log.EventDecorator()
-def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM_WORLD):
+def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
          divided into (min 3)
     :kwarg radius: (optional) radius of the circle to approximate
            (defaults to 1).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: cells are straight line segments)
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
@@ -660,6 +703,12 @@ def CircleManifoldMesh(ncells, radius=1, distribution_parameters=None, comm=COMM
 
     plex = mesh._from_cell_list(1, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
+        # "push out" to circle
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m = mesh.Mesh(new_coords)
     m._radius = radius
     return m
 

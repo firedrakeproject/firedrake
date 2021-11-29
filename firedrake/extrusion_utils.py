@@ -8,6 +8,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 @PETSc.Log.EventDecorator()
@@ -116,8 +117,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    base_coord_dim=base_coord_dim,
                    hv=height_var)
         name = "pyop2_kernel_uniform_extrusion"
-        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial':
         domains = []
         dd = _get_arity_axis_inames('d')
@@ -140,8 +139,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    dd=', '.join(dd),
                    hv=height_var)
         name = "pyop2_kernel_radial_extrusion"
-        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
@@ -216,11 +213,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    ninst=n_dict[tdim][adim],
                    hv=height_var)
         name = "pyop2_kernel_radial_hedgehog_extrusion"
-        ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
-                               seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
+    ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
                 ext_coords.cell_set,
@@ -248,6 +245,25 @@ def flat_entity_dofs(entity_dofs):
                                       + entity_dofs[(b, 1)][i]
                                       + entity_dofs[(b, 0)][2*i+1])
     return flat_entity_dofs
+
+
+def flat_entity_permutations(entity_permutations):
+    flat_entity_permutations = {}
+    for b in set(b for b, v in entity_permutations):
+        flat_entity_permutations[b] = {}
+        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
+            flat_entity_permutations[b][eb] = {}
+            for ob in set(ob for ob, ov in entity_permutations[(b, 0)][2 * eb]):
+                # Orientation in the extruded direction is always 0
+                ov = 0
+                perm0 = entity_permutations[(b, 0)][2 * eb][(ob, ov)]
+                perm1 = entity_permutations[(b, 1)][eb][(ob, ov)]
+                n0, n1 = len(perm0), len(perm1)
+                flat_entity_permutations[b][eb][ob] = \
+                    list(perm0) + \
+                    [n0 + p for p in perm1] + \
+                    [n0 + n1 + p for p in perm0]
+    return flat_entity_permutations
 
 
 def entity_indices(cell):

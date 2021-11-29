@@ -183,27 +183,9 @@ Python expression classes
 
 .. warning::
 
-   This is a deprecated feature, but it remains supported for
-   compatibility with FEniCS.
-
-One can subclass :py:class:`~.Expression` and define a Python method
-``eval`` on the subclass.  An example usage:
-
-.. code-block:: python3
-
-   class MyExpression(Expression):
-       def eval(self, value, x):
-           value[:] = numpy.dot(x, x)
-
-       def value_shape(self):
-           return ()
-
-   f.interpolate(MyExpression())
-
-Here the arguments ``value`` and ``x`` of ``eval`` are `numpy` arrays.
-``x`` contains the physical coordinates, and the result of the
-expression must be written into ``value``.  One *must not reassign*
-the local variable ``value``, but *overwrite* its content.
+   Python expression classes were a FEniCS compatibility feature which has
+   now been removed. Users should use UFL expressions instead. This
+   section only remains to assist in the transition of existing code.
 
 Since Python :py:class:`~.Expression` classes expressions are
 deprecated, below are a few examples on how to replace them with UFL

@@ -1,5 +1,6 @@
 # Utility module that imports and initialises petsc4py
 import os
+import subprocess
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
@@ -93,6 +94,41 @@ def get_petsc_variables():
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
+
+
+def _get_dependencies(filename):
+    """Get all the dependencies of a shared object library"""
+    # Linux uses `ldd` to look at shared library linkage, MacOS uses `otool`
+    try:
+        program = ["ldd"]
+        cmd = subprocess.run([*program, filename], stdout=subprocess.PIPE)
+        # Filter out the VDSO and the ELF interpreter on Linux
+        results = [line for line in cmd.stdout.decode("utf-8").split("\n") if "=>" in line]
+        return [line.split()[2] for line in results]
+    except FileNotFoundError:
+        program = ["otool", "-L"]
+        cmd = subprocess.run([*program, filename], stdout=subprocess.PIPE)
+        # Meanwhile MacOS puts garbage at the beginning and end of `otool` output
+        return [line.split()[0] for line in cmd.stdout.decode("utf-8").split("\n")[1:-1]]
+
+
+def get_blas_library():
+    """Get the path to the BLAS library that PETSc links to"""
+    petsc_py_dependencies = _get_dependencies(PETSc.__file__)
+    library_names = ["blas", "libmkl"]
+    for filename in petsc_py_dependencies:
+        if any(name in filename for name in library_names):
+            return filename
+
+    # On newer MacOS versions, the PETSc Python extension library doesn't link
+    # to BLAS or MKL directly, so we check the PETSc C library.
+    petsc_c_library = [f for f in petsc_py_dependencies if "libpetsc" in f][0]
+    petsc_c_dependencies = _get_dependencies(petsc_c_library)
+    for filename in petsc_c_dependencies:
+        if any(name in filename for name in library_names):
+            return filename
+
+    return None
 
 
 class OptionsManager(object):

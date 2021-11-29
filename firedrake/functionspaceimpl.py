@@ -8,14 +8,12 @@ from collections import OrderedDict
 
 import numpy
 
-import finat
 import ufl
 
 from pyop2 import op2
-from tsfc.finatinterface import create_element
 
 from firedrake import dmhooks, utils
-from firedrake.functionspacedata import get_shared_data
+from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
 
@@ -308,34 +306,19 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        finat_element = create_element(element)
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            # Retrieve scalar element
-            finat_element = finat_element.base_element
-        # Support foo x Real tensorproduct elements
-        real_tensorproduct = False
-        scalar_element = element
-        if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
-            scalar_element = element.sub_elements()[0]
-        if isinstance(scalar_element, ufl.TensorProductElement):
-            a, b = scalar_element.sub_elements()
-            real_tensorproduct = b.family() == 'Real'
-        # Used for reconstruction of mixed/component spaces
-        self.real_tensorproduct = real_tensorproduct
-        sdata = get_shared_data(mesh, finat_element, real_tensorproduct=real_tensorproduct)
+        sdata = get_shared_data(mesh, element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
-        if type(element) is ufl.TensorElement:
-            # UFL enforces value_shape of the subelement to be empty
-            # on a TensorElement.
+        if type(element) in {ufl.TensorElement, ufl.VectorElement}:
             # The number of "free" dofs is given by reference_value_shape,
             # not value_shape due to symmetry specifications
-            self.shape = element.reference_value_shape()
-        elif type(element) is ufl.VectorElement:
-            # First dimension of the value_shape is the VectorElement
-            # shape.
-            self.shape = element.value_shape()[:1]
+            rvs = element.reference_value_shape()
+            # This requires that the sub element is not itself a
+            # tensor element (which is checked by the top level
+            # constructor of function spaces)
+            sub = element.sub_elements()[0].value_shape()
+            self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
@@ -363,7 +346,12 @@ class FunctionSpace(object):
         degrees of freedom."""
 
         self.comm = self.node_set.comm
-        self.finat_element = finat_element
+        # Need to create finat element again as sdata does not
+        # want to carry finat_element.
+        self.finat_element = create_element(element)
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.cell_boundary_masks = sdata.cell_boundary_masks
