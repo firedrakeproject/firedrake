@@ -376,7 +376,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ct
 
         # Generates the loopy wrapper kernel
         slate_wrapper = lp.make_function(domains, insns_new, args, name=wrapper_name,
-                                         seq_dependencies=True, target=lp.CTarget())
+                                         seq_dependencies=True, target=lp.CTarget(),
+                                         silenced_warnings=["single_writer_after_creation", "unused_inames"])
 
         # Prevent loopy interchange by loopy
         slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))

@@ -840,7 +840,8 @@ class LocalLoopyKernelBuilder(object):
              loopy.TemporaryVariable(str2name["p"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
             target=loopy.CTarget(),
             name=name,
-            lang_version=(2018, 2))
+            lang_version=(2018, 2),
+            silenced_warnings=["single_writer_after_creation", "unused_inames"])
 
         # set the length of the indices to the size of the temporaries
         knl = loopy.fix_parameters(knl, n=shape[0])
