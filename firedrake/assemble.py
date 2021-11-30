@@ -137,6 +137,11 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                        form_compiler_parameters,
                        mat_type, sub_mat_type,
                        appctx, options_prefix):
+
+    # Preprocess and restructure the DAG
+    expr = preassemble_base_form(expr, mat_type, form_compiler_parameters)
+
+    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
     stack = [expr]
     visited = {}
     while stack:
@@ -168,6 +173,39 @@ def base_form_operands(expr):
     if isinstance(expr, ufl.Action):
         return [expr.left(), expr.right()]
     return []
+
+
+def preprocess_form(form, fc_params):
+    """Preprocess ufl.Form objects
+    :arg form: a :class:`~ufl.classes.Form`
+    :arg fc_params:: Dictionary of parameters to pass to the form compiler.
+    :returns: The resulting preprocessed :class:`~ufl.classes.Form`.
+    This function preprocess the form, mainly by expanding the derivatives, in order to determine
+    if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
+    This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
+    we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
+    """
+    from firedrake.parameters import parameters as default_parameters
+    from tsfc.parameters import is_complex
+
+    if fc_params is None:
+        fc_params = default_parameters["form_compiler"].copy()
+    else:
+        # Override defaults with user-specified values
+        _ = fc_params
+        fc_params = default_parameters["form_compiler"].copy()
+        fc_params.update(_)
+
+    complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
+
+    return ufl.algorithms.preprocess_form(form, complex_mode)
+
+
+def preassemble_base_form(expr, mat_type, form_compiler_parameters):
+    if isinstance(expr, ufl.form.Form) and mat_type != "matfree":
+        # For "matfree", Form evaluation is delayed
+        expr = preprocess_form(expr, form_compiler_parameters)
+    return expr
 
 
 def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
