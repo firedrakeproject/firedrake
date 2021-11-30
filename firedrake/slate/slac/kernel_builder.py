@@ -21,6 +21,7 @@ from firedrake.slate.slac.kernel_settings import knl_counter
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.loopy import create_domains, assign_dtypes
+from pyop2 import configuration
 
 from pytools import UniqueNameGenerator
 
@@ -439,6 +440,7 @@ class LocalLoopyKernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.bag = SlateWrapperBag({})
+        self.matfree_solve_knls = []
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
@@ -745,10 +747,182 @@ class LocalLoopyKernelBuilder(object):
         insn = loopy.CallInstruction((slate_kernel_call_output,), call, id="slate_kernel_call")
         return insn
 
-    def generate_wrapper_kernel_args(self, temporaries):
+    def generate_matfsolve_call(self, ctx, insn, expr):
+        """
+            Matrix-free solve. Currently implemented as CG.
+        """
+        knl_no = knl_counter()
+        name = "mtf_solve_%d" % knl_no
+        shape = expr.shape
+        dtype = self.tsfc_parameters["scalar_type"]
+
+        # Generate the arguments for the kernel from the loopy expression
+        args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
+
+        # Map from local kernel arg name to global arg name
+        str2name = {}
+        local_names = ["A", "output", "b"]
+        coeff_arg = None
+        for c, arg in enumerate(args):
+            if (arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
+                             self.cell_size_arg, self.cell_orientations_arg]
+                or arg.name in [coeff[0] if isinstance(coeff, tuple)
+                                else coeff for coeff in self.bag.coefficients.values()]):
+                local_names.insert(c, arg.name)
+            str2name[local_names[c]] = arg.name
+            if local_names[c] == "b":
+                coeff_arg = arg
+
+        # rename x and p in case they are already arguments
+        str2name["x"] = "x"
+        str2name["p"] = "p"
+        for arg in args:
+            str2name["x"] = "x" + str(knl_no) if arg.name == "x" else str2name["x"]
+            str2name["p"] = "p" + str(knl_no) if arg.name == "p" else str2name["p"]
+
+        # name of the lhs to the action call inside the matfree solve kernel
+        child1, _ = expr.children
+        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
+        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
+        str2name.update({"A_on_x": A_on_x_name, "A_on_p": A_on_p_name})
+
+        # setup the stop criterions
+        str2name.update({"stop_criterion_id": "cond", "stop_criterion_dep": "rkp1_normk"})
+        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm",
+                                                               1.e-16,
+                                                               str2name["stop_criterion_dep"],
+                                                               str2name["stop_criterion_id"])
+        str2name.update({"preconverged_criterion_id": "projis0", "preconverged_criterion_dep": "projector"})
+        corner_case = self.generate_code_for_converged_pre_iteration(str2name["preconverged_criterion_dep"],
+                                                                     str2name["preconverged_criterion_id"])
+
+        # NOTE The last line in the loop to convergence is another WORKAROUND
+        # bc the initialisation of A_on_p in the action call does not get inlined properly either
+        knl = loopy.make_function(
+            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
+                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
+                 and 0<=i_6<=n}""",
+            ["""{x}[i_0] = -{b}[i_0] {{id=x0}}
+                {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
+                <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
+                {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
+                <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
+                rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
+                for i_6
+                    {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
+                    <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
+                    p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
+                    <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id={preconverged_criterion_dep}, dep=ponAp}}
+             """.format(**str2name),
+             corner_case,
+             """    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
+                    {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
+                    r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
+                    <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
+                    rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+             """.format(**str2name),
+             stop_criterion,
+             """    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
+                    rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
+                    {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
+                    {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
+                end
+                {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
+             """.format(**str2name)],
+            [*args,
+             loopy.TemporaryVariable(str2name["x"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+             loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(str2name["p"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+            target=loopy.CTarget(),
+            name=name,
+            lang_version=(2018, 2))
+
+        # set the length of the indices to the size of the temporaries
+        knl = loopy.fix_parameters(knl, n=shape[0])
+
+        # update gem to pym mapping
+        # by linking the actions of the matrix-free solve kernel
+        # to the their pymbolic variables
+        _ = ctx.pymbolic_variable(expr.Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
+        _ = ctx.pymbolic_variable(expr.Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+
+        # the expression which call the knl for the matfree solve kernel
+        call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
+
+        self.matfree_solve_knls.append(knl)
+        return call, (name, knl), output_arg, ctx, coeff_arg
+
+    def generate_code_for_converged_pre_iteration(self, dep, id):
+        if configuration["simd_width"]:
+            assert "not vectorised yet"
+        return loopy.CInstruction("",
+                                  "if (projector_is_zero) break;",
+                                  depends_on=dep,
+                                  id=id)
+
+    def generate_code_for_stop_criterion(self, var_name, stop_value, dep, id):
+        """ This method is workaround need since Loo.py does not support while loops yet.
+            FIXME whenever while loops become available
+
+            The workaround uses a Loo.py CInstruction. The Loo.py Cinstruction allows to write C code
+            so that the code (defined via its second argument) will appear unaltered in the final
+            produced code for the kernel. Meaning, there are no transformations happening on this
+            bit of code.
+            First example where this becomes a problem is in a kernel containing the Cinstruction,
+            which gets inlined in another kernel. In that case the variables in the instruction
+            are not renamed properly in the inlining process.
+            Another example is, that the variable in the code of the Cinstruction does not get
+            vectorised when prompted.
+
+            Inlining and vectorisation are made available through this ugly bit of code.
+        """
+        condition = " < " + str(stop_value)
+        if configuration["simd_width"]:
+            # vectorisation of the stop criterion
+            variable = var_name + "[" + str(0) + "]" + condition
+            for i in range(int(configuration["simd_width"])-1):
+                variable += "&& " + var_name + "["+str(i+1)+"]" + condition
+        else:
+            variable = var_name + condition
+        return loopy.CInstruction("",
+                                  "if (" + variable + ") break;",
+                                  read_variables=[var_name],
+                                  depends_on=dep,
+                                  id=id)
+
+    def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
+        """A function which is used for generating the arguments to the kernel and the read variables
+           for the call to that kernel of the matrix-free solve."""
+        child1, child2 = expr.children
+        reads1, reads2 = insn.expression.parameters
+
+        # Generate kernel args
+        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
+                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
+                                     target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+
+        args = self.generate_wrapper_kernel_args()
+        args.append(arg2)
+        args.insert(0, output_arg)
+        args.insert(0, arg1)
+
+        # Generate call parameters
+        reads = []
+        for arg in args:
+            var_reads = pym.Variable(arg.name)
+            idx_reads = self.bag.index_creator(arg.shape)
+            reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
+        return args, reads, output_arg
+
+    def generate_wrapper_kernel_args(self, temporaries={}):
         args = []
         tmp_args = []
-
+        # FIXME if we really need the dimtags and so on
+        # maybe we should make a function for generating global args
         coords_extent = self.extent(self.expression.ufl_domain().coordinates)
         coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
                                            dtype=self.tsfc_parameters["scalar_type"],
