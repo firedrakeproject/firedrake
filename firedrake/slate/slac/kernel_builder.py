@@ -855,6 +855,10 @@ class LocalLoopyKernelBuilder(object):
                 event, = kinfo.events
                 yield insn, kinfo.kernel.code, event
 
+        # tsfc yields no kernels if they'd reduce to T0 = 0
+        if not cxt_kernels:
+            yield (None, None)
+
 
 class SlateWrapperBag(object):
 
