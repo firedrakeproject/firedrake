@@ -1,5 +1,4 @@
 import numpy as np
-from itertools import count
 from coffee import base as ast
 
 from collections import OrderedDict, Counter, namedtuple
@@ -17,6 +16,7 @@ import pymbolic.primitives as pym
 from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
+from firedrake.slate.slac.kernel_settings import knl_counter
 
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
@@ -445,7 +445,7 @@ class LocalLoopyKernelBuilder(object):
         and integral type information.
         """
 
-        return compile_terminal_form(terminal, prefix=f"subkernel{next(self.kernel_counter)}_",
+        return compile_terminal_form(terminal, prefix="subkernel%d_" % knl_counter(),
                                      tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
@@ -866,13 +866,14 @@ class SlateWrapperBag(object):
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.num_facets = None
+        self.call_name_generator = UniqueNameGenerator()
         self.index_creator = IndexCreator()
 
 
 class IndexCreator(object):
     def __init__(self):
         self.inames = OrderedDict()  # pym variable -> extent
-        self.namer = UniqueNameGenerator(forced_prefix="i_")
+        self.namer = UniqueNameGenerator()
 
     def __call__(self, extents):
         """Create new indices with specified extents.
