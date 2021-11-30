@@ -452,7 +452,59 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             # normal instructions can stay as they are
             insns.append(insn)
         else:
-            pass
+            # gem node correponding to current instruction
+            gem_action_node = pym2gem[insn.assignee_name]
+
+            # slate node corresponding to current instructions
+            if isinstance(gem_action_node, Solve):
+                # FIXME something is happening to the solve action node hash
+                # so that gem node cannot be found in var2terminal even though it is there
+                # so we save solve node by name for now
+                # [Update: the reason for that is
+                # that the gem preprocessing in the loopy kernel generation is rewriting some of
+                # the gem expression and the gem action node here is the preprocessed]
+                slate_node = var2terminal[insn.assignee_name]
+            else:
+                slate_node = var2terminal[gem_action_node]
+
+            # get information about the coefficient we act on
+            coeff_name = insn.expression.parameters[1].subscript.aggregate.name
+            tensor_shell_node, slate_coeff_node = slate_node.children
+            if isinstance(slate_node, sl.Action) and not matshell:
+                # ----- this is the code path for "pure" Actions ----
+
+                # get a terminal tensor for the action
+                # and generate a ufl coefficient->name dict
+                # for the coefficient c in action(ufl.form, c)
+                terminal = slate_node.action()
+                coeff = slate_node.ufl_coefficient
+                names = {coeff: (coeff_name, slate_node.coeff.shape)}
+
+                # separate action and non-action coefficients, needed because
+                # figuring out which coefficients needs to be in the kernel data
+                # is different for original coefficients and action coefficients
+                old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
+                builder.bag.copy_coefficients(old_coeffs, new_coeffs)
+
+                # temporaries that have calls assigned, which get inlined later,[
+                # need to be initialised, so e.g. the lhs of an action
+                # that is because TSFC generates kernels with an output like A = A + ...]
+                if terminal not in tensor2temps.keys():
+                    # gem terminal node corresponding to lhs of the instructions
+                    gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
+                    inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, builder.bag.coefficients)
+                    tensor2temps.update(tensor2temp)
+                    for init in inits:
+                        insns.append(init)
+
+                # replaces call with tsfc call, which gets linked to tsfc kernel later
+                action_insns, action_knl_list, builder = generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn)
+                insns += action_insns
+                knl_list.update(action_knl_list)
+
+            else:
+                pass
+
     if init_temporaries:
         # We need to do initialise the temporaries at the end, when we collected all the ones we need
         builder, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps)
