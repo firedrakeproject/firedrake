@@ -503,7 +503,48 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 knl_list.update(action_knl_list)
 
             else:
-                pass
+                if not (isinstance(slate_node, sl.Solve)):
+                    # ----- Codepath for matrix-free solves on tensor shells ----
+                    # This path handles the inlining of action which don't have a
+                    # terminal as the tensor to be acted on
+
+                    # NOTE we kick of a new compilation here since
+                    # we need to compile expression within a tensor shell node to gem
+                    # and then futher into a loopy kernel
+                    slate_node = optimise(slate_node, slate_parameters)
+                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
+                    (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
+                                                                                           var2terminal_actions,
+                                                                                           tsfc_parameters["scalar_type"],
+                                                                                           "tensorshell",
+                                                                                           insn.assignee_name,
+                                                                                           matfree=True)
+
+                    # Prepare data structures of builder for a new swipe
+                    action_wrapper_knl_name = ctx_g2l_action.kernel_name
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+
+                    # glue the action coeff to the newly generated kernel
+                    # we need this because the new run through the compiler above generated new temps, also for the coefficient,
+                    # but we want the kernel for the tensorshell to work on the coefficient as defined in the instruction we currently deal with
+                    old_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
+                    new_var = insn.expression.parameters[1].subscript.aggregate
+                    new_arg = old_arg.copy(name=new_var.name)
+                    new_args = [action_wrapper_knl[action_wrapper_knl_name].args[0], new_arg] + action_wrapper_knl[action_wrapper_knl_name].args[2:]
+                    action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name: new_var})
+                    action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
+                    action_tensor2temp = {slate_coeff_node: action_wrapper_knl[action_wrapper_knl_name].args[1]}
+
+                    # we need to initialise the action temporaries for kernels
+                    # which contain the action of a non terminal tensor on a coefficient
+                    # that is because TSFC generates kernels with an output like A = A + ...
+                    if tensor_shell_node not in tensor2temps.keys():
+                        # gem terminal node corresponding to the output value of the kernel called
+                        gem_inlined_node = Variable(insn.assignee_name, gem_action_node.shape)
+                        inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: slate_node}, None)
+                        tensor2temps.update(tensor2temp)
+                        for init in inits:
+                            insns.append(init)
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
