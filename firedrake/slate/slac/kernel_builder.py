@@ -868,6 +868,25 @@ class SlateWrapperBag(object):
         self.num_facets = None
         self.call_name_generator = UniqueNameGenerator()
         self.index_creator = IndexCreator()
+        self.name = name
+
+    def copy_extra_args(self, other):
+        self.coefficients = other.coefficients
+        if not self.needs_cell_orientations:
+            self.needs_cell_orientations = other.needs_cell_orientations
+        if not self.needs_cell_sizes:
+            self.needs_cell_sizes = other.needs_cell_sizes
+        if not self.needs_cell_facets:
+            self.needs_cell_facets = other.needs_cell_facets
+            self.num_facets = other.num_facets
+        if not self.needs_mesh_layers:
+            self.needs_mesh_layers = other.needs_mesh_layers
+
+    def copy_coefficients(self, coeffs=None, new_coeffs=None):
+        if coeffs:
+            self.coefficients = coeffs
+        if new_coeffs:
+            self.action_coefficients = new_coeffs
 
 
 class IndexCreator(object):
