@@ -591,12 +591,12 @@ class LocalLoopyKernelBuilder(object):
         self.bag.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
-            self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
+            self.bag.num_facets = mesh._base_mesh.ufl_cell().num_facets()
         else:
-            self.num_facets = mesh.ufl_cell().num_facets()
+            self.bag.num_facets = mesh.ufl_cell().num_facets()
 
         # Index for loop over cell faces of reference cell
-        fidx = self.bag.index_creator((self.num_facets,))
+        fidx = self.bag.index_creator((self.bag.num_facets,))
 
         # Cell is interior or exterior
         select = 1 if integral_type.startswith("interior_facet") else 0
@@ -786,12 +786,13 @@ class LocalLoopyKernelBuilder(object):
                                               dtype=np.int8)
             args.append(CellFacetKernelArg(facet_loopy_arg))
 
-            tmp_args.append(loopy.TemporaryVariable(self.local_facet_array_arg_name,
-                                                    shape=(self.num_facets,),
-                                                    dtype=np.uint32,
-                                                    address_space=loopy.AddressSpace.LOCAL,
-                                                    read_only=True,
-                                                    initializer=np.arange(self.num_facets, dtype=np.uint32),))
+            args.append(
+                loopy.TemporaryVariable(self.local_facet_array_arg_name,
+                                        shape=(self.bag.num_facets,),
+                                        dtype=np.uint32,
+                                        address_space=loopy.AddressSpace.LOCAL,
+                                        read_only=True,
+                                        initializer=np.arange(self.bag.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
             layer_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(),
@@ -864,7 +865,7 @@ class SlateWrapperBag(object):
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
-        self.call_name_generator = UniqueNameGenerator(forced_prefix="tsfc_kernel_call_")
+        self.num_facets = None
         self.index_creator = IndexCreator()
 
 
