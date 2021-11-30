@@ -599,3 +599,137 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
+
+
+def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
+    insns = []
+    knl_list = {}
+
+    # local assembly kernel for the action
+    tsfc_calls, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+
+    # FIXME we need to cover a case for explicit solves I think
+    # when do we something mixed - matrix-free and matrix-explicit
+
+    if tsfc_calls[0] and tsfc_knls[0]:
+        # substitute action call with the generated tsfc call for that action
+        # but keep the lhs so that the following instructions still act on the right temporaries
+        for (i, tsfc_call), ((knl_name, knl), ) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
+            wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
+            insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
+                                                               tsfc_call.expression,
+                                                               id=insn.id+"_"+str(i),
+                                                               within_inames=wi,
+                                                               predicates=tsfc_call.predicates))
+            knl_list[knl_name] = knl
+    else:
+        # This code path covers the case that the tsfc compiler doesn't give a kernel back.
+        # This happens when the local assembly call just returns zeros.
+        # Since we want to reuse the tensor potentially we need to initialise it anyways.
+        rhs = insn.expression.parameters[1]
+        var = insn.assignees[0].subscript.aggregate
+        lhs = pym.Subscript(var, insn.assignees[0].subscript.index)
+        rhs = pym.Subscript(rhs.subscript.aggregate, insn.assignees[0].subscript.index)
+        inames = [i.name for i in insn.assignees[0].subscript.index]
+        wi = frozenset(i for i in itertools.chain(insn.within_inames, inames))
+        insns.append(lp.kernel.instruction.Assignment(lhs, 0., id=insn.id+"_whatsthis", within_inames=wi))
+    return insns, knl_list, builder
+
+
+def initialise_temps(builder, var2terminal, tensor2temps):
+    # Initialise the very first temporaries
+    # (with coefficients from the original ufl form)
+    # For that we need to get the temporary which
+    # links to the same coefficient as the rhs of this node and init it
+    init_coeffs, _ = builder.collect_coefficients(artificial=False)
+    var2terminal_vectors = {v: t for (v, t) in var2terminal.items()
+                            for cv, ct in init_coeffs.items()
+                            if isinstance(t, sl.AssembledVector)
+                            and t._function == cv}
+
+    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)
+    tensor2temps.update(tensor2temp)
+
+    # Get all coeffs into the wrapper kernel bag
+    # so that we can generate the right wrapper kernel args of it
+    builder.bag.copy_coefficients(coeffs=init_coeffs)
+    return builder, tensor2temps, inits
+
+# A note on the following helper functions:
+# There are two update functions.
+# One is updating the args and so on of the inner kernel, e.g. the matrix-free solve in a slate loopy kernel.
+# The other is updating the call to that inner kernel inside the outer loopy, e.g. in the slate loopy kernel.
+
+
+def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy):
+    # 1) Prepare the wrapper kernel: scheduling of instructions
+    # We remove all existing dependencies and make them sequential instead
+    # also help scheduling by setting within_inames_is_final on everything.
+    # The problem here is that some of the actions in the kernel get replaced by multiple tsfc calls.
+    # So we need to introduce new ids on those calls to keep them unique.
+    # But some the dependencies in the local matfree kernel are hand written and depend on the
+    # original action id. At this point all the instructions should be ensured to be sorted, so
+    # we remove all existing dependencies and make them sequential instead
+    # also help scheduling by setting within_inames_is_final on everything
+    new_insns = []
+    for i, insn in enumerate(insns):
+        if insn:
+            kwargs = {}
+            if i != 0:
+                kwargs["depends_on"] = frozenset({last_id})
+            kwargs["priority"] = len(insns)-i
+            kwargs["within_inames_is_final"]=True
+            new_insns.append(insn.copy(**kwargs))
+            last_id=insn.id
+
+    # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
+    # which contain the calls to the action, solve and tensorshell kernels
+    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps)
+    global_args = []
+    local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
+    for n in new_args:
+        if n.address_space == lp.AddressSpace.GLOBAL:
+            global_args += [n]
+        else:
+            local_args.update({n.name: n})
+
+    # 3) Prepare the wrapper kernel: generate domains for indices used in the new instructions
+    new_domains = slate_loopy[builder.slate_loopy_name].domains
+    new_domains += builder.bag.index_creator.domains
+
+    # Final: Adjusted wrapper kernel
+    copy_args = {"args": global_args, "domains": new_domains, "temporary_variables": local_args, "instructions": new_insns}
+    slate_loopy.callables_table[builder.slate_loopy_name].subkernel = slate_loopy.callables_table[builder.slate_loopy_name].subkernel.copy(**copy_args)
+
+    # Link action/matfree/tensorshell kernels to wrapper kernel
+    # Match tsfc kernel args to the wrapper kernel callinstruction args,
+    # because tsfc kernels have flattened indices
+    for name, knl in knl_list.items():
+        slate_loopy = lp.merge([slate_loopy, knl])
+        slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
+    return slate_loopy
+
+
+def update_kernel_call_and_knl(insn, action_wrapper_knl, action_wrapper_knl_name, builder):
+    """
+        This function is updating the args of the call to the inner kernel.
+        An example: if tfsc produces a local assembly kernel for an action,
+        then this might need some extra information when the assembly kernel is generated for a facet integral.
+        Depending on which args the kernel generated from tsfc take, we generate a CallInstruction
+        which takes the same arguments in the calling kernel.
+    """
+    knl = action_wrapper_knl[action_wrapper_knl_name]
+
+    # Generate args for the kernel and reads for the call instruction
+    # FIXME something similar is reappearing in lot of places
+    # so maybe this function should go in the kernel builder
+    def make_reads(shape, name):
+        var_reads = pym.Variable(name)
+        idx_reads = builder.bag.index_creator(shape)
+        return SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+
+    # Generate reads form kernel args
+    reads = [make_reads(a.shape, a.name) for a in knl.args]
+
+    action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name), tuple(reads)))
+    return action_insn, action_wrapper_knl, builder
