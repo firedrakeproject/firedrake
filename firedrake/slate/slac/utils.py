@@ -420,3 +420,44 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
     
     return tensor2temp, tsfc_kernels, insns, builder
+
+def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
+    # FIXME This function needs some refactoring
+    # Essentially there are 4 codepath: 1) insn is no matrix-free special insn
+    #                                   2) insn is an Action
+    #                                   3) insn is a Solve
+    #                                       a) the matrix is terminal
+    #                                       b) the matrix is a TensorShell
+    # My idea would be to subclass CallInstruction from loopy to ActionInstruction, SolveInstruction, ...
+    # and then we can use a dispatcher
+
+    # need imports here bc m partially initialized module error
+    from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+    from firedrake.slate.slac.compiler import gem_to_loopy
+
+    insns = []
+    tensor2temps = tensor2temp
+    knl_list = {}
+    gem2pym = ctx_g2l.gem_to_pymbolic
+
+    # invert dict
+    pyms = [pyms.name if isinstance(pyms, pym.Variable) else pyms.assignee_name for pyms in gem2pym.values()]
+    pym2gem = OrderedDict(zip(pyms, gem2pym.keys()))
+    slate_loopy_name = builder.slate_loopy_name
+    for insn in slate_loopy[slate_loopy_name].instructions:
+        # TODO specialise the call instruction node and dispatch based on its type
+        if (not isinstance(insn, lp.kernel.instruction.CallInstruction)
+            or not (insn.expression.function.name.startswith("action")
+                    or insn.expression.function.name.startswith("mtf"))):
+            # normal instructions can stay as they are
+            insns.append(insn)
+        else:
+            pass
+    if init_temporaries:
+        # We need to do initialise the temporaries at the end, when we collected all the ones we need
+        builder, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps)
+        for i in inits:
+            insns.insert(0, i)
+
+    slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
+    return tensor2temps, builder, slate_loopy
