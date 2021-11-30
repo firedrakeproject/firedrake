@@ -15,11 +15,16 @@ from gem.node import pre_traversal as traverse_dags
 from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
-from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
-from tsfc.loopy import profile_insns
-from petsc4py import PETSc
+import itertools
+
+from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+import pymbolic.primitives as pym
+from loopy.symbolic import SubArrayRef
+from firedrake.slate.slac.optimise import optimise
+
+# FIXME Move all slac loopy in separate file
 
 
 class RemoveRestrictions(MultiFunction):
