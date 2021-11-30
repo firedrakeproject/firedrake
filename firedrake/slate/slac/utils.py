@@ -342,27 +342,74 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr=None, tsfc_parameters=None, slate_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
+
+    if strategy == "terminals_first":
+        slate_loopy_prg = slate_loopy
+        slate_loopy = slate_loopy[builder.slate_loopy_name]
+        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
+        # Construct args
+        args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
+        kernel_args = [output_arg] + args
+        args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+        for a in slate_loopy.args:
+            if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
+                ac = a.copy(address_space=lp.AddressSpace.LOCAL)
+                args.append(ac)
+
+        # Inames come from initialisations + loopyfying kernel args and lhs
+        domains = slate_loopy.domains + builder.bag.index_creator.domains
+
+        # Help scheduling by setting within_inames_is_final on everything
+        insns_new = []
+        for i, insn in enumerate(insns):
+            if insn:
+                insns_new.append(insn.copy(depends_on=frozenset({}),
+                                 priority=len(insns)-i,
+                                 within_inames_is_final=True))
+
+        # Generates the loopy wrapper kernel
+        slate_wrapper = lp.make_function(domains, insns_new, args, name=wrapper_name,
+                                         seq_dependencies=True, target=lp.CTarget())
+
+        # Prevent loopy interchange by loopy
+        slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
+
+        # Register kernels
+        loop = []
+        for k in tsfc_kernels:
+            if k:
+                loop += [k.items()]
+        loop += [{slate_loopy.name: slate_loopy_prg}.items()]
+
+        for l in loop:
+            (name, knl), = tuple(l)
+            if knl:
+                slate_wrapper = lp.merge([slate_wrapper, knl])
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+        return slate_wrapper, tuple(kernel_args)
+
+    elif strategy == "when_needed":
+        tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal,
+                                                                 slate_loopy, slate_expr,
+                                                                 ctx_g2l, tsfc_parameters,
+                                                                 slate_parameters, True, {}, output_arg)
+        return slate_loopy
+
+
+def assemble_terminals_first(builder, var2terminal, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
-    coeffs = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs)
+    coeffs, _ = builder.collect_coefficients(artificial=False)
+    builder.bag = SlateWrapperBag(coeffs, name=slate_loopy.name)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
-    calls_and_kernels_and_events = tuple((c, k, e) for terminal in terminal_tensors
-                                         for c, k, e in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
-    if calls_and_kernels_and_events:  # tsfc may not give a kernel back
-        tsfc_calls, tsfc_kernels, tsfc_events = zip(*calls_and_kernels_and_events)
-    else:
-        tsfc_calls = ()
-        tsfc_kernels = ()
-
-    args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
-    kernel_args = [output_arg] + args
-    loopy_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
+    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
+                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
+                                    for terminal in terminal_tensors)))
 
     # Add profiling for inits
     inits, slate_init_event, preamble_init = profile_insns("inits_"+name, inits, PETSc.Log.isActive())
@@ -371,34 +418,5 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     insns = inits
     insns.extend(tsfc_calls)
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
-
-    # Add profiling for the whole kernel
-    insns, slate_wrapper_event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
-
-    # Inames come from initialisations + loopyfying kernel args and lhs
-    domains = builder.bag.index_creator.domains
-
-    # Generates the loopy wrapper kernel
-    preamble = preamble_init+preamble if preamble else []
-    slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
-                                     seq_dependencies=True, target=target,
-                                     lang_version=(2018, 2), preambles=preamble)
-
-    # Generate program from kernel, so that one can register kernels
-    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-    from loopy.kernel.function_interface import CallableKernel
-
-    for tsfc_loopy in tsfc_kernels:
-        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
-        names = tsfc_loopy.callables_table
-        for name in names:
-            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-    slate_wrapper = merge([slate_wrapper, slate_loopy])
-    names = slate_loopy.callables_table
-    for name in names:
-        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-
-    events = tsfc_events + (slate_wrapper_event, slate_init_event) if PETSc.Log.isActive() else ()
-    return slate_wrapper, tuple(kernel_args), events
+    
+    return tensor2temp, tsfc_kernels, insns, builder
