@@ -156,22 +156,18 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
             stack.append(e)
             stack.extend(unvisted_children)
         else:
-            visited[e] = base_form_visitor(e, tensor, bcs, diagonal,
-                                           assembly_type,
-                                           form_compiler_parameters,
-                                           mat_type, sub_mat_type,
-                                           appctx, options_prefix,
-                                           *(visited[arg] for arg in operands))
+            visited[e] = base_form_assembly_visitor(e, tensor, bcs, diagonal,
+                                                    assembly_type,
+                                                    form_compiler_parameters,
+                                                    mat_type, sub_mat_type,
+                                                    appctx, options_prefix,
+                                                    *(visited[arg] for arg in operands))
     return visited[expr]
 
 
 def base_form_operands(expr):
-    if isinstance(expr, ufl.form.FormSum):
-        return expr.components()
-    if isinstance(expr, ufl.Adjoint):
-        return [expr.form()]
-    if isinstance(expr, ufl.Action):
-        return [expr.left(), expr.right()]
+    if isinstance(expr, (ufl.form.FormSum, ufl.Adjoint, ufl.Action)):
+        return list(expr.ufl_operands)
     return []
 
 
@@ -208,10 +204,10 @@ def preassemble_base_form(expr, mat_type, form_compiler_parameters):
     return expr
 
 
-def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
-                      form_compiler_parameters,
-                      mat_type, sub_mat_type,
-                      appctx, options_prefix, *args):
+def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
+                               form_compiler_parameters,
+                               mat_type, sub_mat_type,
+                               appctx, options_prefix, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
                              form_compiler_parameters,
@@ -220,9 +216,8 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1):
             raise TypeError("Not enough operands for Adjoint")
-        mat = args[0]
-        res = PETSc.Mat().create()
-        petsc_mat = mat.M.handle
+        mat, = args
+        petsc_mat = mat.petscmat
         # TODO Add Hermitian Transpose to petsc4py and replace transpose
         petsc_mat.transpose()
         (row, col) = mat.arguments()
@@ -232,12 +227,11 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
     elif isinstance(expr, ufl.Action):
         if (len(args) != 2):
             raise TypeError("Not enough operands for Action")
-        lhs = args[0]
+        lhs, rhs = args
         if not isinstance(lhs, matrix.MatrixBase):
             raise TypeError("Incompatible LHS for Action")
-        rhs = args[1]
         if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            petsc_mat = lhs.M.handle
+            petsc_mat = lhs.petscmat
             (row, col) = lhs.arguments()
             res = _make_vector(col)
 
@@ -246,11 +240,11 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
                     petsc_mat.mult(v_vec, res_vec)
             return firedrake.Cofunction(row.function_space(), val=res.dat)
         elif isinstance(rhs, matrix.MatrixBase):
-            petsc_mat = lhs.M.handle
+            petsc_mat = lhs.petscmat
             (row, col) = lhs.arguments()
             res = PETSc.Mat().create()
             # TODO Figure out what goes here
-            res = petsc_mat.matMult(rhs.M.handle)
+            res = petsc_mat.matMult(rhs.petscmat)
             return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
@@ -269,7 +263,7 @@ def base_form_visitor(expr, tensor, bcs, diagonal, assembly_type,
             res = PETSc.Mat().create()
             set = False
             for (op, w) in zip(args, expr.weights()):
-                petsc_mat = op.M.handle
+                petsc_mat = op.petscmat
                 petsc_mat.scale(w)
                 if set:
                     res = res + petsc_mat
