@@ -684,16 +684,19 @@ class LocalLoopyKernelBuilder(object):
                 coeff_dict[c] = info
         return coeff_dict, new_coeff_dict
 
-    def initialise_terminals(self, var2terminal, coefficients):
+    def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
+            For marix-free kernels Actions are initialised too.
 
-            :arg var2terminal: dictionary that maps Slate Tensors to gem Variables
+            :arg var2terminal: dictionary that maps gem Variables to Slate tensors
         """
+
+        from gem import Variable as gVar, Action
+        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), var2tensor.items()))
         tensor2temp = OrderedDict()
         inits = []
         for gem_tensor, slate_tensor in var2terminal.items():
-            assert slate_tensor.terminal, "Only terminal tensors need to be initialised in Slate kernels."
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
@@ -706,9 +709,9 @@ class LocalLoopyKernelBuilder(object):
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
-                inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
-                                              within_inames=frozenset(inames)))
-
+                inits.append(loopy.Assignment(var, "0.", id="init_" + gem_tensor.name,
+                                              within_inames=frozenset(inames),
+                                              within_inames_is_final=True))
             else:
                 f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
                 coeff = tuple(coefficients[c] for c in f)
@@ -726,8 +729,9 @@ class LocalLoopyKernelBuilder(object):
                     name = names[i] if ismixed else names
                     var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
                     c = pym.Subscript(pym.Variable(name), indices)
-                    inits.append(loopy.Assignment(var, c, id="init%d" % len(inits),
-                                                  within_inames=frozenset(inames)))
+                    inits.append(loopy.Assignment(var, c, id="init_" + gem_tensor.name + "_" + str(i),
+                                                  within_inames=frozenset(inames),
+                                                  within_inames_is_final=True))
                     offset += shp
 
         return inits, tensor2temp
