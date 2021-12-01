@@ -87,7 +87,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
 
     @utils.cached_property
     def _split(self):
-        return (type(self)(self.function_space(), self.dat),)
+        return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
     @FunctionMixin._ad_annotate_split
     def split(self):
