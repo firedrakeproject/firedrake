@@ -203,7 +203,14 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     cache = form._cache.setdefault("firedrake_kernels", {})
 
     def tuplify(params):
-        return tuple((k, params[k]) for k in sorted(params))
+        ret = ()
+        for k in sorted(params):
+            if not isinstance(params[k], dict):
+                ret += (k, params[k])
+            else:
+                for j in params[k]:
+                    ret += (k, params[k][j])
+        return ret
 
     key = (tuplify(default_parameters["coffee"]), name, tuplify(parameters), split, diagonal)
     try:
