@@ -1210,10 +1210,13 @@ class Action(BinaryOp):
     """
 
     def __init__(self, A, b, pick_op):
-        """Constructor for the Mul class."""
+        """Constructor for the Action class."""
         if A.shape[pick_op] != b.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, b.shape))
+        # Not that b does not need to be an AssembledVector
+        if b.rank != A.rank-1:
+            raise ValueError("In Action(A, b) b needs to have a lower rank than A.")
 
         fsA = A.arg_function_spaces[-pick_op]
         fsB = b.arg_function_spaces[0]
@@ -1231,8 +1234,6 @@ class Action(BinaryOp):
 
         self.pick_op = pick_op
         self.tensor = A
-        # Not that b does not need to be an AssembledVector
-        assert b.rank == A.rank-1, "In Action(A, b) b needs to have a lower rank than A."
         self.coeff = b
         # This is the ufl coefficient that is used a replacement
         # for an arg in the ufl form corresponding to A
