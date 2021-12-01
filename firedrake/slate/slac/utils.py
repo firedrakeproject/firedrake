@@ -489,8 +489,8 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                 # separate action and non-action coefficients, needed because
                 # figuring out which coefficients needs to be in the kernel data
                 # is different for original coefficients and action coefficients
-                old_coeffs, new_coeffs = builder.collect_coefficients(expr=terminal, names=names)
-                builder.bag.copy_coefficients(old_coeffs, new_coeffs)
+                original_coeffs, action_coeffs = builder.collect_coefficients(expr=terminal, names=names)
+                builder.bag.copy_coefficients(original_coeffs, action_coeffs)
 
                 # temporaries that have calls assigned, which get inlined later,[
                 # need to be initialised, so e.g. the lhs of an action
