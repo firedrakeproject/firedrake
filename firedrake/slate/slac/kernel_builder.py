@@ -644,7 +644,7 @@ class LocalLoopyKernelBuilder(object):
             The coefficients are seperated into original coefficients coming from
             the expression and artificial ones used for actions.
         """
-        expr = self.expression if not expr else expr
+        expr = expr if expr else self.expression
         coeffs = expr.coefficients(artificial=artificial)
         coeff_dict = OrderedDict()
         new_coeff_dict = OrderedDict()
