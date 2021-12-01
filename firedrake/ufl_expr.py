@@ -1,5 +1,6 @@
 import ufl
 import ufl.argument
+import ufl.core.ufl_type
 from ufl.duals import is_dual
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
@@ -13,10 +14,20 @@ from firedrake.petsc import PETSc
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'CellSize', 'FacetNormal']
+           'action', 'CellSize', 'FacetNormal',
+           'UFLType']
 
 
-class Argument(ufl.argument.Argument):
+class UFLType(ufl.core.ufl_type.UFLType):
+
+    def __init__(cls, name, bases, attrs):
+        # Workaround to overwrite the `ufl.core.ufl_type.UFLType` metaclass
+        # which keeps processing the Firedrake objects subclassing UFL classes
+        # as if there were new UFLTypes causing problems in many places.
+        pass
+
+
+class Argument(ufl.argument.Argument, metaclass=UFLType):
     """Representation of the argument to a form.
 
     :arg function_space: the :class:`.FunctionSpace` the argument
@@ -78,7 +89,7 @@ class Argument(ufl.argument.Argument):
         return Argument(function_space, number, part=part)
 
 
-class Coargument(ufl.argument.Coargument):
+class Coargument(ufl.argument.Coargument, metaclass=UFLType):
     """Representation of an argument to a form in a dual space.
     :arg function_space: the :class:`.FunctionSpace` the argument
         corresponds to.

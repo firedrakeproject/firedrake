@@ -3,6 +3,7 @@ from pyop2 import op2
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
+from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -12,7 +13,7 @@ except ImportError:
     cachetools = None
 
 
-class Cofunction(ufl.Cofunction, FunctionMixin):
+class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
     r"""A :class:`Cofunction` represents a function on a dual space.
     Like Functions, cofunctions are
     represented as sums of basis functions:

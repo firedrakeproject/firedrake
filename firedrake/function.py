@@ -10,6 +10,7 @@ from pyop2 import op2
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
+from firedrake.ufl_expr import UFLType
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
@@ -37,7 +38,7 @@ class _CFunction(ctypes.Structure):
                 ("sidx", c_void_p)]
 
 
-class CoordinatelessFunction(ufl.Coefficient):
+class CoordinatelessFunction(ufl.Coefficient, metaclass=UFLType):
     r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
@@ -208,7 +209,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             return super(Function, self).__str__()
 
 
-class Function(ufl.Coefficient, FunctionMixin):
+class Function(ufl.Coefficient, FunctionMixin, metaclass=UFLType):
     r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
