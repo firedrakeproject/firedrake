@@ -1197,10 +1197,10 @@ class Mul(BinaryOp):
 
 class Action(BinaryOp):
     """Slate class representing the interior product of two tensors,
-    where the second tensor has one dimesion less than the first tensor.
+    where the second tensor has one dimension less than the first tensor.
     This includes an action of a Matrix on a Vector. The difference
-    to a :class:firedrake.slate.slate.Mul is that the higher dimensional
-    tensor is never stored in a temporary."
+    to a `:class:firedrake.slate.slate.Mul` is that the higher dimensional
+    tensor is never stored in a temporary.
 
     :arg A: a :class:`TensorBase` object.
     :arg b: another :class:`TensorBase` object.
