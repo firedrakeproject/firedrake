@@ -753,7 +753,10 @@ class LocalLoopyKernelBuilder(object):
 
     def generate_matfsolve_call(self, ctx, insn, expr):
         """
-            Matrix-free solve. Currently implemented as CG.
+            Generates a loopy kernel for a matrix-free solve.
+            The solve is currently implemented as Conjugate Gradient algorithm.
+            All matrix-vector products in the CG alorithm
+            are replaced by actions to make this algorithm matrix-free.
         """
         knl_no = knl_counter()
         name = "mtf_solve_%d" % knl_no
