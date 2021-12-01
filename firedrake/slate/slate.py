@@ -1389,8 +1389,14 @@ class Solve(BinaryOp):
         self.Aonx = None
         self.Aonp = None
         self.decomposition = "PartialPivLU"
+        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition"]
         for key, value in kwargs.items():
-            setattr(self, key, value)
+            if key in valid_kwargs:
+                setattr(self, key, value)
+            else:
+                error = (f"The key {key} in the optional argument dict kwargs is not valid."
+                         f"The key has to be one of {valid_kwargs}.")
+                raise ValueError(error)
 
         # If we have a matfree solve on a transposed Tensor
         # we need to drop the Transpose
