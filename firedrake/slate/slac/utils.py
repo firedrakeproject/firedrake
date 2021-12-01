@@ -169,8 +169,8 @@ def slate_to_gem(expression, options):
         gem variables to UFL "terminal" forms.
     """
 
-    mapper, var2terminal = slate2gem(expression, options)
-    return mapper, var2terminal
+    mapper, gem2slate = slate2gem(expression, options)
+    return mapper, gem2slate
 
 
 @singledispatch
@@ -184,9 +184,9 @@ def _slate2gem(expr, self):
 @_slate2gem.register(sl.TensorShell)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
-    assert expr not in self.var2terminal.values()
+    assert expr not in self.gem2slate.values()
     var = Variable(None, shape)
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -237,7 +237,7 @@ def _slate2gem_action(expr, self):
     assert expr not in self.gem2slate.values()
     children = list(map(self, expr.children))
     var = Action(*children, expr.pick_op)
-    self.var2terminal[var] = expr
+    self.gem2slate[var] = expr
     return var
 
 
@@ -303,13 +303,10 @@ def _slate2gem_factorization(expr, self):
 
 def slate2gem(expression, options):
     mapper = Memoizer(_slate2gem)
-    mapper.var2terminal = OrderedDict()
     mapper.gem2slate = OrderedDict()
     mapper.matfree = options["replace_mul"]
     m = mapper(expression)
-    # WIP actually make use of the fact that we do have two different dicts now
-    mapper.var2terminal.update(mapper.gem2slate)
-    return m, mapper.var2terminal
+    return m, mapper.gem2slate
 
 
 def depth_first_search(graph, node, visited, schedule):
@@ -351,13 +348,13 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr=None, tsfc_parameters=None, slate_parameters=None):
+def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr=None, tsfc_parameters=None, slate_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
     if strategy == _AssemblyStrategy.TERMINALS_FIRST:
         slate_loopy_prg = slate_loopy
         slate_loopy = slate_loopy[builder.slate_loopy_name]
-        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
+        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, gem2slate, slate_loopy)
         # Construct args
         args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
         kernel_args = [output_arg] + args
@@ -408,15 +405,15 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ct
         return slate_loopy
 
 
-def assemble_terminals_first(builder, var2terminal, slate_loopy):
+def assemble_terminals_first(builder, gem2slate, slate_loopy):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs, _ = builder.collect_coefficients(artificial=False)
     builder.bag = SlateWrapperBag(coeffs, name=slate_loopy.name)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
-    inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
+    inits, tensor2temp = builder.initialise_terminals(gem2slate, builder.bag.coefficients)
+    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), gem2slate.values()))
     tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
                                    (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
                                     for terminal in terminal_tensors)))
@@ -431,7 +428,7 @@ def assemble_terminals_first(builder, var2terminal, slate_loopy):
     
     return tensor2temp, tsfc_kernels, insns, builder
 
-def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
+def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
     # FIXME This function needs some refactoring
     # Essentially there are 4 codepath: 1) insn is no matrix-free special insn
     #                                   2) insn is an Action
@@ -468,14 +465,14 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
             # slate node corresponding to current instructions
             if isinstance(gem_action_node, Solve):
                 # FIXME something is happening to the solve action node hash
-                # so that gem node cannot be found in var2terminal even though it is there
+                # so that gem node cannot be found in gem2slate even though it is there
                 # so we save solve node by name for now
                 # [Update: the reason for that is
                 # that the gem preprocessing in the loopy kernel generation is rewriting some of
                 # the gem expression and the gem action node here is the preprocessed]
-                slate_node = var2terminal[insn.assignee_name]
+                slate_node = gem2slate[insn.assignee_name]
             else:
-                slate_node = var2terminal[gem_action_node]
+                slate_node = gem2slate[gem_action_node]
 
             # get information about the coefficient we act on
             coeff_name = insn.expression.parameters[1].subscript.aggregate.name
@@ -522,9 +519,9 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # we need to compile expression within a tensor shell node to gem
                     # and then futher into a loopy kernel
                     slate_node = optimise(slate_node, slate_parameters)
-                    gem_action_node, var2terminal_actions = slate_to_gem(slate_node, slate_parameters)
+                    gem_action_node, gem2slate_actions = slate_to_gem(slate_node, slate_parameters)
                     (action_wrapper_knl, ctx_g2l_action), action_output_arg = gem_to_loopy(gem_action_node,
-                                                                                           var2terminal_actions,
+                                                                                           gem2slate_actions,
                                                                                            tsfc_parameters["scalar_type"],
                                                                                            "tensorshell",
                                                                                            insn.assignee_name,
@@ -566,7 +563,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
                     # in particular the tensor2temp dict needs to hold the rhs of the matrix-solve in Slate and in loopy
                     action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
                     action_tensor2temp = {slate_coeff_node: loopy_rhs}
-                    var2terminal_actions = var2terminal
+                    gem2slate_actions = gem2slate
                     ctx_g2l_action = ctx_g2l
                     ctx_g2l_action.kernel_name = action_wrapper_knl_name
 
@@ -575,7 +572,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
                 # Repeat for the actions which might be in the action wrapper kernel
                 _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
-                                                                                      var2terminal_actions,
+                                                                                      gem2slate_actions,
                                                                                       action_wrapper_knl,
                                                                                       slate_node,
                                                                                       ctx_g2l_action,
@@ -603,7 +600,7 @@ def assemble_when_needed(builder, var2terminal, slate_loopy, slate_expr, ctx_g2l
 
     if init_temporaries:
         # We need to do initialise the temporaries at the end, when we collected all the ones we need
-        builder, tensor2temps, inits = initialise_temps(builder, var2terminal, tensor2temps)
+        builder, tensor2temps, inits = initialise_temps(builder, gem2slate, tensor2temps)
         for i in inits:
             insns.insert(0, i)
 
@@ -626,9 +623,10 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
         # but keep the lhs so that the following instructions still act on the right temporaries
         for (i, tsfc_call), ((knl_name, knl), ) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
             wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
+            name = builder.slate_loopy_name
             insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
                                                                tsfc_call.expression,
-                                                               id=insn.id+"_"+str(i),
+                                                               id=str(insn.id) + "_" + name[name.rfind("_")+1:]+"_"+str(i),
                                                                within_inames=wi,
                                                                predicates=tsfc_call.predicates))
             knl_list[knl_name] = knl
@@ -646,18 +644,18 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
     return insns, knl_list, builder
 
 
-def initialise_temps(builder, var2terminal, tensor2temps):
+def initialise_temps(builder, gem2slate, tensor2temps):
     # Initialise the very first temporaries
     # (with coefficients from the original ufl form)
     # For that we need to get the temporary which
     # links to the same coefficient as the rhs of this node and init it
     init_coeffs, _ = builder.collect_coefficients(artificial=False)
-    var2terminal_vectors = {v: t for (v, t) in var2terminal.items()
+    gem2slate_vectors = {v: t for (v, t) in gem2slate.items()
                             for cv, ct in init_coeffs.items()
                             if isinstance(t, sl.AssembledVector)
                             and t._function == cv}
 
-    inits, tensor2temp = builder.initialise_terminals(var2terminal_vectors, init_coeffs)
+    inits, tensor2temp = builder.initialise_terminals(gem2slate_vectors, init_coeffs)
     tensor2temps.update(tensor2temp)
 
     # Get all coeffs into the wrapper kernel bag
