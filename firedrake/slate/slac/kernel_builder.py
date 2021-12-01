@@ -764,41 +764,36 @@ class LocalLoopyKernelBuilder(object):
         args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
 
         # Map from local kernel arg name to global arg name
-        str2name = {}
-        local_names = ["A", "output", "b"]
-        coeff_arg = None
-        for c, arg in enumerate(args):
-            if (arg.name in [self.coordinates_arg, self.cell_facets_arg, self.local_facet_array_arg,
-                             self.cell_size_arg, self.cell_orientations_arg]
-                or arg.name in [coeff[0] if isinstance(coeff, tuple)
-                                else coeff for coeff in self.bag.coefficients.values()]):
-                local_names.insert(c, arg.name)
-            str2name[local_names[c]] = arg.name
-            if local_names[c] == "b":
-                coeff_arg = arg
+        A = args[0].name
+        output = args[1].name
+        b = args[-1].name
+        coeff_arg = args[-1]
 
         # rename x and p in case they are already arguments
-        str2name["x"] = "x"
-        str2name["p"] = "p"
+        x = "x"
+        p = "p"
         for arg in args:
-            str2name["x"] = "x" + str(knl_no) if arg.name == "x" else str2name["x"]
-            str2name["p"] = "p" + str(knl_no) if arg.name == "p" else str2name["p"]
+            x = "x" + str(knl_no) if arg.name == "x" else x
+            p = "p" + str(knl_no) if arg.name == "p" else p
 
         # name of the lhs to the action call inside the matfree solve kernel
         child1, _ = expr.children
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
-        str2name.update({"A_on_x": A_on_x_name, "A_on_p": A_on_p_name})
+        A_on_x = A_on_x_name
+        A_on_p = A_on_p_name
 
         # setup the stop criterions
-        str2name.update({"stop_criterion_id": "cond", "stop_criterion_dep": "rkp1_normk"})
+        stop_criterion_id = "cond"
+        stop_criterion_dep = "rkp1_normk"
         stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm",
                                                                1.e-16,
-                                                               str2name["stop_criterion_dep"],
-                                                               str2name["stop_criterion_id"])
-        str2name.update({"preconverged_criterion_id": "projis0", "preconverged_criterion_dep": "projector"})
-        corner_case = self.generate_code_for_converged_pre_iteration(str2name["preconverged_criterion_dep"],
-                                                                     str2name["preconverged_criterion_id"])
+                                                               stop_criterion_dep,
+                                                               stop_criterion_id)
+        preconverged_criterion_id = "projis0"
+        preconverged_criterion_dep = "projector"
+        corner_case = self.generate_code_for_converged_pre_iteration(preconverged_criterion_dep,
+                                                                     preconverged_criterion_id)
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
@@ -806,7 +801,7 @@ class LocalLoopyKernelBuilder(object):
             """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
                  0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
                  and 0<=i_6<=n}""",
-            ["""{x}[i_0] = -{b}[i_0] {{id=x0}}
+            [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                 <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                 {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
@@ -817,27 +812,27 @@ class LocalLoopyKernelBuilder(object):
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
                     <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id={preconverged_criterion_dep}, dep=ponAp}}
-             """.format(**str2name),
+             """,
              corner_case,
-             """    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
+             f"""    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
                     <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
                     rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
-             """.format(**str2name),
+             """,
              stop_criterion,
-             """    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
+             f"""    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
                     rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
                     {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
                 end
                 {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
-             """.format(**str2name)],
+             """],
             [*args,
-             loopy.TemporaryVariable(str2name["x"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+             loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
              loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable(str2name["p"], dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
             target=loopy.CTarget(),
             name=name,
             lang_version=(2018, 2),
