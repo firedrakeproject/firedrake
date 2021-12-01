@@ -3,7 +3,7 @@ from functools import partial, singledispatch
 
 import FIAT
 import ufl
-from ufl.algorithms import extract_arguments
+from ufl.core.interp import Interp
 
 from pyop2 import op2
 
@@ -57,7 +57,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     return Interpolator(expr, V, subset=subset, access=access).interpolate(ad_block_tag=ad_block_tag)
 
 
-class Interpolator(object):
+class Interpolator(Interp):
     """A reusable interpolation object.
 
     :arg expr: The expression to interpolate.
@@ -79,11 +79,19 @@ class Interpolator(object):
 
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
+
+        # -- Symbolic Interp -- #
+        function_space = V.function_space() if isinstance(V, firedrake.Function) else V
+        # Type compatibility: make a Firedrake Coargument
+        vstar = firedrake.Argument(function_space.dual(), 0)
+        Interp.__init__(self, expr, vstar)
+
         try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access)
+            # Don't take into account vstar
+            arguments = self.arguments()[1:]
+            self.callable = make_interpolator(expr, V, arguments, subset, access)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
-        self.arguments = arguments
         self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
         self.expr = expr
@@ -125,7 +133,7 @@ class Interpolator(object):
             function, = function
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
-                V = self.arguments[0].function_space()
+                V = self.arguments()[0].function_space()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
@@ -150,10 +158,9 @@ class Interpolator(object):
 
 
 @PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, subset, access):
+def make_interpolator(expr, V, arguments, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
-    arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
             f = V
@@ -218,7 +225,7 @@ def make_interpolator(expr, V, subset, access):
             l()
         return f
 
-    return partial(callable, loops, f), arguments
+    return partial(callable, loops, f)
 
 
 @utils.known_pyop2_safe
