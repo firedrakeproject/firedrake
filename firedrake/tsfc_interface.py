@@ -211,7 +211,17 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     # if we assemble the same form again with the same optimisations
     cache = form._cache.setdefault("firedrake_kernels", {})
 
-    key = (utils.tuplify(default_parameters["coffee"]), name, utils.tuplify(parameters), split, diagonal)
+    def tuplify(params):
+        ret = ()
+        for k in sorted(params):
+            if not isinstance(params[k], dict):
+                ret += (k, params[k])
+            else:
+                for j in params[k]:
+                    ret += (k, params[k][j])
+        return ret
+
+    key = (tuplify(default_parameters["coffee"]), name, tuplify(parameters), split, diagonal)
     try:
         return cache[key]
     except KeyError:
