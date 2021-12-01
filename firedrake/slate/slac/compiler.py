@@ -23,7 +23,7 @@ from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
+from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy, _AssemblyStrategy
 from firedrake.slate.slac.optimise import optimise
 
 from firedrake import op2, tsfc_interface
@@ -181,10 +181,10 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     if compiler_parameters["slate_compiler"]["replace_mul"]:
         # Matrix-free Slate
         name = ctx.kernel_name
-        assembly_strategy = "when_needed"
+        assembly_strategy = _AssemblyStrategy.WHEN_NEEDED
     else:
         name = "wrap_" + ctx.kernel_name
-        assembly_strategy = "terminals_first"
+        assembly_strategy = _AssemblyStrategy.TERMINALS_FIRST
 
     loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
                                                   name, ctx, assembly_strategy, slate_expr,

@@ -23,9 +23,13 @@ from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 import pymbolic.primitives as pym
 from loopy.symbolic import SubArrayRef
 from firedrake.slate.slac.optimise import optimise
+from enum import IntEnum
 
 # FIXME Move all slac loopy in separate file
 
+class _AssemblyStrategy(IntEnum):
+    TERMINALS_FIRST = 0
+    WHEN_NEEDED = 1
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -350,7 +354,7 @@ def topological_sort(exprs):
 def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr=None, tsfc_parameters=None, slate_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
-    if strategy == "terminals_first":
+    if strategy == _AssemblyStrategy.TERMINALS_FIRST:
         slate_loopy_prg = slate_loopy
         slate_loopy = slate_loopy[builder.slate_loopy_name]
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, var2terminal, slate_loopy)
@@ -396,8 +400,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, wrapper_name, ct
                 slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
         return slate_wrapper, tuple(kernel_args)
 
-    elif strategy == "when_needed":
-        tensor2temp, builder, slate_loopy = assemble_when_needed(builder, var2terminal,
+    elif strategy == _AssemblyStrategy.WHEN_NEEDED:
+        tensor2temp, builder, slate_loopy = assemble_when_needed(builder, gem2slate,
                                                                  slate_loopy, slate_expr,
                                                                  ctx_g2l, tsfc_parameters,
                                                                  slate_parameters, True, {}, output_arg)
