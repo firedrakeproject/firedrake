@@ -647,7 +647,7 @@ class LocalLoopyKernelBuilder(object):
         expr = expr if expr else self.expression
         coeffs = expr.coefficients(artificial=artificial)
         coeff_dict = OrderedDict()
-        new_coeff_dict = OrderedDict()
+        action_coeff_dict = OrderedDict()
 
         # TODO is there are better way to do this?
         for i, c in enumerate(coeffs):
@@ -679,10 +679,10 @@ class LocalLoopyKernelBuilder(object):
                 # just append it to the right dictionary
                 info = (prefix, self.extent(c))  # prefix is the name of the Coefficient
             if new:
-                new_coeff_dict[c] = info
+                action_coeff_dict[c] = info
             else:
                 coeff_dict[c] = info
-        return coeff_dict, new_coeff_dict
+        return coeff_dict, action_coeff_dict
 
     def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
