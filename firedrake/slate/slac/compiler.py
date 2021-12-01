@@ -167,10 +167,10 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
-    gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
+    gem_expr, gem2slate = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    (slate_loopy, ctx), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type, "slate_loopy",
+    (slate_loopy, ctx), output_arg = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
                                                   matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
@@ -184,7 +184,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
         name = "wrap_" + ctx.kernel_name
         assembly_strategy = _AssemblyStrategy.TERMINALS_FIRST
 
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal,
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
                                name, ctx, assembly_strategy, slate_expr,
                                compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
@@ -648,18 +648,18 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="output", matfree=False):
+def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="output", matfree=False):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
 
     :arg gem_expr: the GEM expression which is supposed to be compiled into a loopy kernel
-    :arg var2terminal: originally a mapping from GEM variables to Slate terminal tensors,
+    :arg gem2slate: originally a mapping from GEM variables to Slate terminal tensors,
                        but in the matrix-free case it currently contains a mapping
                        from arbitrary GEM expressions to arbitrary Slate nodes
     :arg scalar_type: dtype of the variables in the loopy kernel
     :arg out_name: name of the the final (output) GEM variable
                    matching the last variable in the loopy kernel
-    :arg matfree: needed for seperating some expressions in var2terminal,
+    :arg matfree: needed for seperating some expressions in gem2slate,
                   can probably be dropped after FIXME is fixed
 
     :return (slate_loopy, ctx): 2-tuple of loopy kernel for slate operations,
@@ -671,12 +671,11 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type, knl_prefix="", out_name="o
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
     args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
-    for var, terminal in var2terminal.items():
-        # FIXME for the matrixfree case we should probably just have two dicts
-        # From the var2terminal dict we only want to append vector-shaped args
+    for var, terminal in gem2slate.items():
+        # From the gem2slate dict we only want to append vector-shaped args
         # which are coming from AssembledVectors to the global args of the Slate kernel,
         # meaning we don't want to append anything matrix shaped and also no solves or actions
-        if hasattr(var, "name") and var.name not in [a.name for a in args]:
+        if hasattr(var, "name"):
             if not terminal.terminal or (terminal.rank > 1 and matfree):
                 t_shape = var.shape if var.shape else (1,)
                 args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))

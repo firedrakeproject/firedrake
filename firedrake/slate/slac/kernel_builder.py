@@ -684,19 +684,19 @@ class LocalLoopyKernelBuilder(object):
                 coeff_dict[c] = info
         return coeff_dict, action_coeff_dict
 
-    def initialise_terminals(self, var2tensor, coefficients):
+    def initialise_terminals(self, gem2slate, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
             For matrix-free kernels Actions are initialised too.
 
-            :arg var2terminal: dictionary that maps gem Variables to Slate tensors
+            :arg gem2slate: dictionary that maps GEM nodes to Slate tensors
         """
 
         from gem import Variable as gVar, Action
-        var2terminal = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), var2tensor.items()))
+        gem2slate = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), gem2slate.items()))
         tensor2temp = OrderedDict()
         inits = []
-        for gem_tensor, slate_tensor in var2terminal.items():
+        for gem_tensor, slate_tensor in gem2slate.items():
             (_, dtype), = assign_dtypes([gem_tensor], self.tsfc_parameters["scalar_type"])
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
