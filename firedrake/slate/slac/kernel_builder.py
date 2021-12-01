@@ -1059,9 +1059,9 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, new_coeffs={}, name=""):
+    def __init__(self, coeffs, action_coeffs={}, name=""):
         self.coefficients = coeffs
-        self.action_coefficients = new_coeffs
+        self.action_coefficients = action_coeffs
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
         self.needs_cell_facets = False
