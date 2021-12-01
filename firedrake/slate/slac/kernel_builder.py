@@ -849,8 +849,8 @@ class LocalLoopyKernelBuilder(object):
         # update gem to pym mapping
         # by linking the actions of the matrix-free solve kernel
         # to the their pymbolic variables
-        _ = ctx.pymbolic_variable(expr.Aonx, knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
-        _ = ctx.pymbolic_variable(expr.Aonp, knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        ctx.gem_to_pymbolic[expr.Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
+        ctx.gem_to_pymbolic[expr.Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
 
         # the expression which call the knl for the matfree solve kernel
         call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
