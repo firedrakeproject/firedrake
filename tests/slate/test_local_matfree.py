@@ -118,9 +118,9 @@ def MP_forms(mymesh, MP_fs):
     tau, v = TestFunctions(W)
 
     # Define the source function
-    x, y = SpatialCoordinate(mymesh)
+    x = SpatialCoordinate(mymesh)
     f = Function(V)
-    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
@@ -384,9 +384,21 @@ def test_preconditioning_like(MP_forms, MP_fs):
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
 
-def test_hyb_with_GTMGPC(MP_forms, MP_fs):
+def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
     a, L = MP_forms
     W = MP_fs[0]
+
+    def get_p1_space():
+        return FunctionSpace(mymesh, "CG", 1)
+
+    def get_p1_prb_bcs():
+        return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
+
+    def p1_callback():
+        P1 = get_p1_space()
+        p = TrialFunction(P1)
+        q = TestFunction(P1)
+        return inner(grad(p), grad(q))*dx
 
     matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
@@ -401,29 +413,48 @@ def test_hyb_with_GTMGPC(MP_forms, MP_fs):
                                                        'pc_type': 'fieldsplit',
                                                        'pc_fieldsplit_type': 'schur'},
                                         'pc_python_type': 'firedrake.GTMGPC',
-                                        'gt': {'mg_levels': {'ksp_type': 'chebyshev',
-                                                             'pc_type': 'jacobi',
+                                        'gt': {'mg_levels': {'ksp_type': 'cg',
+                                                             'pc_type': 'none',
                                                              'ksp_max_it': 3},
-                                               'mg_coarse': {'ksp_type': 'preonly',
-                                                             'pc_type': 'mg',
-                                                             'pc_mg_type': 'full',
-                                                             'mg_levels': {'ksp_type': 'chebyshev',
-                                                                           'pc_type': 'jacobi',
-                                                                           'ksp_max_it': 3}}}}}
+                                               'mg_coarse': {'ksp_type': 'cg',
+                                                             'pc_type': 'none'},
+                                                'mat_type': 'matfree'}}}
 
+    
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
-                                'pc_type': 'none',
-                                'ksp_rtol': 1e-8,
-                                'mat_type': 'matfree'}}
+                                'pc_type': 'python',
+                                'pc_python_type': 'firedrake.GTMGPC',
+                                'gt': {'mg_levels': {'ksp_type': 'chebyshev',
+                                                     'pc_type': 'jacobi',
+                                                     'ksp_max_it': 3},
+                                       'mg_coarse': {'ksp_type': 'preonly',
+                                                     'pc_type': 'mg',
+                                                     'pc_mg_type': 'full',
+                                                     'mg_levels': {'ksp_type': 'chebyshev',
+                                                                   'pc_type': 'jacobi',
+                                                                   'ksp_max_it': 3}}}}}
+
+    appctx = {'get_coarse_operator': p1_callback,
+              'get_coarse_space': get_p1_space,
+              'coarse_space_bcs': get_p1_prb_bcs()}
 
     w = Function(W)
-    solve(a == L, w, solver_parameters=matfree_params)
+    solve(a == L, w, solver_parameters=matfree_params, appctx=appctx)
     w2 = Function(W)
-    solve(a == L, w2, solver_parameters=params)
+    solve(a == L, w2, solver_parameters=params, appctx=appctx)
 
     for sub0, sub1 in zip(w.dat.data, w2.dat.data):
-        assert np.allclose(sub0, sub1, rtol=1e-6)
+        assert np.allclose(sub0, sub1, rtol=1e-2)
+
+    # also check against analytical solution
+    # _, uh = w.split()
+    x = SpatialCoordinate(mymesh)
+    f = Function(MP_fs[2])
+    f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
+
+    _, uh = w.split()
+    np.allclose(f.dat.data, uh.dat.data, rtol=1e-2)
