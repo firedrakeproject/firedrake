@@ -207,10 +207,7 @@ class HybridizationPC(SCBase):
         schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
 
         # Set ctx params to drive optimisations if local solves are matrix-free
-        if self.schur_builder.local_matfree:
-            self.ctx.fc_params.update({"slate_compiler": {"replace_mul": True}})
-        else:
-            self.ctx.fc_params.update({"slate_compiler": {"replace_mul": False}})
+        self.ctx.fc_params.update({"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}})
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
