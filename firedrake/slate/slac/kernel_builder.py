@@ -687,7 +687,7 @@ class LocalLoopyKernelBuilder(object):
     def initialise_terminals(self, var2tensor, coefficients):
         """ Initilisation of the variables in which coefficients
             and the Tensors coming from TSFC are saved.
-            For marix-free kernels Actions are initialised too.
+            For matrix-free kernels Actions are initialised too.
 
             :arg var2terminal: dictionary that maps gem Variables to Slate tensors
         """
