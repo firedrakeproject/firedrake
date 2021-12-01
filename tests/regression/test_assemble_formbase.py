@@ -116,8 +116,8 @@ def test_assemble_action(M, f):
     res2 = assemble(action(assembledM, f))
     assert isinstance(res2, Cofunction)
     assert isinstance(res, Cofunction)
-    assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
-    for f in res2.split():
+    for f, f2 in zip(res.split(), res2.split()):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
@@ -133,7 +133,8 @@ def test_vector_formsum(a):
     assert isinstance(formsum, ufl.form.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
-    assert abs(preassemble.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
+    for f, f2 in zip(preassemble.split(), res2.split()):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
 
 def test_matrix_formsum(M):
