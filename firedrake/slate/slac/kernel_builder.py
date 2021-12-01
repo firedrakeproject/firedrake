@@ -1083,11 +1083,11 @@ class SlateWrapperBag(object):
         if not self.needs_mesh_layers:
             self.needs_mesh_layers = other.needs_mesh_layers
 
-    def copy_coefficients(self, coeffs=None, new_coeffs=None):
+    def copy_coefficients(self, coeffs=None, action_coeffs=None):
         if coeffs:
             self.coefficients = coeffs
-        if new_coeffs:
-            self.action_coefficients = new_coeffs
+        if action_coeffs:
+            self.action_coefficients = action_coeffs
 
 
 class IndexCreator(object):
