@@ -78,24 +78,37 @@ class Interpolator(Interp):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, result_coefficient=None):
 
         # -- Symbolic Interp -- #
         function_space = V.function_space() if isinstance(V, firedrake.Function) else V
         # Type compatibility: make a Firedrake Coargument
         vstar = firedrake.Argument(function_space.dual(), 0)
-        Interp.__init__(self, expr, vstar)
+        # Produce the resulting Coefficient: Deprecated feature?
+        # If no => then make that compatible with the output of the interpolator!
+        if result_coefficient is None:
+            result_coefficient = firedrake.Function(function_space)
+        elif not isinstance(result_coefficient, (ufl.Coefficient, ufl.referencevalue.ReferenceValue)):
+            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
+        Interp.__init__(self, expr, vstar, result_coefficient=result_coefficient)
 
         try:
-            # Don't take into account vstar
+            # Don't take into account vstar for compatibility with the
+            # way interpolation currently works.
             arguments = self.arguments()[1:]
-            self.callable = make_interpolator(expr, V, arguments, subset, access)
+            # Renumber arguments
+            new_arguments = tuple(type(e)(e.function_space(), i, e.part())
+                                  for i, e in enumerate(arguments))
+            expr = ufl.replace(expr, dict(zip(arguments, new_arguments)))
+            self.callable = make_interpolator(expr, V, new_arguments, subset, access)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
-        self.nargs = len(arguments)
+        self.nargs = len(new_arguments)
         self.freeze_expr = freeze_expr
         self.expr = expr
         self.V = V
+        self.subset = subset
+        self.access = access
 
     @PETSc.Log.EventDecorator()
     @annotate_interpolate
@@ -155,6 +168,15 @@ class Interpolator(Interp):
                     return assembled_interpolator.copy()
                 else:
                     return assembled_interpolator
+
+    def _ufl_expr_reconstruct_(self, expr, V=None, subset=None, freeze_expr=None, access=None,
+                               result_coefficient=None):
+        "Return a new object of the same type."
+        return type(self)(expr, V=V or self.V,
+                          subset=subset or self.subset,
+                          freeze_expr=freeze_expr or self.freeze_expr,
+                          access=access or self.access,
+                          result_coefficient=result_coefficient or self._result_coefficient)
 
 
 @PETSc.Log.EventDecorator()
