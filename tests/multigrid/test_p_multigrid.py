@@ -48,6 +48,7 @@ def test_prolongation_matrix_matfree():
         for u in us:
             for v in us:
                 if u != v:
+                    v.assign(zero(v.ufl_shape))
                     P = prolongation_matrix_matfree(v, u).getPythonContext()
                     P._prolong()
                     assert norm(v-expr, "L2") < tol

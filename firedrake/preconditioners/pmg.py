@@ -925,14 +925,17 @@ class StandaloneInterpolationMatrix(object):
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
+            prolong_args = [prolong_kernel, self.uf.cell_set,
+                            self.uf.dat(op2.INC, uf_map),
+                            self.uc.dat(op2.READ, uc_map),
+                            self.weight.dat(op2.READ, uf_map)]
         else:
             uf_map = Vf.cell_node_map()
             uc_map = Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
-
-        prolong_args = [prolong_kernel, self.uf.cell_set,
-                        self.uf.dat(op2.WRITE, uf_map),
-                        self.uc.dat(op2.READ, uc_map)]
+            prolong_args = [prolong_kernel, self.uf.cell_set,
+                            self.uf.dat(op2.WRITE, uf_map),
+                            self.uc.dat(op2.READ, uc_map)]
 
         restrict_args = [restrict_kernel, self.uf.cell_set,
                          self.uc.dat(op2.INC, uc_map),
@@ -1028,7 +1031,7 @@ class StandaloneInterpolationMatrix(object):
             """
         if (Vf_bsize == 1) or fine_is_ordered:
             fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) t1[i] = y[i] * w[i];"""
-            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] = t1[i];"""
+            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] += t1[i] * w[i];"""
         else:
             fine_read = f"""
             for({IntType_c} j=0; j<{Vf_sdim}; j++)
@@ -1038,14 +1041,15 @@ class StandaloneInterpolationMatrix(object):
             fine_write = f"""
             for({IntType_c} j=0; j<{Vf_sdim}; j++)
                 for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                   y[i + {Vf_bsize}*j] = t1[j + {Vf_sdim}*i];
+                   y[i + {Vf_bsize}*j] += t1[j + {Vf_sdim}*i] * w[i + {Vf_bsize}*j];
             """
         kernel_code = f"""
         {mapping_code}
 
         {kronmxv_code}
 
-        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x{coef_decl}){{
+        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
+                          const PetscScalar *restrict w{coef_decl}){{
             PetscScalar t0[{lwork}], t1[{lwork}];
             PetscScalar one = 1.0E0;
             {operator_decl}
@@ -1150,6 +1154,9 @@ class StandaloneInterpolationMatrix(object):
         if self.uc.dat.vec != xc:
             with self.uc.dat.vec_wo as xc_:
                 xc.copy(xc_)
+
+        with self.uf.dat.vec_wo as xf_:
+            xf_.set(0.0E0)
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)

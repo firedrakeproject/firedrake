@@ -795,55 +795,7 @@ class FDMPC(PCBase):
         SY = f"S+{nx*nx}" if ndim > 1 else "&one"
         SZ = f"S+{nx*nx+ny*ny}" if ndim > 2 else "&one"
 
-        kronmxv_code = """
-        #include <petscsys.h>
-        #include <petscblaslapack.h>
-
-        static void kronmxv(PetscBLASInt tflag,
-            PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
-            PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
-            PetscScalar  *A1, PetscScalar *A2, PetscScalar *A3,
-            PetscScalar  *x , PetscScalar *y){
-
-        PetscBLASInt m,n,k,s,p,lda;
-        char TA1, TA2, TA3;
-        char tran='T', notr='N';
-        PetscScalar zero=0.0E0, one=1.0E0;
-
-        if(tflag>0){
-           TA1 = tran;
-           TA2 = notr;
-        }else{
-           TA1 = notr;
-           TA2 = tran;
-        }
-        TA3 = TA2;
-
-        m = mx;  k = nx;  n = ny*nz*nel;
-        lda = (tflag>0)? nx : mx;
-
-        BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
-
-        p = 0;  s = 0;
-        m = mx;  k = ny;  n = my;
-        lda = (tflag>0)? ny : my;
-        for(PetscBLASInt i=0; i<nz*nel; i++){
-           BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
-           p += m*k;
-           s += m*n;
-        }
-
-        p = 0;  s = 0;
-        m = mx*my;  k = nz;  n = mz;
-        lda = (tflag>0)? nz : mz;
-        for(PetscBLASInt i=0; i<nel; i++){
-           BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
-           p += m*k;
-           s += m*n;
-        }
-        return;
-        }
-        """
+        from firedrake.preconditioners.pmg import kronmxv_code
 
         kernel_code = f"""
         {kronmxv_code}
