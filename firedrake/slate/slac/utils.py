@@ -193,7 +193,9 @@ def _slate2gem_diagonal(expr, self):
         A, = map(self, expr.children)
         assert A.shape[0] == A.shape[1]
         i, j = (Index(extent=s) for s in A.shape)
-        return ComponentTensor(Product(Indexed(A, (i, i)), Delta(i, j)), (i, j))
+        idx = (i, i) if expr.vec else (i, j)
+        jdx = (i,) if expr.vec else (i, j)
+        return ComponentTensor(Product(Indexed(A, (i, i)), Delta(*idx)), jdx)
     else:
         raise NotImplementedError("Diagonals on Slate expressions are \
                                    not implemented in a matrix-free manner yet.")

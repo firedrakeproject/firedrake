@@ -158,6 +158,8 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
                 data = (op.form.signature(), op.diagonal, )
+            elif isinstance(op, DiagonalTensor):
+                data = (type(op).__name__, op.vec, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -1268,14 +1270,15 @@ class DiagonalTensor(UnaryOp):
     """
     diagonal = True
 
-    def __init__(self, A):
+    def __init__(self, A, vec=False):
         """Constructor for the Diagonal class."""
-        assert A.rank == 2, "The tensor must be rank 2."
+        assert A.rank == 2 or vec, "The tensor must be rank 2."
         assert A.shape[0] == A.shape[1], (
             "The diagonal can only be computed on square tensors."
         )
 
         super(DiagonalTensor, self).__init__(A)
+        self.vec = vec
 
     @cached_property
     def arg_function_spaces(self):
@@ -1283,17 +1286,23 @@ class DiagonalTensor(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tuple(arg.function_space() for arg in tensor.arguments())
+        return (tuple(arg.function_space() for arg in [tensor.arguments()[0]])
+                if self.vec else tuple(arg.function_space() for arg in tensor.arguments()))
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         tensor, = self.operands
-        return tensor.arguments()
+        return (tensor.arguments()[0],) if self.vec else tensor.arguments()
 
     def _output_string(self, prec=None):
         """Creates a string representation of the diagonal of a tensor."""
         tensor, = self.operands
         return "(%s).diag" % tensor
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return ((type(self), *self.operands, self.vec))
 
 
 def space_equivalence(A, B):

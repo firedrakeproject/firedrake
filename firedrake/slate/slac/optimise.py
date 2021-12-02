@@ -74,11 +74,16 @@ def _push_block_transpose(expr, self, indices):
 
 @_push_block.register(Add)
 @_push_block.register(Negative)
-@_push_block.register(DiagonalTensor)
 @_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
-    return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
+    return type(expr)(*map(self, expr.children, repeat(indices)))
+
+
+@_push_block.register(DiagonalTensor)
+def _push_block_diag(expr, self, indices):
+    """Distributes Blocks for these nodes"""
+    return type(expr)(*map(self, expr.children, repeat(indices)), expr.vec)
 
 
 @_push_block.register(Factorization)
@@ -127,11 +132,12 @@ def push_diag(expression):
     on terminal tensors whereever possible.
     """
     mapper = MemoizerArg(_push_diag)
+    mapper.vec = False
     return mapper(expression, False)
 
 
 @singledispatch
-def _push_diag(expr, self, diag):
+def _push_diag(expr, self, diag, vec):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
 
 
@@ -151,14 +157,14 @@ def _push_diag_distributive(expr, self, diag):
 def _push_diag_stop(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(False))) if not expr.terminal else expr
-    return DiagonalTensor(expr) if diag else expr
+    return DiagonalTensor(expr, self.vec) if diag else expr
 
 
 @_push_diag.register(Block)
 def _push_diag_block(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(False)), expr._indices) if not expr.terminal else expr
-    return DiagonalTensor(expr) if diag else expr
+    return DiagonalTensor(expr, self.vec) if diag else expr
 
 
 @_push_diag.register(AssembledVector)
@@ -174,6 +180,7 @@ def _push_diag_vectors(expr, self, diag):
 @_push_diag.register(DiagonalTensor)
 def _push_diag_diag(expr, self, diag):
     """DiagonalTensors are either pushed down or ignored when wrapped into another DiagonalTensor."""
+    self.vec = expr.vec
     return self(*expr.children, not diag)
 
 
@@ -247,11 +254,15 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
 @_drop_double_transpose.register(Inverse)
-@_drop_double_transpose.register(DiagonalTensor)
 @_drop_double_transpose.register(Reciprocal)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(DiagonalTensor)
+def _drop_double_transpose_diag(expr, self):
+    return type(expr)(*map(self, expr.children), expr.vec)
 
 
 @singledispatch
