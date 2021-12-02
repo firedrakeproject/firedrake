@@ -167,7 +167,11 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
 
 def base_form_operands(expr):
     if isinstance(expr, (ufl.form.FormSum, ufl.Adjoint, ufl.Action)):
-        return list(expr.ufl_operands)
+        return expr.ufl_operands
+    if isinstance(expr, ufl.Form):
+        # Use reversed to treat base form operators
+        # in the order in which they have been made.
+        return list(reversed(expr.base_form_operators()))
     return []
 
 
@@ -209,10 +213,22 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                                mat_type, sub_mat_type,
                                appctx, options_prefix, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        return assemble_form(expr, tensor, bcs, diagonal, assembly_type,
-                             form_compiler_parameters,
-                             mat_type, sub_mat_type,
-                             appctx, options_prefix)
+
+        if args and mat_type != "matfree":
+            # Retrieve the Form's children
+            base_form_operators = base_form_operands(expr)
+            # Substitute the external operators by their output
+            expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
+
+        res = assemble_form(expr, tensor, bcs, diagonal, assembly_type,
+                            form_compiler_parameters,
+                            mat_type, sub_mat_type,
+                            appctx, options_prefix)
+
+        if isinstance(res, firedrake.Function):
+            res = firedrake.Cofunction(res.function_space(), val=res.vector())
+        return res
+
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1):
             raise TypeError("Not enough operands for Adjoint")
@@ -275,6 +291,11 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                                           options_prefix=options_prefix)
         else:
             raise TypeError("Mismatching FormSum shapes")
+    elif isinstance(expr, ufl.Interp):
+        if len(expr.arguments()) > 1:
+            # Need to work out how to build the Interp matrix!
+            raise NotImplementedError('\n Assembling Interp matrix is not implemented yet!')
+        return expr.interpolate()
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
     elif isinstance(expr, ufl.Coefficient):
