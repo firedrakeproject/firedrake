@@ -505,3 +505,39 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
+
+
+def test_slate_hybridization_global_matfree_jacobi():
+    a, L, W = setup_poisson()
+
+    w = Function(W)
+    jacobi_matfree_params = {'mat_type': 'matfree',
+                             'ksp_type': 'cg',
+                             'pc_type': 'python',
+                             'pc_python_type': 'firedrake.HybridizationPC',
+                             'hybridization': {'ksp_type': 'cg',
+                                               'pc_type': 'jacobi',
+                                               'mat_type': 'matfree',
+                                               'ksp_rtol': 1e-8}}
+
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=jacobi_matfree_params)
+    solver.solve()
+    sigma_h, u_h = w.split()
+
+    w2 = Function(W)
+    solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
+                                         'pc_type': 'python',
+                                         'mat_type': 'matfree',
+                                         'pc_python_type': 'firedrake.HybridizationPC',
+                                         'hybridization': {'ksp_type': 'preonly',
+                                                           'pc_type': 'lu'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8

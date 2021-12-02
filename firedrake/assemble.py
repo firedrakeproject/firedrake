@@ -693,7 +693,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
-        kernels = slac.compile_expression(expr, compiler_parameters=form_compiler_parameters)
+        kernels = slac.compile_expression(expr, compiler_parameters=form_compiler_parameters, diagonal=diagonal)
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 
