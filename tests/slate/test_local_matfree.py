@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.petsc import PETSc
+PETSc.Sys.popErrorHandler()
 
 
 @pytest.fixture
@@ -400,7 +402,7 @@ def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
         q = TestFunction(P1)
         return inner(grad(p), grad(q))*dx
 
-    matfree_params = {'mat_type': 'matfree',
+    fully_matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
                       'pc_type': 'python',
                       'pc_python_type': 'firedrake.HybridizationPC',
@@ -418,7 +420,29 @@ def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
                                                              'ksp_max_it': 3},
                                                'mg_coarse': {'ksp_type': 'cg',
                                                              'pc_type': 'none'},
-                                                'mat_type': 'matfree'}}}
+                                               'mat_type': 'matfree'}}}
+    
+    hybrid_matfree_params =  {'mat_type': 'matfree',
+                              'ksp_type': 'preonly',
+                              'pc_type': 'python',
+                              'pc_python_type': 'firedrake.HybridizationPC',
+                              'hybridization': {'ksp_type': 'cg',
+                                                'pc_type': 'python',
+                                                'ksp_rtol': 1e-8,
+                                                'mat_type': 'matfree',
+                                                'localsolve': {'ksp_type': 'preonly',
+                                                               'mat_type': 'matfree',
+                                                               'pc_type': 'fieldsplit',
+                                                               'pc_fieldsplit_type': 'schur'},
+                                                'pc_python_type': 'firedrake.GTMGPC',
+                                                'gt': {'mg_levels': {'ksp_type': 'cg',
+                                                                     'pc_type': 'none',
+                                                                     'ksp_max_it': 3},
+                                                        'mg_coarse': {'ksp_type': 'preonly',
+                                                                      'pc_type': 'python',
+                                                                      'pc_python_type': 'firedrake.AssembledPC',
+                                                                      'assembled_pc_type': 'lu'},
+                                                        'mat_type': 'matfree'}}}
 
     
     params = {'mat_type': 'matfree',
@@ -443,15 +467,19 @@ def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
               'coarse_space_bcs': get_p1_prb_bcs()}
 
     w = Function(W)
-    solve(a == L, w, solver_parameters=matfree_params, appctx=appctx)
+    solve(a == L, w, solver_parameters=fully_matfree_params, appctx=appctx)
     w2 = Function(W)
     solve(a == L, w2, solver_parameters=params, appctx=appctx)
 
     for sub0, sub1 in zip(w.dat.data, w2.dat.data):
         assert np.allclose(sub0, sub1, rtol=1e-2)
+    
+    w3 = Function(W)
+    solve(a == L, w3, solver_parameters=hybrid_matfree_params, appctx=appctx)
+    for sub0, sub1 in zip(w.dat.data, w3.dat.data):
+        assert np.allclose(sub0, sub1, rtol=1e-2)
 
     # also check against analytical solution
-    # _, uh = w.split()
     x = SpatialCoordinate(mymesh)
     f = Function(MP_fs[2])
     f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
