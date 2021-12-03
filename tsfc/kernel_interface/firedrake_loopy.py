@@ -1,3 +1,4 @@
+import itertools
 import numpy
 from collections import namedtuple
 from functools import partial
@@ -88,7 +89,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             interior_facet=self.interior_facet
         )
 
-    def _coefficient(self, coefficient, name):
+    def _coefficient(self, coefficient, name, number):
         """Prepare a coefficient. Adds glue code for the coefficient
         and adds the coefficient to the coefficient map.
 
@@ -96,7 +97,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        kernel_arg, expression = prepare_coefficient(coefficient, name, self.scalar_type,
+        kernel_arg, expression = prepare_coefficient(coefficient, name, number, self.scalar_type,
                                                      self.interior_facet, self.interior_facet_horiz)
         self.coefficient_map[coefficient] = expression
         return kernel_arg
@@ -119,7 +120,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type,
+            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", None, self.scalar_type,
                                                          interior_facet=self.interior_facet,
                                                          interior_facet_horiz=self.interior_facet_horiz)
             self.cell_sizes_arg = kernel_arg
@@ -153,11 +154,11 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                 subcoeffs = coefficient.split()  # Firedrake-specific
                 self.coefficients.extend(subcoeffs)
                 self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j))
+                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j), None)
                                      for j, subcoeff in enumerate(subcoeffs)]
             else:
                 self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,)))
+                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,), None))
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -252,7 +253,7 @@ class KernelBuilder(KernelBuilderBase):
         self.domain_coordinate[domain] = f
         # TODO Copy-pasted from _coefficient - needs refactor
         # self.coordinates_arg = self._coefficient(f, "coords")
-        kernel_arg, expression = prepare_coefficient(f, "coords", self.scalar_type,
+        kernel_arg, expression = prepare_coefficient(f, "coords", None, self.scalar_type,
                                                      self.interior_facet,
                                                      self.interior_facet_horiz)
         self.coefficient_map[f] = expression
@@ -266,6 +267,7 @@ class KernelBuilder(KernelBuilderBase):
         """
         coefficients = []
         coefficient_numbers = []
+        ctr = itertools.count()
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
@@ -279,18 +281,19 @@ class KernelBuilder(KernelBuilderBase):
                     else:
                         split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
                                  for element in coefficient.ufl_element().sub_elements()]
-                        coefficients.extend(split)
+                        for c_ in split:
+                            number = next(ctr)
+                            self.coefficient_args.append(self._coefficient(c_, f"w_{number}", number))
                         self.coefficient_split[coefficient] = split
                 else:
-                    coefficients.append(coefficient)
+                    number = next(ctr)
+                    self.coefficient_args.append(self._coefficient(coefficient, f"w_{number}", number))
                 # This is which coefficient in the original form the
                 # current coefficient is.
                 # Consider f*v*dx + g*v*ds, the full form contains two
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
-        for i, coefficient in enumerate(coefficients):
-            self.coefficient_args.append(
-                self._coefficient(coefficient, "w_%d" % i))
+
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def register_requirements(self, ir):
@@ -345,7 +348,7 @@ class KernelBuilder(KernelBuilderBase):
 
 
 # TODO Returning is_constant is nasty. Refactor.
-def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior_facet_horiz=False):
+def prepare_coefficient(coefficient, name, number, dtype, interior_facet=False, interior_facet_horiz=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -361,7 +364,7 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior
 
     if coefficient.ufl_element().family() == 'Real':
         value_size = coefficient.ufl_element().value_size()
-        kernel_arg = kernel_args.ConstantKernelArg(name, (value_size,), dtype)
+        kernel_arg = kernel_args.ConstantKernelArg(name, number, (value_size,), dtype)
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
         return kernel_arg, expression
@@ -382,16 +385,13 @@ def prepare_coefficient(coefficient, name, dtype, interior_facet=False, interior
 
     # This is truly disgusting, clean up ASAP
     if name == "cell_sizes":
-        kernel_arg = kernel_args.CellSizesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
+        assert number is None
+        kernel_arg = kernel_args.CellSizesKernelArg(size, dtype)
     elif name == "coords":
-        kernel_arg = kernel_args.CoordinatesKernelArg(finat_element, dtype, interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz)
+        assert number is None
+        kernel_arg = kernel_args.CoordinatesKernelArg(size, dtype)
     else:
-        kernel_arg = kernel_args.CoefficientKernelArg(
-            name,
-            finat_element,
-            dtype,
-            interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
-        )
+        kernel_arg = kernel_args.CoefficientKernelArg(name, number, size, dtype)
     return kernel_arg, expression
 
 
@@ -414,6 +414,7 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
         return kernel_args.ScalarOutputKernelArg(scalar_type)
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    shapes = tuple(element.index_shape for element in elements)
 
     if diagonal:
         if len(arguments) != 2:
@@ -424,15 +425,13 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
         elements = (element,)
+        shapes = tuple(element.index_shape for element in elements)
 
     if len(arguments) == 1 or diagonal:
-        finat_element, = elements
-        return kernel_args.VectorOutputKernelArg(finat_element, scalar_type, interior_facet=interior_facet, diagonal=diagonal, interior_facet_horiz=interior_facet_horiz)
+        return kernel_args.VectorOutputKernelArg(shapes, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
     elif len(arguments) == 2:
-        rfinat_element, cfinat_element = elements
         return kernel_args.MatrixOutputKernelArg(
-            rfinat_element, cfinat_element, scalar_type,
-            interior_facet=interior_facet, interior_facet_horiz=interior_facet_horiz
+            shapes, scalar_type, interior_facet=interior_facet 
         )
     else:
         raise AssertionError

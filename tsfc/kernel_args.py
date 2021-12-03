@@ -35,45 +35,15 @@ class KernelArg(abc.ABC):
 
 
 class RankZeroKernelArg(KernelArg, abc.ABC):
-
-    @abc.abstractproperty
-    def shape(self):
-        """The shape of the per-node tensor.
-
-        For example, a scalar-valued element will have shape == (1,) whilst a 3-vector
-        would have shape (3,).
-        """
-        ...
+    ...
 
 
 class RankOneKernelArg(KernelArg, abc.ABC):
-
-    @abc.abstractproperty
-    def shape(self):
-        ...
-
-    @abc.abstractproperty
-    def node_shape(self):
-        ...
+    ...
 
 
 class RankTwoKernelArg(KernelArg, abc.ABC):
-
-    @abc.abstractproperty
-    def rshape(self):
-        ...
-
-    @abc.abstractproperty
-    def cshape(self):
-        ...
-
-    @abc.abstractproperty
-    def rnode_shape(self):
-        ...
-
-    @abc.abstractproperty
-    def cnode_shape(self):
-        ...
+    ...
 
 
 class DualEvalOutputKernelArg(KernelArg):
@@ -99,8 +69,8 @@ class CoordinatesKernelArg(RankOneKernelArg):
     name = "coords"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, interior_facet=False, interior_facet_horiz=False):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+    def __init__(self, size, dtype, interior_facet=False):
+        self._size = size
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -109,22 +79,15 @@ class CoordinatesKernelArg(RankOneKernelArg):
         return self._dtype
 
     @property
-    def shape(self):
-        return self._elem.tensor_shape
-
-    @property
-    def node_shape(self):
-        return self._elem.node_shape
-
-    @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self._elem.loopy_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=(self._size,))
 
 
 class ConstantKernelArg(RankZeroKernelArg):
 
-    def __init__(self, name, shape, dtype):
+    def __init__(self, name, number, shape, dtype):
         self._name = name
+        self.number = number
         self._shape = shape
         self._dtype = dtype
 
@@ -151,11 +114,11 @@ class ConstantKernelArg(RankZeroKernelArg):
 
 class CoefficientKernelArg(RankOneKernelArg):
 
-    def __init__(self, name, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
+    def __init__(self, name, number, size, dtype):
         self._name = name
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+        self.number = number
+        self._size = size
         self._dtype = dtype
-        self._interior_facet = interior_facet
 
     @property
     def name(self):
@@ -170,16 +133,8 @@ class CoefficientKernelArg(RankOneKernelArg):
         return Intent.IN
 
     @property
-    def shape(self):
-        return self._elem.tensor_shape
-
-    @property
-    def node_shape(self):
-        return self._elem.node_shape
-
-    @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self._elem.loopy_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=(self._size,))
 
 
 class CellOrientationsKernelArg(RankOneKernelArg):
@@ -216,8 +171,8 @@ class CellSizesKernelArg(RankOneKernelArg):
     name = "cell_sizes"
     intent = Intent.IN
 
-    def __init__(self, elem, dtype, *, interior_facet=False, interior_facet_horiz=False):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+    def __init__(self, size, dtype):
+        self._size = size
         self._dtype = dtype
 
     @property
@@ -225,16 +180,8 @@ class CellSizesKernelArg(RankOneKernelArg):
         return self._dtype
 
     @property
-    def shape(self):
-        return self._elem.tensor_shape
-
-    @property
-    def node_shape(self):
-        return self._elem.node_shape
-
-    @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self._elem.loopy_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=(self._size,))
 
 
 class FacetKernelArg(RankOneKernelArg, abc.ABC):
@@ -317,10 +264,8 @@ class ScalarOutputKernelArg(RankZeroKernelArg, OutputKernelArg):
 
 class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
-    def __init__(
-        self, elem, dtype, *, interior_facet=False, diagonal=False, interior_facet_horiz=False
-    ):
-        self._elem = _ElementHandler(elem, interior_facet, interior_facet_horiz)
+    def __init__(self, index_shape, dtype, *, interior_facet=False, diagonal=False):
+        self.index_shape, = index_shape
         self._dtype = dtype
 
         self._interior_facet = interior_facet
@@ -331,21 +276,21 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
         return self._dtype
 
     @property
-    def shape(self):
-        return self._elem.tensor_shape
+    def ushape(self):
+        return np.array([np.prod(self.index_shape, dtype=int)])
 
     @property
-    def node_shape(self):
-        return self._elem.node_shape
+    def cshape(self):
+        return tuple(2*self.ushape) if self._interior_facet else tuple(self.ushape)
 
     @property
     def loopy_arg(self):
-        return lp.GlobalArg(self.name, self.dtype, shape=self._elem.loopy_shape)
+        return lp.GlobalArg(self.name, self.dtype, shape=self.cshape)
 
     # TODO Function please
     def make_gem_exprs(self, multiindices):
-        u_shape = np.array([np.prod(self._elem._elem.index_shape, dtype=int)])
-        c_shape = tuple(2*u_shape) if self._interior_facet else tuple(u_shape)
+        u_shape = self.ushape
+        c_shape = self.cshape
 
         if self._diagonal:
             multiindices = multiindices[:1]
@@ -364,15 +309,14 @@ class VectorOutputKernelArg(RankOneKernelArg, OutputKernelArg):
 
     # TODO More descriptive name
     def _make_expression(self, restricted, multiindices):
-        return gem.Indexed(gem.reshape(restricted, self._elem._elem.index_shape),
+        return gem.Indexed(gem.reshape(restricted, self.index_shape),
                            tuple(itertools.chain(*multiindices)))
 
 
 class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
-    def __init__(self, relem, celem, dtype, *, interior_facet=False, interior_facet_horiz=False):
-        self._relem = _ElementHandler(relem, interior_facet, interior_facet_horiz)
-        self._celem = _ElementHandler(celem, interior_facet, interior_facet_horiz)
+    def __init__(self, shapes, dtype, *, interior_facet=False):
+        self._rshape, self._cshape = shapes
         self._dtype = dtype
         self._interior_facet = interior_facet
 
@@ -382,30 +326,20 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
     @property
     def loopy_arg(self):
-        rshape = self._relem.loopy_shape
-        cshape = self._celem.loopy_shape
-        return lp.GlobalArg(self.name, self.dtype, shape=(rshape, cshape))
+        return lp.GlobalArg(self.name, self.dtype, shape=self.c_shape)
 
     @property
-    def rshape(self):
-        return self._relem.tensor_shape
+    def u_shape(self):
+        return np.array([np.prod(s, dtype=int)
+                            for s in [self._rshape, self._cshape]])
 
     @property
-    def cshape(self):
-        return self._celem.tensor_shape
-
-    @property
-    def rnode_shape(self):
-        return self._relem.node_shape
-
-    @property
-    def cnode_shape(self):
-        return self._celem.node_shape
+    def c_shape(self):
+        return tuple(2*self.u_shape) if self._interior_facet else tuple(self.u_shape)
 
     def make_gem_exprs(self, multiindices):
-        u_shape = np.array([np.prod(elem._elem.index_shape, dtype=int)
-                            for elem in [self._relem, self._celem]])
-        c_shape = tuple(2*u_shape) if self._interior_facet else tuple(u_shape)
+        u_shape = self.u_shape
+        c_shape = self.c_shape
 
         if self._interior_facet:
             slicez = [
@@ -421,7 +355,7 @@ class MatrixOutputKernelArg(RankTwoKernelArg, OutputKernelArg):
 
     # TODO More descriptive name
     def _make_expression(self, restricted, multiindices):
-        return gem.Indexed(gem.reshape(restricted, self._relem._elem.index_shape, self._celem._elem.index_shape),
+        return gem.Indexed(gem.reshape(restricted, self._rshape, self._cshape),
                            tuple(itertools.chain(*multiindices)))
 
 
