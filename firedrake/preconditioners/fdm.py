@@ -112,9 +112,15 @@ class FDMPC(PCBase):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        # Get the interior penalty parameter from the appctx
         appctx = self.get_appctx(pc)
+        self.fcp = appctx.get("form_compiler_parameters", dict())
+        # Get the interior penalty parameter from the appctx
         eta = float(appctx.get("eta", (N+1)*(N+ndim)))
+        # Get an auxiliary form on the FDM space
+        self.diag = appctx.get("diag", None)
+        self.diag_tensor = None
+        if self.diag is not None:
+            self.diag_tensor = firedrake.Function(self.diag.arguments()[0].function_space())
 
         # Get the FDM transfer kernels (restriction and prolongation)
         # Afdm = sparse interval mass and stiffness matrices for each direction
@@ -432,6 +438,7 @@ class FDMPC(PCBase):
                         A.setValues(row, cols[i0:i1], data[i0:i1], imode)
                     Ae.destroy()
         A.assemble()
+        self.diagonal_scaling(A)
 
     def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False, needs_hdiv=False):
         """
@@ -572,6 +579,16 @@ class FDMPC(PCBase):
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
         return coefficients, assembly_callables
+
+    def diagonal_scaling(self, A):
+        if (self.diag is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
+            firedrake.assemble(self.diag, tensor=self.diag_tensor, diagonal=True,
+                               assembly_type="residual", form_compiler_parameters=self.fcp)
+            with self.diag_tensor.dat.vec as x_, self.uc.dat.vec as y_:
+                A.getDiagonal(y_)
+                x_ /= y_
+                x_.sqrtabs()
+                A.diagonalScale(L=x_, R=x_)
 
     @staticmethod
     def numpy_to_petsc(A_numpy, dense_indices, diag=True):
