@@ -242,7 +242,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
     elif isinstance(expr, ufl.Coefficient):
         return expr
     else:
-        print(type(expr))
         raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
 
@@ -407,7 +406,6 @@ def _assemble_vector(expr, vector, bcs, opts):
             raise ValueError("Form's argument does not match provided result tensor")
         vector.dat.zero()
     else:
-        print(type(test))
         vector = _make_vector(test)
 
     # Might have gotten here without EquationBC objects preprocessed.

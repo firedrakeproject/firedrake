@@ -1,3 +1,4 @@
+import numpy as np
 import ufl
 from pyop2 import op2
 from firedrake.logging import warning
@@ -123,6 +124,69 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
             on which this :class:`Function` is defined.
         """
         return self._function_space
+
+    @FunctionMixin._ad_annotate_assign
+    @utils.known_pyop2_safe
+    def assign(self, expr, subset=None):
+        r"""Set the :class:`Cofunction` value to the pointwise value of
+        expr. expr may only contain :class:`Cofunction`\s on the same
+        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`.FunctionSpace` then::
+
+          f += 2 * g
+
+        will add twice `g` to `f`.
+
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
+        """
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif (isinstance(expr, Cofunction)
+              and expr.function_space() == self.function_space()):
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+
+        raise ValueError('Can only assign a Cofunction or ufl.Zero.')
+
+    @FunctionMixin._ad_annotate_iadd
+    @utils.known_pyop2_safe
+    def __iadd__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat += expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat += expr.dat
+            return self
+        # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    @FunctionMixin._ad_annotate_isub
+    @utils.known_pyop2_safe
+    def __isub__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat -= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat -= expr.dat
+            return self
+
+        # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
+        return NotImplemented
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
