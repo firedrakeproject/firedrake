@@ -140,6 +140,8 @@ def convert_finiteelement(element, **kwargs):
     if element.family() == "Lagrange":
         if kind == 'equispaced':
             lmbda = finat.Lagrange
+        elif kind == 'fdm' and element.cell().cellname() == 'interval':
+            lmbda = finat.FDMElement
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
             lmbda = finat.GaussLobattoLegendre
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
@@ -158,6 +160,8 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.DiscontinuousLagrange
         elif kind == 'spectral' and element.cell().cellname() == 'interval':
             lmbda = finat.GaussLegendre
+        elif kind == 'fdm' and element.cell().cellname() == 'interval':
+            lmbda = lambda c, d: finat.FDMElement(c, d, formdegree=1)
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
