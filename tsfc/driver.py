@@ -24,7 +24,7 @@ from FIAT.reference_element import TensorProductCell
 import finat
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
-from tsfc import fem, kernel_args, ufl_utils
+from tsfc import fem, ufl_utils
 from tsfc.finatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
@@ -355,10 +355,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
-
-    # TODO I do not know how to determine tensor_shape and node_shape from this information
-    return_arg = kernel_args.DualEvalOutputKernelArg(return_shape, builder.scalar_type)
-    return_expr = gem.Indexed(gem.Variable("A", return_shape), return_indices)
+    return_var = gem.Variable('A', return_shape)
+    return_expr = gem.Indexed(return_var, return_indices)
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
@@ -367,7 +365,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
-    builder.set_output(return_arg)
+    builder.set_output(return_var)
     # Build kernel tuple
     return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords)
 

@@ -1,14 +1,18 @@
-import itertools
+import abc
+from dataclasses import dataclass
 import numpy
 from collections import namedtuple
+from itertools import chain, product
 from functools import partial
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
 from gem.flop_count import count_flops
+from gem.optimise import remove_componenttensors as prune
 
-from tsfc import kernel_args
+import loopy as lp
+
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.kernel_interface.firedrake import check_requirements
@@ -64,16 +68,59 @@ class Kernel:
         super(Kernel, self).__init__()
 
 
+class KernelArg(abc.ABC):
+
+    def __init__(self, loopy_arg):
+        self.loopy_arg = loopy_arg
+
+
+class OutputKernelArg(KernelArg):
+    ...
+
+
+class CoordinatesKernelArg(KernelArg):
+    ...
+
+
+class CoefficientKernelArg(KernelArg):
+    ...
+
+
+class CellOrientationsKernelArg(KernelArg):
+    ...
+
+
+class CellSizesKernelArg(KernelArg):
+    ...
+
+
+class TabulationKernelArg(KernelArg):
+    ...
+
+
+class ExteriorFacetKernelArg(KernelArg):
+
+    def __init__(self):
+        loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
+        super().__init__(loopy_arg)
+
+
+class InteriorFacetKernelArg(KernelArg):
+
+    def __init__(self):
+        loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
+        super().__init__(loopy_arg)
+
+
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type, interior_facet=False, interior_facet_horiz=False):
+    def __init__(self, scalar_type, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
         super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
                                                 interior_facet=interior_facet)
-        self.interior_facet_horiz = interior_facet_horiz
 
         # Cell orientation
         if self.interior_facet:
@@ -85,11 +132,10 @@ class KernelBuilderBase(_KernelBuilderBase):
             shape = (1,)
             cell_orientations = gem.Variable("cell_orientations", shape)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
-        self.cell_orientations_loopy_arg = kernel_args.CellOrientationsKernelArg(
-            interior_facet=self.interior_facet
-        )
+        loopy_arg = lp.GlobalArg("cell_orientations", dtype=numpy.int32, shape=shape)
+        self.cell_orientations_arg = CellOrientationsKernelArg(loopy_arg)
 
-    def _coefficient(self, coefficient, name, number):
+    def _coefficient(self, coefficient, name):
         """Prepare a coefficient. Adds glue code for the coefficient
         and adds the coefficient to the coefficient map.
 
@@ -97,10 +143,13 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: loopy argument for the coefficient
         """
-        kernel_arg, expression = prepare_coefficient(coefficient, name, number, self.scalar_type,
-                                                     self.interior_facet, self.interior_facet_horiz)
+        funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
         self.coefficient_map[coefficient] = expression
-        return kernel_arg
+
+        if name == "coords":
+            return CoordinatesKernelArg(funarg)
+        else:
+            return CoefficientKernelArg(funarg)
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -120,10 +169,8 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            kernel_arg, expression = prepare_coefficient(f, "cell_sizes", None, self.scalar_type,
-                                                         interior_facet=self.interior_facet,
-                                                         interior_facet_horiz=self.interior_facet_horiz)
-            self.cell_sizes_arg = kernel_arg
+            funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
+            self.cell_sizes_arg = CellSizesKernelArg(funarg)
             self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
@@ -154,39 +201,40 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                 subcoeffs = coefficient.split()  # Firedrake-specific
                 self.coefficients.extend(subcoeffs)
                 self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j), None)
+                self.kernel_args += [self._coefficient(subcoeff, f"w_{i}_{j}")
                                      for j, subcoeff in enumerate(subcoeffs)]
             else:
                 self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,), None))
+                self.kernel_args.append(self._coefficient(coefficient, f"w_{i}"))
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def set_output(self, kernel_arg):
+    def set_output(self, o):
         """Produce the kernel return argument"""
-        self.return_arg = kernel_arg
+        loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
+        self.local_tensor_arg = OutputKernelArg(loopy_arg)
 
     def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
 
-        :arg return_arg: loopy.GlobalArg for the return value
         :arg impero_c: gem.ImperoC object that represents the kernel
         :arg index_names: pre-assigned index names
         :arg first_coefficient_fake_coords: If true, the kernel's first
             coefficient is a constructed UFL coordinate field
         :returns: :class:`ExpressionKernel` object
         """
-        args = [self.return_arg]
+        args = [self.local_tensor_arg]
         if self.oriented:
-            args.append(self.cell_orientations_loopy_arg)
+            args.append(self.cell_orientations_arg)
         if self.cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.kernel_args)
         for name_, shape in self.tabulations:
-            args.append(kernel_args.TabulationKernelArg(name_, shape, self.scalar_type))
+            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
+            args.append(TabulationKernelArg(tab_loopy_arg))
 
         loopy_args = [arg.loopy_arg for arg in args]
 
@@ -205,8 +253,7 @@ class KernelBuilder(KernelBuilderBase):
                  diagonal=False):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(scalar_type,
-                                            integral_type.startswith("interior_facet"),
-                                            integral_type == "interior_facet_horiz")
+                                            integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
@@ -237,11 +284,11 @@ class KernelBuilder(KernelBuilderBase):
         :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        kernel_arg = prepare_arguments(
-            arguments, self.scalar_type, interior_facet=self.interior_facet,
-            interior_facet_horiz=self.interior_facet_horiz, diagonal=self.diagonal)
-        self.local_tensor = kernel_arg
-        return kernel_arg.make_gem_exprs(multiindices)
+        funarg, expressions = prepare_arguments(
+            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
+            diagonal=self.diagonal)
+        self.local_tensor_arg = OutputKernelArg(funarg)
+        return expressions
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -251,13 +298,7 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        # TODO Copy-pasted from _coefficient - needs refactor
-        # self.coordinates_arg = self._coefficient(f, "coords")
-        kernel_arg, expression = prepare_coefficient(f, "coords", None, self.scalar_type,
-                                                     self.interior_facet,
-                                                     self.interior_facet_horiz)
-        self.coefficient_map[f] = expression
-        self.coordinates_arg = kernel_arg
+        self.coordinates_arg = self._coefficient(f, "coords")
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -267,7 +308,6 @@ class KernelBuilder(KernelBuilderBase):
         """
         coefficients = []
         coefficient_numbers = []
-        ctr = itertools.count()
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
@@ -281,19 +321,17 @@ class KernelBuilder(KernelBuilderBase):
                     else:
                         split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
                                  for element in coefficient.ufl_element().sub_elements()]
-                        for c_ in split:
-                            number = next(ctr)
-                            self.coefficient_args.append(self._coefficient(c_, f"w_{number}", number))
+                        coefficients.extend(split)
                         self.coefficient_split[coefficient] = split
                 else:
-                    number = next(ctr)
-                    self.coefficient_args.append(self._coefficient(coefficient, f"w_{number}", number))
+                    coefficients.append(coefficient)
                 # This is which coefficient in the original form the
                 # current coefficient is.
                 # Consider f*v*dx + g*v*ds, the full form contains two
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
-
+        for i, coefficient in enumerate(coefficients):
+            self.coefficient_args.append(self._coefficient(coefficient, f"w_{i}"))
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def register_requirements(self, ir):
@@ -315,26 +353,25 @@ class KernelBuilder(KernelBuilderBase):
         :returns: :class:`Kernel` object
         """
 
-        args = [self.local_tensor, self.coordinates_arg]
+        args = [self.local_tensor_arg, self.coordinates_arg]
         if self.kernel.oriented:
-            args.append(self.cell_orientations_loopy_arg)
+            args.append(self.cell_orientations_arg)
         if self.kernel.needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(kernel_args.ExteriorFacetKernelArg())
+            args.append(ExteriorFacetKernelArg())
         elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(kernel_args.InteriorFacetKernelArg())
-
+            args.append(InteriorFacetKernelArg())
         for name_, shape in self.kernel.tabulations:
-            args.append(kernel_args.TabulationKernelArg(name_, shape, self.scalar_type))
+            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
+            args.append(TabulationKernelArg(tab_loopy_arg))
 
-        loopy_args = [arg.loopy_arg for arg in args]
+        self.kernel.ast = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
+                                         self.scalar_type, name, index_names)
         self.kernel.arguments = args
-
-        self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.ast = generate_loopy(impero_c, loopy_args, self.scalar_type, name, index_names)
         self.kernel.name = name
+        self.kernel.quadrature_rule = quadrature_rule
         self.kernel.flop_count = count_flops(impero_c)
         return self.kernel
 
@@ -347,27 +384,28 @@ class KernelBuilder(KernelBuilderBase):
         return None
 
 
-# TODO Returning is_constant is nasty. Refactor.
-def prepare_coefficient(coefficient, name, number, dtype, interior_facet=False, interior_facet_horiz=False):
+def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
     :arg coefficient: UFL Coefficient
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg interior_facet: interior facet integral?
-    :returns: (expression, shape)
-         expression - GEM expression referring to the Coefficient values
-         shape - TODO
+    :returns: (funarg, expression)
+         funarg     - :class:`loopy.GlobalArg` function argument
+         expression - GEM expression referring to the Coefficient
+                      values
     """
-    # TODO Return expression and kernel arg...
     assert isinstance(interior_facet, bool)
 
     if coefficient.ufl_element().family() == 'Real':
+        # Constant
         value_size = coefficient.ufl_element().value_size()
-        kernel_arg = kernel_args.ConstantKernelArg(name, number, (value_size,), dtype)
+        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(value_size,))
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
-        return kernel_arg, expression
+
+        return funarg, expression
 
     finat_element = create_element(coefficient.ufl_element())
 
@@ -382,25 +420,17 @@ def prepare_coefficient(coefficient, name, number, dtype, interior_facet=False, 
         minus = gem.view(varexp, slice(size, 2*size))
         expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
         size = size * 2
-
-    # This is truly disgusting, clean up ASAP
-    if name == "cell_sizes":
-        assert number is None
-        kernel_arg = kernel_args.CellSizesKernelArg(size, dtype)
-    elif name == "coords":
-        assert number is None
-        kernel_arg = kernel_args.CoordinatesKernelArg(size, dtype)
-    else:
-        kernel_arg = kernel_args.CoefficientKernelArg(name, number, size, dtype)
-    return kernel_arg, expression
+    funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(size,))
+    return funarg, expression
 
 
-def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_facet_horiz=False, diagonal=False):
+def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg arguments: UFL Arguments
+    :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
     :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
     :returns: (funarg, expression)
@@ -408,10 +438,15 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
          expressions - GEM expressions referring to the argument
                        tensor
     """
+
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
-        return kernel_args.ScalarOutputKernelArg(scalar_type)
+        # No arguments
+        funarg = lp.GlobalArg("A", dtype=scalar_type, shape=(1,))
+        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
+
+        return funarg, [expression]
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
@@ -424,14 +459,25 @@ def prepare_arguments(arguments, scalar_type, interior_facet=False, interior_fac
         except ValueError:
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
 
-        elements = (element,)
+        elements = (element, )
         shapes = tuple(element.index_shape for element in elements)
+        multiindices = multiindices[:1]
 
-    if len(arguments) == 1 or diagonal:
-        return kernel_args.VectorOutputKernelArg(shapes, scalar_type, interior_facet=interior_facet, diagonal=diagonal)
-    elif len(arguments) == 2:
-        return kernel_args.MatrixOutputKernelArg(
-            shapes, scalar_type, interior_facet=interior_facet 
-        )
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *shapes),
+                           tuple(chain(*multiindices)))
+
+    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
+    if interior_facet:
+        c_shape = tuple(2 * u_shape)
+        slicez = [[slice(r * s, (r + 1) * s)
+                   for r, s in zip(restrictions, u_shape)]
+                  for restrictions in product((0, 1), repeat=len(arguments))]
     else:
-        raise AssertionError
+        c_shape = tuple(u_shape)
+        slicez = [[slice(s) for s in u_shape]]
+
+    funarg = lp.GlobalArg("A", dtype=scalar_type, shape=c_shape)
+    varexp = gem.Variable("A", c_shape)
+    expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
+    return funarg, prune(expressions)
