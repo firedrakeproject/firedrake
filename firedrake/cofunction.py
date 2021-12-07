@@ -1,6 +1,8 @@
 import numpy as np
 import ufl
+from ufl.form import BaseForm
 from pyop2 import op2
+import firedrake.assemble
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
@@ -152,8 +154,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
               and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
             return self
+        elif isinstance(expr, BaseForm):
+            # Enable to write down c += B where c is a Cofunction
+            # and B an appropriate BaseForm object
+            assembled_expr = firedrake.assemble(expr)
+            return self.assign(assembled_expr)
 
-        raise ValueError('Can only assign a Cofunction or ufl.Zero.')
+        raise ValueError('Cannot assign %s' % expr)
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
