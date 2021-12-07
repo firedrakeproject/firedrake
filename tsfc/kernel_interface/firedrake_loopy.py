@@ -64,7 +64,6 @@ class Kernel:
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
         self.flop_count = flop_count
-        super(Kernel, self).__init__()
 
 
 class KernelBuilderBase(_KernelBuilderBase):
@@ -74,8 +73,7 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         :arg interior_facet: kernel accesses two cells
         """
-        super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
-                                                interior_facet=interior_facet)
+        super().__init__(scalar_type=scalar_type, interior_facet=interior_facet)
 
         # Cell orientation
         if self.interior_facet:
@@ -206,8 +204,7 @@ class KernelBuilder(KernelBuilderBase):
     def __init__(self, integral_type, subdomain_id, domain_number, scalar_type, dont_split=(),
                  diagonal=False):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(scalar_type,
-                                            integral_type.startswith("interior_facet"))
+        super().__init__(scalar_type, integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
