@@ -4,8 +4,7 @@ from ufl.form import BaseForm
 from pyop2 import op2
 import firedrake.assemble
 from firedrake.logging import warning
-from firedrake import utils
-from firedrake import vector
+from firedrake import utils, vector
 from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
@@ -144,6 +143,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
+            return self
+        elif isinstance(expr, ufl.classes.ConstantValue):
+            from firedrake.function import Function
+            # Workaround to avoid using `assemble_expressions` directly
+            # since cofunctions are not `ufl.Expr`.
+            f = Function(self.function_space().dual()).assign(expr)
+            f.dat.copy(self.dat, subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
