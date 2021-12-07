@@ -229,9 +229,9 @@ u_analytical = (4/(math.pi*rho*c_p))*np.sum(u_m[:,:], axis=0)
 
 # Next plot and save one solution::
 plt.figure(1)
-plt.plot(time_numerical[::10], u_numerical[::10]*1e3, 'ro', label='Numerical solution')
+plt.plot(time_numerical[::10], u_numerical[::10]*1e3, 'ro', label='Numerical solution, lumping = %r' %lump_mass)
 plt.plot(time_analytical, u_analytical*1e3, 'r--', label='Analytical solution')
-plt.legend()
+plt.legend(loc='lower right')
 plt.ylabel('Displacement (mm)')
 plt.xlabel('Time (s)')
 plt.title('Comparison of solutions for Eringen\'s problem')
