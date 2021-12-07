@@ -34,11 +34,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
     the :class:`.FunctionSpace`.
     """
 
-    def __new__(cls, *args, **kwargs):
-        new_args = [args[i].dual()
-                    if i == 0 else args[i] for i in range(len(args))]
-        return ufl.Cofunction.__new__(cls, *new_args, **kwargs)
-
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
