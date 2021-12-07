@@ -311,7 +311,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                             appctx, options_prefix)
 
         if isinstance(res, firedrake.Function):
-            res = firedrake.Cofunction(res.function_space(), val=res.vector())
+            res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
         return res
 
     elif isinstance(expr, ufl.Adjoint):
