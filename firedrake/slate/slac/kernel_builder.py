@@ -1,3 +1,4 @@
+from loopy.kernel.data import ValueArg
 import numpy as np
 from coffee import base as ast
 
@@ -916,9 +917,14 @@ class LocalLoopyKernelBuilder(object):
         # Generate call parameters
         reads = []
         for arg in args:
-            var_reads = pym.Variable(arg.name)
-            idx_reads = self.bag.index_creator(arg.shape)
-            reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
+            if not isinstance(arg, ValueArg):
+                var_reads = pym.Variable(arg.name)
+                idx_reads = self.bag.index_creator(arg.shape)
+                reads.append(SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads)))
+            else:
+                var_reads = pym.Variable(arg.name)
+                reads.append(var_reads)
+
         return args, reads, output_arg
 
     def generate_wrapper_kernel_args(self, temporaries={}):
