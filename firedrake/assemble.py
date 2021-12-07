@@ -241,8 +241,10 @@ def restructure_base_form(expr, visited=None):
 
 
 def reconstruct_node_from_operands(expr, operands):
-    if isinstance(expr, (ufl.form.FormSum, ufl.Adjoint, ufl.Action)):
+    if isinstance(expr, (ufl.Adjoint, ufl.Action)):
         return expr._ufl_expr_reconstruct_(*operands)
+    elif isinstance(expr, ufl.form.FormSum):
+        return ufl.FormSum(*[(op, 1) for op in operands])
     return expr
 
 
