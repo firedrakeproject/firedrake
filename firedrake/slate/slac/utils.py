@@ -2,6 +2,7 @@ from coffee import base as ast
 from coffee.visitor import Visitor
 
 from collections import OrderedDict
+from loopy.kernel.data import ValueArg
 
 from ufl.algorithms.multifunction import MultiFunction
 
@@ -696,7 +697,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:
-        if n.address_space == lp.AddressSpace.GLOBAL:
+        if isinstance(n, ValueArg) or n.address_space == lp.AddressSpace.GLOBAL:
             global_args += [n]
         else:
             local_args.update({n.name: n})
