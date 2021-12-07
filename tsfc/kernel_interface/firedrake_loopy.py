@@ -100,11 +100,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         """
         funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
         self.coefficient_map[coefficient] = expression
-
-        if name == "coords":
-            return kernel_args.CoordinatesKernelArg(funarg)
-        else:
-            return kernel_args.CoefficientKernelArg(funarg)
+        return funarg
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -156,11 +152,14 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                 subcoeffs = coefficient.split()  # Firedrake-specific
                 self.coefficients.extend(subcoeffs)
                 self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, f"w_{i}_{j}")
-                                     for j, subcoeff in enumerate(subcoeffs)]
+                coeff_loopy_args = [self._coefficient(subcoeff, f"w_{i}_{j}")
+                                    for j, subcoeff in enumerate(subcoeffs)]
+                self.kernel_args += [kernel_args.CoefficientKernelArg(a)
+                                     for a in coeff_loopy_args]
             else:
                 self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, f"w_{i}"))
+                coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
+                self.kernel_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -253,7 +252,8 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self.coordinates_arg = self._coefficient(f, "coords")
+        coords_loopy_arg = self._coefficient(f, "coords")
+        self.coordinates_arg = kernel_args.CoordinatesKernelArg(coords_loopy_arg)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -286,7 +286,8 @@ class KernelBuilder(KernelBuilderBase):
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
-            self.coefficient_args.append(self._coefficient(coefficient, f"w_{i}"))
+            coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
+            self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def register_requirements(self, ir):
