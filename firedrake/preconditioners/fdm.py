@@ -119,8 +119,6 @@ class FDMPC(PCBase):
         # Get an auxiliary form on the FDM space
         self.diag = appctx.get("diag", None)
         self.diag_tensor = None
-        if self.diag is not None:
-            self.diag_tensor = firedrake.Function(self.diag.arguments()[0].function_space())
 
         # Get the FDM transfer kernels (restriction and prolongation)
         # Afdm = sparse interval mass and stiffness matrices for each direction
@@ -582,8 +580,9 @@ class FDMPC(PCBase):
 
     def diagonal_scaling(self, A):
         if (self.diag is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
-            firedrake.assemble(self.diag, tensor=self.diag_tensor, diagonal=True,
-                               assembly_type="residual", form_compiler_parameters=self.fcp)
+            self.diag_tensor = firedrake.assemble(self.diag, tensor=self.diag_tensor, diagonal=True,
+                                                  assembly_type="residual",
+                                                  form_compiler_parameters=self.fcp)
             with self.diag_tensor.dat.vec as x_, self.uc.dat.vec as y_:
                 A.getDiagonal(y_)
                 x_ /= y_
