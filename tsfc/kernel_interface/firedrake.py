@@ -11,9 +11,10 @@ from gem.flop_count import count_flops
 from gem.node import traversal
 from gem.optimise import remove_componenttensors as prune
 
+from tsfc import kernel_args
+from tsfc.coffee import generate as generate_coffee
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
-from tsfc.coffee import generate as generate_coffee
 
 
 def make_builder(*args, **kwargs):
@@ -48,8 +49,7 @@ class Kernel(object):
                  flop_count=0):
         # Defaults
         self.ast = ast
-        assert arguments is None  # only valid for loopy kernels
-        self.arguments = None
+        self.arguments = arguments
         self.integral_type = integral_type
         self.oriented = oriented
         self.domain_number = domain_number
@@ -87,8 +87,10 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: COFFEE function argument for the coefficient
         """
-        funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
-        self.coefficient_map[coefficient] = expression
+        funarg, expr = prepare_coefficient(coefficient, name,
+                                           self.scalar_type,
+                                           interior_facet=self.interior_facet)
+        self.coefficient_map[coefficient] = expr
         return funarg
 
     def set_cell_sizes(self, domain):
@@ -109,9 +111,11 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-            self.cell_sizes_arg = funarg
-            self._cell_sizes = expression
+            funarg, expr = prepare_coefficient(f, "cell_sizes",
+                                               self.scalar_type,
+                                               interior_facet=self.interior_facet)
+            self.cell_sizes_arg = kernel_args.CellSizesKernelArg(funarg)
+            self._cell_sizes = expr
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -156,10 +160,12 @@ class KernelBuilder(KernelBuilderBase):
         :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
-            diagonal=self.diagonal)
-        return expressions
+        funarg, exprs = prepare_arguments(arguments, multiindices,
+                                          self.scalar_type,
+                                          interior_facet=self.interior_facet,
+                                          diagonal=self.diagonal)
+        self.output_arg = kernel_args.OutputKernelArg(funarg)
+        return exprs
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -169,7 +175,8 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self.coordinates_arg = self._coefficient(f, "coords")
+        coords_coffee_arg = self._coefficient(f, "coords")
+        self.coordinates_arg = kernel_args.CoordinatesKernelArg(coords_coffee_arg)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -202,8 +209,8 @@ class KernelBuilder(KernelBuilderBase):
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
-            self.coefficient_args.append(
-                self._coefficient(coefficient, "w_%d" % i))
+            coeff_coffee_arg = self._coefficient(coefficient, f"w_{i}")
+            self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_coffee_arg))
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def register_requirements(self, ir):
@@ -224,30 +231,38 @@ class KernelBuilder(KernelBuilderBase):
         :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
         """
-        body = generate_coffee(impero_c, index_names, self.scalar_type)
-
-        args = [self.local_tensor, self.coordinates_arg]
+        args = [self.output_arg, self.coordinates_arg]
         if self.kernel.oriented:
-            args.append(cell_orientations_coffee_arg)
+            ori_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
+                                         pointers=[("restrict",)],
+                                         qualifiers=["const"])
+            args.append(kernel_args.CellOrientationsKernelArg(ori_coffee_arg))
         if self.kernel.needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(coffee.Decl("unsigned int",
-                                    coffee.Symbol("facet", rank=(1,)),
-                                    qualifiers=["const"]))
+            ext_coffee_arg = coffee.Decl("unsigned int",
+                                         coffee.Symbol("facet", rank=(1,)),
+                                         qualifiers=["const"])
+            args.append(kernel_args.ExteriorFacetKernelArg(ext_coffee_arg))
         elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(coffee.Decl("unsigned int",
-                                    coffee.Symbol("facet", rank=(2,)),
-                                    qualifiers=["const"]))
+            int_coffee_arg = coffee.Decl("unsigned int",
+                                         coffee.Symbol("facet", rank=(2,)),
+                                         qualifiers=["const"])
+            args.append(kernel_args.InteriorFacetKernelArg(int_coffee_arg))
+        for n, shape in self.kernel.tabulations:
+            tab_coffee_arg = coffee.Decl(self.scalar_type,
+                                         coffee.Symbol(n, rank=shape),
+                                         qualifiers=["const"])
+            args.append(kernel_args.TabulationKernelArg(tab_coffee_arg))
 
-        for name_, shape in self.kernel.tabulations:
-            args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
-                name_, rank=shape), qualifiers=["const"]))
+        coffee_args = [a.coffee_arg for a in args]
+        body = generate_coffee(impero_c, index_names, self.scalar_type)
 
+        self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, coffee_args, body)
+        self.kernel.arguments = tuple(args)
         self.kernel.quadrature_rule = quadrature_rule
         self.kernel.name = name
-        self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         self.kernel.flop_count = count_flops(impero_c)
         return self.kernel
 
@@ -377,9 +392,3 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
     return funarg, prune(expressions)
-
-
-cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
-                                           pointers=[("restrict",)],
-                                           qualifiers=["const"])
-"""COFFEE function argument for cell orientations"""

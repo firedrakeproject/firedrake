@@ -1,5 +1,3 @@
-import abc
-from dataclasses import dataclass
 import numpy
 from collections import namedtuple
 from itertools import chain, product
@@ -13,6 +11,7 @@ from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
 
+from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.kernel_interface.firedrake import check_requirements
@@ -68,50 +67,6 @@ class Kernel:
         super(Kernel, self).__init__()
 
 
-class KernelArg(abc.ABC):
-
-    def __init__(self, loopy_arg):
-        self.loopy_arg = loopy_arg
-
-
-class OutputKernelArg(KernelArg):
-    ...
-
-
-class CoordinatesKernelArg(KernelArg):
-    ...
-
-
-class CoefficientKernelArg(KernelArg):
-    ...
-
-
-class CellOrientationsKernelArg(KernelArg):
-    ...
-
-
-class CellSizesKernelArg(KernelArg):
-    ...
-
-
-class TabulationKernelArg(KernelArg):
-    ...
-
-
-class ExteriorFacetKernelArg(KernelArg):
-
-    def __init__(self):
-        loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
-        super().__init__(loopy_arg)
-
-
-class InteriorFacetKernelArg(KernelArg):
-
-    def __init__(self):
-        loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
-        super().__init__(loopy_arg)
-
-
 class KernelBuilderBase(_KernelBuilderBase):
 
     def __init__(self, scalar_type, interior_facet=False):
@@ -133,7 +88,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             cell_orientations = gem.Variable("cell_orientations", shape)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
         loopy_arg = lp.GlobalArg("cell_orientations", dtype=numpy.int32, shape=shape)
-        self.cell_orientations_arg = CellOrientationsKernelArg(loopy_arg)
+        self.cell_orientations_arg = kernel_args.CellOrientationsKernelArg(loopy_arg)
 
     def _coefficient(self, coefficient, name):
         """Prepare a coefficient. Adds glue code for the coefficient
@@ -147,9 +102,9 @@ class KernelBuilderBase(_KernelBuilderBase):
         self.coefficient_map[coefficient] = expression
 
         if name == "coords":
-            return CoordinatesKernelArg(funarg)
+            return kernel_args.CoordinatesKernelArg(funarg)
         else:
-            return CoefficientKernelArg(funarg)
+            return kernel_args.CoefficientKernelArg(funarg)
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -170,7 +125,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
             funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-            self.cell_sizes_arg = CellSizesKernelArg(funarg)
+            self.cell_sizes_arg = kernel_args.CellSizesKernelArg(funarg)
             self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
@@ -215,7 +170,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
     def set_output(self, o):
         """Produce the kernel return argument"""
         loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
-        self.local_tensor_arg = OutputKernelArg(loopy_arg)
+        self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
 
     def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
         """Constructs an :class:`ExpressionKernel`.
@@ -226,7 +181,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             coefficient is a constructed UFL coordinate field
         :returns: :class:`ExpressionKernel` object
         """
-        args = [self.local_tensor_arg]
+        args = [self.output_arg]
         if self.oriented:
             args.append(self.cell_orientations_arg)
         if self.cell_sizes:
@@ -234,7 +189,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         args.extend(self.kernel_args)
         for name_, shape in self.tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
-            args.append(TabulationKernelArg(tab_loopy_arg))
+            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
 
         loopy_args = [arg.loopy_arg for arg in args]
 
@@ -287,7 +242,7 @@ class KernelBuilder(KernelBuilderBase):
         funarg, expressions = prepare_arguments(
             arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
             diagonal=self.diagonal)
-        self.local_tensor_arg = OutputKernelArg(funarg)
+        self.output_arg = kernel_args.OutputKernelArg(funarg)
         return expressions
 
     def set_coordinates(self, domain):
@@ -352,24 +307,25 @@ class KernelBuilder(KernelBuilderBase):
         :arg quadrature rule: quadrature rule
         :returns: :class:`Kernel` object
         """
-
-        args = [self.local_tensor_arg, self.coordinates_arg]
+        args = [self.output_arg, self.coordinates_arg]
         if self.kernel.oriented:
             args.append(self.cell_orientations_arg)
         if self.kernel.needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(ExteriorFacetKernelArg())
+            ext_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
+            args.append(kernel_args.ExteriorFacetKernelArg(ext_loopy_arg))
         elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(InteriorFacetKernelArg())
+            int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
+            args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
         for name_, shape in self.kernel.tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
-            args.append(TabulationKernelArg(tab_loopy_arg))
+            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
 
         self.kernel.ast = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
                                          self.scalar_type, name, index_names)
-        self.kernel.arguments = args
+        self.kernel.arguments = tuple(args)
         self.kernel.name = name
         self.kernel.quadrature_rule = quadrature_rule
         self.kernel.flop_count = count_flops(impero_c)
