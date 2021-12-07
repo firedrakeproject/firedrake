@@ -50,8 +50,11 @@ class Vector(object):
                 The former shares data, the latter copies data.
         """
         if isinstance(x, Vector):
-            self.function = type(x.function)(x.function)
-        elif isinstance(x, firedrake.Function):
+            function_space = x.function.function_space()
+            # Can't do type(x.function)(x.function) because Cofunction
+            # doesn't accept this notation. Is there a valid reason for that ?
+            self.function = type(x.function)(function_space, val=x)
+        elif isinstance(x, (firedrake.Function, firedrake.Cofunction)):
             self.function = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))

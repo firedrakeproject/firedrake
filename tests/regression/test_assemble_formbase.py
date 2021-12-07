@@ -154,6 +154,24 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
+def test_cofunction_assign(a, M, f):
+    c1 = assemble(a)
+    # Scale the action to obtain a different value than c1
+    c2 = assemble(2 * action(M, f))
+    assert isinstance(c1, Cofunction)
+    assert isinstance(c2, Cofunction)
+
+    # Assign Cofunction to Cofunction
+    c1.assign(c2)
+    for a, b in zip(c1.split(), c2.split()):
+        assert np.allclose(a.dat.data, b.dat.data)
+
+    # Assign BaseForm to Cofunction
+    c1.assign(action(M, f))
+    for a, b in zip(c1.split(), c2.split()):
+        assert np.allclose(a.dat.data, 0.5 * b.dat.data)
+
+
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
     if mesh is None:

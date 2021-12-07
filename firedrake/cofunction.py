@@ -1,8 +1,10 @@
+import numpy as np
 import ufl
+from ufl.form import BaseForm
 from pyop2 import op2
+import firedrake.assemble
 from firedrake.logging import warning
-from firedrake import utils
-from firedrake import vector
+from firedrake import utils, vector
 from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
@@ -30,11 +32,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
     :class:`Function` is vector-valued then this is specified in
     the :class:`.FunctionSpace`.
     """
-
-    def __new__(cls, *args, **kwargs):
-        new_args = [args[i].dual()
-                    if i == 0 else args[i] for i in range(len(args))]
-        return ufl.Cofunction.__new__(cls, *new_args, **kwargs)
 
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
@@ -123,6 +120,81 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
             on which this :class:`Function` is defined.
         """
         return self._function_space
+
+    @FunctionMixin._ad_annotate_assign
+    @utils.known_pyop2_safe
+    def assign(self, expr, subset=None):
+        r"""Set the :class:`Cofunction` value to the pointwise value of
+        expr. expr may only contain :class:`Cofunction`\s on the same
+        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`.FunctionSpace` then::
+
+          f += 2 * g
+
+        will add twice `g` to `f`.
+
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
+        """
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif isinstance(expr, ufl.classes.ConstantValue):
+            from firedrake.function import Function
+            # Workaround to avoid using `assemble_expressions` directly
+            # since cofunctions are not `ufl.Expr`.
+            f = Function(self.function_space().dual()).assign(expr)
+            f.dat.copy(self.dat, subset=subset)
+            return self
+        elif (isinstance(expr, Cofunction)
+              and expr.function_space() == self.function_space()):
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+        elif isinstance(expr, BaseForm):
+            # Enable to write down c += B where c is a Cofunction
+            # and B an appropriate BaseForm object
+            assembled_expr = firedrake.assemble(expr)
+            return self.assign(assembled_expr)
+
+        raise ValueError('Cannot assign %s' % expr)
+
+    @FunctionMixin._ad_annotate_iadd
+    @utils.known_pyop2_safe
+    def __iadd__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat += expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat += expr.dat
+            return self
+        # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    @FunctionMixin._ad_annotate_isub
+    @utils.known_pyop2_safe
+    def __isub__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat -= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat -= expr.dat
+            return self
+
+        # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
+        return NotImplemented
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this

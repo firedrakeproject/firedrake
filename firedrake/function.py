@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import ufl
+from ufl.duals import is_dual
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -11,6 +12,7 @@ from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.ufl_expr import UFLType
+from firedrake.cofunction import Cofunction
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
@@ -226,6 +228,11 @@ class Function(ufl.Coefficient, FunctionMixin, metaclass=UFLType):
     :class:`Function` is vector-valued then this is specified in
     the :class:`.FunctionSpace`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Cofunction(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init

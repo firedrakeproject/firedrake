@@ -339,7 +339,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
             with rhs.dat.vec_ro as v_vec:
                 with res.dat.vec as res_vec:
                     petsc_mat.mult(v_vec, res_vec)
-            return firedrake.Cofunction(row.function_space(), val=res.dat)
+            return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
         elif isinstance(rhs, matrix.MatrixBase):
             petsc_mat = lhs.petscmat
             (row, col) = lhs.arguments()
@@ -386,7 +386,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
     elif isinstance(expr, ufl.Coefficient):
         return expr
     else:
-        print(type(expr))
         raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
 
@@ -551,7 +550,6 @@ def _assemble_vector(expr, vector, bcs, opts):
             raise ValueError("Form's argument does not match provided result tensor")
         vector.dat.zero()
     else:
-        print(type(test))
         vector = _make_vector(test)
 
     # Might have gotten here without EquationBC objects preprocessed.
@@ -605,9 +603,9 @@ def _make_vector(V):
 
     :arg V: The :class:`.FunctionSpace` the function is defined for.
 
-    :returns: An empty :class:`.Function`.
+    :returns: An empty :class:`.Cofunction`.
     """
-    vec = firedrake.Cofunction(V.function_space())
+    vec = firedrake.Cofunction(V.function_space().dual())
     return vec
 
 
