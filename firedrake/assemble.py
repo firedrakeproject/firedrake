@@ -221,15 +221,21 @@ def restructure_base_form(expr, visited=None):
         if isinstance(left, ufl.Action) and is_rank_2(left):
             operands = [left.left(), ufl.action(left.right(), right)]
         if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right):
-            arg = left.arguments()[-1]
+            # Retrieve the highest numbered argument
+            arg = max(left.arguments(), key=lambda v: v.number())
             visited[expr] = ufl.replace(left, {arg: right})
             return visited[expr]
 
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
-        e = expr.form()
-        # Adjoint arguments have already been swapped
-        args = expr.arguments()
-        visited[expr] = e._ufl_expr_reconstruct(*e.ufl_operands, argument_slots=args)
+        B = expr.form()
+        u, v = B.arguments()
+        # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
+        # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
+        reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
+                               firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
+        # Replace arguments in argument slots
+        mapping = dict(zip((u, v), reordered_arguments))
+        visited[expr] = B._ufl_expr_reconstruct_(*[ufl.replace(arg, mapping) for arg in reversed(B.argument_slots())])
         return visited[expr]
 
     # Visit/update the children
@@ -379,10 +385,29 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.Interp):
-        if len(expr.arguments()) > 1:
-            # Need to work out how to build the Interp matrix!
-            raise NotImplementedError('\n Assembling Interp matrix is not implemented yet!')
-        return expr.interpolate()
+        vstar, expression = expr.argument_slots()
+        # If argument numbers have been swapped => we are assembling the adjoint.
+        is_adjoint = (vstar.number() != 0)
+        # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
+        is_rank_1 = (len(expr.arguments()) == 1)
+        if not is_adjoint and not is_rank_1:
+            _, v1 = expr.arguments()
+            expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
+        # Should we use `freeze_expr` to cache the interpolation ? (e.g. if timestepping loop)
+        interpolator = firedrake.Interpolator(expression, expr.function_space())
+        if is_rank_1:
+            # We are assembling either the operator, or the action of its
+            # Jacobian, or the action of the adjoint of its Jacobian.
+            return interpolator.interpolate(transpose=is_adjoint)
+        # Return the interpolation matrix
+        op2_mat = interpolator.callable()
+        petsc_mat = op2_mat.handle
+        if is_adjoint:
+            # TODO: Work out how to get the conjugate?
+            petsc_mat.transpose()
+        return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+                                      appctx=appctx,
+                                      options_prefix=options_prefix)
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
     elif isinstance(expr, ufl.Coefficient):

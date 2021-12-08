@@ -3,7 +3,7 @@ from functools import partial, singledispatch
 
 import FIAT
 import ufl
-from ufl.core.interp import Interp
+from ufl.algorithms import extract_arguments
 
 from pyop2 import op2
 
@@ -14,11 +14,43 @@ import gem
 import finat
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, functionspaceimpl
+from firedrake.ufl_expr import Argument, Coargument
 from firedrake.adjoint import annotate_interpolate
 from firedrake.petsc import PETSc
 
-__all__ = ("interpolate", "Interpolator")
+__all__ = ("interpolate", "Interpolator", "Interp")
+
+
+class Interp(ufl.Interp):
+
+    def __init__(self, expr, v, result_coefficient=None):
+        r""" Symbolic representation of the interpolation operator.
+
+        :arg expr: a UFL expression to interpolate.
+        :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
+                defined on the dual of the :class:`.FunctionSpace` to interpolate into.
+        :param result_coefficient: :class:`.Function` representing what is produced by the operator
+        """
+
+        # Check function space
+        if isinstance(v, functionspaceimpl.WithGeometry):
+            v = Argument(v.dual(), 0)
+        elif not isinstance(v, Coargument):
+            raise NotImplementedError("Expecting a coargument or a function space not %s " % type(v))
+
+        # Get the primal space (V** = V)
+        self._function_space = v.function_space().dual()
+
+        # Produce the resulting Coefficient: Deprecated feature
+        if result_coefficient is None:
+            result_coefficient = firedrake.Function(self._function_space)
+        elif not isinstance(result_coefficient, (ufl.Coefficient, ufl.referencevalue.ReferenceValue)):
+            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
+        ufl.Interp.__init__(self, expr, v, result_coefficient=result_coefficient)
+
+    def function_space(self):
+        return self._function_space
 
 
 @PETSc.Log.EventDecorator()
@@ -57,7 +89,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     return Interpolator(expr, V, subset=subset, access=access).interpolate(ad_block_tag=ad_block_tag)
 
 
-class Interpolator(Interp):
+class Interpolator(object):
     """A reusable interpolation object.
 
     :arg expr: The expression to interpolate.
@@ -78,37 +110,16 @@ class Interpolator(Interp):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, result_coefficient=None):
-
-        # -- Symbolic Interp -- #
-        function_space = V.function_space() if isinstance(V, firedrake.Function) else V
-        # Type compatibility: make a Firedrake Coargument
-        vstar = firedrake.Argument(function_space.dual(), 0)
-        # Produce the resulting Coefficient: Deprecated feature?
-        # If no => then make that compatible with the output of the interpolator!
-        if result_coefficient is None:
-            result_coefficient = firedrake.Function(function_space)
-        elif not isinstance(result_coefficient, (ufl.Coefficient, ufl.referencevalue.ReferenceValue)):
-            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
-        Interp.__init__(self, expr, vstar, result_coefficient=result_coefficient)
-
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
         try:
-            # Don't take into account vstar for compatibility with the
-            # way interpolation currently works.
-            arguments = self.arguments()[1:]
-            # Renumber arguments
-            new_arguments = tuple(type(e)(e.function_space(), i, e.part())
-                                  for i, e in enumerate(arguments))
-            expr = ufl.replace(expr, dict(zip(arguments, new_arguments)))
-            self.callable = make_interpolator(expr, V, new_arguments, subset, access)
+            self.callable, arguments = make_interpolator(expr, V, subset, access)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
-        self.nargs = len(new_arguments)
+        self.arguments = arguments
+        self.nargs = len(arguments)
         self.freeze_expr = freeze_expr
         self.expr = expr
         self.V = V
-        self.subset = subset
-        self.access = access
 
     @PETSc.Log.EventDecorator()
     @annotate_interpolate
@@ -146,7 +157,7 @@ class Interpolator(Interp):
             function, = function
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
-                V = self.arguments()[0].function_space()
+                V = self.arguments[0].function_space()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
@@ -169,20 +180,12 @@ class Interpolator(Interp):
                 else:
                     return assembled_interpolator
 
-    def _ufl_expr_reconstruct_(self, expr, V=None, subset=None, freeze_expr=None, access=None,
-                               result_coefficient=None):
-        "Return a new object of the same type."
-        return type(self)(expr, V=V or self.V,
-                          subset=subset or self.subset,
-                          freeze_expr=freeze_expr or self.freeze_expr,
-                          access=access or self.access,
-                          result_coefficient=result_coefficient or self._result_coefficient)
-
 
 @PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, arguments, subset, access):
+def make_interpolator(expr, V, subset, access):
     assert isinstance(expr, ufl.classes.Expr)
 
+    arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
             f = V
@@ -247,7 +250,7 @@ def make_interpolator(expr, V, arguments, subset, access):
             l()
         return f
 
-    return partial(callable, loops, f)
+    return partial(callable, loops, f), arguments
 
 
 @utils.known_pyop2_safe
