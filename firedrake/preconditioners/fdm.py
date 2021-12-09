@@ -9,11 +9,12 @@ from ufl import as_tensor, diag_vector, dot, dx, indices, inner
 from ufl import grad, diff, replace, variable
 from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
+from FIAT.fdm_element import FDMElement
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_permuted_map, tensor_product_space_query
+from firedrake.preconditioners.pmg import get_permuted_map, get_line_elements
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -81,14 +82,28 @@ class FDMPC(PCBase):
 
         dm = pc.getDM()
         V = get_function_space(dm)
-        use_tensorproduct, N, ndim, sub_families, _ = tensor_product_space_query(V)
+        element = V.ufl_element()
+        try:
+            elems = get_line_elements(element)
+        except ValueError:
+            raise ValueError("FDMPC does not support the element %s" % element)
+        self.use_fdm_element = all([isinstance(e, FDMElement) for e in elems])
 
-        needs_hdiv = sub_families < {"RTCF", "NCF"}
-        needs_hcurl = sub_families < {"RTCE", "NCE"}
-        if not use_tensorproduct or needs_hcurl:
-            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+        if isinstance(element, (TensorElement, VectorElement)):
+            sob = element._sub_element.sobolev_space()
+        else:
+            sob = element.sobolev_space()
+        needs_hdiv = sob == firedrake.HDiv
+        needs_hcurl = sob == firedrake.HCurl
+        if needs_hcurl:
+            raise ValueError("FDMPC does not support H(Curl) elements")
 
-        needs_interior_facet = not (sub_families <= {"Q", "Lagrange"})
+        needs_interior_facet = sob != firedrake.H1
+        N = element.degree()
+        try:
+            N = max(N)
+        except TypeError:
+            pass
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
         self.mesh = V.ufl_domain()
@@ -115,7 +130,7 @@ class FDMPC(PCBase):
         appctx = self.get_appctx(pc)
         self.fcp = appctx.get("form_compiler_parameters", dict())
         # Get the interior penalty parameter from the appctx
-        eta = float(appctx.get("eta", (N+1)*(N+ndim)))
+        eta = float(appctx.get("eta", (N+1)**2))
         # Get an auxiliary form on the FDM space
         self.diag = appctx.get("diag", None)
         self.diag_tensor = None
@@ -173,6 +188,13 @@ class FDMPC(PCBase):
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def apply(self, pc, x, y, transpose=False):
+        if self.use_fdm_element:
+            if transpose:
+                self.pc.applyTranspose(x, y)
+            else:
+                self.pc.apply(x, y)
+            return
+
         with self.uc.dat.vec_wo as xc:
             xc.set(0.0E0)
 

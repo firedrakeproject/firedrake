@@ -25,11 +25,16 @@ def expected(mesh):
         return [8, 8, 8]
 
 
+@pytest.fixture(params=[None, "fdm"], ids=["spectral", "fdm"])
+def variant(request):
+    return request.param
+
 @pytest.mark.skipcomplex
-def test_p_independence(mesh, expected):
+def test_p_independence(mesh, expected, variant):
     nits = []
     for p in range(3, 6):
-        V = FunctionSpace(mesh, "Lagrange", p)
+        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=p, variant=variant)
+        V = FunctionSpace(mesh, e)
         u = TrialFunction(V)
         v = TestFunction(V)
 
@@ -83,7 +88,7 @@ def test_p_independence(mesh, expected):
             }})
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
-    assert (nits == expected)
+    assert (nits <= expected)
 
 
 @pytest.mark.skipcomplex

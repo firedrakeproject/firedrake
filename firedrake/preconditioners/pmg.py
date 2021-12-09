@@ -6,8 +6,9 @@ import tempfile
 
 from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
 from ufl import EnrichedElement, HDivElement, HCurlElement, WithMapping
-from ufl import Form, replace
+from ufl import HDiv, HCurl, Form, replace
 from ufl.classes import Expr
+import ufl
 
 from pyop2 import op2, PermutedMap
 import loopy
@@ -508,83 +509,25 @@ def prolongation_transfer_kernel_action(Vf, expr):
                       flop_count=kernel.flop_count), coefficients
 
 
-def tensor_product_space_query(V):
-    """
-    Checks whether the custom transfer kernels support the FunctionSpace V.
-
-    V must be either Q(N) or DQ(N) (same N along every direction),
-    RTCF(N), RTCE(N), NCF(N), or NCE(N) on quads or hexes.
-
-    :arg V: FunctionSpace
-    :returns: 4-tuple of (use_tensorproduct, degree, topological_dimension, sub_families, variant)
-    """
-    from FIAT import reference_element
-    ndim = V.ufl_domain().topological_dimension()
-    iscube = (ndim == 2 or ndim == 3) and reference_element.is_hypercube(V.finat_element.cell)
-
-    ele = V.ufl_element()
-    if isinstance(ele, firedrake.WithMapping):
-        ele = ele.wrapee
-    if isinstance(ele, (firedrake.VectorElement, firedrake.TensorElement)):
-        subel = ele.sub_elements()
-        ele = subel[0]
-
-    N = ele.degree()
-    use_tensorproduct = True
-    try:
-        N, = set(N)
-    except ValueError:
-        # Tuple with different extents
-        use_tensorproduct = False
-    except TypeError:
-        # Just a single int
-        pass
-    if isinstance(ele, TensorProductElement):
-        sub_families = set(e.family() for e in ele.sub_elements())
-        try:
-            # variant = None defaults to spectral
-            # We must allow tensor products between None and spectral
-            variant, = set(e.variant() or "spectral" for e in ele.sub_elements())
-        except ValueError:
-            # Multiple variants
-            variant = "unsupported"
-            use_tensorproduct = False
-    elif isinstance(ele, EnrichedElement):
-        if all(isinstance(sub, HDivElement) for sub in ele._elements):
-            sub_families = {"NCF"}
-        elif all(isinstance(sub, HCurlElement) for sub in ele._elements):
-            sub_families = {"NCE"}
-        else:
-            sub_families = {"unknown"}
-        variant = None
-    else:
-        sub_families = {ele.family()}
-        variant = ele.variant()
-
-    isCG = sub_families <= {"Q", "Lagrange"}
-    isDG = sub_families <= {"DQ", "Discontinuous Lagrange"}
-    isHdiv = sub_families < {"RTCF", "NCF"}
-    isHcurl = sub_families < {"RTCE", "NCE"}
-    isspectral = variant is None or variant == "spectral"
-    use_tensorproduct = use_tensorproduct and iscube and isspectral and (isCG or isDG or isHdiv or isHcurl)
-
-    return use_tensorproduct, N, ndim, sub_families, variant
-
-
 def get_permuted_map(V):
     # Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
-    use_tensorproduct, N, ndim, sub_families, _ = tensor_product_space_query(V)
-    if use_tensorproduct and sub_families < {"RTCF", "NCF"}:
-        pshape = [N]*ndim
-        pshape[0] = -1
+
+    e = V.ufl_element()
+    if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
+        e = e._sub_element
+    sob = e.sobolev_space()
+    if sob == ufl.HDiv:
         shift = 1
-    elif use_tensorproduct and sub_families < {"RTCE", "NCE"}:
-        pshape = [N+1]*ndim
-        pshape[0] = -1
+    elif sob == ufl.HCurl:
         shift = 0
     else:
         return V.cell_node_map()
 
+    elements = get_line_elements(e)
+    while type(elements[0]) == list:
+        elements = elements[0]
+
+    pshape = [e.degree()+1 for e in elements]
     ncomp = V.ufl_element().value_size()
     ndof = V.value_size * V.finat_element.space_dimension()
     permutation = numpy.reshape(numpy.arange(ndof), (ncomp, -1))
@@ -594,61 +537,75 @@ def get_permuted_map(V):
     return PermutedMap(V.cell_node_map(), permutation)
 
 
-def get_line_element(V):
-    # Return the Line elements for Q, DQ, RTCF/E, NCF/E
-    from FIAT.reference_element import UFCInterval
-    from FIAT import gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange
-    use_tensorproduct, N, ndim, sub_families, variant = tensor_product_space_query(V)
-    assert use_tensorproduct
-    cell = UFCInterval()
-    if sub_families <= {"Q", "Lagrange"}:
-        if variant == "equispaced":
-            element = lagrange.Lagrange(cell, N)
-        else:
-            element = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        element = [element]*ndim
-    elif sub_families <= {"DQ", "Discontinuous Lagrange"}:
-        if variant == "equispaced":
-            element = discontinuous_lagrange.DiscontinuousLagrange(cell, N)
-        else:
-            element = gauss_legendre.GaussLegendre(cell, N)
-        element = [element]*ndim
-    elif sub_families < {"RTCF", "NCF"}:
-        cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [cg] + [dg]*(ndim-1)
-    elif sub_families < {"RTCE", "NCE"}:
-        cg = gauss_lobatto_legendre.GaussLobattoLegendre(cell, N)
-        dg = gauss_legendre.GaussLegendre(cell, N-1)
-        element = [dg] + [cg]*(ndim-1)
+def get_line_elements(ele):
+    import ufl
+    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange, fdm_element
+    if ele.cell() == ufl.quadrilateral:
+        quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
+        return get_line_elements(ele.reconstruct(cell=quadrilateral_tpc))
+    elif ele.cell() == ufl.hexahedron:
+        hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
+        return get_line_elements(ele.reconstruct(cell=hexahedron_tpc))
+
+    elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
+        return get_line_elements(ele._sub_element)
+    elif isinstance(ele, ufl.EnrichedElement):
+        return [get_line_elements(e) for e in ele._elements]
+    elif isinstance(ele, ufl.TensorProductElement):
+        ee = [get_line_elements(e) for e in ele.sub_elements()]
+        try:
+            for j in ee[1:]:
+                for k in ee[0]:
+                    k.extend(j)
+            return ee[0]
+        except AttributeError:
+            return sum(ee, [])
+
+    elif isinstance(ele, ufl.HCurlElement):
+        ee = get_line_elements(ele._element)
+        ee.reverse()
+        return ee
+    elif isinstance(ele, (ufl.HDivElement, ufl.WithMapping)):
+        return get_line_elements(ele._element)
+    elif isinstance(ele, ufl.MixedElement):
+        raise ValueError("MixedElements are not decomposed into tensor products")
     else:
-        raise ValueError("Don't know how to get line element for %s" % V.ufl_element())
-    return element
+        if ele.cell() != ufl.interval:
+            raise ValueError("Expecting %s to be on the interval" % ele)
+
+        ref_el = ufc_cell(ele.cell())
+        degree = ele.degree()
+        variant = ele.variant()
+        formdegree = 0 if ele.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
+        if variant == "equispaced":
+            if formdegree == 0:
+                return [lagrange.Lagrange(ref_el, degree)]
+            else:
+                return [discontinuous_lagrange.DiscontinuousLagrange(ref_el, degree)]
+        elif variant == "fdm":
+            return [fdm_element.FDMElement(ref_el, degree, formdegree=formdegree)]
+        else:
+            if formdegree == 0:
+                return [gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree)]
+            else:
+                return [gauss_legendre.GaussLegendre(ref_el, degree)]
 
 
-def get_line_nodes(V):
-    # Return the Line nodes for Q, DQ, RTCF/E, NCF/E
-    from FIAT.reference_element import UFCInterval
-    from FIAT import quadrature
-    use_tensorproduct, N, ndim, sub_families, variant = tensor_product_space_query(V)
-    assert use_tensorproduct
-    cell = UFCInterval()
-    if variant == "equispaced" and sub_families <= {"Q", "DQ", "Lagrange", "Discontinuous Lagrange"}:
-        return [cell.make_points(1, 0, N+1)]*ndim
-    elif sub_families <= {"Q", "Lagrange"}:
-        rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        return [rule.get_points()]*ndim
-    elif sub_families <= {"DQ", "Discontinuous Lagrange"}:
-        rule = quadrature.GaussLegendreQuadratureLineRule(cell, N+1)
-        return [rule.get_points()]*ndim
-    elif sub_families < {"RTCF", "NCF"}:
-        cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        return [cg.get_points()] + [dg.get_points()]*(ndim-1)
-    elif sub_families < {"RTCE", "NCE"}:
-        cg = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, N+1)
-        dg = quadrature.GaussLegendreQuadratureLineRule(cell, N)
-        return [dg.get_points()] + [cg.get_points()]*(ndim-1)
+def get_line_nodes(element):
+    # Return the Line nodes for 1D elements
+    from FIAT import quadrature, lagrange, discontinuous_lagrange
+    cell = element.ref_el
+    degree = element.degree()
+    formdegree = element.formdegree
+    equispaced = isinstance(element, (lagrange.Lagrange, discontinuous_lagrange.HigherOrderDiscontinuousLagrange))
+    if equispaced:
+        return cell.make_points(1, 0, degree+1)
+    elif formdegree == 0:
+        rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, degree+1)
+        return rule.get_points()
+    elif formdegree == 1:
+        rule = quadrature.GaussLegendreQuadratureLineRule(cell, degree+1)
+        return rule.get_points()
     else:
         raise ValueError("Don't know how to get line nodes for %s" % V.ufl_element())
 
@@ -725,11 +682,25 @@ return;
 
 
 def make_kron_code(Vf, Vc, t_in, t_out, mat):
+    from FIAT import functional
     nscal = Vf.ufl_element().value_size()
-    celem = get_line_element(Vc)
-    nodes = get_line_nodes(Vf)
+    celem = get_line_elements(Vc.ufl_element())
+    felem = get_line_elements(Vf.ufl_element())
+    while type(celem[0]) == list:
+        celem = celem[0]
+    while type(felem[0]) == list:
+        felem = felem[0]
+
+    if len(celem) != len(felem):
+        raise ValueError("Fine and coarse elements have different tensor product dimensions")
+
+    nodes = [get_line_nodes(e) for e in felem]
     Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
     ndim = len(Jhat)
+
+    for k, e in enumerate(felem):
+        if not all([isinstance(phi, functional.PointEvaluation) for phi in e.dual_basis()]):
+            Jhat[k] = numpy.dot(Jhat[k], numpy.linalg.inv(e.tabulate(0, nodes[k])[(0,)]))
 
     # Declare array shapes to be used as literals inside the kernels
     # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
@@ -741,7 +712,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     shapes[1].append(nscal)
 
     # Pass the 1D tabulation as hexadecimal string
-    # The Kronecker product routines assume 3D shapes, so in 2D we pass one instead of Jhat
+    # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass one instead of Jhat
     JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
     JY = "&one" if ndim < 2 else f"{mat}+{Jhat[0].size}"
     JZ = "&one" if ndim < 3 else f"{mat}+{Jhat[0].size+Jhat[1].size}"
@@ -840,12 +811,10 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
 
 
 def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
-    try:
-        sobolev = elem.sobolev_space()
-    except AttributeError:
-        sobolev = ""
-
-    if sobolev in [firedrake.HDiv, firedrake.HCurl]:
+    if isinstance(elem, (TensorElement, VectorElement)):
+        elem = elem._sub_element
+    sobolev = elem.sobolev_space()
+    if sobolev in [HDiv, HCurl]:
         ndim = elem.cell().topological_dimension()
         pshape = shapes.copy()
         pshape = pshape[:ndim]
@@ -853,7 +822,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
         ndof = numpy.prod(vshape)
         permutation = numpy.arange(ndof)
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
-        shift = int(sobolev == firedrake.HDiv)
+        shift = int(sobolev == HDiv)
 
         # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(permutation, pshape)
@@ -870,7 +839,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
         """
 
         nflip = 0
-        if sobolev == firedrake.HDiv:
+        if sobolev == HDiv:
             # flip the sign of the first component
             nflip = ndof // elem.value_shape()[0]
 
@@ -919,9 +888,7 @@ class StandaloneInterpolationMatrix(object):
         with self.weight.dat.vec as w:
             w.reciprocal()
 
-        tf, _, _, _, _ = tensor_product_space_query(Vf)
-        tc, _, _, _, _ = tensor_product_space_query(Vc)
-        if tf and tc:
+        try:
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
@@ -929,7 +896,7 @@ class StandaloneInterpolationMatrix(object):
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self.weight.dat(op2.READ, uf_map)]
-        else:
+        except ValueError:
             uf_map = Vf.cell_node_map()
             uc_map = Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
