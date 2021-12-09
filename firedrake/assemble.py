@@ -139,7 +139,7 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
                        appctx, options_prefix):
 
     # Preprocess and restructure the DAG
-    expr = preassemble_base_form(expr, mat_type, form_compiler_parameters)
+    expr = preprocess_base_form(expr, mat_type, form_compiler_parameters)
 
     # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
     stack = [expr]
@@ -294,7 +294,7 @@ def preprocess_form(form, fc_params):
     return ufl.algorithms.preprocess_form(form, complex_mode)
 
 
-def preassemble_base_form(expr, mat_type, form_compiler_parameters):
+def preprocess_base_form(expr, mat_type, form_compiler_parameters):
     if isinstance(expr, ufl.form.Form) and mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
