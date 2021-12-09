@@ -5,7 +5,7 @@ import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
-from firedrake import cofunction, dmhooks
+from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
@@ -343,11 +343,11 @@ class _SNESContext(object):
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
-                subu = cofunction.Cofunction(V, val=val)
+                subu = function.Function(V, val=val)
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                subu = cofunction.Cofunction(V, val=val)
+                subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             # Permutation from field indexing to indexing of pieces
