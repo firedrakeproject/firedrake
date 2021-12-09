@@ -261,6 +261,10 @@ def base_form_operands(expr):
         # Use reversed to treat base form operators
         # in the order in which they have been made.
         return list(reversed(expr.base_form_operators()))
+    if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+        children = [e for e in (expr.argument_slots() + expr.ufl_operands)
+                    if isinstance(e, ufl.form.BaseForm)]
+        return list(children)
     return []
 
 
@@ -319,6 +323,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                             appctx, options_prefix)
 
         if isinstance(res, firedrake.Function):
+            # TODO: Remove once MatrixImplicitContext is Cofunction safe.
             res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
         return res
 
@@ -385,29 +390,51 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         else:
             raise TypeError("Mismatching FormSum shapes")
     elif isinstance(expr, ufl.Interp):
-        vstar, expression = expr.argument_slots()
-        # If argument numbers have been swapped => we are assembling the adjoint.
-        is_adjoint = (vstar.number() != 0)
+        # Replace assembled children
+        _, expression = expr.argument_slots()
+        v, *assembled_expression = args
+        if assembled_expression:
+            # Occur in situations such as Interp composition
+            expression = assembled_expression
+        expr = expr._ufl_expr_reconstruct_(expression, v)
+
+        # Different assembly procedures:
+        # 1) Interp(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interp matrix)
+        # 2) Interp(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
+        # 3) Interp(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
+        # 4) Interp(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
+        # This can be generalized to the case where the first slot is an arbitray expression.
+        rank = len(expr.arguments())
+        # If argument numbers have been swapped => Adjoint.
+        arg_expression = ufl.algorithms.extract_arguments(expression)
+        is_adjoint = (arg_expression and arg_expression[0].number() == 0)
         # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-        is_rank_1 = (len(expr.arguments()) == 1)
-        if not is_adjoint and not is_rank_1:
+        if not is_adjoint and rank != 1:
             _, v1 = expr.arguments()
             expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
         # Should we use `freeze_expr` to cache the interpolation ? (e.g. if timestepping loop)
         interpolator = firedrake.Interpolator(expression, expr.function_space())
-        if is_rank_1:
-            # We are assembling either the operator, or the action of its
-            # Jacobian, or the action of the adjoint of its Jacobian.
+        # Assembly
+        if rank == 1:
+            # Assembling the action of the Jacobian adjoint.
+            if is_adjoint:
+                output = firedrake.Cofunction(expression.function_space().dual())
+                return interpolator.interpolate(v, output=output, transpose=is_adjoint)
+            # Assembling the operator, or its Jacobian action.
             return interpolator.interpolate(transpose=is_adjoint)
-        # Return the interpolation matrix
-        op2_mat = interpolator.callable()
-        petsc_mat = op2_mat.handle
-        if is_adjoint:
-            # TODO: Work out how to get the conjugate?
-            petsc_mat.transpose()
-        return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
-                                      appctx=appctx,
-                                      options_prefix=options_prefix)
+        elif rank == 2:
+            # Return the interpolation matrix
+            op2_mat = interpolator.callable()
+            petsc_mat = op2_mat.handle
+            if is_adjoint:
+                # TODO: Work out how to get the conjugate?
+                petsc_mat.transpose()
+            return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+                                          appctx=appctx,
+                                          options_prefix=options_prefix)
+        else:
+            # TODO: The case rank == 0 is handled via the DAG restructuration
+            raise ValueError("Incompatible number of arguments.")
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr
     elif isinstance(expr, ufl.Coefficient):

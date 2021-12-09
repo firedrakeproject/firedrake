@@ -3,7 +3,7 @@ from functools import partial, singledispatch
 
 import FIAT
 import ufl
-from ufl.algorithms import extract_arguments
+from ufl.algorithms import extract_arguments, replace
 
 from pyop2 import op2
 
@@ -15,7 +15,7 @@ import finat
 
 import firedrake
 from firedrake import utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, Coargument
+from firedrake.ufl_expr import Argument
 from firedrake.adjoint import annotate_interpolate
 from firedrake.petsc import PETSc
 
@@ -36,18 +36,19 @@ class Interp(ufl.Interp):
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
             v = Argument(v.dual(), 0)
-        elif not isinstance(v, Coargument):
-            raise NotImplementedError("Expecting a coargument or a function space not %s " % type(v))
+            v2 = extract_arguments(expr)
+            if v2 and v2[0].number() == 0:
+                # Cope with the different convention of Interp and Inteprolator:
+                #  -> Interp(Argument(V1, 1), Argument(V2.dual(), 0))
+                #  -> Interpolator(Argument(V1, 0), V2)
+                expr = replace(expr, {v2: Argument(v2.function_space(),
+                                                   number=1,
+                                                   part=v2.part())})
 
         # Get the primal space (V** = V)
-        self._function_space = v.function_space().dual()
-
-        # Produce the resulting Coefficient: Deprecated feature
-        if result_coefficient is None:
-            result_coefficient = firedrake.Function(self._function_space)
-        elif not isinstance(result_coefficient, (ufl.Coefficient, ufl.referencevalue.ReferenceValue)):
-            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
-        ufl.Interp.__init__(self, expr, v, result_coefficient=result_coefficient)
+        vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
+        self._function_space = vv.function_space().dual()
+        ufl.Interp.__init__(self, expr, v)
 
     def function_space(self):
         return self._function_space

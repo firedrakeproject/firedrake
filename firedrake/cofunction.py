@@ -196,6 +196,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
         return NotImplemented
 
+    def interpolate(self, expression):
+        r"""Interpolate an expression onto this :class:`Cofunction`.
+
+        :param expression: a UFL expression to interpolate
+        :returns: this :class:`Function` object"""
+        from firedrake.ufl_expr import Argument
+        from firedrake import interpolation
+        interp = interpolation.Interp(Argument(self.function_space().dual(), 0), expression)
+        return firedrake.assemble(interp)
+
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
         :class:`Function`"""
