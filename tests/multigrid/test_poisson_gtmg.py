@@ -72,8 +72,22 @@ def run_gtmg_mixed_poisson():
     f.project(x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2]))
 
     e_analytical = errornorm(f, uh, norm_type="L2")
-    print(e_analytical)
-    return e_analytical
+    print("Error of GTMG to analytical solution:", e_analytical)
+
+    w_ref = Function(W)
+    ref_params = {'ksp_type': 'gmres',
+                    'pc_type': 'python',
+                    'mat_type': 'matfree',
+                    'pc_python_type': 'firedrake.HybridizationPC',
+                    'hybridization': {'ksp_type': 'preonly',
+                                      'pc_type': 'lu'}}
+    solve(a == L, w_ref, solver_parameters=ref_params, appctx=appctx)
+    _, uh_ref = w_ref.split()
+    
+    print("Error of LU to analytical solution:", errornorm(f, uh_ref, norm_type="L2"))
+    print("Error of GTMG to LU solution:", errornorm(uh, uh_ref, norm_type="L2"))
+
+    return e
 
 
 def run_gtmg_scpc_mixed_poisson():
