@@ -115,26 +115,32 @@ class HierarchyBase(object):
         return self.meshes[idx]
 
 
-def RedistMeshHierarchy(cmesh, nlevel,
+def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
+                        callbacks=None,
                         distribution_parameters=None):
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     meshes = [cmesh]
-    for _ in range(nlevel):
+    if callbacks is not None:
+        before, after = callbacks
+    else:
+        before = after = lambda dm, i: None
+
+    for i in range(refinement_levels*refinements_per_level):
         cmesh.init()
         cdm = cmesh.topology_dm
 
+        if i % refinements_per_level == 0:
+            before(cdm, i)
+
         cdm.setRefinementUniform(True)
         _, n2oc = get_entity_renumbering(cdm, cmesh._cell_numbering, "cell")
-
         rdm = cdm.refine()
-
         rmesh = firedrake.Mesh(rdm,
-                     distribution_parameters={
-                         "partition": False,
-                         "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
-                     })
-
+                               distribution_parameters={
+                                   "partition": False,
+                                   "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0)
+                               })
         rmesh.init()
 
         o2nf, _ = get_entity_renumbering(rdm, rmesh._cell_numbering, "cell")
@@ -152,22 +158,32 @@ def RedistMeshHierarchy(cmesh, nlevel,
                 coarse_to_fine[coarse_cell, i] = f
                 fine_to_coarse[f, 0] = coarse_cell
 
-        rdmredist = rdm.clone()
-        # TODO: configuration for setting partitioner
-        part = rdmredist.getPartitioner()
-        part.setType(part.Type.PARMETIS)
-        rdmredist.removeLabel("pyop2_ghost")
-        rdmredist.removeLabel("pyop2_owned")
-        rdmredist.removeLabel("pyop2_core")
-        pointmigrationsf = rdmredist.distribute(overlap=1)
-        rmeshredist = firedrake.Mesh(
-            rdmredist,
-            distribution_parameters={
-                "partition": False,
-                "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
-            },
-        )
-        rmeshredist.redist = RedistMesh(rmesh, pointmigrationsf)
+        if rmesh.comm.size == 1:
+            rmeshredist = rmesh
+            if i % refinements_per_level == 0:
+                after(rdm, i)
+        else:
+            rdmredist = rdm.clone()
+            if i % refinements_per_level == 0:
+                after(rdmredist, i)
+            # TODO: configuration for setting partitioner
+            part = rdmredist.getPartitioner()
+            part.setType(part.Type.PARMETIS)
+            rdmredist.removeLabel("pyop2_ghost")
+            rdmredist.removeLabel("pyop2_owned")
+            rdmredist.removeLabel("pyop2_core")
+            pointmigrationsf = rdmredist.distribute(overlap=1)
+            rmeshredist = firedrake.Mesh(
+                rdmredist,
+                distribution_parameters={
+                    "partition": False,
+                    "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
+                },
+            )
+            if pointmigrationsf is None:
+                assert rmesh.comm.size == 1
+            else:
+                rmeshredist.redist = RedistMesh(rmesh, pointmigrationsf)
         meshes.append(rmeshredist)
         coarse_to_fine_cells.append(coarse_to_fine)
         fine_to_coarse_cells.append(fine_to_coarse)
