@@ -662,26 +662,33 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
-def redistribute_dm(dm, overlap_type, depth, distribute, partitioner):
+def redistribute_dm(dm, distribution_parameters):
     """Distribute a DM (possibly adding overlap)
 
     This is a no-op if the DM has a comm of size 1, otherwise the DM
     is modified in place.
 
     :arg dm: The dm.
-    :arg overlap_type: DistributedMeshOverlapType enum.
-    :arg depth: depth of overlap.
-    :arg distribute: Should distribution take place? (see also :func:`set_partitioner`)
-    :arg partitioner: The partitioner to use
+    :arg distribution_parameters: Parameters controlling the
+        distribution, see :func:`~.Mesh` for details.
     :returns: The SF migrating from old to new DM (or None if no
         migration is required). In the latter case, the overlap was
         not grown.
     """
+    distribute = distribution_parameters.get("partition", True)
+    partitioner = distribution_parameters.get("partitioner_type")
+    overlap_type, depth = distribution_parameters.get("overlap_type", (DistributedMeshOverlapType.FACET, 1))
+
     if dm.comm.size == 1 or not distribute:
         return
     if depth < 0:
         raise ValueError("Overlap depth must be >= 0")
     set_partitioner(dm, distribute, partitioner)
+    # These labels are meaningless after redistribution and must be
+    # reconstructed.
+    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_core")
     if overlap_type == DistributedMeshOverlapType.NONE:
         if depth > 0:
             raise ValueError("Can't have NONE overlap with overlap > 0")
@@ -725,7 +732,7 @@ def set_partitioner(dm, distribute, partitioner_type=None):
                     raise ValueError("Unable to use 'parmetis': Firedrake is not "
                                      "installed with 'parmetis'.")
         else:
-            if IntType.itemsize == 8:
+            if IntType.itemsize == 8 or dm.isDistributed():
                 # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
                 # Chaco does not work on distributed meshes.
                 if get_config().get("options", {}).get("with_parmetis", False):
@@ -762,11 +769,6 @@ class MeshTopology(AbstractMeshTopology):
         super().__init__(name)
 
         # Do some validation of the input mesh
-        distribute = distribution_parameters.get("partition", True)
-        self._distribution_parameters = distribution_parameters.copy()
-        partitioner = distribution_parameters.get("partitioner_type")
-        overlap_type, depth = distribution_parameters.get("overlap_type", (DistributedMeshOverlapType.FACET, 1))
-
         dmcommon.validate_mesh(plex)
         plex.setFromOptions()
 
@@ -778,12 +780,12 @@ class MeshTopology(AbstractMeshTopology):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        label_boundary = (self.comm.size == 1) or distribute
+        label_boundary = (self.comm.size == 1) or not plex.isDistributed()
         dmcommon.label_facets(plex, label_boundary=label_boundary)
-
         # Distribute/redistribute the dm to all ranks
-        redistribute_dm(plex, overlap_type, depth, distribute, partitioner)
+        self._pointmigrationsf = redistribute_dm(plex, distribution_parameters)
         dmcommon.complete_facet_labels(self.topology_dm)
+        self._distribution_parameters = distribution_parameters.copy()
 
         tdim = plex.getDimension()
 

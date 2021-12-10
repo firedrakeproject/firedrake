@@ -7,6 +7,7 @@ import firedrake
 from firedrake.utils import cached_property
 from firedrake.halo import _get_mtype as get_mpi_type
 from firedrake.halo import MPI
+from firedrake.mesh import DistributedMeshOverlapType, redistribute_dm
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
 from firedrake.cython.mgimpl import (build_section_migration_sf, create_lgmap,
@@ -20,14 +21,18 @@ __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNested
 
 def cull_overlap(dm):
     """Remove the overlap from a DM, returning a new DM."""
+    # TODO: Need to transfer label values over (so this doesn't work right now)
     dm.createLabel("cell_filter")
     cStart, cEnd = dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
         ghost = dm.getLabelValue("pyop2_ghost", c)
-        if ghost >= 0:
+        if ghost < 0:
+            # We keep points that aren't ghosts.
             dm.setLabelValue("cell_filter", c, 1)
     label = dm.getLabel("cell_filter")
     newdm = dm.filter(label, 1)
+    subpointmap = newdm.getSubpointMap()
+    subpointmap.view()
     dm.removeLabel("cell_filter")
     return newdm
 
@@ -130,8 +135,10 @@ class HierarchyBase(object):
 
 
 def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
+                        reorder=None,
                         callbacks=None,
-                        distribution_parameters=None):
+                        distribution_parameters=None,
+                        redistribute=True):
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     meshes = [cmesh]
@@ -140,6 +147,20 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
     else:
         before = after = lambda dm, i: None
 
+    if distribution_parameters is not None:
+        redistparams = distribution_parameters.copy()
+    else:
+        redistparams = cmesh._distribution_parameters.copy()
+    # Want to redistribute
+    redistparams["partition"] = True
+    redistparams["overlap_type"] =(DistributedMeshOverlapType.VERTEX, 1)
+    nooverlap = {"partition": False,
+                 "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    if redistribute:
+        distparams = nooverlap
+    else:
+        distparams = redistparams.copy()
+        distparams["partition"] = False
     for i in range(refinement_levels*refinements_per_level):
         cdm = cmesh.topology_dm
 
@@ -149,11 +170,9 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
         cdm.setRefinementUniform(True)
         _, n2oc = get_entity_renumbering(cdm, cmesh._cell_numbering, "cell")
         rdm = cdm.refine()
-        rmesh = firedrake.Mesh(rdm,
-                               distribution_parameters={
-                                   "partition": False,
-                                   "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0)
-                               })
+        # This destroys labels
+        rdm = cull_overlap(rdm)
+        rmesh = firedrake.Mesh(rdm, distribution_parameters=distparams, reorder=reorder)
         o2nf, _ = get_entity_renumbering(rdm, rmesh._cell_numbering, "cell")
 
         fine_to_coarse = np.empty((rmesh.cell_set.size, 1), dtype=np.int32)
@@ -169,7 +188,7 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
                 coarse_to_fine[coarse_cell, i] = f
                 fine_to_coarse[f, 0] = coarse_cell
 
-        if rmesh.comm.size == 1:
+        if rmesh.comm.size == 1 or not redistribute:
             rmeshredist = rmesh
             if i % refinements_per_level == 0:
                 after(rdm, i)
@@ -177,29 +196,16 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
             rdmredist = rdm.clone()
             if i % refinements_per_level == 0:
                 after(rdmredist, i)
-            # TODO: configuration for setting partitioner
-            part = rdmredist.getPartitioner()
-            part.setType(part.Type.PARMETIS)
-            rdmredist.removeLabel("pyop2_ghost")
-            rdmredist.removeLabel("pyop2_owned")
-            rdmredist.removeLabel("pyop2_core")
-            pointmigrationsf = rdmredist.distribute(overlap=1)
-            rmeshredist = firedrake.Mesh(
-                rdmredist,
-                distribution_parameters={
-                    "partition": False,
-                    "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
-                },
-            )
-            if pointmigrationsf is None:
-                assert rmesh.comm.size == 1
+            rmeshredist = firedrake.Mesh(rdmredist, distribution_parameters=redistparams, reorder=reorder)
+            psf = rmeshredist._pointmigrationsf
+            if psf is None:
+                assert rmeshredist.comm.size == 1
             else:
-                rmeshredist.redist = RedistMesh(rmesh, pointmigrationsf)
+                rmeshredist.redist = RedistMesh(rmesh, psf)
         meshes.append(rmeshredist)
         coarse_to_fine_cells.append(coarse_to_fine)
         fine_to_coarse_cells.append(fine_to_coarse)
         cmesh = rmeshredist
-
     coarse_to_fine_cells = dict((Fraction(i, 1), c2f)
                                 for i, c2f in enumerate(coarse_to_fine_cells))
     fine_to_coarse_cells = dict((Fraction(i, 1), f2c)
