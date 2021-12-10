@@ -3,15 +3,19 @@ from fractions import Fraction
 from collections import defaultdict
 
 from pyop2.datatypes import IntType
-
 import firedrake
 from firedrake.utils import cached_property
+from firedrake.halo import _get_mtype as get_mpi_type
+from firedrake.halo import MPI
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
+from firedrake.cython.mgimpl import (build_section_migration_sf, create_lgmap,
+                                     fine_to_coarse_nodes,
+                                     get_entity_renumbering)
 
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
-           "SemiCoarsenedExtrudedHierarchy")
+           "SemiCoarsenedExtrudedHierarchy", "RedistMeshHierarchy")
 
 
 def redistribute_dm(dm):
@@ -34,6 +38,46 @@ def redistribute_dm(dm):
     # if overlapsf is not None:
     #     migrationsf = migrationsf.compose(overlapsf)
     # return new_mesh, migrationsf
+
+
+class RedistMesh:
+    def __init__(self, orig, pointmigrationsf):
+        self.orig = orig
+        self.pointmigrationsf = pointmigrationsf
+
+    def orig2redist(self, source, target):
+        # TODO: cache keyed on UFL element
+        source_section = source.function_space().dm.getDefaultSection()
+        target_section = target.function_space().dm.getDefaultSection()
+        secmigrationsf = build_section_migration_sf(
+            self.pointmigrationsf, source_section, target_section
+        )
+        dtype, _ = get_mpi_type(source.dat)
+        secmigrationsf.bcastBegin(dtype,
+                                  source.dat.data_ro_with_halos,
+                                  target.dat.data_ro_with_halos,
+                                  MPI.REPLACE)
+        secmigrationsf.bcastEnd(dtype,
+                                source.dat.data_ro_with_halos,
+                                target.dat.data_ro_with_halos,
+                                MPI.REPLACE)
+
+    def redist2orig(self, target, source):
+        # TODO: cache keyed on UFL element
+        source_section = source.function_space().dm.getDefaultSection()
+        target_section = target.function_space().dm.getDefaultSection()
+        secmigrationsf = build_section_migration_sf(
+            self.pointmigrationsf, source_section, target_section
+        )
+        dtype, _ = get_mpi_type(source.dat)
+        secmigrationsf.reduceBegin(dtype,
+                                   target.dat.data_ro_with_halos,
+                                   source.dat.data_ro_with_halos,
+                                   MPI.REPLACE)
+        secmigrationsf.reduceEnd(dtype,
+                                 target.dat.data_ro_with_halos,
+                                 source.dat.data_ro_with_halos,
+                                 MPI.REPLACE)
 
 
 class HierarchyBase(object):
@@ -64,11 +108,11 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
         self.nested = nested
-        for level, m in enumerate(meshes):
-            set_level(m, self, Fraction(level, refinements_per_level))
-        for level, m in enumerate(self):
-            set_level(m, self, level)
         self._shared_data_cache = defaultdict(dict)
+        for level, m in enumerate(meshes):
+            set_level(m, self, level)
+            if hasattr(m, "redist"):
+                set_level(m.redist.orig, self, level)
 
     @cached_property
     def comm(self):
@@ -91,6 +135,76 @@ class HierarchyBase(object):
 
         :arg idx: The :func:`~.Mesh` to return"""
         return self.meshes[idx]
+
+
+def RedistMeshHierarchy(cmesh, nlevel,
+                        distribution_parameters=None):
+    coarse_to_fine_cells = []
+    fine_to_coarse_cells = [None]
+    meshes = [cmesh]
+    for _ in range(nlevel):
+        cmesh.init()
+        cdm = cmesh.topology_dm
+
+        cdm.setRefinementUniform(True)
+        _, n2oc = get_entity_renumbering(cdm, cmesh._cell_numbering, "cell")
+
+        rdm = cdm.refine()
+
+        rmesh = firedrake.Mesh(rdm,
+                     distribution_parameters={
+                         "partition": False,
+                         "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
+                     })
+
+        rmesh.init()
+
+        o2nf, _ = get_entity_renumbering(rdm, rmesh._cell_numbering, "cell")
+
+        fine_to_coarse = np.empty((rmesh.cell_set.size, 1), dtype=np.int32)
+        coarse_to_fine = np.empty((cmesh.cell_set.size, 4), dtype=np.int32)
+        for coarse_cell in range(cmesh.cell_set.size):
+            c = n2oc[coarse_cell]
+            assert 0 <= c < cmesh.cell_set.size
+            for i in range(4):
+                f = 4 * c + i
+                assert 0 <= f < rmesh.cell_set.size
+                f = o2nf[f]
+                assert 0 <= f < rmesh.cell_set.size
+                coarse_to_fine[coarse_cell, i] = f
+                fine_to_coarse[f, 0] = coarse_cell
+
+        rdmredist = rdm.clone()
+        # TODO: configuration for setting partitioner
+        part = rdmredist.getPartitioner()
+        part.setType(part.Type.PARMETIS)
+        rdmredist.removeLabel("pyop2_ghost")
+        rdmredist.removeLabel("pyop2_owned")
+        rdmredist.removeLabel("pyop2_core")
+        pointmigrationsf = rdmredist.distribute(overlap=1)
+        rmeshredist = firedrake.Mesh(
+            rdmredist,
+            distribution_parameters={
+                "partition": False,
+                "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
+            },
+        )
+        rmeshredist.redist = RedistMesh(rmesh, pointmigrationsf)
+        meshes.append(rmeshredist)
+        coarse_to_fine_cells.append(coarse_to_fine)
+        fine_to_coarse_cells.append(fine_to_coarse)
+        cmesh = rmeshredist
+
+    coarse_to_fine_cells = dict((Fraction(i, 1), c2f)
+                                for i, c2f in enumerate(coarse_to_fine_cells))
+    fine_to_coarse_cells = dict((Fraction(i, 1), f2c)
+                                for i, f2c in enumerate(fine_to_coarse_cells))
+
+    return HierarchyBase(meshes,
+                         coarse_to_fine_cells=coarse_to_fine_cells,
+                         fine_to_coarse_cells=fine_to_coarse_cells,
+                         refinements_per_level=1,
+                         nested=True)
 
 
 def MeshHierarchy(mesh, refinement_levels,
