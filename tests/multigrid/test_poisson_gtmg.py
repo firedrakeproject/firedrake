@@ -33,8 +33,8 @@ def run_gtmg_mixed_poisson():
     f = Function(DG)
     f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
 
-    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
-    L = inner(f, v)*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
+    L = -inner(f, v)*dx
 
     w = Function(W)
     params = {'mat_type': 'matfree',
