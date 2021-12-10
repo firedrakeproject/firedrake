@@ -31,9 +31,29 @@ def cull_overlap(dm):
             dm.setLabelValue("cell_filter", c, 1)
     label = dm.getLabel("cell_filter")
     newdm = dm.filter(label, 1)
-    subpointmap = newdm.getSubpointMap()
-    subpointmap.view()
+    smap = newdm.getSubpointMap()
+    newdm.addLabel(smap)
+    depth = newdm.getLabelIdIS("subpoint_map").indices
+    labels = ["Face Sets", "Cell Sets", "exterior_facets", "interior_facets"]
+    # FIXME: This should be done in C
+    for label in labels:
+        if dm.hasLabel(label):
+            newdm.removeLabel(label)
+            newdm.createLabel(label)
+    for d in depth:
+        pstart, pend = newdm.getDepthStratum(d)
+        if newdm.getStratumSize("subpoint_map", d) == 0:
+            continue
+        opoints = newdm.getStratumIS("subpoint_map", d).indices
+        for p in range(pstart, pend):
+            for label in ["Face Sets", "Cell Sets", "exterior_facets", "interior_facets"]:
+                if not dm.hasLabel(label):
+                    continue
+                v = dm.getLabelValue(label, opoints[p - pstart])
+                if v >= 0:
+                    newdm.setLabelValue(label, p, v)
     dm.removeLabel("cell_filter")
+    newdm.removeLabel("subpoint_map")
     return newdm
 
 
