@@ -18,6 +18,20 @@ __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNested
            "SemiCoarsenedExtrudedHierarchy", "RedistMeshHierarchy")
 
 
+def cull_overlap(dm):
+    """Remove the overlap from a DM, returning a new DM."""
+    dm.createLabel("cell_filter")
+    cStart, cEnd = dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        ghost = dm.getLabelValue("pyop2_ghost", c)
+        if ghost >= 0:
+            dm.setLabelValue("cell_filter", c, 1)
+    label = dm.getLabel("cell_filter")
+    newdm = dm.filter(label, 1)
+    dm.removeLabel("cell_filter")
+    return newdm
+
+
 class RedistMesh:
     def __init__(self, orig, pointmigrationsf):
         self.orig = orig
