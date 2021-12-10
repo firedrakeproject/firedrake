@@ -183,15 +183,19 @@ def restructure_base_form(expr, visited=None):
              /     w        ----->   dNdu(u; w, v*)
             /
        dNdu(u; uhat, v*)
-        (3) Adjoint(dNdu)
+        (3) Action(F, N)
+             Action                                       F
+              /   \         ----->   F(..., N)[v]  =      |
+            F[v]   N                                      N
+        (4) Adjoint(dNdu)
              Adjoint
                 |           ----->   dNdu(u; v*, uhat)
            dNdu(u; uhat, v*)
-        (4) Action(F, N)
-                                                          F
-             Action         ----->   F(..., N)[v]  =      |
-              /   \
-            F[v]   N                                      N
+        (5) N(u; w) (scalar valued)
+                                 Action
+            N(u; w)   ---->       /   \   = Action(N, w)
+                             N(u; v*)  w
+
     So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
              Action             Action               Action
              /    \    (1)      /     \      (2)     /     \               (4)                                dFdN
@@ -213,19 +217,23 @@ def restructure_base_form(expr, visited=None):
         is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function)) or len(x.arguments()) == 1
         is_rank_2 = lambda x: len(x.arguments()) == 2
 
-        if isinstance(left, ufl.Form) and is_rank_1(right):
-            v_rep = left.arguments()[-1]
-            visited[expr] = ufl.replace(left, {v_rep: right})
-            return visited[expr]
+        # -- Case (1) -- #
         # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
         if isinstance(left, ufl.Action) and is_rank_2(left):
             operands = [left.left(), ufl.action(left.right(), right)]
-        if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right):
+        # -- Case (2) (except if left has only 1 argument, i.e. we have done case (5)) -- #
+        if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right) and len(left.arguments()) != 1:
             # Retrieve the highest numbered argument
             arg = max(left.arguments(), key=lambda v: v.number())
             visited[expr] = ufl.replace(left, {arg: right})
             return visited[expr]
+        # -- Case (3) -- #
+        if isinstance(left, ufl.Form) and is_rank_1(right):
+            v_rep = left.arguments()[-1]
+            visited[expr] = ufl.replace(left, {v_rep: right})
+            return visited[expr]
 
+    # -- Case (4) -- #
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
         B = expr.form()
         u, v = B.arguments()
@@ -238,10 +246,23 @@ def restructure_base_form(expr, visited=None):
         visited[expr] = B._ufl_expr_reconstruct_(*[ufl.replace(arg, mapping) for arg in reversed(B.argument_slots())])
         return visited[expr]
 
+    # -- Case (5) -- #
+    if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
+        # We are assembling a BaseFormOperator of rank 0 (no arguments).
+        # B(f, u*) be a BaseFormOperator with u* a Cofunction and f a Coefficient, then:
+        #    B(f, u*) <=> Action(B(f, v*), f) where v* is a Coargument
+        ustar, *args = expr.argument_slots()
+        new_args = [firedrake.Argument(ustar.function_space(), 0)] + args
+        # Different notation for Interp
+        if isinstance(expr, ufl.Interp):
+            expr = expr._ufl_expr_reconstruct_(*reversed(new_args))
+        else:
+            expr = expr._ufl_expr_reconstruct_(argument_slots=new_args)
+        return ufl.action(expr, ustar)
+
     # Visit/update the children
     operands = list(restructure_base_form(op, visited) for op in operands)
     # Need to reconstruct the DAG as we traverse it!
-    #  -> ufl.replace does not apply on most of the base form objects
     visited[expr] = reconstruct_node_from_operands(expr, operands)
     return visited[expr]
 
@@ -262,8 +283,8 @@ def base_form_operands(expr):
         # in the order in which they have been made.
         return list(reversed(expr.base_form_operators()))
     if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-        children = [e for e in (expr.argument_slots() + expr.ufl_operands)
-                    if isinstance(e, ufl.form.BaseForm)]
+        children = set(e for e in (expr.argument_slots() + expr.ufl_operands)
+                       if isinstance(e, ufl.form.BaseForm))
         return list(children)
     return []
 
@@ -342,28 +363,37 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         if (len(args) != 2):
             raise TypeError("Not enough operands for Action")
         lhs, rhs = args
-        if not isinstance(lhs, matrix.MatrixBase):
-            raise TypeError("Incompatible LHS for Action")
-        if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            petsc_mat = lhs.petscmat
-            (row, col) = lhs.arguments()
-            res = _make_vector(col)
+        if isinstance(lhs, matrix.MatrixBase):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                petsc_mat = lhs.petscmat
+                (row, col) = lhs.arguments()
+                res = _make_vector(col)
 
-            with rhs.dat.vec_ro as v_vec:
-                with res.dat.vec as res_vec:
-                    petsc_mat.mult(v_vec, res_vec)
-            return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
-        elif isinstance(rhs, matrix.MatrixBase):
-            petsc_mat = lhs.petscmat
-            (row, col) = lhs.arguments()
-            res = PETSc.Mat().create()
-            # TODO Figure out what goes here
-            res = petsc_mat.matMult(rhs.petscmat)
-            return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
-                                          appctx=appctx,
-                                          options_prefix=options_prefix)
+                with rhs.dat.vec_ro as v_vec:
+                    with res.dat.vec as res_vec:
+                        petsc_mat.mult(v_vec, res_vec)
+                return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
+            elif isinstance(rhs, matrix.MatrixBase):
+                petsc_mat = lhs.petscmat
+                (row, col) = lhs.arguments()
+                res = PETSc.Mat().create()
+                # TODO Figure out what goes here
+                res = petsc_mat.matMult(rhs.petscmat)
+                return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                                              appctx=appctx,
+                                              options_prefix=options_prefix)
+            else:
+                raise TypeError("Incompatible RHS for Action.")
+        elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                # Return scalar value
+                with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
+                    res = x.dot(y)
+                return res
+            else:
+                raise TypeError("Incompatible RHS for Action.")
         else:
-            raise TypeError("Incompatible RHS for Action")
+            raise TypeError("Incompatible LHS for Action.")
     elif isinstance(expr, ufl.FormSum):
         if (len(args) != len(expr.weights())):
             raise TypeError("Mismatching weights and operands in FormSum")
@@ -395,7 +425,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         v, *assembled_expression = args
         if assembled_expression:
             # Occur in situations such as Interp composition
-            expression = assembled_expression
+            expression = assembled_expression[0]
         expr = expr._ufl_expr_reconstruct_(expression, v)
 
         # Different assembly procedures:

@@ -69,6 +69,18 @@ def test_assemble_interp(mesh):
     # fstar.dat.data[:] = a.dat.data[:]
     # assembled_action_adjoint_Iv1 = assemble(action(adjoint(Iv1), fstar))
 
+    # -- Interp(f1, u2) (rank 0) -- #
+    # Set the Cofunction u2
+    u2 = assemble(v2 * dx)
+    # Interp(f1, u2) <=> Action(Interp(f1, V2), u2)
+    # a is rank 0 so assembling it produces a scalar.
+    a = assemble(Interp(f1, u2))
+    # Compute numerically Action(Interp(f1, V2), u2)
+    b = assemble(Interp(f1, V2))
+    with b.dat.vec_ro as x, u2.dat.vec_ro as y:
+        res = x.dot(y)
+    assert np.abs(a - res) < 1e-9
+
 
 def test_check_identity(mesh):
     V2 = FunctionSpace(mesh, "CG", 2)
