@@ -1,9 +1,8 @@
 # Elastodynamics verification
 # ===========================
-
 # Here we solve an elastodynamics equation using an explicit
 # timestepping scheme. This example demonstrates the use of pointwise 
-# operations on Functions and a time varying Neumann boundary condition. 
+# operations on Functions and a time-varying Neumann boundary condition. 
 # The strong form of the equation we set out to solve is:
 
 # .. math::
@@ -109,9 +108,6 @@ u_n   = Function(W, name='displacement')
 u_np1 = Function(W)
 u_nm1 = Function(W)
 
-# Next we define the traction vector which will be updated in the time loop::
-traction = Constant((0., 0., 0.))
-
 # We next establish the Dirichlet boundary conditions::
 fixedSides  = Constant(0.)
 fixedBottom = as_vector((0.,0.,0.))
@@ -130,48 +126,46 @@ bcSet = [fixedLeft_BC_x, fixedRight_BC_x, fixedBack_BC_x, fixedFront_BC_x, \
          fixedLeft_BC_y, fixedRight_BC_y, fixedBack_BC_y, fixedFront_BC_y, \
          fixedBottom_BC]
 
+# Next we define the traction vector which will be updated in the time loop::
+t = Constant(t)
+traction = as_vector([0, 0, -0.5*amplitude*(1 - cos(omega*t))])
+
+# Next we define the bilinear forms::
+a = dot(u, w)*dx
+L = (dt**2/rho) * (dot(traction, w)*Gamma_N - inner(sigma(u_n), epsilon(w))*dx) - dot(u_nm1 - 2*u_n, w)*dx
+
 print("Computing numerical solution...")
 
 if lump_mass:
-    lumped_mass = assemble((rho/(dt*dt))*dot(w, Function(W).interpolate(as_vector([1,1,1]))) * dx)
+    
+    alump = replace(a, {u: as_vector([1, 1, 1])})
+    lumped_mass = assemble(alump)
+
     # Time-stepping loop::
-    while t < T + EPSILON:
+    for step in range(1, Nsteps_numerical + 2):
         # Update time step::
-        # print(t)
-        t    += dt
-        step += 1
-        # Update load::
-        traction.assign((0., 0., -0.5*amplitude*(1 - cos(omega*t))))
-        # Assemble right-hand side::
-        rhs = assemble(-inner(sigma(u_np1), epsilon(w))*dx + dot(traction, w)*Gamma_N)
-        us  = Function(W).assign(rhs)
+        t.assign(t + dt)
+
+        assemble(L, tensor=u_np1, bcs=bcSet)
+
         # Divide by lumped mass matrix::
-        us /= lumped_mass
-        # Update displacements::
-        u_np1.assign(us + 2*u_n - u_nm1)
-        for bc in bcSet:
-            bc.apply(u_np1)
-        u_n.assign(u_np1)
+        u_np1 /= lumped_mass
+
+        # Update solutions for next time step::
         u_nm1.assign(u_n)
+        u_n.assign(u_np1)
+
         # Save data::
         u_numerical[step] = u_n([0., 0., 20.])[2]
 
 else:
-    # Apply the central differencing scheme::
-    F    = inner(sigma(u), epsilon(w))*dx + rho/(dt*dt)*dot(u - 2*u_n + u_nm1, w)*dx - dot(traction, w)*Gamma_N
-    a, L = lhs(F), rhs(F)
     
     # Time-stepping loop::
-    while t < T + EPSILON:
+    for step in range(1, Nsteps_numerical + 2):
         # Update time step::
-        t    += dt
-        step += 1
-        # Update load::
-        traction.assign((0., 0., -0.5*amplitude*(1 - cos(omega*t))))
+        t.assign(t + dt)
 
-        solve(a == L, u_np1, bcSet, solver_parameters={'ksp_type': 'cg',
-                                                       'pc_type': 'sor',
-                                                       'pc_sor_symmetric': True})
+        solve(a == L, u_np1, bcSet)
 
         # Update solutions for next time step::
         u_nm1.assign(u_n)
