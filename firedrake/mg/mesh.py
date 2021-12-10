@@ -188,8 +188,7 @@ def RedistMeshHierarchy(cmesh, nlevel,
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
                   reorder=None,
-                  distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh):
+                  distribution_parameters=None, callbacks=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     :arg mesh: the coarse :func:`~.Mesh` to refine
@@ -207,7 +206,6 @@ def MeshHierarchy(mesh, refinement_levels,
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
-    :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
@@ -251,9 +249,9 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
-                                    distribution_parameters=distribution_parameters,
-                                    reorder=reorder)
+    meshes = [mesh] + [firedrake.Mesh(dm, dim=mesh.ufl_cell().geometric_dimension(),
+                                      distribution_parameters=distribution_parameters,
+                                      reorder=reorder)
                        for dm in dms]
 
     lgmaps = []
@@ -281,8 +279,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
-                          kernel=None, extrusion_type='uniform', gdim=None,
-                          mesh_builder=firedrake.ExtrudedMesh):
+                          kernel=None, extrusion_type='uniform', gdim=None):
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
@@ -301,8 +298,6 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
-       extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
     """
@@ -319,10 +314,10 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         if base_layer != -1:
             raise ValueError("Can't specify both layers and base_layer")
 
-    meshes = [mesh_builder(m, layer, kernel=kernel,
-                           layer_height=height/layer,
-                           extrusion_type=extrusion_type,
-                           gdim=gdim)
+    meshes = [firedrake.ExtrudedMesh(m, layer, kernel=kernel,
+                                     layer_height=height/layer,
+                                     extrusion_type=extrusion_type,
+                                     gdim=gdim)
               for (m, layer) in zip(base_hierarchy._meshes, layers)]
 
     return HierarchyBase(meshes,
@@ -333,8 +328,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
 
 
 def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, refinement_ratio=2, layers=None,
-                                   kernel=None, extrusion_type='uniform', gdim=None,
-                                   mesh_builder=firedrake.ExtrudedMesh):
+                                   kernel=None, extrusion_type='uniform', gdim=None):
     """Build a hierarchy of extruded meshes with refinement only in the extruded dimension.
 
     :arg base_mesh: the unextruded base mesh to extrude.
@@ -354,8 +348,6 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
-       extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
 
@@ -378,10 +370,10 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
             raise ValueError("Need to provide a number of layers for every refined mesh. "
                              f"Got {len(layers)}, needed {nref+1}")
 
-    meshes = [mesh_builder(base_mesh, layer, kernel=kernel,
-                           layer_height=height/layer,
-                           extrusion_type=extrusion_type,
-                           gdim=gdim)
+    meshes = [firedrake.ExtrudedMesh(base_mesh, layer, kernel=kernel,
+                                     layer_height=height/layer,
+                                     extrusion_type=extrusion_type,
+                                     gdim=gdim)
               for layer in layers]
     refinements_per_level = 1
     identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)
