@@ -17,7 +17,6 @@ def cell_midpoints(m):
     rank-local non-ghost cells."""
     if isinstance(m.topology, mesh.ExtrudedMeshTopology):
         raise NotImplementedError("Extruded meshes are not supported")
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -73,7 +72,6 @@ def test_pic_swarm_in_plex(parentmesh):
 
     # Setup
 
-    parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc

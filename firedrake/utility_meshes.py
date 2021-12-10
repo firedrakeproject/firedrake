@@ -183,7 +183,6 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     # a line of coordinates, with a looped topology
     plex = mesh._from_cell_list(2, cells, coords, comm)
     mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters)
-    mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
     cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
@@ -282,8 +281,6 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
     mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
-
-    mesh1.init()
 
     fe_dg = FiniteElement('DQ', mesh1.ufl_cell(), 1, variant="equispaced")
     Vc = VectorFunctionSpace(mesh1, fe_dg)

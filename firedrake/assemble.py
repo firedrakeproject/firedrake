@@ -661,10 +661,6 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
         topology, = set(d.topology for d in expr.ufl_domains())
     except ValueError:
         raise NotImplementedError("All integration domains must share a mesh topology")
-    for m in expr.ufl_domains():
-        # Ensure mesh is "initialised" (could have got here without
-        # building a functionspace (e.g. if integrating a constant)).
-        m.init()
 
     for o in chain(expr.arguments(), expr.coefficients()):
         domain = o.ufl_domain()

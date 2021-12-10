@@ -141,7 +141,6 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
         before = after = lambda dm, i: None
 
     for i in range(refinement_levels*refinements_per_level):
-        cmesh.init()
         cdm = cmesh.topology_dm
 
         if i % refinements_per_level == 0:
@@ -155,8 +154,6 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
                                    "partition": False,
                                    "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0)
                                })
-        rmesh.init()
-
         o2nf, _ = get_entity_renumbering(rdm, rmesh._cell_numbering, "cell")
 
         fine_to_coarse = np.empty((rmesh.cell_set.size, 1), dtype=np.int32)
@@ -287,7 +284,6 @@ def MeshHierarchy(mesh, refinement_levels,
     lgmaps = []
     for i, m in enumerate(meshes):
         no = impl.create_lgmap(m.topology_dm)
-        m.init()
         o = impl.create_lgmap(m.topology_dm)
         m.topology_dm.setRefineLevel(i)
         lgmaps.append((no, o))
@@ -386,7 +382,6 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     """
     if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
         raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
-    base_mesh.init()
     if base_mesh.cell_set._extruded:
         raise ValueError("Base mesh must not be extruded")
     if layers is None:

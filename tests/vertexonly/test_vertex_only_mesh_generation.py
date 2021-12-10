@@ -17,7 +17,6 @@ def cell_midpoints(m):
     rank-local non-ghost cells."""
     if isinstance(m.topology, mesh.ExtrudedMeshTopology):
         raise NotImplementedError("Extruded meshes are not supported")
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -96,8 +95,6 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     # Correct dims
     assert vm.geometric_dimension() == gdim
     assert vm.topological_dimension() == 0
-    # Can initialise
-    vm.init()
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
     _, owned, _ = m.cell_set.sizes
