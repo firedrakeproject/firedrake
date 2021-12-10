@@ -87,6 +87,14 @@ def run_gtmg_mixed_poisson():
     print("Error of LU to analytical solution:", errornorm(f, uh_ref, norm_type="L2"))
     print("Error of GTMG to LU solution:", errornorm(uh, uh_ref, norm_type="L2"))
 
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.plot(uh.dat.data, label="uh")
+    plt.plot(f.dat.data, label="f")
+    plt.plot(uh_ref.dat.data, label="uh_ref")
+    plt.legend()
+    plt.show()
+
     return e
 
 
