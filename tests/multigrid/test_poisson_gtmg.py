@@ -4,9 +4,10 @@ import pytest
 
 def run_gtmg_mixed_poisson():
 
-    m = UnitSquareMesh(10, 10, quadrilateral=True)
+    m = SquareMesh(10, 10, 1, quadrilateral=True)
     nlevels = 2
-    mh = MeshHierarchy(m, nlevels)
+    basemh = MeshHierarchy(m, nlevels)
+    mh = ExtrudedMeshHierarchy(basemh, 1, base_layer=10)
     mesh = mh[-1]
     x = SpatialCoordinate(mesh)
 
@@ -23,15 +24,21 @@ def run_gtmg_mixed_poisson():
         return inner(grad(p), grad(q))*dx
 
     degree = 1
-    RT = FunctionSpace(mesh, "RTCF", degree)
-    DG = FunctionSpace(mesh, "DQ", degree - 1)
-    W = RT * DG
+    RT = FiniteElement("RTCF", quadrilateral, degree)
+    DG_v = FiniteElement("DG", interval, degree-1)
+    DG_h = FiniteElement("DQ", quadrilateral, degree-1)
+    CG = FiniteElement("CG", interval, degree)
+    HDiv_ele = EnrichedElement(HDiv(TensorProductElement(RT, DG_v)),
+                               HDiv(TensorProductElement(DG_h, CG)))
+    V = FunctionSpace(mesh, HDiv_ele)
+    U = FunctionSpace(mesh, "DQ", degree-1)
+    W = V * U
 
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    f = Function(DG)
-    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1])
+    f = Function(U)
+    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1]- 2*(x[2]-1)*x[2])
 
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
     L = -inner(f, v)*dx
@@ -62,11 +69,11 @@ def run_gtmg_mixed_poisson():
     _, uh = w.split()
 
     # Analytical solution
-    f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
+    f.project(x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2]))
 
-    e = errornorm(f, uh, norm_type="L2")
-    print(e)
-    return e
+    e_analytical = errornorm(f, uh, norm_type="L2")
+    print(e_analytical)
+    return e_analytical
 
 
 def run_gtmg_scpc_mixed_poisson():
