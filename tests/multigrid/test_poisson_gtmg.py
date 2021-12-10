@@ -4,7 +4,7 @@ import pytest
 
 def run_gtmg_mixed_poisson():
 
-    m = UnitSquareMesh(10, 10)
+    m = UnitSquareMesh(10, 10, quadrilateral=True)
     nlevels = 2
     mh = MeshHierarchy(m, nlevels)
     mesh = mh[-1]
@@ -23,8 +23,8 @@ def run_gtmg_mixed_poisson():
         return inner(grad(p), grad(q))*dx
 
     degree = 1
-    RT = FunctionSpace(mesh, "RT", degree)
-    DG = FunctionSpace(mesh, "DG", degree - 1)
+    RT = FunctionSpace(mesh, "RTCF", degree)
+    DG = FunctionSpace(mesh, "DQ", degree - 1)
     W = RT * DG
 
     sigma, u = TrialFunctions(W)
@@ -64,7 +64,9 @@ def run_gtmg_mixed_poisson():
     # Analytical solution
     f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
 
-    return errornorm(f, uh, norm_type="L2")
+    e = errornorm(f, uh, norm_type="L2")
+    print(e)
+    return e
 
 
 def run_gtmg_scpc_mixed_poisson():
@@ -145,7 +147,7 @@ def run_gtmg_scpc_mixed_poisson():
 
 @pytest.mark.skipcomplexnoslate
 def test_mixed_poisson_gtmg():
-    assert run_gtmg_mixed_poisson() < 1e-5
+    assert run_gtmg_mixed_poisson() < 1e-4
 
 
 @pytest.mark.skipcomplexnoslate
