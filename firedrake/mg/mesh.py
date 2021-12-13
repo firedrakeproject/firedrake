@@ -265,7 +265,7 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [firedrake.Mesh(dm, dim=mesh.ufl_cell().geometric_dimension(),
+    meshes = [mesh] + [firedrake.Mesh(dm,
                                       distribution_parameters=distribution_parameters,
                                       reorder=reorder)
                        for dm in dms]
