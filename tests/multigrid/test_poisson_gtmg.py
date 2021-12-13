@@ -95,7 +95,25 @@ def run_gtmg_mixed_poisson():
     plt.legend()
     plt.show()
 
-    return e
+    # Test that iterative and analytical solution are correct
+    import numpy as np
+    x = SpatialCoordinate(mesh)
+    w_dc = Function(W).assign(w)
+    assert w_dc != w, "Make sure we don't modify w"
+    w_dc.sub(1).project(uex)
+    A = Tensor(a)
+    B = AssembledVector(w_dc)
+    dat1 = assemble(A*B).dat.data[1]
+    dat2 = assemble(-f*v*dx).dat.data[1]
+    assert np.allclose(dat1, dat2), "Analytical solution is not correct"
+    B = AssembledVector(w)
+    dat1 = assemble(A*B).dat.data[1]
+    assert np.allclose(dat1, dat2), "Iterative solution is not correct"
+
+    # Test that iterative and analytical solution are the same
+    assert np.allclose(w_dc.dat.data[0], w.dat.data[0]), "There is a difference in the solution of the velocity"
+    assert np.allclose(w_dc.dat.data[1], w.dat.data[1], rtol=1.e-6), "There is a difference in the solution of the pressure"
+    return e_analytical
 
 
 def run_gtmg_scpc_mixed_poisson():
