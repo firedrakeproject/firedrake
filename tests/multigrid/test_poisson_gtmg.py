@@ -76,12 +76,10 @@ def run_gtmg_mixed_poisson():
 
     w_ref = Function(W)
     ref_params = {'ksp_type': 'gmres',
-                    'pc_type': 'python',
-                    'mat_type': 'matfree',
-                    'pc_python_type': 'firedrake.HybridizationPC',
-                    'hybridization': {'ksp_type': 'preonly',
-                                      'pc_type': 'lu'}}
-    solve(a == L, w_ref, solver_parameters=ref_params, appctx=appctx)
+                  'pc_type': 'ilu',
+                  "ksp_gmres_restart": 100,
+                  'ksp_rtol': 1.e-12}
+    solve(a == L, w_ref, solver_parameters=ref_params)
     _, uh_ref = w_ref.split()
     
     print("Error of LU to analytical solution:", errornorm(analytical, uh_ref, norm_type="L2"))
