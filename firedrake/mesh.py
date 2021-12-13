@@ -1720,8 +1720,9 @@ def Mesh(meshfile, **kwargs):
            formats.
     :param dim: optional specification of the geometric dimension
            of the mesh (ignored if not reading from mesh file).
-           If not supplied the geometric dimension is deduced from
-           the topological dimension of entities in the mesh.
+           If a DMPlex object is supplied, the geometric dimension is
+           deduced from the DMPlex, and must match this parameter if
+           it is provided.
     :param reorder: optional flag indicating whether to reorder
            meshes for better cache locality.  If not supplied the
            default value in ``parameters["reorder_meshes"]``
@@ -1788,6 +1789,9 @@ def Mesh(meshfile, **kwargs):
     if isinstance(meshfile, PETSc.DMPlex):
         name = "plexmesh"
         plex = meshfile
+        plex_gdim = plex.getCoordinateDim()
+        if geometric_dim is not None and geometric_dim != plex_gdim:
+            raise ValueError(f"DMPlex object has geometric dimension of {plex_gdim} which doesn't match {geometric_dimension}")
     else:
         comm = kwargs.get("comm", COMM_WORLD)
         name = meshfile
@@ -1816,8 +1820,7 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters)
 
     tcell = topology.ufl_cell()
-    if geometric_dim is None:
-        geometric_dim = tcell.topological_dimension()
+    geometric_dim = plex.getCoordinateDim()
     cell = tcell.reconstruct(geometric_dimension=geometric_dim)
 
     element = ufl.VectorElement("Lagrange", cell, 1)
