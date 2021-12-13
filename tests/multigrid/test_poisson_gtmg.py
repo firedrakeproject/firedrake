@@ -40,7 +40,8 @@ def run_gtmg_mixed_poisson():
     tau, v = TestFunctions(W)
 
     f = Function(U)
-    f.interpolate(-2*(x[0]-1)*x[0] - 2*(x[1]-1)*x[1]- 2*(x[2]-1)*x[2])
+    uex = x[0]*(L-x[0])*x[1]*(L-x[1])*x[2]*(L-x[2])
+    f = -div(grad(uex))
 
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
     L = -inner(f, v)*dx
