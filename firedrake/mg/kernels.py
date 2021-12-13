@@ -259,7 +259,7 @@ def prolong_kernel(expression):
                 if (bestdist < 10) {
                     cell = bestcell;
                 } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    fprintf(stderr, "Prolongation could not identify cell in transfer operator. Point: ");
                     for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
@@ -351,7 +351,7 @@ def restrict_kernel(Vf, Vc):
                 if (bestdist < 10) {
                     cell = bestcell;
                 } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    fprintf(stderr, "Restriction could not identify cell in transfer operator. Point: ");
                     for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
@@ -441,7 +441,7 @@ def inject_kernel(Vf, Vc):
                 if (bestdist < 10) {
                     cell = bestcell;
                 } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    fprintf(stderr, "Injection could not identify cell in transfer operator. Point: ");
                     for (int coord = 0; coord < %(spacedim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
