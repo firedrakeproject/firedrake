@@ -49,7 +49,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         """
 
         ufl.Cofunction.__init__(self,
-                                function_space.ufl_function_space().dual())
+                                function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space

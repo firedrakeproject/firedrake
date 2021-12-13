@@ -205,13 +205,6 @@ def restructure_base_form(expr, visited=None):
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     various dag rotations/manipulations in expr.
     """
-    visited = visited or {}
-    if expr in visited:
-        return visited[expr]
-
-    operands = base_form_operands(expr)
-
-    # Perform the DAG rotation when needed
     if isinstance(expr, ufl.Action):
         left, right = expr.ufl_operands
         is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function)) or len(x.arguments()) == 1
@@ -220,18 +213,19 @@ def restructure_base_form(expr, visited=None):
         # -- Case (1) -- #
         # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
         if isinstance(left, ufl.Action) and is_rank_2(left):
-            operands = [left.left(), ufl.action(left.right(), right)]
+            return ufl.action(left.left(), ufl.action(left.right(), right))
         # -- Case (2) (except if left has only 1 argument, i.e. we have done case (5)) -- #
         if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right) and len(left.arguments()) != 1:
             # Retrieve the highest numbered argument
             arg = max(left.arguments(), key=lambda v: v.number())
-            visited[expr] = ufl.replace(left, {arg: right})
-            return visited[expr]
+            return ufl.replace(left, {arg: right})
         # -- Case (3) -- #
         if isinstance(left, ufl.Form) and is_rank_1(right):
-            v_rep = left.arguments()[-1]
-            visited[expr] = ufl.replace(left, {v_rep: right})
-            return visited[expr]
+            # 1) Replace the highest-numbered argument of left by right when needed
+            #    -> e.g. if right is a BaseFormOperator with 1 argument.
+            # Or
+            # 2) Let expr as it is by returning `ufl.Action(left, right)`.
+            return ufl.action(left, right)
 
     # -- Case (4) -- #
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
@@ -242,26 +236,45 @@ def restructure_base_form(expr, visited=None):
         reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
                                firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
         # Replace arguments in argument slots
-        mapping = dict(zip((u, v), reordered_arguments))
-        visited[expr] = B._ufl_expr_reconstruct_(*[ufl.replace(arg, mapping) for arg in reversed(B.argument_slots())])
-        return visited[expr]
+        return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
 
     # -- Case (5) -- #
     if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
         # We are assembling a BaseFormOperator of rank 0 (no arguments).
         # B(f, u*) be a BaseFormOperator with u* a Cofunction and f a Coefficient, then:
         #    B(f, u*) <=> Action(B(f, v*), f) where v* is a Coargument
-        ustar, *args = expr.argument_slots()
-        new_args = [firedrake.Argument(ustar.function_space(), 0)] + args
-        # Different notation for Interp
-        if isinstance(expr, ufl.Interp):
-            expr = expr._ufl_expr_reconstruct_(*reversed(new_args))
-        else:
-            expr = expr._ufl_expr_reconstruct_(argument_slots=new_args)
+        ustar, *_ = expr.argument_slots()
+        vstar = firedrake.Argument(ustar.function_space(), 0)
+        expr = ufl.replace(expr, {ustar: vstar})
         return ufl.action(expr, ustar)
+    return expr
+
+
+def restructure_base_form_postorder(expr, visited=None):
+    visited = visited or {}
+    if expr in visited:
+        return visited[expr]
 
     # Visit/update the children
-    operands = list(restructure_base_form(op, visited) for op in operands)
+    operands = base_form_operands(expr)
+    operands = list(restructure_base_form_postorder(op, visited) for op in operands)
+    # Need to reconstruct the DAG as we traverse it!
+    expr = reconstruct_node_from_operands(expr, operands)
+    # Perform the DAG rotation when needed
+    visited[expr] = restructure_base_form(expr, visited)
+    return visited[expr]
+
+
+def restructure_base_form_preorder(expr, visited=None):
+    visited = visited or {}
+    if expr in visited:
+        return visited[expr]
+
+    # Perform the DAG rotation when needed
+    expr = restructure_base_form(expr, visited)
+    # Visit/update the children
+    operands = base_form_operands(expr)
+    operands = list(restructure_base_form_preorder(op, visited) for op in operands)
     # Need to reconstruct the DAG as we traverse it!
     visited[expr] = reconstruct_node_from_operands(expr, operands)
     return visited[expr]
@@ -321,8 +334,8 @@ def preprocess_base_form(expr, mat_type, form_compiler_parameters):
         expr = preprocess_form(expr, form_compiler_parameters)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         # => No restructuration needed for Form and slate.TensorBase
-        expr = restructure_base_form(expr)
-        expr = restructure_base_form(expr)
+        expr = restructure_base_form_preorder(expr)
+        expr = restructure_base_form_postorder(expr)
     return expr
 
 

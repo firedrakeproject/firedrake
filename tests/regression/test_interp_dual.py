@@ -49,6 +49,10 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, b.dat.data)
 
+    # -- Action(I(v1, V2), f1) -- #
+    assembled_action_Iv1 = assemble(action(Iv1, f1))
+    assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
+
     # -- Adjoint(I(v1, V2)) -- #
     v2 = TestFunction(V2)
     c2 = assemble(v2 * dx)
@@ -61,13 +65,13 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 
-    # -- Action(I(v1, V2), f1) -- #
-    assembled_action_Iv1 = assemble(action(Iv1, f1))
-    assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
-
-    # fstar = Cofunction(V2)
-    # fstar.dat.data[:] = a.dat.data[:]
-    # assembled_action_adjoint_Iv1 = assemble(action(adjoint(Iv1), fstar))
+    # -- Action(Adjoint(I(v1, v2)), fstar) -- #
+    fstar = Cofunction(V2.dual())
+    v = Argument(V1, 0)
+    Ivfstar = assemble(Interp(v, fstar))
+    # Action(Adjoint(I(v1, v2)), fstar) <=> I(v, fstar)
+    res = assemble(action(adjoint(Iv1), fstar))
+    assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
     # -- Interp(f1, u2) (rank 0) -- #
     # Set the Cofunction u2
