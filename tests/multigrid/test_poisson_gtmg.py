@@ -15,7 +15,9 @@ def run_gtmg_mixed_poisson():
         return FunctionSpace(mesh, "CG", 1)
 
     def get_p1_prb_bcs():
-        return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
+        return [DirichletBC(get_p1_space(), Constant(0.0), "on_boundary"),
+                DirichletBC(get_p1_space(), Constant(0.0), "top"),
+                DirichletBC(get_p1_space(), Constant(0.0), "bottom")]
 
     def p1_callback():
         P1 = get_p1_space()
