@@ -3,6 +3,7 @@ from functools import lru_cache, partial
 from pyop2 import op2
 from pyop2.sparsity import get_preallocation
 
+import ufl
 from ufl import FiniteElement, VectorElement, TensorElement, BrokenElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl import as_tensor, diag_vector, dot, dx, indices, inner
@@ -14,7 +15,7 @@ from FIAT.fdm_element import FDMElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_permuted_map, get_line_elements
+from firedrake.preconditioners.pmg import get_permuted_map, get_line_elements, prolongation_matrix_matfree
 from firedrake.utils import IntType_c
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -85,9 +86,11 @@ class FDMPC(PCBase):
         element = V.ufl_element()
         try:
             elems = get_line_elements(element)
+            while type(elems[0]) == list:
+                elems = elems[0]
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % element)
-        self.use_fdm_element = all([isinstance(e, FDMElement) for e in elems])
+        use_fdm_element = all([isinstance(e, FDMElement) for e in elems])
 
         if isinstance(element, (TensorElement, VectorElement)):
             sob = element._sub_element.sobolev_space()
@@ -106,10 +109,8 @@ class FDMPC(PCBase):
             pass
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
+        self.V = V
         self.mesh = V.ufl_domain()
-        self.uf = firedrake.Function(V)
-        self.uc = firedrake.Function(V)
-        self.cell_node_map = get_permuted_map(V)
 
         # Get Jacobian form and bcs
         solverctx = get_appctx(dm)
@@ -123,22 +124,32 @@ class FDMPC(PCBase):
 
         bcflags = self.get_bc_flags(self.bcs, self.J)
 
-        self.weight = self.multiplicity(V)
-        with self.weight.dat.vec as w:
-            w.reciprocal()
-
         appctx = self.get_appctx(pc)
-        self.fcp = appctx.get("form_compiler_parameters", dict())
         # Get the interior penalty parameter from the appctx
         eta = float(appctx.get("eta", (N+1)**2))
-        # Get an auxiliary form on the FDM space
-        self.diag = appctx.get("diag", None)
+        self.fcp = appctx.get("form_compiler_parameters", dict())
+
+        if use_fdm_element:
+            V_fdm = V
+            self.fdm_interp = None
+            self.fdm_form = self.J
+        else:
+            e_fdm = element.reconstruct(variant="fdm")
+            V_fdm = firedrake.FunctionSpace(self.mesh, e_fdm)
+            bcs_fdm = [firedrake.DirichletBC(V_fdm, firedrake.zero(), bc.sub_domain) for bc in self.bcs]
+            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
+            test, trial = self.J.arguments()
+            rep_dict = {test: firedrake.TestFunction(V_fdm), trial: firedrake.TrialFunction(V_fdm)}
+            self.fdm_form = replace(self.J, rep_dict)
+
+        self.work = firedrake.Function(V_fdm)
         self.diag_tensor = None
+        self.fdm_form = None
 
         # Get the FDM transfer kernels (restriction and prolongation)
         # Afdm = sparse interval mass and stiffness matrices for each direction
         # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
-        Afdm, Dfdm, self.restrict_kernel, self.prolong_kernel = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, needs_hdiv)
+        Afdm, Dfdm = self.assemble_matfree(V, N, Nq, eta, needs_interior_facet, needs_hdiv)
 
         # Get coefficients w.r.t. the reference coordinates
         # we may use a lower quadrature degree, but using Nq is not so expensive
@@ -188,44 +199,23 @@ class FDMPC(PCBase):
         self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
 
     def apply(self, pc, x, y, transpose=False):
-        if self.use_fdm_element:
+        if self.fdm_interp is None:
             if transpose:
                 self.pc.applyTranspose(x, y)
             else:
                 self.pc.apply(x, y)
-            return
+        else:
+            with self.work.dat.vec as w:
+                self.fdm_interp.multTranspose(x, y)
 
-        with self.uc.dat.vec_wo as xc:
-            xc.set(0.0E0)
+                if transpose:
+                    self.pc.applyTranspose(y, w)
+                else:
+                    self.pc.apply(y, w)
 
-        with self.uf.dat.vec_wo as xf:
-            x.copy(xf)
+                self.fdm_interp.mult(w, y)
 
-        op2.par_loop(self.restrict_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.INC, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map),
-                     self.weight.dat(op2.READ, self.cell_node_map))
-
-        for bc in self.bcs:
-            bc.zero(self.uc)
-
-        with self.uc.dat.vec_ro as x_, self.uf.dat.vec_wo as y_:
-            if transpose:
-                self.pc.applyTranspose(x_, y_)
-            else:
-                self.pc.apply(x_, y_)
-
-        for bc in self.bcs:
-            bc.zero(self.uf)
-
-        op2.par_loop(self.prolong_kernel, self.mesh.cell_set,
-                     self.uc.dat(op2.WRITE, self.cell_node_map),
-                     self.uf.dat(op2.READ, self.cell_node_map))
-
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(y)
-
-        y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def applyTranspose(self, pc, x, y):
         self.apply(pc, x, y, transpose=True)
@@ -601,11 +591,13 @@ class FDMPC(PCBase):
         return coefficients, assembly_callables
 
     def diagonal_scaling(self, A):
-        if (self.diag is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
-            self.diag_tensor = firedrake.assemble(self.diag, tensor=self.diag_tensor, diagonal=True,
+        if (self.fdm_form is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
+            self.diag_tensor = firedrake.assemble(self.fdm_form, tensor=self.diag_tensor, diagonal=True,
                                                   assembly_type="residual",
                                                   form_compiler_parameters=self.fcp)
-            with self.diag_tensor.dat.vec as x_, self.uc.dat.vec as y_:
+            if self.work is None:
+                self.work = firedrake.Function(self.V)
+            with self.diag_tensor.dat.vec as x_, self.work.dat.vec as y_:
                 A.getDiagonal(y_)
                 x_ /= y_
                 x_.sqrtabs()
@@ -692,7 +684,9 @@ class FDMPC(PCBase):
             rd = (0, -1)
             kd = slice(1, -1)
             _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Sfdm[kd, rd] = -Sfdm[kd, kd] @ ((Sfdm[kd, kd].T @ Bhat[kd, rd]) @ Sfdm[numpy.ix_(rd, rd)])
+            Skk = Sfdm[kd, kd]
+            Srr = Sfdm[numpy.ix_(rd, rd)]
+            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
 
         def apply_strong_bcs(Ahat, bc0, bc1):
             k0 = 0 if bc0 == 1 else 1
@@ -749,7 +743,9 @@ class FDMPC(PCBase):
             rd = (0, -1)
             kd = slice(1, -1)
             _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Sfdm[kd, rd] = -Sfdm[kd, kd] @ ((Sfdm[kd, kd].T @ Bhat[kd, rd]) @ Sfdm[numpy.ix_(rd, rd)])
+            Skk = Sfdm[kd, kd]
+            Srr = Sfdm[numpy.ix_(rd, rd)]
+            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(Skk.T, numpy.dot(Bhat[kd, rd], -Srr)))
 
         def apply_weak_bcs(Ahat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
@@ -799,103 +795,25 @@ class FDMPC(PCBase):
             prolong_kernel: a :class:`pyop2.Kernel` with the tensor product prolongation from
             the FDM space onto V
         """
-        bsize = V.value_size
-        nscal = V.ufl_element().value_size()
-        sdim = V.finat_element.space_dimension()
         ndim = V.ufl_domain().topological_dimension()
-        lwork = bsize * sdim
 
         if needs_hdiv:
             Ahat, Bhat, _, _, _ = FDMPC.semhat(N-1, Nq)
-            Afdm, Sfdm, Dfdm = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta)
+            Afdm, _, Dfdm = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta)
             Afdm = [Afdm]*ndim
-            Sfdm = [Sfdm]*ndim
             Dfdm = [Dfdm]*ndim
             Ahat, Bhat, _, _, _ = FDMPC.semhat(N, Nq)
-            Afdm[0], Sfdm[0], Dfdm[0] = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta, gll=True)
+            Afdm[0], _, Dfdm[0] = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta, gll=True)
         else:
             Ahat, Bhat, _, _, _ = FDMPC.semhat(N, Nq)
             if needs_interior_facet:
-                Afdm, Sfdm, Dfdm = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta)
+                Afdm, _, Dfdm = FDMPC.fdm_setup_ipdg(Ahat, Bhat, eta)
             else:
-                Afdm, Sfdm, Dfdm = FDMPC.fdm_setup_cg(Ahat, Bhat)
+                Afdm, _, Dfdm = FDMPC.fdm_setup_cg(Ahat, Bhat)
             Afdm = [Afdm]*ndim
-            Sfdm = [Sfdm]*ndim
             Dfdm = [Dfdm]*ndim
 
-        nx = Sfdm[0].shape[0]
-        ny = Sfdm[1].shape[0] if ndim >= 2 else 1
-        nz = Sfdm[2].shape[0] if ndim >= 3 else 1
-
-        S_len = sum([Sk.size for Sk in Sfdm])
-        S_hex = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Sk).flatten() for Sk in Sfdm])))
-        SX = "S"
-        SY = f"S+{nx*nx}" if ndim > 1 else "&one"
-        SZ = f"S+{nx*nx+ny*ny}" if ndim > 2 else "&one"
-
-        from firedrake.preconditioners.pmg import kronmxv_code
-
-        kernel_code = f"""
-        {kronmxv_code}
-
-        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x){{
-            PetscScalar S[{S_len}] = {{ {S_hex} }};
-            PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one = 1.0E0;
-
-            for({IntType_c} j=0; j<{sdim}; j++)
-                for({IntType_c} i=0; i<{bsize}; i++)
-                    t0[j + {sdim}*i] = x[i + {bsize}*j];
-
-            kronmxv(1, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {SX},{SY},{SZ}, t0, t1);
-
-            for({IntType_c} j=0; j<{sdim}; j++)
-                for({IntType_c} i=0; i<{bsize}; i++)
-                   y[i + {bsize}*j] = t1[j + {sdim}*i];
-            return;
-        }}
-
-        void restriction(PetscScalar *restrict y, const PetscScalar *restrict x,
-                         const PetscScalar *restrict w){{
-            PetscScalar S[{S_len}] = {{ {S_hex} }};
-            PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one = 1.0E0;
-
-            for({IntType_c} j=0; j<{sdim}; j++)
-                for({IntType_c} i=0; i<{bsize}; i++)
-                    t0[j + {sdim}*i] = x[i + {bsize}*j] * w[i + {bsize}*j];
-
-            kronmxv(0, {nx},{ny},{nz}, {nx},{ny},{nz}, {nscal}, {SX},{SY},{SZ}, t0, t1);
-
-            for({IntType_c} j=0; j<{sdim}; j++)
-                for({IntType_c} i=0; i<{bsize}; i++)
-                    y[i + {bsize}*j] += t1[j + {sdim}*i];
-            return;
-        }}
-        """
-
-        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return Afdm, Dfdm, restrict_kernel, prolong_kernel
-
-    @staticmethod
-    def multiplicity(V):
-        # Lawrence's magic code for calculating dof multiplicities
-        shapes = (V.finat_element.space_dimension(),
-                  numpy.prod(V.shape))
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
-        weight = firedrake.Function(V)
-        firedrake.par_loop((domain, instructions), firedrake.dx,
-                           {"w": (weight, op2.INC)}, is_loopy_kernel=True)
-        return weight
+        return Afdm, Dfdm
 
     @staticmethod
     @lru_cache(maxsize=10)

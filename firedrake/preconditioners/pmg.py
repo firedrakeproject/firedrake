@@ -4,9 +4,6 @@ from itertools import chain
 import os
 import tempfile
 
-from ufl import MixedElement, VectorElement, TensorElement, TensorProductElement
-from ufl import EnrichedElement, HDivElement, HCurlElement, WithMapping
-from ufl import HDiv, HCurl, Form, replace
 from ufl.classes import Expr
 import ufl
 
@@ -78,13 +75,13 @@ class PMGBase(PCSNESBase):
         """
         Return the maximum degree of a :class:`ufl.FiniteElement`
         """
-        if isinstance(ele, (VectorElement, TensorElement)):
+        if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
-        elif isinstance(ele, (MixedElement, TensorProductElement)):
+        elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
             return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
-        elif isinstance(ele, EnrichedElement):
+        elif isinstance(ele, ufl.EnrichedElement):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, WithMapping):
+        elif isinstance(ele, ufl.WithMapping):
             return PMGBase.max_degree(ele.wrapee)
         else:
             try:
@@ -111,21 +108,21 @@ class PMGBase(PCSNESBase):
 
         :returns: the reconstructed element
         """
-        if isinstance(ele, VectorElement):
-            return VectorElement(PMGBase.reconstruct_degree(ele._sub_element, N), dim=ele.num_sub_elements())
-        elif isinstance(ele, TensorElement):
-            return TensorElement(PMGBase.reconstruct_degree(ele._sub_element, N), shape=ele.value_shape(), symmetry=ele.symmetry())
-        elif isinstance(ele, EnrichedElement):
+        if isinstance(ele, ufl.VectorElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, N), dim=ele.num_sub_elements())
+        elif isinstance(ele, ufl.TensorElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, N), shape=ele.value_shape(), symmetry=ele.symmetry())
+        elif isinstance(ele, ufl.EnrichedElement):
             shift = N-PMGBase.max_degree(ele)
-            return EnrichedElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
-        elif isinstance(ele, TensorProductElement):
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
+        elif isinstance(ele, ufl.TensorProductElement):
             shift = N-PMGBase.max_degree(ele)
-            return TensorProductElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()), cell=ele.cell())
-        elif isinstance(ele, MixedElement):
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()), cell=ele.cell())
+        elif isinstance(ele, ufl.MixedElement):
             shift = N-PMGBase.max_degree(ele)
-            return MixedElement(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
-        elif isinstance(ele, WithMapping):
-            return WithMapping(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
+        elif isinstance(ele, ufl.WithMapping):
+            return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
         else:
             try:
                 return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
@@ -237,8 +234,8 @@ class PMGBase(PCSNESBase):
             # Coarsen a form, by replacing the solution, test and trial functions, and
             # reconstructing each integral with a coarsened quadrature degree.
             # If form is not a Form, then return form.
-            return Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
-                         for f in replace(form, replace_d).integrals()]) if isinstance(form, Form) else form
+            return ufl.Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
+                            for f in ufl.replace(form, replace_d).integrals()]) if isinstance(form, ufl.Form) else form
 
         def coarsen_bcs(fbcs):
             cbcs = []
@@ -274,10 +271,10 @@ class PMGBase(PCSNESBase):
             val = cappctx[key]
             if isinstance(val, dict):
                 cappctx[key] = coarsen_quadrature(val, Nf, Nc)
-            elif isinstance(val, Expr):
-                cappctx[key] = replace(val, replace_d)
-            elif isinstance(val, Form):
+            elif isinstance(val, ufl.Form):
                 cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
+            elif isinstance(val, Expr):
+                cappctx[key] = ufl.replace(val, replace_d)
 
         cmat_type = fctx.mat_type
         cpmat_type = fctx.pmat_type
@@ -510,8 +507,9 @@ def prolongation_transfer_kernel_action(Vf, expr):
 
 
 def get_permuted_map(V):
-    # Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
-
+    """
+    Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
+    """
     e = V.ufl_element()
     if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
         e = e._sub_element
@@ -524,9 +522,6 @@ def get_permuted_map(V):
         return V.cell_node_map()
 
     elements = get_line_elements(e)
-    while type(elements[0]) == list:
-        elements = elements[0]
-
     pshape = [e.degree()+1 for e in elements]
     ncomp = V.ufl_element().value_size()
     ndof = V.value_size * V.finat_element.space_dimension()
@@ -537,58 +532,92 @@ def get_permuted_map(V):
     return PermutedMap(V.cell_node_map(), permutation)
 
 
-def get_line_elements(ele):
-    import ufl
-    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange, fdm_element
+def expand_element(ele):
+    """
+    Expand sums (EnrichedElement) by distributing the products and discarding modifiers. 
+    """
     if ele.cell() == ufl.quadrilateral:
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
-        return get_line_elements(ele.reconstruct(cell=quadrilateral_tpc))
+        return expand_element(ele.reconstruct(cell=quadrilateral_tpc))
     elif ele.cell() == ufl.hexahedron:
         hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
-        return get_line_elements(ele.reconstruct(cell=hexahedron_tpc))
-
+        return expand_element(ele.reconstruct(cell=hexahedron_tpc))
     elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        return get_line_elements(ele._sub_element)
-    elif isinstance(ele, ufl.EnrichedElement):
-        return [get_line_elements(e) for e in ele._elements]
-    elif isinstance(ele, ufl.TensorProductElement):
-        ee = [get_line_elements(e) for e in ele.sub_elements()]
-        try:
-            for j in ee[1:]:
-                for k in ee[0]:
-                    k.extend(j)
-            return ee[0]
-        except AttributeError:
-            return sum(ee, [])
-
-    elif isinstance(ele, ufl.HCurlElement):
-        ee = get_line_elements(ele._element)
-        ee.reverse()
-        return ee
-    elif isinstance(ele, (ufl.HDivElement, ufl.WithMapping)):
-        return get_line_elements(ele._element)
+        return expand_element(ele._sub_element)
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.WithMapping)):
+        return expand_element(ele._element)
     elif isinstance(ele, ufl.MixedElement):
-        raise ValueError("MixedElements are not decomposed into tensor products")
+        return ufl.MixedElement(*[expand_element(e) for e in ele.sub_elements()])
+    elif isinstance(ele, ufl.EnrichedElement):
+        terms = []
+        for e in ele._elements:
+            ee = expand_element(e)
+            if isinstance(ee, ufl.EnrichedElement):
+                terms.extend(ee._elements)
+            else:
+                terms.append(ee)
+        return ufl.EnrichedElement(*terms)
+    elif isinstance(ele, ufl.TensorProductElement):
+        factors = [expand_element(e) for e in ele.sub_elements()]
+        terms = [tuple()]
+        for e in factors:
+            if isinstance(e, ufl.EnrichedElement):
+                new_terms = []
+                for f in e._elements:
+                    f_factors = tuple(f.sub_elements()) if isinstance(f, ufl.TensorProductElement) else (f,)
+                    for t_factors in terms:
+                        new_terms.append(t_factors + f_factors)
+                terms = new_terms
+            else:
+                e_factors = tuple(e.sub_elements()) if isinstance(e, ufl.TensorProductElement) else (e,)
+                terms = [t_factors + e_factors for t_factors in terms]
+        if len(terms) == 1:
+            return ufl.TensorProductElement(*terms[0])
+        else:
+            return ufl.EnrichedElement(*[ufl.TensorProductElement(*k) for k in terms])
     else:
-        if ele.cell() != ufl.interval:
+        return ele
+
+
+def get_line_elements(ele):
+    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange, fdm_element
+    if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
+        raise ValueError("MixedElements are not decomposed into tensor products")
+    if isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
+        sob = ele._sub_element.sobolev_space()
+    else:
+        sob = ele.sobolev_space()
+    
+    ele = expand_element(ele)
+    if isinstance(ele, ufl.EnrichedElement):
+        # TODO assert that all components are permutations of each other
+        ele = ele._elements[0]
+
+    factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else [ele]
+    elements = []
+    for e in factors:
+        if e.cell() != ufl.interval:
             raise ValueError("Expecting %s to be on the interval" % ele)
 
-        ref_el = ufc_cell(ele.cell())
-        degree = ele.degree()
-        variant = ele.variant()
-        formdegree = 0 if ele.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
+        degree = e.degree()
+        variant = e.variant()
+        ref_el = ufc_cell(e.cell())
+        formdegree = 0 if e.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
         if variant == "equispaced":
             if formdegree == 0:
-                return [lagrange.Lagrange(ref_el, degree)]
+                elements.append(lagrange.Lagrange(ref_el, degree))
             else:
-                return [discontinuous_lagrange.DiscontinuousLagrange(ref_el, degree)]
+                elements.append(discontinuous_lagrange.DiscontinuousLagrange(ref_el, degree))
         elif variant == "fdm":
-            return [fdm_element.FDMElement(ref_el, degree, formdegree=formdegree)]
+            elements.append(fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
         else:
             if formdegree == 0:
-                return [gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree)]
+                elements.append(gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree))
             else:
-                return [gauss_legendre.GaussLegendre(ref_el, degree)]
+                elements.append(gauss_legendre.GaussLegendre(ref_el, degree))
+    if sob == ufl.HCurl:
+        elements.reverse()
+    return elements
 
 
 def get_line_nodes(element):
@@ -596,18 +625,17 @@ def get_line_nodes(element):
     from FIAT import quadrature, lagrange, discontinuous_lagrange
     cell = element.ref_el
     degree = element.degree()
-    formdegree = element.formdegree
     equispaced = isinstance(element, (lagrange.Lagrange, discontinuous_lagrange.HigherOrderDiscontinuousLagrange))
     if equispaced:
         return cell.make_points(1, 0, degree+1)
-    elif formdegree == 0:
+    elif element.formdegree == 0:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, degree+1)
         return rule.get_points()
-    elif formdegree == 1:
+    elif element.formdegree == 1:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, degree+1)
         return rule.get_points()
     else:
-        raise ValueError("Don't know how to get line nodes for %s" % V.ufl_element())
+        raise ValueError("Don't know how to get line nodes for %s" % element)
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -686,14 +714,6 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     nscal = Vf.ufl_element().value_size()
     celem = get_line_elements(Vc.ufl_element())
     felem = get_line_elements(Vf.ufl_element())
-    while type(celem[0]) == list:
-        celem = celem[0]
-    while type(felem[0]) == list:
-        felem = felem[0]
-
-    if len(celem) != len(felem):
-        raise ValueError("Fine and coarse elements have different tensor product dimensions")
-
     nodes = [get_line_nodes(e) for e in felem]
     Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
     ndim = len(Jhat)
@@ -811,10 +831,10 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
 
 
 def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
-    if isinstance(elem, (TensorElement, VectorElement)):
+    if isinstance(elem, (ufl.TensorElement, ufl.VectorElement)):
         elem = elem._sub_element
     sobolev = elem.sobolev_space()
-    if sobolev in [HDiv, HCurl]:
+    if sobolev in [ufl.HDiv, ufl.HCurl]:
         ndim = elem.cell().topological_dimension()
         pshape = shapes.copy()
         pshape = pshape[:ndim]
@@ -822,7 +842,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
         ndof = numpy.prod(vshape)
         permutation = numpy.arange(ndof)
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
-        shift = int(sobolev == HDiv)
+        shift = int(sobolev == ufl.HDiv)
 
         # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(permutation, pshape)
@@ -839,7 +859,7 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
         """
 
         nflip = 0
-        if sobolev == HDiv:
+        if sobolev == ufl.HDiv:
             # flip the sign of the first component
             nflip = ndof // elem.value_shape()[0]
 
@@ -957,7 +977,7 @@ class StandaloneInterpolationMatrix(object):
             else:
                 # interpolate to an embedding element with collocated vector component DOFs
                 qdegree = PMGBase.max_degree(felem)
-                Qe = TensorElement("DQ", felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Qe = ufl.TensorElement("DQ", felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
                 qshape = (Q.value_size, Q.finat_element.space_dimension())
 
@@ -1117,10 +1137,8 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-
-        if self.uc.dat.vec != xc:
-            with self.uc.dat.vec_wo as xc_:
-                xc.copy(xc_)
+        with self.uc.dat.vec_wo as xc_:
+            xc.copy(xc_)
 
         with self.uf.dat.vec_wo as xf_:
             xf_.set(0.0E0)
@@ -1192,7 +1210,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
     mesh = Pk.ufl_domain()
 
     fele = Pk.ufl_element()
-    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
+    if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
         for i in range(fele.num_sub_elements()):
             Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
             P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
@@ -1236,7 +1254,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
 
 def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
     fele = Vf.ufl_element()
-    if isinstance(fele, MixedElement) and not isinstance(fele, (VectorElement, TensorElement)):
+    if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
         ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
     else:
         ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
