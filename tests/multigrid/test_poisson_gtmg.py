@@ -4,10 +4,12 @@ import pytest
 
 def run_gtmg_mixed_poisson():
 
-    m = SquareMesh(10, 10, 1, quadrilateral=True)
-    nlevels = 2
-    basemh = MeshHierarchy(m, nlevels)
-    mh = ExtrudedMeshHierarchy(basemh, 1, base_layer=10)
+    n = 3
+    L = 3
+    m = SquareMesh(n, n, L, quadrilateral=True)
+    levels = 2
+    basemh = MeshHierarchy(m, levels)
+    mh = ExtrudedMeshHierarchy(basemh, L, base_layer=n)
     mesh = mh[-1]
     x = SpatialCoordinate(mesh)
 
