@@ -29,6 +29,7 @@ def expected(mesh):
 def variant(request):
     return request.param
 
+
 @pytest.mark.skipcomplex
 def test_p_independence(mesh, expected, variant):
     nits = []
@@ -42,7 +43,6 @@ def test_p_independence(mesh, expected, variant):
         x = SpatialCoordinate(mesh)
         x -= Constant([0.5]*ndim)
         u_exact = dot(x, x)
-        n = FacetNormal(mesh)
         f_exact = grad(u_exact)
         B = -div(f_exact)
 
@@ -248,7 +248,7 @@ def test_direct_solver(fs):
         ds_ext = {"on_boundary": ds(degree=quad_degree)}
         ds_Dir = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in dirichlet_ids]
         ds_Neu = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in neumann_ids]
-    
+
     ds_Dir = sum(ds_Dir, ds(tuple()))
     ds_Neu = sum(ds_Neu, ds(tuple()))
     eta = Constant((N+1)**2)

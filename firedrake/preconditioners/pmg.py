@@ -534,7 +534,7 @@ def get_permuted_map(V):
 
 def expand_element(ele):
     """
-    Expand sums (EnrichedElement) by distributing the products and discarding modifiers. 
+    Expand sums (EnrichedElement) by distributing the products and discarding modifiers.
     """
     if ele.cell() == ufl.quadrilateral:
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
@@ -587,7 +587,7 @@ def get_line_elements(ele):
         sob = ele._sub_element.sobolev_space()
     else:
         sob = ele.sobolev_space()
-    
+
     ele = expand_element(ele)
     if isinstance(ele, ufl.EnrichedElement):
         # TODO assert that all components are permutations of each other

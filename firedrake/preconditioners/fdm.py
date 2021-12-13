@@ -1,9 +1,7 @@
 from functools import lru_cache, partial
 
-from pyop2 import op2
 from pyop2.sparsity import get_preallocation
 
-import ufl
 from ufl import FiniteElement, VectorElement, TensorElement, BrokenElement
 from ufl import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl import as_tensor, diag_vector, dot, dx, indices, inner
@@ -15,8 +13,7 @@ from FIAT.fdm_element import FDMElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_permuted_map, get_line_elements, prolongation_matrix_matfree
-from firedrake.utils import IntType_c
+from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 import numpy
@@ -86,8 +83,6 @@ class FDMPC(PCBase):
         element = V.ufl_element()
         try:
             elems = get_line_elements(element)
-            while type(elems[0]) == list:
-                elems = elems[0]
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % element)
         use_fdm_element = all([isinstance(e, FDMElement) for e in elems])
