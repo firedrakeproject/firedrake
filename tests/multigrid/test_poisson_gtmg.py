@@ -69,9 +69,9 @@ def run_gtmg_mixed_poisson():
     _, uh = w.split()
 
     # Analytical solution
-    f.project(x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2]))
-
-    e_analytical = errornorm(f, uh, norm_type="L2")
+    ttt = Function(W)
+    analytical = ttt.sub(1).project(x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2]))
+    e_analytical = errornorm(analytical, uh, norm_type="L2")
     print("Error of GTMG to analytical solution:", e_analytical)
 
     w_ref = Function(W)
@@ -84,13 +84,13 @@ def run_gtmg_mixed_poisson():
     solve(a == L, w_ref, solver_parameters=ref_params, appctx=appctx)
     _, uh_ref = w_ref.split()
     
-    print("Error of LU to analytical solution:", errornorm(f, uh_ref, norm_type="L2"))
+    print("Error of LU to analytical solution:", errornorm(analytical, uh_ref, norm_type="L2"))
     print("Error of GTMG to LU solution:", errornorm(uh, uh_ref, norm_type="L2"))
 
     import matplotlib.pyplot as plt
     plt.figure()
     plt.plot(uh.dat.data, label="uh")
-    plt.plot(f.dat.data, label="f")
+    plt.plot(analytical.dat.data, label="f")
     plt.plot(uh_ref.dat.data, label="uh_ref")
     plt.legend()
     plt.show()
