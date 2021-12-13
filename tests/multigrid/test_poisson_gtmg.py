@@ -73,12 +73,6 @@ def run_gtmg_mixed_poisson():
     solve(a == L, w, solver_parameters=params, appctx=appctx)
     _, uh = w.split()
 
-    # Analytical solution
-    ttt = Function(W)
-    analytical = ttt.sub(1).project(x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2]))
-    e_analytical = errornorm(analytical, uh, norm_type="L2")
-    print("Error of GTMG to analytical solution:", e_analytical)
-
     w_ref = Function(W)
     ref_params = {'ksp_type': 'gmres',
                   'pc_type': 'ilu',
@@ -86,9 +80,13 @@ def run_gtmg_mixed_poisson():
                   'ksp_rtol': 1.e-12}
     solve(a == L, w_ref, solver_parameters=ref_params)
     _, uh_ref = w_ref.split()
-    
-    print("Error of LU to analytical solution:", errornorm(analytical, uh_ref, norm_type="L2"))
     print("Error of GTMG to LU solution:", errornorm(uh, uh_ref, norm_type="L2"))
+    
+    # Analytical solution
+    analytical = Function(U).project(uex)
+    e_analytical = errornorm(analytical, uh, norm_type="L2")
+    print("Error of GTMG to analytical solution:", e_analytical)
+    print("Error of LU to analytical solution:", errornorm(analytical, uh_ref, norm_type="L2"))
 
     import matplotlib.pyplot as plt
     plt.figure()
@@ -197,9 +195,11 @@ def run_gtmg_scpc_mixed_poisson():
 
 @pytest.mark.skipcomplexnoslate
 def test_mixed_poisson_gtmg():
-    assert run_gtmg_mixed_poisson() < 1e-4
+    assert run_gtmg_mixed_poisson() < 1e-6
 
 
 @pytest.mark.skipcomplexnoslate
 def test_scpc_mixed_poisson_gtmg():
     assert run_gtmg_scpc_mixed_poisson() < 1e-5
+
+test_mixed_poisson_gtmg()
