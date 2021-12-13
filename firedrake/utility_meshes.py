@@ -702,7 +702,7 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
     plex = mesh._from_cell_list(1, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
@@ -761,7 +761,7 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
@@ -1117,7 +1117,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
@@ -1210,7 +1210,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         plex = plex.refine()
 
     # build the initial mesh
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
     if degree > 1:
         # use it to build a higher-order mesh
         m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
@@ -1438,7 +1438,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
@@ -1508,7 +1508,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
@@ -1638,7 +1638,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
     return m
 
 
