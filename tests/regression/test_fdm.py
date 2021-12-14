@@ -72,7 +72,7 @@ def test_p_independence(mesh, expected, variant):
                 "ksp_type": "chebyshev",
                 "esteig_ksp_type": "cg",
                 "esteig_ksp_norm_type": "unpreconditioned",
-                "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
+                "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
                 "ksp_chebyshev_esteig_noisy": True,
                 "ksp_chebyshev_esteig_steps": 8,
                 "ksp_norm_type": "unpreconditioned",
@@ -184,17 +184,17 @@ def fs(request, mesh):
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-ndim)
+        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=1)
 
 
 @pytest.mark.skipcomplex
 def test_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
-    u_exact = dot(x, x)
     ndim = mesh.geometric_dimension()
     ncomp = fs.ufl_element().value_size()
-    if ncomp > 1:
+    u_exact = dot(x, x)
+    if ncomp:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
 
     N = fs.ufl_element().degree()
@@ -219,8 +219,11 @@ def test_direct_solver(fs):
     B = dot(beta, u_exact) - div(f_exact)
     T = dot(f_exact, n)
 
-    subs = (1, 3)
-    if mesh.cell_set._extruded:
+    extruded = mesh.cell_set._extruded
+    subs = (1,)
+    if ndim > 1:
+        subs += (3,)
+    if extruded:
         subs += ("top",)
 
     bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
@@ -231,14 +234,14 @@ def test_direct_solver(fs):
     else:
         make_tuple = lambda s: s if type(s) == tuple else (s,)
         neumann_ids = list(set(mesh.exterior_facets.unique_markers) - set(sum([make_tuple(s) for s in subs if type(s) != str], ())))
-    if mesh.layers:
+    if extruded:
         if "top" not in dirichlet_ids:
             neumann_ids.append("top")
         if "bottom" not in dirichlet_ids:
             neumann_ids.append("bottom")
 
     dxq = dx(degree=quad_degree)
-    if mesh.layers:
+    if extruded:
         dS_int = dS_v(degree=quad_degree) + dS_h(degree=quad_degree)
         ds_ext = {"on_boundary": ds_v(degree=quad_degree), "bottom": ds_b(degree=quad_degree), "top": ds_t(degree=quad_degree)}
         ds_Dir = [ds_ext.get(s) or ds_v(s, degree=quad_degree) for s in dirichlet_ids]
@@ -276,7 +279,7 @@ def test_direct_solver(fs):
         "ksp_type": "cg",
         "ksp_atol": 0.0E0,
         "ksp_rtol": 1.0E-8,
-        "ksp_max_it": 20,
+        "ksp_max_it": 3,
         "ksp_monitor": None,
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",

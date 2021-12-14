@@ -83,15 +83,14 @@ class PMGBase(PCSNESBase):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
         elif isinstance(ele, ufl.WithMapping):
             return PMGBase.max_degree(ele.wrapee)
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+            return PMGBase.max_degree(ele._element)
         else:
+            N = ele.degree()
             try:
-                return PMGBase.max_degree(ele._element)
-            except AttributeError:
-                N = ele.degree()
-                try:
-                    return max(N)
-                except TypeError:
-                    return N
+                return max(N)
+            except TypeError:
+                return N
 
     @staticmethod
     def reconstruct_degree(ele, N):
@@ -123,11 +122,10 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
         elif isinstance(ele, ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+            return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
         else:
-            try:
-                return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
-            except AttributeError:
-                return ele.reconstruct(degree=N)
+            return ele.reconstruct(degree=N)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -283,6 +281,8 @@ class PMGBase(PCSNESBase):
             cpmat_type = self.coarse_mat_type
             if fcp is None:
                 fcp = dict()
+            elif fcp is fproblem.form_compiler_parameters:
+                fcp = dict(fcp)
             fcp["mode"] = self.coarse_form_compiler_mode
 
         # Coarsen the problem and the _SNESContext
@@ -506,35 +506,9 @@ def prolongation_transfer_kernel_action(Vf, expr):
                       flop_count=kernel.flop_count), coefficients
 
 
-def get_permuted_map(V):
-    """
-    Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
-    """
-    e = V.ufl_element()
-    if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
-        e = e._sub_element
-    sob = e.sobolev_space()
-    if sob == ufl.HDiv:
-        shift = 1
-    elif sob == ufl.HCurl:
-        shift = 0
-    else:
-        return V.cell_node_map()
-
-    elements = get_line_elements(e)
-    pshape = [e.degree()+1 for e in elements]
-    ncomp = V.ufl_element().value_size()
-    ndof = V.value_size * V.finat_element.space_dimension()
-    permutation = numpy.reshape(numpy.arange(ndof), (ncomp, -1))
-    for k in range(ncomp):
-        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(numpy.arange(ncomp)+((2*shift-1)*k+shift)) % ncomp), (-1,))
-    permutation = numpy.reshape(permutation, (-1,))
-    return PermutedMap(V.cell_node_map(), permutation)
-
-
 def expand_element(ele):
     """
-    Expand sums (EnrichedElement) by distributing the products and discarding modifiers.
+    Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     """
     if ele.cell() == ufl.quadrilateral:
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
@@ -544,8 +518,10 @@ def expand_element(ele):
         return expand_element(ele.reconstruct(cell=hexahedron_tpc))
     elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         return expand_element(ele._sub_element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.WithMapping)):
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
         return expand_element(ele._element)
+    elif isinstance(ele, ufl.WithMapping):
+        return expand_element(ele.wrapee)
     elif isinstance(ele, ufl.MixedElement):
         return ufl.MixedElement(*[expand_element(e) for e in ele.sub_elements()])
     elif isinstance(ele, ufl.EnrichedElement):
@@ -561,16 +537,11 @@ def expand_element(ele):
         factors = [expand_element(e) for e in ele.sub_elements()]
         terms = [tuple()]
         for e in factors:
-            if isinstance(e, ufl.EnrichedElement):
-                new_terms = []
-                for f in e._elements:
-                    f_factors = tuple(f.sub_elements()) if isinstance(f, ufl.TensorProductElement) else (f,)
-                    for t_factors in terms:
-                        new_terms.append(t_factors + f_factors)
-                terms = new_terms
-            else:
-                e_factors = tuple(e.sub_elements()) if isinstance(e, ufl.TensorProductElement) else (e,)
-                terms = [t_factors + e_factors for t_factors in terms]
+            new_terms = []
+            for f in e._elements if isinstance(e, ufl.EnrichedElement) else [e]:
+                f_factors = tuple(f.sub_elements()) if isinstance(f, ufl.TensorProductElement) else (f,)
+                new_terms.extend([t_factors + f_factors for t_factors in terms])
+            terms = new_terms
         if len(terms) == 1:
             return ufl.TensorProductElement(*terms[0])
         else:
@@ -597,7 +568,7 @@ def get_line_elements(ele):
     elements = []
     for e in factors:
         if e.cell() != ufl.interval:
-            raise ValueError("Expecting %s to be on the interval" % ele)
+            raise ValueError("Expecting %s to be on the interval" % e)
 
         degree = e.degree()
         variant = e.variant()
@@ -610,11 +581,14 @@ def get_line_elements(ele):
                 elements.append(discontinuous_lagrange.DiscontinuousLagrange(ref_el, degree))
         elif variant == "fdm":
             elements.append(fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
-        else:
+        elif (variant == "spectral") or (variant is None):
             if formdegree == 0:
                 elements.append(gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree))
             else:
                 elements.append(gauss_legendre.GaussLegendre(ref_el, degree))
+        else:
+            raise ValueError("Variant %s is not supported" % variant)
+
     if sob == ufl.HCurl:
         elements.reverse()
     return elements
@@ -622,10 +596,11 @@ def get_line_elements(ele):
 
 def get_line_nodes(element):
     # Return the Line nodes for 1D elements
-    from FIAT import quadrature, lagrange, discontinuous_lagrange
+    from FIAT import quadrature, Lagrange, P0
+    from FIAT.discontinuous_lagrange import HigherOrderDiscontinuousLagrange
     cell = element.ref_el
     degree = element.degree()
-    equispaced = isinstance(element, (lagrange.Lagrange, discontinuous_lagrange.HigherOrderDiscontinuousLagrange))
+    equispaced = isinstance(element, (Lagrange, P0, HigherOrderDiscontinuousLagrange))
     if equispaced:
         return cell.make_points(1, 0, degree+1)
     elif element.formdegree == 0:
@@ -756,14 +731,14 @@ def get_piola_tensor(elem, domain, inverse=False):
         return None
     elif emap == "contravariant piola":
         if inverse:
-            return firedrake.JacobianInverse(domain) * firedrake.JacobianDeterminant(domain)
+            return ufl.JacobianInverse(domain) * ufl.JacobianDeterminant(domain)
         else:
-            return firedrake.Jacobian(domain) / firedrake.JacobianDeterminant(domain)
+            return ufl.Jacobian(domain) / ufl.JacobianDeterminant(domain)
     elif emap == "covariant piola":
         if inverse:
-            return firedrake.Jacobian(domain).T
+            return ufl.Jacobian(domain).T
         else:
-            return firedrake.JacobianInverse(domain).T
+            return ufl.JacobianInverse(domain).T
     else:
         raise ValueError("Unsupported mapping")
 
@@ -800,13 +775,13 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
         tensor = firedrake.Identity(Q.ufl_element().value_shape()[0])
 
     u = firedrake.Coefficient(Q)
-    expr = firedrake.dot(tensor, u)
+    expr = ufl.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
     prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
     prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
     coefficients.remove(u)
 
-    expr = firedrake.dot(u, tensor)
+    expr = ufl.dot(u, tensor)
     restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
     restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
@@ -884,6 +859,33 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
                     {t_in}[i + {vshape[0]}*j] = {t_out}[j + {vshape[1]}*i];
         """
     return decl, prolong, restrict
+
+
+def get_permuted_map(V):
+    """
+    Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
+    """
+    e = V.ufl_element()
+    if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
+        e = e._sub_element
+    sob = e.sobolev_space()
+    if sob == ufl.HDiv:
+        shift = 1
+    elif sob == ufl.HCurl:
+        shift = 0
+    else:
+        return V.cell_node_map()
+
+    elements = get_line_elements(e)
+    pshape = [e.degree()+1 for e in elements]
+    ncomp = V.ufl_element().value_size()
+    ndof = V.value_size * V.finat_element.space_dimension()
+    permutation = numpy.reshape(numpy.arange(ndof), (ncomp, -1))
+    for k in range(ncomp):
+        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(numpy.arange(ncomp)+((2*shift-1)*k+shift)) % ncomp), (-1,))
+
+    permutation = numpy.reshape(permutation, (-1,))
+    return PermutedMap(V.cell_node_map(), permutation)
 
 
 class StandaloneInterpolationMatrix(object):
