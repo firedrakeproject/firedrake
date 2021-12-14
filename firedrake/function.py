@@ -14,6 +14,7 @@ from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
+from firedrake.petsc import PETSc
 try:
     import cachetools
 except ImportError:
@@ -81,6 +82,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         r"""The underlying coordinateless function."""
         return self
 
+    @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
@@ -106,6 +108,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
+    @PETSc.Log.EventDecorator()
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -120,6 +123,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                                 name="view[%d](%s)" % (i, self.name()))
                          for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -222,6 +226,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
@@ -270,6 +275,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
+    @PETSc.Log.EventDecorator()
+    @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
         r"""Return a copy of this Function.
 
@@ -295,6 +302,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.split()))
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_split
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -309,6 +317,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
                          for i in range(self.function_space().value_size))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -324,10 +333,11 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self._components[i]
         return self._split[i]
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
-        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
-        :class:`.Expression`.
+        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
+        UFL expression.
 
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
@@ -346,14 +356,17 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
-    def interpolate(self, expression, subset=None):
+    @PETSc.Log.EventDecorator()
+    def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param expression: a UFL expression to interpolate
+        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset)
+        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
@@ -394,6 +407,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -412,6 +427,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -430,6 +447,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
@@ -448,6 +467,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat /= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat /= expr.dat
@@ -460,6 +481,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self
 
     __itruediv__ = __idiv__
+
+    def __float__(self):
+
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            return float(self.dat.data_ro[0])
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
     @utils.cached_property
     def _constant_ctypes(self):
@@ -510,6 +541,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         return self.at(coord)
 
+    @PETSc.Log.EventDecorator()
     def at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
@@ -637,6 +669,7 @@ class PointNotInDomainError(Exception):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
+@PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
@@ -645,7 +678,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.sequential import generate_single_cell_wrapper
+    from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
     mesh = function.ufl_domain()

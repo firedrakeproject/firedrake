@@ -33,7 +33,7 @@ BitGenerator
 
 A :class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
 A :class:`.BitGenerator` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
-If ``comm.Get_rank() > 1``, :class:`.PCG64` or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
+If ``comm.Get_rank() > 1``, :class:`.PCG64`, :class:`.PCG64DXSM`, or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
 
 PCG64
 ~~~~~
@@ -57,6 +57,32 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
     .. code-block:: python3
 
         pcg = PCG64()
+        state = pcg.state
+        state['state'] = {'state': seed, 'inc': inc}
+        pcg.state = state
+
+PCG64DXSM
+~~~~~~~~~
+
+:class:`.PCG64DXSM` wraps `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__.
+If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
+To make :class:`.PCG64DXSM` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
+passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
+
+.. code-block:: python3
+
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+    sg = numpy.random.SeedSequence(seed)
+    seed = sg.spawn(size)[rank]
+
+.. note::
+
+    ``inc`` is no longer a valid keyword for :class:`.PCG64DXSM` constructor. However, one can reset the ``state`` after construction as:
+
+    .. code-block:: python3
+
+        pcg = PCG64DXSM()
         state = pcg.state
         state['state'] = {'state': seed, 'inc': inc}
         pcg.state = state
@@ -88,7 +114,7 @@ _deprecated_attributes = ['RandomGenerator', ]
 __all__ = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)] + _deprecated_attributes
 
 # >>> [name for name, _ in inspect.getmembers(numpy.random) if not name.startswith('_')]
-_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'PCG64DXSM', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 # >>> [name for name, _ in inspect.getmembers(numpy.random.Generator) if not name.startswith('_')]
 _known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 
@@ -292,20 +318,20 @@ def __getattr__(module_attr):
     elif module_attr == "RandomGenerator":
         from firedrake.randomfunctiongen import Generator
         return Generator
-    elif module_attr in ['MT19937', 'Philox', 'PCG64', 'SFC64']:
+    elif module_attr in ['MT19937', 'Philox', 'PCG64', 'PCG64DXSM', 'SFC64']:
         _Base = getattr(randomgen, module_attr)
 
         def __init__(self, *args, **kwargs):
             _kwargs = kwargs.copy()
             self._comm = _kwargs.pop('comm', COMM_WORLD)
-            if self._comm.Get_size() > 1 and module_attr not in ['PCG64', 'Philox']:
-                raise TypeError("Use 'PCG64', 'Philox', for parallel RNG")
+            if self._comm.Get_size() > 1 and module_attr not in ['PCG64', 'PCG64DXSM', 'Philox']:
+                raise TypeError("Use 'PCG64', 'PCG64DXSM', or 'Philox', for parallel RNG")
             self._init(*args, **_kwargs)
 
         def seed(self, *args, **kwargs):
             raise AttributeError("`seed` method is not available in `numpy.random`; if reseeding, create a new bit generator with the new seed.")
 
-        if module_attr == 'PCG64':
+        if module_attr in ('PCG64', 'PCG64DXSM'):
             def _init(self, *args, **kwargs):
                 if 'inc' in kwargs:
                     raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
@@ -320,9 +346,14 @@ def __getattr__(module_attr):
                     else:
                         seed = None
                     seed = self._comm.bcast(seed, root=0)
-                # Create multiple streams
-                sg = randomgen.SeedSequence(seed)
-                _kwargs["seed"] = sg.spawn(size)[rank]
+                if isinstance(seed, randomgen.SeedSequence):
+                    # We assume that the user has generated
+                    # a parallel-safe SeedSequence.
+                    pass
+                else:
+                    # Create multiple streams
+                    sg = randomgen.SeedSequence(seed)
+                    _kwargs["seed"] = sg.spawn(size)[rank]
                 super(_Wrapper, self).__init__(*args, **_kwargs)
         elif module_attr == 'Philox':
             def _init(self, *args, **kwargs):
@@ -351,12 +382,30 @@ def __getattr__(module_attr):
                  "__doc__": _reformat_doc(getattr(randomgen, module_attr).__doc__)}
         _Wrapper = type(module_attr, (_Base,), _dict)
         return _Wrapper
-    elif module_attr in ['BitGenerator', 'RandomState', 'SeedSequence', 'bit_generator', 'default_rng', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
+    elif module_attr == 'default_rng':
+        from firedrake.randomfunctiongen import Generator, PCG64, SeedSequence
+
+        def _wrapper(seed=None):
+            if seed is None or \
+               isinstance(seed, int) or \
+               isinstance(seed, SeedSequence):
+                return Generator(PCG64(seed=seed))
+            else:
+                raise ValueError("Firedrake wrapper of numpy.random.%s only takes seed of type {None, int, SeedSequence}." % module_attr)
+        return _wrapper
+    elif module_attr in ['BitGenerator', 'RandomState', 'bit_generator', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
+        def _wrapper(*args, **kwargs):
+            raise NotImplementedError("numpy.random.%s is not wrapped in Firedrake. Consider using numpy.random.%s directly." % (module_attr, module_attr))
+        return _wrapper
+    elif module_attr == 'SeedSequence':
         return getattr(randomgen, module_attr)
     elif not module_attr.startswith('_'):
         # module_attr not in _known_attributes + _deprecated_attributes
-        warnings.warn("Found unknown attribute: Falling back to numpy.random.%s, but Firedrake might need to wrap this attribute." % module_attr)
-        return getattr(randomgen, module_attr)
+        warnings.warn("Found unknown attribute: Firedrake needs to wrap numpy.random.%s." % module_attr)
+
+        def _wrapper(*args, **kwargs):
+            raise NotImplementedError("Firedrake has not yet wrapped numpy.random.%s." % module_attr)
+        return _wrapper
 
 
 # Module level __getattr__ is only available with 3.7+

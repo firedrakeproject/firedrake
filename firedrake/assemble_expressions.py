@@ -11,18 +11,19 @@ from gem.impero_utils import compile_gem, preprocess_gem
 from gem.node import MemoizerArg
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
-from pyop2.sequential import Arg
+from pyop2.parloop import Arg
 from tsfc import ufl2gem
 from tsfc.loopy import generate
 from tsfc.ufl_utils import ufl_reuse_if_untouched
 from ufl.algorithms.apply_algebra_lowering import LowerCompoundAlgebra
-from ufl.classes import (Coefficient, ComponentTensor, ConstantValue, Expr,
+from ufl.classes import (Coefficient, ComponentTensor, Expr,
                          Index, Indexed, MultiIndex, Terminal)
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.corealg.traversal import unique_pre_traversal as ufl_traversal
 
 import firedrake
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, cached_property, known_pyop2_safe
 
 
@@ -286,7 +287,7 @@ class Assign(object):
     def args(self):
         """Tuple of par_loop arguments for the expression."""
         args = []
-        if self.lvalue in self.rcoefficients:
+        if isinstance(self, AugmentedAssign) or self.lvalue in self.rcoefficients:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
         else:
             args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
@@ -350,6 +351,7 @@ class IDiv(AugmentedAssign):
     symbol = "/="
 
 
+@PETSc.Log.EventDecorator()
 def compile_to_gem(expr, translator):
     """Compile a single pointwise expression to GEM.
 
@@ -366,7 +368,7 @@ def compile_to_gem(expr, translator):
         raise ValueError("All coefficients must be defined on the same space")
     lvalue = expr.lvalue
     rvalue = expr.rvalue
-    broadcast = isinstance(rvalue, (firedrake.Constant, ConstantValue)) and rvalue.ufl_shape == ()
+    broadcast = all(isinstance(c, firedrake.Constant) for c in expr.rcoefficients) and rvalue.ufl_shape == ()
     if not broadcast and lvalue.ufl_shape != rvalue.ufl_shape:
         try:
             rvalue = reshape(rvalue, lvalue.ufl_shape)
@@ -399,6 +401,7 @@ def compile_to_gem(expr, translator):
     return preprocess_gem([lvalue, rvalue])
 
 
+@PETSc.Log.EventDecorator()
 def pointwise_expression_kernel(exprs, scalar_type):
     """Compile a kernel for pointwise expressions.
 
@@ -425,11 +428,14 @@ def pointwise_expression_kernel(exprs, scalar_type):
             except KeyError:
                 continue
             plargs.append(arg)
-            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype))
+            is_input = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.READ, op2.RW]
+            is_output = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.RW, op2.WRITE]
+            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype, is_input=is_input, is_output=is_output))
     assert len(coefficients) == 0
-    knl = generate(impero_c, args, scalar_type, kernel_name="expression_kernel",
+    name = "expression_kernel"
+    knl = generate(impero_c, args, scalar_type, kernel_name=name,
                    return_increments=False)
-    return firedrake.op2.Kernel(knl, knl.name), plargs
+    return firedrake.op2.Kernel(knl, name), plargs
 
 
 class dereffed(object):
@@ -449,6 +455,7 @@ class dereffed(object):
             a.data = weakref.ref(a.data)
 
 
+@PETSc.Log.EventDecorator()
 @known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluate a pointwise expression.
@@ -489,6 +496,7 @@ def evaluate_expression(expr, subset=None):
     return lvalue
 
 
+@PETSc.Log.EventDecorator()
 def assemble_expression(expr, subset=None):
     """Evaluate a UFL expression pointwise and assign it to a new
     :class:`~.Function`.

@@ -99,10 +99,12 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, problem_J, solver_params, solver_kwargs, **kwargs):
+    def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J, solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
+        self.adj_F = adj_F
+        self._dFdm_cache = dFdm_cache
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
@@ -146,6 +148,79 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        dJdu = adj_inputs[0]
+
+        F_form = self._create_F_form()
+
+        dFdu_form = self.adj_F
+        dJdu = dJdu.copy()
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdu_form)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdu_form = replace(dFdu_form, replace_map)
+
+        compute_bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
+        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(dFdu_form, dJdu, compute_bdy)
+        self.adj_sol = adj_sol
+        if self.adj_cb is not None:
+            self.adj_cb(adj_sol)
+        if self.adj_bdy_cb is not None and compute_bdy:
+            self.adj_bdy_cb(adj_sol_bdy)
+
+        r = {}
+        r["form"] = F_form
+        r["adj_sol"] = adj_sol
+        r["adj_sol_bdy"] = adj_sol_bdy
+        return r
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        if not self.linear and self.func == block_variable.output:
+            # We are not able to calculate derivatives wrt initial guess.
+            return None
+        F_form = prepared["form"]
+        adj_sol = prepared["adj_sol"]
+        adj_sol_bdy = prepared["adj_sol_bdy"]
+        c = block_variable.output
+        c_rep = block_variable.saved_output
+
+        if isinstance(c, firedrake.Function):
+            trial_function = firedrake.TrialFunction(c.function_space())
+        elif isinstance(c, firedrake.Constant):
+            mesh = self.compat.extract_mesh_from_form(F_form)
+            trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
+        elif isinstance(c, firedrake.DirichletBC):
+            tmp_bc = self.compat.create_bc(c, value=self.compat.extract_subfunction(adj_sol_bdy, c.function_space()))
+            return [tmp_bc]
+        elif isinstance(c, self.compat.MeshType):
+            # Using CoordianteDerivative requires us to do action before
+            # differentiating, might change in the future.
+            F_form_tmp = firedrake.action(F_form, adj_sol)
+            X = firedrake.SpatialCoordinate(c_rep)
+            dFdm = firedrake.derivative(-F_form_tmp, X, firedrake.TestFunction(c._ad_function_space()))
+
+            dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+            return dFdm
+
+        # dFdm_cache works with original variables, not block saved outputs.
+        if c in self._dFdm_cache:
+            dFdm = self._dFdm_cache[c]
+        else:
+            dFdm = -firedrake.derivative(self.lhs, c, trial_function)
+            dFdm = firedrake.adjoint(dFdm)
+            self._dFdm_cache[c] = dFdm
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdm)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdm = replace(dFdm, replace_map)
+
+        dFdm = dFdm * adj_sol
+        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+
+        return dFdm
+
 
 class ProjectBlock(SolveVarFormBlock):
     def __init__(self, v, V, output, bcs=[], *args, **kwargs):
@@ -170,8 +245,8 @@ class MeshInputBlock(Block):
     Block which links a MeshGeometry to its coordinates, which is a firedrake
     function.
     """
-    def __init__(self, mesh):
-        super().__init__()
+    def __init__(self, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(mesh)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -190,15 +265,18 @@ class MeshInputBlock(Block):
 
 
 class FunctionSplitBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         eval_adj = self.backend.Function(block_variable.output.function_space())
-        eval_adj.sub(self.idx).assign(adj_inputs[0].function)
+        if type(adj_inputs[0]) is self.backend.Function:
+            eval_adj.sub(self.idx).assign(adj_inputs[0])
+        else:
+            eval_adj.sub(self.idx).assign(adj_inputs[0].function)
         return eval_adj.vector()
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
@@ -217,8 +295,8 @@ class FunctionSplitBlock(Block, Backend):
 
 
 class FunctionMergeBlock(Block, Backend):
-    def __init__(self, func, idx):
-        super().__init__()
+    def __init__(self, func, idx, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
         self.idx = idx
         for output in func._ad_outputs:
@@ -258,8 +336,8 @@ class MeshOutputBlock(Block):
     """
     Block which is called when the coordinates of a mesh are changed.
     """
-    def __init__(self, func, mesh):
-        super().__init__()
+    def __init__(self, func, mesh, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
@@ -320,7 +398,7 @@ class InterpolateBlock(Block, Backend):
     Arguments after a semicolon are linear (i.e. operation I is linear)
     """
     def __init__(self, interpolator, *functions, **kwargs):
-        super().__init__()
+        super().__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
 
         self.expr = interpolator.expr
         self.arguments, self.coefficients = extract_arguments_and_coefficients(self.expr)
@@ -587,3 +665,108 @@ class InterpolateBlock(Block, Backend):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return self.backend.interpolate(prepared, self.V)
+
+
+class SupermeshProjectBlock(Block, Backend):
+    r"""
+    Annotates supermesh projection.
+
+    Suppose we have a source space, :math:`V_A`, and a target space, :math:`V_B`.
+    Projecting a source from :math:`V_A` to :math:`V_B` amounts to solving the
+    linear system
+
+ .. math::
+        M_B * v_B = M_{AB} * v_A,
+
+    where :math:`M_B` is the mass matrix on :math:`V_B`, :math:`M_{AB}` is the
+    mixed mass matrix for :math:`V_A` and :math:`V_B` and :math:`v_A` and
+    :math:`v_B` are vector representations of the source and target
+    :class:`.Function`s.
+
+    This can be broken into two steps:
+      Step 1. form RHS, multiplying the source with the mixed mass matrix;
+      Step 2. solve linear system.
+    """
+    def __init__(self, source, target_space, target, bcs=[], **kwargs):
+        super(SupermeshProjectBlock, self).__init__(ad_block_tag=kwargs.pop("ad_block_tag", None))
+        import firedrake.supermeshing as supermesh
+
+        # Process args and kwargs
+        if not isinstance(source, self.backend.Function):
+            raise NotImplementedError(f"Source function must be a Function, not {type(source)}.")
+        if bcs != []:
+            raise NotImplementedError("Boundary conditions not yet considered.")
+
+        # Store spaces
+        mesh = kwargs.pop("mesh", None)
+        if mesh is None:
+            mesh = target_space.mesh()
+        self.source_space = source.function_space()
+        self.target_space = target_space
+        self.projector = firedrake.Projector(source, target_space, **kwargs)
+
+        # Assemble mixed mass matrix
+        self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
+            source.function_space(), target_space)
+
+        # Add dependencies
+        self.add_dependency(source, no_duplicates=True)
+        for bc in bcs:
+            self.add_dependency(bc, no_duplicates=True)
+
+    def apply_mixedmass(self, a):
+        b = self.backend.Function(self.target_space)
+        with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
+            self.mixed_mass.mult(vsrc, vrhs)
+        return b
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        if not isinstance(inputs[0], self.backend.Function):
+            raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
+        target = self.backend.Function(self.target_space)
+        rhs = self.apply_mixedmass(inputs[0])      # Step 1
+        self.projector.apply_massinv(target, rhs)  # Step 2
+        return target
+
+    def _recompute_component_transpose(self, inputs):
+        if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
+            raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
+        out = self.backend.Function(self.source_space)
+        tmp = self.backend.Function(self.target_space)
+        self.projector.apply_massinv(tmp, inputs[0])   # Adjoint of step 2 (since mass self-adjoint)
+        with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:
+            self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
+        return out
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        """
+        Recall that the forward propagation can be broken down as
+          Step 1. multiply :math:`w := M_{AB} * v_A`;
+          Step 2. solve :math:`M_B * v_B = w`.
+
+        For a seed vector :math:`v_B^{seed}` from the target space, the adjoint is given by
+          Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
+          Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
+        """
+        if len(adj_inputs) != 1:
+            raise NotImplementedError("SupermeshProjectBlock must have a single output")
+        return self._recompute_component_transpose(adj_inputs).vector()
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        """
+        Given that the input is a `Function`, we just have a linear operation. As such,
+        the tlm is just the sum of each tlm input projected into the target space.
+        """
+        dJdm = self.backend.Function(self.target_space)
+        for tlm_input in tlm_inputs:
+            if tlm_input is None:
+                continue
+            dJdm += self.recompute_component([tlm_input], block_variable, idx, prepared)
+        return dJdm
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
+                                   block_variable, idx,
+                                   relevant_dependencies, prepared=None):
+        if len(hessian_inputs) != 1:
+            raise NotImplementedError("SupermeshProjectBlock must have a single output")
+        return self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx).vector()

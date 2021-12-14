@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
-from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock
+from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, GenericSolveBlock, ProjectBlock
 import ufl
 
 
@@ -27,12 +27,15 @@ def annotate_solve(solve):
             The boundary values are zero.
         adj2_bdy_cb (function, optional): callback function supplying the second-order adjoint solution on
             the boundary. The interior values are not guaranteed to be zero.
+        ad_block_tag (string, options): tag used to label the resulting block on the Pyadjoint tape. This
+            is useful for identifying which block is associated with which equation in the forward model.
 
     """
 
     @wraps(solve)
     def wrapper(*args, **kwargs):
 
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
 
         if annotate:
@@ -43,7 +46,7 @@ def annotate_solve(solve):
 
             sb_kwargs = solve_block_type.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
-            block = solve_block_type(*args, **sb_kwargs)
+            block = solve_block_type(*args, ad_block_tag=ad_block_tag, **sb_kwargs)
             tape.add_block(block)
 
         with stop_annotating():
@@ -59,3 +62,17 @@ def annotate_solve(solve):
         return output
 
     return wrapper
+
+
+def get_solve_blocks():
+    """
+    Extract all blocks of the tape which correspond
+    to PDE solves, except for those which correspond
+    to calls of the ``project`` operator.
+    """
+    return [
+        block
+        for block in get_working_tape().get_blocks()
+        if issubclass(type(block), GenericSolveBlock)
+        and not issubclass(type(block), ProjectBlock)
+    ]

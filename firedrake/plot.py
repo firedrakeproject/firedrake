@@ -15,6 +15,7 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry
+from firedrake.petsc import PETSc
 
 __all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
            "quiver", "streamplot", "FunctionPlotter"]
@@ -71,8 +72,12 @@ def _get_collection_types(gdim, tdim):
     raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
+@PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
-    r"""Plot a mesh with a different color for each boundary segment
+    r"""Plot a mesh colouring marked facet segments
+
+    Typically boundary segments will be marked and coloured, but
+    interior facets that are marked will also be coloured.
 
     The interior and boundary keyword arguments can be any keyword argument for
     :class:`LineCollection <matplotlib.collections.LinecCollection>` and
@@ -121,18 +126,28 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         axes.add_collection(interior_collection)
         result.append(interior_collection)
 
+    def facet_data(typ):
+        if typ == "interior":
+            facets = mesh.interior_facets
+            node_map = coordinates.interior_facet_node_map()
+            node_map = node_map.values[:, :node_map.arity//2]
+            local_facet_ids = facets.local_facet_dat.data_ro[:, :1].reshape(-1)
+        elif typ == "exterior":
+            facets = mesh.exterior_facets
+            local_facet_ids = facets.local_facet_dat.data_ro
+            node_map = coordinates.exterior_facet_node_map().values
+        else:
+            raise ValueError("Unhandled facet type")
+        mask = np.zeros(node_map.shape, dtype=bool)
+        for facet_index, local_facet_index in enumerate(local_facet_ids):
+            mask[facet_index, topology[tdim - 1][local_facet_index]] = True
+        faces = node_map[mask].reshape(-1, tdim)
+        return facets, faces
+
     # Add colored lines/polygons for the boundary facets
-    facets = mesh.exterior_facets
-    local_facet_ids = facets.local_facet_dat.data_ro
-    exterior_facet_node_map = coordinates.exterior_facet_node_map().values
     topology = coordinates.function_space().finat_element.cell.get_topology()
 
-    mask = np.zeros(exterior_facet_node_map.shape, dtype=bool)
-    for facet_index, local_facet_index in enumerate(local_facet_ids):
-        mask[facet_index, topology[tdim - 1][local_facet_index]] = True
-    faces = exterior_facet_node_map[mask].reshape(-1, tdim)
-
-    markers = facets.unique_markers
+    markers = mesh.exterior_facets.unique_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
@@ -147,9 +162,13 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
-        face_indices = facets.subset(int(marker)).indices
-        marker_faces = faces[face_indices, :]
-        vertices = coords[marker_faces]
+        vertices = []
+        for typ in ["interior", "exterior"]:
+            facets, faces = facet_data(typ)
+            face_indices = facets.subset(int(marker)).indices
+            marker_faces = faces[face_indices, :]
+            vertices.append(coords[marker_faces])
+        vertices = np.concatenate(vertices)
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
         marker_collection = BoundaryCollection(vertices, **_boundary_kw)
         axes.add_collection(marker_collection)
@@ -188,6 +207,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
     return method(triangulation, toreal(values, complex_component), *args, **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def tricontourf(function, *args, complex_component="real", **kwargs):
     r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -203,6 +223,7 @@ def tricontourf(function, *args, complex_component="real", **kwargs):
     return _plot_2d_field("tricontourf", function, *args, complex_component=complex_component, **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def tricontour(function, *args, complex_component="real", **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -218,6 +239,7 @@ def tricontour(function, *args, complex_component="real", **kwargs):
     return _plot_2d_field("tricontour", function, *args, complex_component=complex_component, **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def tripcolor(function, *args, complex_component="real", **kwargs):
     r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
 
@@ -257,6 +279,7 @@ def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax
     return collection
 
 
+@PETSc.Log.EventDecorator()
 def trisurf(function, *args, complex_component="real", **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
@@ -291,10 +314,11 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
     triangulation = function_plotter.triangulation
-    values = function_plotter(function)
+    values = toreal(function_plotter(function), complex_component)
     return axes.plot_trisurf(triangulation, values, *args, **_kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def quiver(function, *, complex_component="real", **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
@@ -331,6 +355,7 @@ def _step_to_boundary(mesh, x, u, dt, loc_tolerance):
     return bracket[0]
 
 
+@PETSc.Log.EventDecorator()
 def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10,
                complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
@@ -541,6 +566,7 @@ class Streamplotter(object):
         self.streamlines.append(streamline)
 
 
+@PETSc.Log.EventDecorator()
 def streamplot(function, resolution=None, min_length=None, max_time=None,
                start_width=0.5, end_width=1.5, tolerance=3e-3, loc_tolerance=1e-10,
                seed=None, complex_component="real", **kwargs):
@@ -636,6 +662,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     return collection
 
 
+@PETSc.Log.EventDecorator()
 def plot(function, *args, bezier=False, num_sample_points=10, complex_component="real", **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
@@ -788,15 +815,15 @@ class FunctionPlotter:
         self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, mesh, num_sample_points):
-        cell = mesh.ufl_cell()
-        if cell.cellname() == "triangle":
+        cell_name = mesh.ufl_cell().cellname()
+        if cell_name == "triangle":
             x = np.array([0, 0, 1])
             y = np.array([0, 1, 0])
-        elif cell.cellname() == "quadrilateral":
+        elif cell_name in ["quadrilateral", "interval * interval"]:
             x = np.array([0, 0, 1, 1])
             y = np.array([0, 1, 0, 1])
         else:
-            raise ValueError(f"Unsupported cell type {cell}")
+            raise ValueError(f"Unsupported cell type {cell_name}")
 
         # First, create the *reference points* -- a triangulation and points in
         # a single reference cell of the mesh, which will be coarser or denser
@@ -806,7 +833,7 @@ class FunctionPlotter:
         sub_triangles = int(math.log(num_sample_points, 4))
         tri = refiner.refine_triangulation(False, sub_triangles)
         triangles = tri.get_masked_triangles()
-        self._reference_points = np.dstack([tri.x, tri.y]).reshape(-1, 2)
+        self._reference_points = np.column_stack((tri.x, tri.y))
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
@@ -835,7 +862,7 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        data = function.dat.data_ro[cell_node_list]
+        data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1
         else:

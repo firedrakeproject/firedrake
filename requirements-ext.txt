@@ -9,3 +9,5 @@ vtk==9.0.1
 pkgconfig
 cached_property
 requests
+nbval
+packaging

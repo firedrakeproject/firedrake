@@ -58,9 +58,10 @@ cythonfiles = [("dmcommon", ["petsc"]),
 
 
 petsc_dirs = get_petsc_dir()
+if os.environ.get("HDF5_DIR"):
+    petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
 include_dirs = [np.get_include(), petsc4py.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
-
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
 
@@ -77,9 +78,10 @@ if 'CC' not in env:
 setup(name='firedrake',
       version=versioneer.get_version(),
       cmdclass=cmdclass,
-      description="""Firedrake is an automated system for the portable solution
-          of partial differential equations using the finite element method
-          (FEM)""",
+      description="An automated finite element system.",
+      long_description="""Firedrake is an automated system for the portable
+          solution of partial differential equations using the finite element
+          method (FEM)""",
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",

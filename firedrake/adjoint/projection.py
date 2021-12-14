@@ -1,6 +1,6 @@
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint.blocks import ProjectBlock
+from firedrake.adjoint.blocks import ProjectBlock, SupermeshProjectBlock
 from firedrake import function
 
 
@@ -15,6 +15,7 @@ def annotate_project(project):
         computation (such as projecting fields to other function spaces for the purposes of
         visualisation)."""
 
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         if annotate:
             bcs = kwargs.get("bcs", [])
@@ -23,7 +24,10 @@ def annotate_project(project):
                 # block should be created before project because output might also be an input that needs checkpointing
                 output = args[1]
                 V = output.function_space()
-                block = ProjectBlock(args[0], V, output, bcs, **sb_kwargs)
+                if isinstance(args[0], function.Function) and args[0].ufl_domain() != V.mesh():
+                    block = SupermeshProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+                else:
+                    block = ProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
 
         with stop_annotating():
             output = project(*args, **kwargs)
@@ -31,7 +35,10 @@ def annotate_project(project):
         if annotate:
             tape = get_working_tape()
             if not isinstance(args[1], function.Function):
-                block = ProjectBlock(args[0], args[1], output, bcs, **sb_kwargs)
+                if isinstance(args[0], function.Function) and args[0].ufl_domain() != args[1].mesh():
+                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+                else:
+                    block = ProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
             tape.add_block(block)
             block.add_output(output.create_block_variable())
 

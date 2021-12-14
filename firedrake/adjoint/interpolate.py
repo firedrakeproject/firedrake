@@ -8,13 +8,13 @@ def annotate_interpolate(interpolate):
     def wrapper(interpolator, *function, **kwargs):
         """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
         Firedrake interpolate call."""
-
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
 
         if annotate:
             sb_kwargs = InterpolateBlock.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
-            block = InterpolateBlock(interpolator, *function, **sb_kwargs)
+            block = InterpolateBlock(interpolator, *function, ad_block_tag=ad_block_tag, **sb_kwargs)
             tape = get_working_tape()
             tape.add_block(block)
 

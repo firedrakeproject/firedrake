@@ -41,6 +41,12 @@ def V(request, mesh, degree):
 def test_div_curl_preserving(V):
     mesh = V.ufl_domain()
     dim = mesh.geometric_dimension()
+    if dim == 3 and V.ufl_element().degree() == 3 and "Nedelec" not in V.ufl_element().family():
+        pytest.skip("N2div interpolation kernel with exact quadrature creates tensors which risk stack overflow")
+    if dim == 3 and V.ufl_element().degree() == 2 and "Nedelec" not in V.ufl_element().family():
+        # This issue is probably down to gcc attempting to constant-propagate
+        # every entry in the array.
+        pytest.skip("N2div interpolation kernel with exact quadrature takes 40 minutes!")
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:

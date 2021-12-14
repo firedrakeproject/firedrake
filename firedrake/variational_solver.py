@@ -42,6 +42,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
@@ -104,6 +105,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
     DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, *, solver_parameters=None,
                  options_prefix=None,
@@ -237,6 +239,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         self._ctx.transfer_manager = manager
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
@@ -250,6 +253,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
            If bounds are provided the ``snes_type`` must be set to
            ``vinewtonssls`` or ``vinewtonrsls``.
         """
+        # Make sure the DM has this solver's callback functions
+        self._ctx.set_function(self.snes)
+        self._ctx.set_jacobian(self.snes)
+
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         for dbc in self._problem.dirichlet_bcs():
@@ -277,6 +284,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
                  constant_jacobian=False):
