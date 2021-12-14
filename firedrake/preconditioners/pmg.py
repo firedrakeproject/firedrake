@@ -812,21 +812,20 @@ def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
     if sobolev in [ufl.HDiv, ufl.HCurl]:
         ndim = elem.cell().topological_dimension()
         pshape = shapes.copy()
-        pshape = pshape[:ndim]
-        pshape.append(-1)
+        pshape = [-1] + pshape[:ndim]
+
         ndof = numpy.prod(vshape)
-        permutation = numpy.arange(ndof)
-        permutation = numpy.transpose(numpy.reshape(permutation, vshape))
         shift = int(sobolev == ufl.HDiv)
 
         # compose with the inverse H(div)/H(curl) permutation
-        permutation = numpy.reshape(permutation, pshape)
-        for k in range(permutation.shape[-1]):
-            permutation[..., k] = numpy.transpose(permutation[..., k], axes=(numpy.arange(ndim)-((2*shift-1)*k+shift)) % ndim)
+        permutation = numpy.reshape(numpy.arange(ndof), pshape)
+        for k in range(permutation.shape[0]):
+            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)-((2*shift-1)*k+shift)) % ndim), pshape[1:])
 
-        if sobolev == firedrake.HCurl:
-            permutation = numpy.flip(permutation, axis=-1)
+        if sobolev == ufl.HCurl:
+            permutation = numpy.flip(permutation, axis=0)
 
+        permutation = numpy.transpose(numpy.reshape(permutation, vshape))
         permutation = numpy.reshape(permutation, (-1,))
         perm = ", ".join(map(str, permutation))
         decl = f"""
@@ -877,12 +876,12 @@ def get_permuted_map(V):
         return V.cell_node_map()
 
     elements = get_line_elements(e)
-    pshape = [e.degree()+1 for e in elements]
-    ncomp = V.ufl_element().value_size()
+    ndim = len(elements)
+    pshape = [-1] + [e.space_dimension() for e in elements]
     ndof = V.value_size * V.finat_element.space_dimension()
-    permutation = numpy.reshape(numpy.arange(ndof), (ncomp, -1))
-    for k in range(ncomp):
-        permutation[k] = numpy.reshape(numpy.transpose(numpy.reshape(permutation[k], pshape), axes=(numpy.arange(ncomp)+((2*shift-1)*k+shift)) % ncomp), (-1,))
+    permutation = numpy.reshape(numpy.arange(ndof), pshape)
+    for k in range(permutation.shape[0]):
+        permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)+((2*shift-1)*k+shift)) % ndim), pshape[1:])
 
     permutation = numpy.reshape(permutation, (-1,))
     return PermutedMap(V.cell_node_map(), permutation)
