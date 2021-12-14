@@ -115,7 +115,7 @@ class LinearSolver(OptionsManager):
         from firedrake.assemble import assemble
 
         u = function.Function(self.trial_space)
-        b = cofunction.Cofunction(self.test_space)
+        b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
         return u, functools.partial(assemble, expr, tensor=b, assembly_type="residual"), b
 

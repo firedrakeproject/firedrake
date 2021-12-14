@@ -553,4 +553,4 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return cofunction.Cofunction(self.F.arguments()[0].function_space())
+        return cofunction.Cofunction(self.F.arguments()[0].function_space().dual())

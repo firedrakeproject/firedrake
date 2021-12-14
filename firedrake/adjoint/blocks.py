@@ -272,8 +272,8 @@ class FunctionSplitBlock(Block, Backend):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = self.backend.Function(block_variable.output.function_space())
-        if type(adj_inputs[0]) is self.backend.Function:
+        eval_adj = self.backend.Cofunction(block_variable.output.function_space().dual())
+        if type(adj_inputs[0]) is self.backend.Cofunction:
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:
             eval_adj.sub(self.idx).assign(adj_inputs[0].function)
@@ -286,7 +286,7 @@ class FunctionSplitBlock(Block, Backend):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = self.backend.Function(block_variable.output.function_space())
+        eval_hessian = self.backend.Cofunction(block_variable.output.function_space().dual())
         eval_hessian.sub(self.idx).assign(hessian_inputs[0].function)
         return eval_hessian.vector()
 
