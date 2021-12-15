@@ -792,18 +792,27 @@ class LocalLoopyKernelBuilder(object):
         corner_case = self.generate_code_for_converged_pre_iteration(preconverged_criterion_dep,
                                                                      preconverged_criterion_id)
 
+        preconditioned = not expr.preconditioner == None
+        diagonal = expr.preconditioner.diagonal if preconditioned else False
+        P = A_on_x_name if preconditioned else None
+
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
-            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
-                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
+            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14]:
+                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14<n
                  and 0<=i_6<=n}""",
             [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
-                <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
-                {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
+                 r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
+             """,
+             f"""z[:] = action_P({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
+             f"""z[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
+             f"""z[i_13] = r[i_13] {{dep=residual0, id=z0}}""",
+             f"""
+                {p}[i_4] = -r[i_4] {{dep=z0, id=projector0}}
                 <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
-                rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
+                rk_norm = rk_norm + r[i_5]*z[i_5] {{dep=projector0, id=rk_norm1}}
                 for i_6
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
@@ -814,11 +823,17 @@ class LocalLoopyKernelBuilder(object):
              f"""    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
-                    <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+            """,
+            f"""     z[:] = action_P({P}[:,:], r[:]) {{dep=rk, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
+            f"""     z[i_14] = {P}[i_14]*r[i_14] {{dep=residual0, id=z0}}""" if diagonal else
+            f"""     z[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
+            f"""
+                    <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
+                    rkp1_norm = rkp1_norm + r[i_9]*z[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
              """,
              stop_criterion,
-             f"""    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
+             f"""   
+                    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
                     rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
                     {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
@@ -829,7 +844,9 @@ class LocalLoopyKernelBuilder(object):
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
              loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable("z", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable("r", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
             target=loopy.CTarget(),
             name=name,
             lang_version=(2018, 2),
