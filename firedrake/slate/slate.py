@@ -1390,7 +1390,8 @@ class Solve(BinaryOp):
         self.Aonx = None
         self.Aonp = None
         self.decomposition = "PartialPivLU"
-        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition"]
+        self.preconditioner = None
+        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition", "preconditioner"]
         for key, value in kwargs.items():
             if key in valid_kwargs:
                 setattr(self, key, value)
@@ -1458,7 +1459,7 @@ class Solve(BinaryOp):
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        return ((type(self), *self.operands, self.matfree, self.Aonx, self.Aonp)
+        return ((type(self), *self.operands, self.matfree, self.Aonx, self.Aonp, self.preconditioner)
                 if self.matfree else (type(self), *self.operands, self.matfree))
 
     def _output_string(self, prec=None):
