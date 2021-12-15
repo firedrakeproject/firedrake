@@ -237,3 +237,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
             return self._name
         else:
             return super(Cofunction, self).__str__()
+
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
