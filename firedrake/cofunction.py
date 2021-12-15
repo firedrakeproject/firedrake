@@ -49,7 +49,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         """
 
         ufl.Cofunction.__init__(self,
-                                function_space._ufl_function_space.dual())
+                                function_space.ufl_function_space().dual())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -200,6 +200,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         r"""Return a :class:`.Vector` wrapping the data in this
         :class:`Function`"""
         return vector.Vector(self)
+
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.Set` containing the nodes of this
+        :class:`Cofunction`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
+        """
+        return self.function_space().node_set
 
     def ufl_id(self):
         return self.uid
