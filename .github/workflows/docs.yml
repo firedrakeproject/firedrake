@@ -44,11 +44,11 @@ jobs:
           firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
           firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
           firedrake-preprocess-bibtex --validate source/_static/references.bib
-      - name: Build docs
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           repository: firedrakeproject/ufl
           ref: dualspace_update
+      - name: Build docs
         run: |
           . /home/firedrake/firedrake/bin/activate
           cd docs
