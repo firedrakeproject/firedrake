@@ -30,9 +30,11 @@ from enum import IntEnum
 
 # FIXME Move all slac loopy in separate file
 
+
 class _AssemblyStrategy(IntEnum):
     TERMINALS_FIRST = 0
     WHEN_NEEDED = 1
+
 
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
@@ -208,10 +210,17 @@ def _slate2gem_diagonal(expr, self):
         A, = map(self, expr.children)
         assert A.shape[0] == A.shape[1]
         i, j = (Index(extent=s) for s in A.shape)
-        return ComponentTensor(Product(Indexed(A, (i, i)), Delta(i, j)), (i, j))
+        idx = (i, i) if expr.vec else (i, j)
+        jdx = (i,) if expr.vec else (i, j)
+        return ComponentTensor(Product(Indexed(A, (i, i)), Delta(*idx)), jdx)
     else:
-        raise NotImplementedError("Diagonals on Slate expressions are \
-                                   not implemented in a matrix-free manner yet.")
+        child, = expr.children
+        if child.terminal:
+            P = self(sl.Tensor(child.form, diagonal=True))
+            return P
+        else:
+            raise NotImplementedError("Diagonals on non-terminal Slate expressions are \
+                                        not implemented in a matrix-free manner yet.")
 
 
 @_slate2gem.register(sl.Inverse)
@@ -220,10 +229,14 @@ def _slate2gem_inverse(expr, self):
     if expr.diagonal:
         # optimise inverse on diagonal tensor by translating to
         # matrix which contains the reciprocal values of the diagonal tensor
-        A, = map(self, expr.children)
-        i, j = (Index(extent=s) for s in A.shape)
-        return ComponentTensor(Product(Division(Literal(1), Indexed(A, (i, i))),
-                                       Delta(i, j)), (i, j))
+        if self.matfree:
+            tensor, = tensor.children
+            return self(sl.Reciprocal(sl.Tensor(tensor.form, diagonal=True)))
+        else:
+            A, = map(self, expr.children)
+            i, j = (Index(extent=s) for s in A.shape)
+            return ComponentTensor(Product(Division(Literal(1.), Indexed(A, (i, i))),
+                                           Delta(i, j)), (i, j))
     else:
         return Inverse(self(tensor))
 
@@ -232,7 +245,9 @@ def _slate2gem_inverse(expr, self):
 def _slate2gem_reciprocal(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+    var = ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Action)
@@ -249,7 +264,16 @@ def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
         children = list(map(self, expr.children))
+        if expr.preconditioner:
+            # assert isinstance(expr.preconditioner, sl.Inverse), "Preconditioner has to be an inverse"
+            assert expr.preconditioner not in self.gem2slate.values()
+            prec = self(expr.preconditioner)
+            Ponr = self(expr.Ponr)
+        else:
+            prec = None
+            Ponr = None
         ctx = {'matfree': expr.matfree, 'Aonx': self(expr.Aonx),'Aonp': self(expr.Aonp),
+                'preconditioner': prec, 'Ponr': Ponr, 'prec_diag': expr.prec_diag
                'rtol': expr.rtol, 'atol': expr.atol}
         var = Solve(*children, ctx=MatfreeSolveContext(**ctx))
         self.gem2slate[var.name] = expr
@@ -297,6 +321,17 @@ def _slate2gem_mul(expr, self):
     ABikj = Product(Indexed(A, tuple(i + [k])),
                     Indexed(B, tuple([k] + j)))
     var = ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+    self.gem2slate[var] = expr
+    return var
+
+
+@_slate2gem.register(sl.Hadamard)
+def _slate2gem_hadamard(expr, self):
+    A, B = map(self, expr.children)
+    idx = tuple(make_indices(len(A.shape)))
+    AB = Product(Indexed(A, idx),
+                 Indexed(B, idx))
+    var = ComponentTensor(AB, idx)
     self.gem2slate[var] = expr
     return var
 
@@ -446,6 +481,7 @@ def assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name):
     preamble = preamble+preamble_init if PETSc.Log.isActive() else None
     return tensor2temp, tsfc_kernels, insns, builder, events, preamble
 
+
 def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
     # FIXME This function needs some refactoring
     # Essentially there are 4 codepath: 1) insn is no matrix-free special insn
@@ -555,13 +591,16 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                     # glue the action coeff to the newly generated kernel
                     # we need this because the new run through the compiler above generated new temps, also for the coefficient,
                     # but we want the kernel for the tensorshell to work on the coefficient as defined in the instruction we currently deal with
-                    old_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
+                    i = -1 if isinstance(slate_node, sl.Hadamard) else 1
+                    old_arg = action_wrapper_knl[action_wrapper_knl_name].args[i]
                     new_var = insn.expression.parameters[1].subscript.aggregate
                     new_arg = old_arg.copy(name=new_var.name)
-                    new_args = [action_wrapper_knl[action_wrapper_knl_name].args[0], new_arg] + action_wrapper_knl[action_wrapper_knl_name].args[2:]
+                    new_args = action_wrapper_knl[action_wrapper_knl_name].args[:i] + [new_arg]
+                    if not i == -1:
+                        new_args += action_wrapper_knl[action_wrapper_knl_name].args[i+1:]
                     action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name: new_var})
                     action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
-                    action_tensor2temp = {slate_coeff_node: action_wrapper_knl[action_wrapper_knl_name].args[1]}
+                    action_tensor2temp = {slate_coeff_node: action_wrapper_knl[action_wrapper_knl_name].args[i]}
 
                     # we need to initialise the action temporaries for kernels
                     # which contain the action of a non terminal tensor on a coefficient
@@ -572,7 +611,60 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                         inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: slate_node}, None)
                         tensor2temps.update(tensor2temp)
                         for init in inits:
-                            insns.append(init)
+                            # preconditioner actions are called multiple times but we don't
+                            # need to init them twice because one is hand coded in matfree kernel
+                            if init.id not in [insn.id for insn in insns]:
+                                insns.append(init)
+
+                    if isinstance(slate_node, sl.Hadamard):
+                        terminal, coeff = slate_node.children
+                        tensor = (terminal.children[0]
+                                  if isinstance(terminal, sl.Inverse)
+                                  else terminal)
+                        terminal = sl.Tensor(tensor.children[0].form, diagonal=tensor.diagonal)
+
+                        if terminal not in tensor2temps.keys():
+                            diagT_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
+                        names = {coeff: (diagT_arg.name, slate_node.shape)}
+                        action_tensor2temp.update({terminal: diagT_arg})
+
+                        if terminal in tensor2temps.keys():
+                            old_arg = action_wrapper_knl[action_wrapper_knl_name].args[-2]
+                            new_arg = old_arg.copy(name=diagT_arg.name)
+                            new_args = action_wrapper_knl[action_wrapper_knl_name].args[:-2] + [new_arg] + action_wrapper_knl[action_wrapper_knl_name].args[-1:]
+                            action_wrapper_knl = lp.fix_parameters(action_wrapper_knl, within=None, **{old_arg.name: pym.Variable(diagT_arg.name)})
+                            action_wrapper_knl.callables_table[action_wrapper_knl_name].subkernel = action_wrapper_knl[action_wrapper_knl_name].copy(args=new_args)
+
+                        if terminal not in tensor2temps.keys():
+                            # separate action and non-action coefficients, needed because
+                            # figuring out which coefficients needs to be in the kernel data
+                            # is different for original coefficients and action coefficients
+                            original_coeffs, action_coeffs = builder.collect_coefficients(expr=terminal, names=names)
+                            builder.bag.copy_coefficients(original_coeffs, action_coeffs)
+
+                            # gem terminal node corresponding to lhs of the instructions
+                            gem_inlined_node = Variable(diagT_arg.name, gem_action_node.shape)
+                            inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, None)
+                            tensor2temps.update(tensor2temp)
+                            for init in inits:
+                                if init.id not in [insn.id for insn in insns]:
+                                    insns.append(init)
+
+                            # replaces call with tsfc call, which gets linked to tsfc kernel later
+                            ac_temp = builder.bag.action_coefficients
+                            builder.bag.action_coefficients = None
+                            tsfc_insns, tsfc_knls, modified_action_builder = generate_tsfc_knls_and_calls(builder, terminal,
+                                                                                                          action_tensor2temp,
+                                                                                                          insn,
+                                                                                                          pym.Variable(gem_inlined_node.name))
+
+                            builder.bag.action_coefficients = ac_temp
+                            insns += tsfc_insns
+                            knl_list.update(tsfc_knls)
+
+                            builder.bag.copy_extra_args(modified_action_builder.bag)
+                        action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters,
+                                                                 action_wrapper_knl_name, coords=False)
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
@@ -624,15 +716,16 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
 
     if init_temporaries:
         # We need to do initialise the temporaries at the end, when we collected all the ones we need
-        builder, tensor2temps, inits = initialise_temps(builder, gem2slate, tensor2temps)
+        builder, tensor2temps, inits, init_knls = initialise_temps(builder, gem2slate, tensor2temps)
         for i in inits:
             insns.insert(0, i)
+            knl_list.update(init_knls)
 
     slate_loopy, kernel_args = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy, kernel_args, all_events
 
 
-def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
+def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn, var=None):
     insns = []
     knl_list = {}
 
@@ -641,15 +734,21 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
 
     # FIXME we need to cover a case for explicit solves I think
     # when do we something mixed - matrix-free and matrix-explicit
+    var = var if var else insn.assignees[0].subscript.aggregate
 
     if tsfc_calls[0] and tsfc_knls[0]:
         # substitute action call with the generated tsfc call for that action
         # but keep the lhs so that the following instructions still act on the right temporaries
         for (i, tsfc_call), ((knl_name, knl), ) in zip(enumerate(tsfc_calls), (t.items() for t in tsfc_knls)):
-            wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
+            # wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
             name = builder.slate_loopy_name
-            insns.append(lp.kernel.instruction.CallInstruction(insn.assignees,
-                                                               tsfc_call.expression,
+            idx = tsfc_call.assignees[0].subscript.index
+            lhs = lp.symbolic.SubArrayRef(idx, pym.Subscript(var, idx))
+            inames = [i.name for i in insn.assignees[0].subscript.index]
+            wi = frozenset(i for i in itertools.chain(insn.within_inames, tsfc_call.within_inames))
+            expr = pym.Call(tsfc_call.expression.function, (lhs,) + tsfc_call.expression.parameters[1:])
+            insns.append(lp.kernel.instruction.CallInstruction((lhs,),
+                                                               expr,
                                                                id=str(insn.id) + "_" + name[name.rfind("_")+1:]+"_"+str(i),
                                                                within_inames=wi,
                                                                predicates=tsfc_call.predicates))
@@ -675,17 +774,42 @@ def initialise_temps(builder, gem2slate, tensor2temps):
     # links to the same coefficient as the rhs of this node and init it
     init_coeffs, _ = builder.collect_coefficients(artificial=False)
     gem2slate_vectors = {v: t for (v, t) in gem2slate.items()
-                            for cv, ct in init_coeffs.items()
-                            if isinstance(t, sl.AssembledVector)
-                            and t._function == cv}
+                         for cv, ct in init_coeffs.items()
+                         if isinstance(t, sl.AssembledVector)
+                         and t._function == cv}
+    builder.bag.coefficients.update(init_coeffs)
 
     inits, tensor2temp = builder.initialise_terminals(gem2slate_vectors, init_coeffs)
     tensor2temps.update(tensor2temp)
 
     # Get all coeffs into the wrapper kernel bag
     # so that we can generate the right wrapper kernel args of it
-    builder.bag.copy_coefficients(coeffs=init_coeffs)
-    return builder, tensor2temps, inits
+    gem2slate_diags = {v: t for (v, t) in gem2slate.items()
+                       if t.diagonal and t.terminal and isinstance(t, sl.Tensor)}
+
+    knl_list = {}
+    tsfc_inits = []
+    for variable, terminal in gem2slate_diags.items():
+        ac_temp = builder.bag.action_coefficients
+        builder.bag.action_coefficients = None
+        # builder.bag.coefficients = None
+        if terminal not in tensor2temps.keys():
+            # gem terminal node corresponding to lhs of the instructions
+            gem_inlined_node = Variable(variable.name, variable.shape)
+            inits_diag, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, None)
+            tensor2temps.update(tensor2temp)
+            for init in inits_diag:
+                if init.id not in [insn.id for insn in inits]:
+                    inits.append(init)
+
+            # replaces call with tsfc call, which gets linked to tsfc kernel later
+            tsfc_insns, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+            tsfc_inits += tsfc_insns
+            for tk in tsfc_knls:
+                knl_list.update(tk)
+        builder.bag.action_coefficients = ac_temp
+
+    return builder, tensor2temps, tsfc_inits+inits, knl_list
 
 # A note on the following helper functions:
 # There are two update functions.
@@ -704,15 +828,18 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     # we remove all existing dependencies and make them sequential instead
     # also help scheduling by setting within_inames_is_final on everything
     new_insns = []
+    last_id = None
     for i, insn in enumerate(insns):
         if insn:
             kwargs = {}
             if i != 0:
                 kwargs["depends_on"] = frozenset({last_id})
             kwargs["priority"] = len(insns)-i
-            kwargs["within_inames_is_final"]=True
+            kwargs["within_inames_is_final"] = True
+
+            kwargs["within_inames"] = insn.within_inames
             new_insns.append(insn.copy(**kwargs))
-            last_id=insn.id
+            last_id = insn.id
 
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
     # which contain the calls to the action, solve and tensorshell kernels

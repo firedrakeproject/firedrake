@@ -88,22 +88,24 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, compiler_parameters, coffee):
+    def _cache_key(cls, expr, compiler_parameters, coffee, diagonal):
         return md5((expr.expression_hash
                     + str(sorted(compiler_parameters.items()))
-                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(coffee)
+                    + str(diagonal)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, compiler_parameters, coffee=False):
+    def __init__(self, expr, compiler_parameters, coffee=False, diagonal=False):
         if self._initialized:
             return
         if coffee:
+            assert not diagonal, "Slate compiler cannot handle diagonal option in coffee mode. Use loopy backend instead."
             self.split_kernel = generate_kernel(expr, compiler_parameters)
         else:
-            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
+            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters, diagonal)
         self._initialized = True
 
 
-def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
+def compile_expression(slate_expr, compiler_parameters=None, coffee=False, diagonal=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -133,7 +135,7 @@ def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, params, coffee).split_kernel
+        kernel = SlateKernel(slate_expr, params, coffee, diagonal).split_kernel
         return cache.setdefault(key, kernel)
 
 
@@ -157,12 +159,15 @@ def get_temp_info(loopy_kernel):
     return mem_total, num_temps, mems, shapes
 
 
-def generate_loopy_kernel(slate_expr, compiler_parameters=None):
+def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
+
+    if diagonal:
+        slate_expr = slate.DiagonalTensor(slate_expr, vec=True)
 
     orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible
@@ -199,11 +204,11 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                                        ldargs=BLASLAPACK_LIB.split(),
                                                        events=events+(slate_loopy_event,))
 
-    # map the coefficients in the order that PyOP2 needs
     new_coeffs = slate_expr.coefficients()
     orig_coeffs = orig_expr.coefficients()
     get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
-    coeff_map = tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map)
+    coeff_map = (orig_expr.coeff_map if compiler_parameters["slate_compiler"]["replace_mul"]
+                 else tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map))
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
