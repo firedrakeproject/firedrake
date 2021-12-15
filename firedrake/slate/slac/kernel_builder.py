@@ -10,6 +10,7 @@ from firedrake.utils import cached_property
 from tsfc.finatinterface import create_element
 from ufl import MixedElement, Coefficient, FunctionSpace
 import loopy
+from gem import Variable as gVar, Action
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
@@ -432,7 +433,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, coords=True):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -445,7 +446,7 @@ class LocalLoopyKernelBuilder(object):
         self.slate_loopy_name = slate_loopy_name
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = SlateWrapperBag({})
+        self.bag = SlateWrapperBag({}, coords=coords)
         self.matfree_solve_knls = []
 
     def tsfc_cxt_kernels(self, terminal):
@@ -588,10 +589,10 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count_name)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
-                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
-                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+        which = {"interior_facet_horiz_top": str(pym.Comparison(layer, "<", nlayer[0])),
+                 "interior_facet_horiz_bottom": str(pym.Comparison(layer, ">", 0)),
+                 "exterior_facet_top": str(pym.Comparison(layer, "==", nlayer[0])),
+                 "exterior_facet_bottom": str(pym.Comparison(layer, "==", 0))}[integral_type]
 
         return [which]
 
@@ -610,13 +611,13 @@ class LocalLoopyKernelBuilder(object):
         select = 1 if integral_type.startswith("interior_facet") else 0
 
         i = self.bag.index_creator((1,))
-        predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 0)), "==", select)]
+        predicates = [str(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 0)), "==", select))]
 
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
         # "otherwise" is treated incorrectly as "everywhere"
         # However, this replicates an existing slate bug.
         if kinfo.subdomain_id != "otherwise":
-            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 1)), "==", kinfo.subdomain_id))
+            predicates.append(str(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 1)), "==", kinfo.subdomain_id)))
 
         # Additional facet array argument to be fed into tsfc loopy kernel
         subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg_name),
@@ -667,7 +668,11 @@ class LocalLoopyKernelBuilder(object):
                 # if coefficient is not in names it is not an
                 # an action coefficient so we can use usual naming conventions
                 if not new:
-                    prefix = "w_{}".format(i)
+                    if c not in self.bag.coefficients:
+                        count = i+len(self.bag.coefficients)
+                    else:
+                        count = i
+                    prefix = "w_{}".format(count)
             element = c.ufl_element()
             # collect information about the coefficient in particular name and extent
             if type(element) == MixedElement:
@@ -697,8 +702,6 @@ class LocalLoopyKernelBuilder(object):
 
             :arg gem2slate: dictionary that maps GEM nodes to Slate tensors
         """
-
-        from gem import Variable as gVar, Action
         gem2slate = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), gem2slate.items()))
         tensor2temp = OrderedDict()
         inits = []
@@ -769,6 +772,8 @@ class LocalLoopyKernelBuilder(object):
         dtype = self.tsfc_parameters["scalar_type"]
         rtol = getattr(expr.ctx, "rtol")
         atol = getattr(expr.ctx, "atol")
+        prec = getattr(expr.ctx, "preconditioner")
+        preconditioned = bool(prec)
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -776,24 +781,31 @@ class LocalLoopyKernelBuilder(object):
         # Map from local kernel arg name to global arg name
         A = args[0].name
         output = args[1].name
+        P = args[2].name if preconditioned else None
         b = args[-1].name
         coeff_arg = args[-1]
 
-        # rename x and p in case they are already arguments
-        x = "x"
-        p = "p"
-        for arg in args:
-            x = "x" + str(knl_no) if arg.name == "x" else x
-            p = "p" + str(knl_no) if arg.name == "p" else p
-
-        # name of the lhs to the action call inside the matfree solve kernel
+        # name of the lhs to the action calls inside the matfree solve kernel
         child1, _ = expr.children
         Aonx = getattr(expr.ctx, "Aonx")
         Aonp = getattr(expr.ctx, "Aonp")
+        Ponr = getattr(expr.ctx, "Ponr")
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(Aonx, "name") else Aonx.name
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(Aonp, "name") else Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
+        diagonal = expr.diag_prec
+        z = (ctx.gem_to_pymbolic[prec].name+"_r" if preconditioned and not hasattr(Ponr, "name")
+             else Ponr.name if preconditioned else "z")
+
+        # rename x and p and z in case they are already arguments
+        x = "x"
+        p = "p"
+        r = "r"
+        for arg in args:
+            x = "x" + str(knl_no) if arg.name == "x" else x
+            p = "p" + str(knl_no) if arg.name == "p" else p
+            r = "r" + str(knl_no) if arg.name == "r" else r
 
         # setup the stop criterions
         stop_criterion_id = "cond"
@@ -811,44 +823,62 @@ class LocalLoopyKernelBuilder(object):
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
-        insns = [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
-                {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
-                <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
-                {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
-                <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
-                rk_norm = rk_norm + r[i_5]*r[i_5] {{dep=projector0, id=rk_norm1}}
-                for i_6
-                    {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
+        insns = [f""" {x}[i_0] = -{b}[i_0] {{id=x0}}
+                  {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
+                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
+             """,
+             (f"""{z}[:] = action_P({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
+              f"""{z}[:] = action_P({P}[:], r[:]){{dep=residual0, id=z0}}""" if diagonal else
+              f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
+             f"""
+                  {p}[i_4] = -{z}[i_4] {{dep=z0, id=projector0}}
+                  <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
+                  rk_norm = rk_norm + r[i_5]*{z}[i_5] {{dep=projector0, id=rk_norm1}}
+                  for i_6
+                    {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
                     <> projector_is_zero = abs(p_on_Ap) < {atol} {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
              corner_case,
-             f"""    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
+             f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
-                    <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id=rkp1norm}}
-                    <> beta = rkp1_norm / rk_norm {{dep=rkp1norm, id={stop_criterion_dep}}}""",
+                    
+             """,
+             (f"""  {z}[i_15] = 0. {{dep=rk, id=zk0, inames=i_6}}
+                    {z}[:] = action_P({P}[:,:], r[:]) {{dep=zk0, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
+              f"""  {z}[i_16] = 0. {{dep=rk, id=zk0, inames=i_6}}
+                    {z}[:] = action_P({P}[:], r[:]){{dep=zk0, id=zk, inames=i_6}}""" if diagonal else
+              f"""  {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
+             f"""
+                    <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
+                    rkp1_norm = rkp1_norm + r[i_9]*{z}[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+             """,
              stop_criterion,
-             f"""   rk_norm = rkp1_norm {{dep={stop_criterion_id}, id=rk_normk}}
-                    {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
+             f"""
+                    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
+                    rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
+                    {p}[i_10] = beta * {p}[i_10] - {z}[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
-                end
-                {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
+                  end
+                  {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
              """]
+                    
         insns, event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
 
         knl = loopy.make_function(
-            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
-                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
-                 and 0<=i_6<=n}""",
+            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
+                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16<n
+                 and 0<=i_6<=3*n}""",
             insns,
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(z, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(r, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
             target=target,
             name=name,
             lang_version=(2018, 2),
@@ -863,6 +893,8 @@ class LocalLoopyKernelBuilder(object):
         # to the their pymbolic variables
         ctx.gem_to_pymbolic[Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         ctx.gem_to_pymbolic[Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        if preconditioned:
+            ctx.gem_to_pymbolic[Ponr] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["zk"].assignees[0].subscript.aggregate.name)
 
         # the expression which call the knl for the matfree solve kernel
         call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
@@ -912,21 +944,30 @@ class LocalLoopyKernelBuilder(object):
 
     def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
         """A function which is used for generating the arguments to the kernel and the read variables
-           for the call to that kernel of the matrix-free solve."""
+           for the call to that kernel of the matrix-free solve.
+
+           TODO Add comment on the order of the arguments."""
         child1, child2 = expr.children
-        reads1, reads2 = insn.expression.parameters
+        reads = insn.expression.parameters
+        prec = getattr(expr.ctx, "preconditioner")
 
         # Generate kernel args
-        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
+        arg1 = loopy.GlobalArg(reads[0].subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
                                dim_tags=None, strides=loopy.auto, order='C')
-        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
+        arg2 = loopy.GlobalArg(reads[1].subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
                                dim_tags=None, strides=loopy.auto, order='C')
+        if prec:
+            arg3 = loopy.GlobalArg(reads[2].subscript.aggregate.name, dtype, shape=prec.shape,
+                                   is_output=False, is_input=True,
+                                   dim_tags=None, strides=loopy.auto, order='C')
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
                                      dim_tags=None, strides=loopy.auto, order='C')
 
         not_loopy_args, tmp_args = self.generate_wrapper_kernel_args()
         args = [arg.loopy_arg for arg in not_loopy_args] + tmp_args
         args.append(arg2)
+        if prec:
+            args.insert(0, arg3)
         args.insert(0, output_arg)
         args.insert(0, arg1)
 
@@ -948,12 +989,13 @@ class LocalLoopyKernelBuilder(object):
         tmp_args = []
         # FIXME if we really need the dimtags and so on
         # maybe we should make a function for generating global args
-        coords_extent = self.extent(self.expression.ufl_domain().coordinates)
-        coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
-                                           dtype=self.tsfc_parameters["scalar_type"],
-                                           dim_tags=None, strides=loopy.auto, order="C",
-                                           is_input=True, is_output=False)
-        args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
+        if self.bag.coords:
+            coords_extent = self.extent(self.expression.ufl_domain().coordinates)
+            coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
+                                            dtype=self.tsfc_parameters["scalar_type"],
+                                            dim_tags=None, strides=loopy.auto, order="C",
+                                            is_input=True, is_output=False)
+            args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
 
         if self.bag.needs_cell_orientations:
             ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
@@ -1074,7 +1116,7 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, action_coeffs={}, name=""):
+    def __init__(self, coeffs, action_coeffs={}, name="", coords=True):
         self.coefficients = coeffs
         self.action_coefficients = action_coeffs
         self.needs_cell_orientations = False
@@ -1085,9 +1127,10 @@ class SlateWrapperBag(object):
         self.call_name_generator = UniqueNameGenerator()
         self.index_creator = IndexCreator()
         self.name = name
+        self.coords = coords
 
     def copy_extra_args(self, other):
-        self.coefficients = other.coefficients
+        self.coefficients.update(other.coefficients)
         if not self.needs_cell_orientations:
             self.needs_cell_orientations = other.needs_cell_orientations
         if not self.needs_cell_sizes:

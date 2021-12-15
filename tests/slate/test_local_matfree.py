@@ -307,7 +307,7 @@ class DGLaplacian(AuxiliaryOperatorPC):
         n = FacetNormal(W.mesh())
         alpha = Constant(3**2)
         gamma = Constant(4**2)
-        h = CellSize(W.mesh())
+        h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
                  - inner(jump(u, n), avg(grad(v)))*dS
@@ -320,9 +320,22 @@ class DGLaplacian(AuxiliaryOperatorPC):
         return (a_dg, bcs)
 
 
-def test_preconditioning_like(MP_forms, MP_fs):
-    a, l = MP_forms
-    W = MP_fs[0]
+def test_preconditioning_like():
+    mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
+    U = FunctionSpace(mymesh, "RTCF", 2)
+    V = FunctionSpace(mymesh, "DQ", 1)
+    W = U * V
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+
+    # Define the source function
+    x, y = SpatialCoordinate(mymesh)
+    f = Function(V)
+    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+
+    # Define the variational forms
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    l = -inner(f, v) * dx
 
     matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
@@ -333,9 +346,11 @@ def test_preconditioning_like(MP_forms, MP_fs):
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree',
                                         'localsolve': {'ksp_type': 'preonly',
-                                                       'mat_type': 'matfree',
                                                        'pc_type': 'fieldsplit',
-                                                       'pc_fieldsplit_type': 'schur'}}}
+                                                       'pc_fieldsplit_type': 'schur',
+                                                       'fieldsplit_1': {'ksp_type': 'default',
+                                                                        'pc_type': 'python',
+                                                                        'pc_python_type': __name__ + '.DGLaplacian'}}}}
 
     w = Function(W)
     eq = a == l
@@ -368,12 +383,9 @@ def test_preconditioning_like(MP_forms, MP_fs):
     schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
-    # check if preconditioning is garbage
-    # FIXME in this test we use the "normal" CG algorithm in matrix-free manner
-    # while we should actually be using preconditioned CG, the infrastructure
-    # for that will be coming in the future
+    # check if normal preconditioning is garbage
     A = builder.inner_S
-    _, _, _, A11 = builder.list_split_mixed_ops
+    A00, _, _, A11 = builder.list_split_mixed_ops
     test, trial = A11.arguments()
     p = solver.snes.ksp.pc.getPythonContext()
     auxpc = DGLaplacian()
@@ -381,8 +393,27 @@ def test_preconditioning_like(MP_forms, MP_fs):
     P = Tensor(b)
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
+    # check if diagonal Laplacian preconditioning is garbage
+    P = DiagonalTensor(Tensor(b))
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(A.inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # FIXME techincally this works, but it doesn't give a correct answer atm,
+    # probably because it's a bad idea to precondtion with the diagonal Laplacian
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-2)
+
+    # check if diagonal preconditioning of mass matrix is garbage
+    # Jacobi on mass matrix works for higher order too
+    P00 = DiagonalTensor(Tensor(A00.form))
+    _, arg = A00.arguments()
+    C00 = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble((P00.inv*A00).inv*(P00.inv*C00), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble((A00).inv*(C00), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
 
