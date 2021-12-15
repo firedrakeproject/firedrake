@@ -211,7 +211,9 @@ class TensorBase(object, metaclass=ABCMeta):
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
         return tuple((n, tuple(range(len(c.split()))))
-                     if isinstance(c, Function) or isinstance(c, Constant)
+                     if isinstance(c, Function)
+                     or isinstance(c, Constant)
+                     or isinstance(c, BaseCoefficient)
                      else (n, (0,))
                      for n, c in enumerate(self.coefficients()))
 
