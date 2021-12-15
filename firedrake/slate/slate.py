@@ -21,7 +21,7 @@ from collections import OrderedDict
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
-from firedrake.function import Function
+from firedrake.function import Function, Cofunction
 from firedrake.utils import cached_property
 
 from itertools import chain, count
@@ -213,7 +213,7 @@ class TensorBase(object, metaclass=ABCMeta):
         return tuple((n, tuple(range(len(c.split()))))
                      if isinstance(c, Function)
                      or isinstance(c, Constant)
-                     or isinstance(c, BaseCoefficient)
+                     or isinstance(c, Cofunction)
                      else (n, (0,))
                      for n, c in enumerate(self.coefficients()))
 
