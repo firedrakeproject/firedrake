@@ -97,7 +97,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         if self.function_space().value_size == 1:
             return (self, )
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+            return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
     def sub(self, i):

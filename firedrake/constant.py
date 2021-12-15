@@ -49,6 +49,12 @@ class Constant(ufl.Coefficient, ConstantMixin, metaclass=UFLType):
        :func:`~.Mesh` as the domain argument.
     """
 
+    def __new__(cls, *args, **kwargs):
+        # Hack to avoid hitting `Coefficient.__new__`
+        # which checks if the function space is dual or not.
+        # -> There is no concept of function space yet!
+        return object.__new__(cls)
+
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
