@@ -9,6 +9,7 @@ from firedrake.utils import cached_property
 from tsfc.finatinterface import create_element
 from ufl import MixedElement, Coefficient, FunctionSpace
 import loopy
+from gem import Variable as gVar, Action
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
@@ -686,7 +687,6 @@ class LocalLoopyKernelBuilder(object):
             :arg gem2slate: dictionary that maps GEM nodes to Slate tensors
         """
 
-        from gem import Variable as gVar, Action
         gem2slate = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), gem2slate.items()))
         tensor2temp = OrderedDict()
         inits = []
@@ -756,6 +756,7 @@ class LocalLoopyKernelBuilder(object):
         name = "mtf_solve_%d" % knl_no
         shape = expr.shape
         dtype = self.tsfc_parameters["scalar_type"]
+        preconditioned = not expr.preconditioner == None
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -763,22 +764,28 @@ class LocalLoopyKernelBuilder(object):
         # Map from local kernel arg name to global arg name
         A = args[0].name
         output = args[1].name
+        P = args[2].name if preconditioned else None
         b = args[-1].name
         coeff_arg = args[-1]
 
-        # rename x and p in case they are already arguments
-        x = "x"
-        p = "p"
-        for arg in args:
-            x = "x" + str(knl_no) if arg.name == "x" else x
-            p = "p" + str(knl_no) if arg.name == "p" else p
-
-        # name of the lhs to the action call inside the matfree solve kernel
+        # name of the lhs to the action calls inside the matfree solve kernel
         child1, _ = expr.children
         A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
+        diagonal = False
+        z = (ctx.gem_to_pymbolic[expr.preconditioner].name+"_r" if preconditioned and not hasattr(expr.Aonp, "name")
+            else expr.Ponr.name if preconditioned else "z")
+
+        # rename x and p and z in case they are already arguments
+        x = "x"
+        p = "p"
+        r = "r"
+        for arg in args:
+            x = "x" + str(knl_no) if arg.name == "x" else x
+            p = "p" + str(knl_no) if arg.name == "p" else p
+            r = "r" + str(knl_no) if arg.name == "r" else r
 
         # setup the stop criterions
         stop_criterion_id = "cond"
@@ -792,10 +799,6 @@ class LocalLoopyKernelBuilder(object):
         corner_case = self.generate_code_for_converged_pre_iteration(preconverged_criterion_dep,
                                                                      preconverged_criterion_id)
 
-        preconditioned = not expr.preconditioner == None
-        diagonal = expr.preconditioner.diagonal if preconditioned else False
-        P = A_on_x_name if preconditioned else None
-
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
@@ -806,15 +809,15 @@ class LocalLoopyKernelBuilder(object):
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
              """,
-             f"""z[:] = action_P({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
-             f"""z[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
-             f"""z[i_13] = r[i_13] {{dep=residual0, id=z0}}""",
+             (f"""{z}[:] = action_A({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
+             f"""{z}[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
+             f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
                 {p}[i_4] = -r[i_4] {{dep=z0, id=projector0}}
                 <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
-                rk_norm = rk_norm + r[i_5]*z[i_5] {{dep=projector0, id=rk_norm1}}
+                rk_norm = rk_norm + r[i_5]*{z}[i_5] {{dep=projector0, id=rk_norm1}}
                 for i_6
-                    {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
+                    {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=rk_norm1, id=Aonp, inames=i_6}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
                     <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id={preconverged_criterion_dep}, dep=ponAp}}
@@ -824,12 +827,12 @@ class LocalLoopyKernelBuilder(object):
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
             """,
-            f"""     z[:] = action_P({P}[:,:], r[:]) {{dep=rk, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
-            f"""     z[i_14] = {P}[i_14]*r[i_14] {{dep=residual0, id=z0}}""" if diagonal else
-            f"""     z[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
+            (f"""     {z}[:] = action_P({P}[:,:], r[:]) {{dep=rk, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
+            f"""     {z}[i_14] = {P}[i_14]*r[i_14] {{dep=residual0, id=zk}}""" if diagonal else
+            f"""     {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
             f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + r[i_9]*z[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+                    rkp1_norm = rkp1_norm + r[i_9]*{z}[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
              """,
              stop_criterion,
              f"""   
@@ -845,8 +848,8 @@ class LocalLoopyKernelBuilder(object):
              loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
              loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable("z", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable("r", dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+             loopy.TemporaryVariable(z, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(r, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
             target=loopy.CTarget(),
             name=name,
             lang_version=(2018, 2),
@@ -860,6 +863,8 @@ class LocalLoopyKernelBuilder(object):
         # to the their pymbolic variables
         ctx.gem_to_pymbolic[expr.Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         ctx.gem_to_pymbolic[expr.Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        if preconditioned and not diagonal:
+            ctx.gem_to_pymbolic[expr.Ponr] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["zk"].assignees[0].subscript.aggregate.name)
 
         # the expression which call the knl for the matfree solve kernel
         call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
@@ -907,22 +912,31 @@ class LocalLoopyKernelBuilder(object):
 
     def generate_kernel_args_and_call_reads(self, expr, insn, dtype):
         """A function which is used for generating the arguments to the kernel and the read variables
-           for the call to that kernel of the matrix-free solve."""
+           for the call to that kernel of the matrix-free solve.
+           
+           TODO Add comment on the order of the arguments."""
         child1, child2 = expr.children
-        reads1, reads2 = insn.expression.parameters
+        reads = insn.expression.parameters
 
         # Generate kernel args
-        arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
+        arg1 = loopy.GlobalArg(reads[0].subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
                                target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
-        arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
+        arg2 = loopy.GlobalArg(reads[1].subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
                                target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+        if expr.preconditioner:
+            arg3 = loopy.GlobalArg(reads[2].subscript.aggregate.name, dtype, shape=expr.preconditioner.shape,
+                                is_output=False, is_input=True,
+                                target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
                                      target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
 
         args = self.generate_wrapper_kernel_args()
         args.append(arg2)
+        if expr.preconditioner:
+            args.insert(0, arg3)
         args.insert(0, output_arg)
         args.insert(0, arg1)
+
 
         # Generate call parameters
         reads = []
