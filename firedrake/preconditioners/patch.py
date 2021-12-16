@@ -613,21 +613,32 @@ class PlaneSmoother(object):
         entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
-        minx = min(entities, key=lambda z: z[1][axis])[1][axis]
-        maxx = max(entities, key=lambda z: z[1][axis])[1][axis]
+        if isinstance(axis, int):
+            minx = min(entities, key=lambda z: z[1][axis])[1][axis]
+            maxx = max(entities, key=lambda z: z[1][axis])[1][axis]
 
-        def keyfunc(z):
-            coords = tuple(z[1])
-            return (coords[axis], ) + tuple(coords[:axis] + coords[axis+1:])
+            def keyfunc(z):
+                coords = tuple(z[1])
+                return (coords[axis], ) + tuple(coords[:axis] + coords[axis+1:])
+        else:
+            minx = axis(min(entities, key=lambda z: axis(z[1]))[1])
+            maxx = axis(max(entities, key=lambda z: axis(z[1]))[1])
+
+            def keyfunc(z):
+                coords = tuple(z[1])
+                return (axis(coords), ) + coords
 
         s = sorted(entities, key=keyfunc, reverse=(dir == -1))
+        (entities, coords) = zip(*s)
+        if isinstance(axis, int):
+            coords = [c[axis] for c in coords]
+        else:
+            coords = [axis(c) for c in coords]
 
         if divisions is None:
             divisions = numpy.linspace(minx, maxx, ndiv+1)
         if ndiv is None:
             ndiv = numpy.size(divisions)-1
-        (entities, coords) = zip(*s)
-        coords = [c[axis] for c in coords]
         indices = numpy.searchsorted(coords[::dir], divisions)
 
         out = []
@@ -649,19 +660,28 @@ class PlaneSmoother(object):
             raise ValueError("Must set %spc_patch_construct_ps_sweeps" % prefix)
 
         patches = []
+        import re
         for sweep in sweeps.split(':'):
-            axis = int(sweep[0])
-            dir = {'+': +1, '-': -1}[sweep[1]]
+            sweep_split = re.split(r'([+-])', sweep)
+            try:
+                axis = int(sweep_split[0])
+            except ValueError:
+                try:
+                    axis = context.appctx[sweep_split[0]]
+                except KeyError:
+                    raise KeyError("PlaneSmoother axis key %s not provided" % sweep_split[0])
+
+            dir = {'+': +1, '-': -1}[sweep_split[1]]
             # Either use equispaced bins for relaxation or get from appctx
             try:
-                ndiv = int(sweep[2:])
+                ndiv = int(sweep_split[2])
                 entities = self.sort_entities(dm, axis, dir, ndiv=ndiv)
             except ValueError:
                 try:
-                    divisions = context.appctx[sweep[2:]]
+                    divisions = context.appctx[sweep_split[2]]
                     entities = self.sort_entities(dm, axis, dir, divisions=divisions)
                 except KeyError:
-                    raise KeyError("PlaneSmoother division key %s not provided" % sweep[2:])
+                    raise KeyError("PlaneSmoother division key %s not provided" % sweep_split[2:])
 
             for patch in entities:
                 if not patch:
