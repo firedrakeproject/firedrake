@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.petsc import PETSc
+PETSc.Sys.popErrorHandler()
 
 
 @pytest.fixture
@@ -318,9 +320,22 @@ class DGLaplacian(AuxiliaryOperatorPC):
         return (a_dg, bcs)
 
 
-def test_preconditioning_like(MP_forms, MP_fs):
-    a, l = MP_forms
-    W = MP_fs[0]
+def test_preconditioning_like():
+    mymesh = UnitSquareMesh(6, 6)
+    U = FunctionSpace(mymesh, "RT", 2)
+    V = FunctionSpace(mymesh, "DG", 1)
+    W = U * V
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+
+    # Define the source function
+    x, y = SpatialCoordinate(mymesh)
+    f = Function(V)
+    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+
+    # Define the variational forms
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    l = -inner(f, v) * dx
 
     matfree_params = {'mat_type': 'matfree',
                       'ksp_type': 'preonly',
@@ -331,9 +346,11 @@ def test_preconditioning_like(MP_forms, MP_fs):
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree',
                                         'localsolve': {'ksp_type': 'preonly',
-                                                       'mat_type': 'matfree',
-                                                       'pc_type': 'fieldsplit',
-                                                       'pc_fieldsplit_type': 'schur'}}}
+                                                        'pc_type': 'fieldsplit',
+                                                        'pc_fieldsplit_type': 'schur',
+                                                        'fieldsplit_1': {'ksp_type': 'default',
+                                                                        'pc_type': 'python',
+                                                                        'pc_python_type': __name__ + '.DGLaplacian'}}}}
 
     w = Function(W)
     eq = a == l
@@ -345,26 +362,28 @@ def test_preconditioning_like(MP_forms, MP_fs):
 
     # Just double checking the single pieces in the hybridisation PC work correctly
     # check if schur complement is garbage
-    A = builder.inner_S_inv_hat
-    _, arg = A.arguments()
-    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # A = builder.inner_S_inv_hat
+    # _, arg = A.arguments()
+    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if A00 is garbage
-    A = builder.A00_inv_hat
-    _, arg = A.arguments()
-    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # A = builder.A00_inv_hat
+    # print(A)
+    # _, arg = A.arguments()
+    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
 
     # check if Srhs is garbage
-    rhs, _ = builder.build_schur(builder.rhs)
-    matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # rhs, _ = builder.build_schur(builder.rhs)
+    # matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if preconditioning is garbage
     # FIXME in this test we use the "normal" CG algorithm in matrix-free manner
@@ -379,6 +398,11 @@ def test_preconditioning_like(MP_forms, MP_fs):
     P = Tensor(b)
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble((P.inv * A).inv * (P.inv * C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    matfree_schur = assemble((P.inv*A).inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble((A.inv*A).inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    print(matfree_schur.dat.data)
+    print(schur.dat.data)
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    import sys
+    sys.exit()
+test_preconditioning_like()
