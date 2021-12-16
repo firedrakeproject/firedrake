@@ -686,7 +686,6 @@ class LocalLoopyKernelBuilder(object):
 
             :arg gem2slate: dictionary that maps GEM nodes to Slate tensors
         """
-
         gem2slate = dict(filter(lambda elem: isinstance(elem[0], gVar) or isinstance(elem[0], Action), gem2slate.items()))
         tensor2temp = OrderedDict()
         inits = []

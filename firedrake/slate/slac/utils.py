@@ -555,7 +555,10 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                         inits, tensor2temp = builder.initialise_terminals({gem_inlined_node: slate_node}, None)
                         tensor2temps.update(tensor2temp)
                         for init in inits:
-                            insns.append(init)
+                            # preconditioner actions are called multiple times but we don't
+                            # need to init them twice because one is hand coded in matfree kernel
+                            if init.id not in [insn.id for insn in insns]:
+                                insns.append(init)
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
 
@@ -691,6 +694,8 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
                 kwargs["depends_on"] = frozenset({last_id})
             kwargs["priority"] = len(insns)-i
             kwargs["within_inames_is_final"]=True
+
+            kwargs["within_inames"]=insn.within_inames
             new_insns.append(insn.copy(**kwargs))
             last_id=insn.id
 
