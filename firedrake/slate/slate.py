@@ -1414,7 +1414,10 @@ class Solve(BinaryOp):
 
         # wrap tensor into a shell when its not terminal
         if self.matfree and not A.terminal and not isinstance(A, TensorShell):
-            A = TensorShell(A)
+            A = TensorShell(A)      
+        # wrap preconditioner into a shell when its not terminal
+        if self.preconditioner and not self.preconditioner.terminal and not isinstance(self.preconditioner, TensorShell):
+            self.preconditioner = TensorShell(self.preconditioner)
 
         # Create a matrix factorization
         A_factored = (Factorization(A, decomposition=self.decomposition)
