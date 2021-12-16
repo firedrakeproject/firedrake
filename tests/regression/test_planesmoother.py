@@ -1,7 +1,9 @@
+import pytest
 import numpy
 from firedrake import *
 
 
+@pytest.mark.skipcomplex
 def test_xy_equivalence():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -56,6 +58,7 @@ def test_xy_equivalence():
     assert numpy.allclose(patch_defined_history, user_defined_history)
 
 
+@pytest.mark.skipcomplex
 def test_divisions_equivalence():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -110,6 +113,7 @@ def test_divisions_equivalence():
     assert numpy.allclose(patch_defined_history, user_defined_history)
 
 
+@pytest.mark.skipcomplex
 def test_tensor_grids():
     x_points = numpy.logspace(0, 1, 10)
     y_points = numpy.array([0, 0.2, 0.8, 0.9, 1.0, 1.05, 1.1, 1.2, 1.3, 1.4, 1.49, 1.5])
@@ -147,6 +151,7 @@ def test_tensor_grids():
     assert nits == 15
 
 
+@pytest.mark.skipcomplex
 def test_not_aligned():
     baseN = 4
     nrefs = 2
