@@ -104,7 +104,8 @@ def _push_block_stop(expr, self, indices):
 def _push_block_solve(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree,
-                           Aonx=expr.Aonx, Aonp=expr.Aonp, preconditioner=expr.preconditioner)
+                           Aonx=expr.Aonx, Aonp=expr.Aonp,
+                           preconditioner=expr.preconditioner, Ponr=expr.Ponr)
     return Block(expr, indices) if indices else expr
 
 
@@ -289,7 +290,8 @@ def _drop_double_transpose_action(expr, self):
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_solve(expr, self):
     return type(expr)(*map(self, expr.children), matfree=expr.matfree,
-                           Aonx=expr.Aonx, Aonp=expr.Aonp, preconditioner=expr.preconditioner)
+                           Aonx=expr.Aonx, Aonp=expr.Aonp,
+                           preconditioner=expr.preconditioner, Ponr=expr.Ponr)
 
 
 @singledispatch
@@ -422,7 +424,8 @@ def _push_mul_solve(expr, self, state):
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
-        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp, preconditioner=Ponr),
+        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp,
+                                  preconditioner=expr.preconditioner, Ponr=Ponr),
                             ActionBag(None, flip(state.pick_op)))
         return Transpose(self(swapped_op, ActionBag(pushed_child, flip(state.pick_op))))
     else:
@@ -437,7 +440,8 @@ def _push_mul_solve(expr, self, state):
         Aonx = make_action(mat, state.pick_op, self.action)
         Aonp = make_action(mat, state.pick_op, self.action)
         Ponr = make_action(expr.preconditioner, state.pick_op, self.action) if expr.preconditioner else None
-        return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp, preconditioner=Ponr)
+        return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp,
+                               preconditioner=expr.preconditioner, Ponr=Ponr)
 
 
 @_push_mul.register(Mul)

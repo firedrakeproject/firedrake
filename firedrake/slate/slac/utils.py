@@ -244,9 +244,17 @@ def _slate2gem_action(expr, self):
 def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
-        prec = self(expr.preconditioner) if expr.preconditioner else None
+        if expr.preconditioner:
+            assert isinstance(expr.preconditioner, sl.Inverse), "Preconditioner has to be an inverse"
+            assert expr.preconditioner not in self.gem2slate.values()
+            shape = expr.preconditioner.shape if not len(expr.preconditioner.shape) == 0 else (1, )
+            prec = Variable(None, shape)
+            self.gem2slate[prec] = expr
+        else:
+            prec = None
+        Ponr = self(expr.Ponr) if prec else None
         var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp),
-                    preconditioner=prec)
+                    preconditioner=prec, Ponr=Ponr)
         self.gem2slate[var.name] = expr
         return var
     else:
