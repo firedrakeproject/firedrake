@@ -808,7 +808,7 @@ class LocalLoopyKernelBuilder(object):
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
              """,
-             (f"""{z}[:] = action_A({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
+             (f"""{z}[:] = action_P({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
              f"""{z}[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
              f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
@@ -826,8 +826,9 @@ class LocalLoopyKernelBuilder(object):
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
             """,
-            (f"""     {z}[:] = action_P({P}[:,:], r[:]) {{dep=rk, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
-            f"""     {z}[i_14] = {P}[i_14]*r[i_14] {{dep=residual0, id=zk}}""" if diagonal else
+            (f"""    {z}[i_15] = 0. {{dep=rk, id=zk0, inames=i_6}}
+                     {z}[:] = action_P({P}[:,:], r[:]) {{dep=zk0, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
+            f"""     {z}[i_14] = {P}[i_14]*r[i_14] {{dep=rk, id=zk}}""" if diagonal else
             f"""     {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
             f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
