@@ -352,8 +352,9 @@ def _push_mul_inverse(expr, self, state):
             assert state.pick_op == 1
         else:
             preconditioner = None
-        expr = (Solve(child, state.coeff, preconditioner=preconditioner) if state.pick_op
-                else Transpose(Solve(Transpose(child), Transpose(state.coeff), preconditioner=preconditioner)))
+            mat = child
+        expr = (Solve(mat, state.coeff, preconditioner=preconditioner) if state.pick_op
+                else Transpose(Solve(Transpose(mat), Transpose(state.coeff), preconditioner=preconditioner)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
