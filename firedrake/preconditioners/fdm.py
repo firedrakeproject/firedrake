@@ -3,7 +3,7 @@ from functools import lru_cache, partial
 from pyop2.sparsity import get_preallocation
 
 import ufl
-from ufl import as_tensor, diag_vector, dot, dx, indices, inner
+from ufl import as_tensor, diag_vector, dot, dx, inner
 from ufl import grad, diff, replace, variable
 from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
@@ -156,8 +156,7 @@ class FDMPC(PCBase):
             V_fdm = firedrake.FunctionSpace(self.mesh, e_fdm)
             bcs_fdm = [firedrake.DirichletBC(V_fdm, firedrake.zero(), bc.sub_domain) for bc in self.bcs]
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-            test, trial = self.J.arguments()
-            rep_dict = {test: firedrake.TestFunction(V_fdm), trial: firedrake.TrialFunction(V_fdm)}
+            rep_dict = {t: t.reconstruct(function_space=V_fdm) for t in self.J.arguments()}
             self.fdm_form = replace(self.J, rep_dict)
 
         self.work = firedrake.Function(V_fdm)
@@ -378,7 +377,6 @@ class FDMPC(PCBase):
                 raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
             index_facet, local_facet_data, nfacets = self.get_interior_facet_maps(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
-            kstart = 1 if needs_hdiv else 0
             if needs_hdiv:
                 Gq_facet = coefficients.get("Gq_facet", None)
                 PT_facet = coefficients.get("PT_facet", None)
@@ -403,7 +401,7 @@ class FDMPC(PCBase):
                 else:
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
-                for k in range(kstart, ncomp):
+                for k in range(ncomp):
                     if needs_hdiv:
                         k0 = iord0[k]
                         k1 = iord1[k]
@@ -422,6 +420,8 @@ class FDMPC(PCBase):
                             mu = Gfacet
 
                     Dfacet = Dfdm[dim_perm[0]]
+                    if Dfacet is None:
+                        continue
                     offset = Dfacet.shape[0]
                     Adense = numpy.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
                     dense_indices = []
@@ -516,31 +516,27 @@ class FDMPC(PCBase):
             raise NotImplementedError("Unrecognized element mapping %s" % mapping)
 
         # get second order coefficient
-        rep_dict = {grad(t): variable(grad(t)) for t in args_J}
-        val = list(rep_dict.values())
-        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
+        ref_grad = [variable(grad(t)) for t in args_J]
+        if Piola:
+            replace_grad = {grad(t): dot(Piola, dot(dt, Finv)) for t, dt in zip(args_J, ref_grad)}
+        else:
+            replace_grad = {grad(t): dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
+
+        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_grad), ref_grad[0]), ref_grad[1]) for i in integrals_J]))
 
         # get zero-th order coefficent
-        rep_dict = {t: variable(t) for t in args_J}
-        val = list(rep_dict.values())
-        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), rep_dict), val[0]), val[1]) for i in integrals_J]))
-
-        # transform the second order coefficient alpha (physical gradient) to obtain G (reference gradient)
-        if Piola is None:
-            if len(alpha.ufl_shape) == 2:
-                G = dot(dot(Finv, alpha), Finv.T)
-            elif len(alpha.ufl_shape) == 4:
-                i1, i2, i3, i4, j2, j4 = indices(6)
-                G = as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
-            else:
-                raise ValueError("TensorFunctionSpaces with more than 1 index are not supported.")
+        ref_val = [variable(t) for t in args_J]
+        if Piola:
+            dummy_Piola = ufl.Coefficient(firedrake.TensorFunctionSpace(mesh, "R", degree=0, shape=Piola.ufl_shape))
+            replace_val = {t: dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
         else:
-            if len(alpha.ufl_shape) == 4:
-                i1, i2, i3, i4, j1, j2, j3, j4 = indices(8)
-                G = as_tensor(Piola[j1, i1] * Finv[i2, j2] * Piola[j3, i3] * Finv[i4, j4] * alpha[j1, j2, j3, j4], (i1, i2, i3, i4))
-            else:
-                raise ValueError("TensorFunctionSpaces with more than 1 index are not supported.")
+            replace_val = {t: s for t, s in zip(args_J, ref_val)}
 
+        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_val), ref_val[0]), ref_val[1]) for i in integrals_J]))
+        if Piola:
+            beta = replace(beta, {dummy_Piola: Piola})
+
+        G = alpha
         if discard_mixed:
             # discard mixed derivatives and mixed components
             if len(G.ufl_shape) == 2:
@@ -569,8 +565,8 @@ class FDMPC(PCBase):
             Bq = None
         else:
             if Piola:
-                # apply Piola transform and keep diagonal
-                beta = diag_vector(dot(Piola.T, dot(beta, Piola)))
+                # keep diagonal
+                beta = diag_vector(beta)
             shape = beta.ufl_shape
             if shape:
                 Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree,
@@ -593,9 +589,10 @@ class FDMPC(PCBase):
             ele = ufl.BrokenElement(ufl.FiniteElement("DGT", mesh.ufl_cell(), 0))
             area = firedrake.FacetArea(mesh)
 
+            replace_grad = {grad(t): dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
+            alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_grad), ref_grad[0]), ref_grad[1]) for i in integrals_J]))
             vol = abs(ufl.JacobianDeterminant(mesh))
-            i1, i2, i3, i4, j2, j4 = indices(6)
-            G = vol * as_tensor(Finv[i2, j2] * Finv[i4, j4] * alpha[i1, j2, i3, j4], (i1, i2, i3, i4))
+            G = vol * alpha
             G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
             Q = firedrake.TensorFunctionSpace(mesh, ele, shape=G.ufl_shape)
@@ -616,8 +613,6 @@ class FDMPC(PCBase):
         if (self.fdm_form is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
             self.diag_tensor = firedrake.assemble(self.fdm_form, tensor=self.diag_tensor, diagonal=True, assembly_type="residual",
                                                   form_compiler_parameters=self.fcp)
-            if self.work is None:
-                self.work = firedrake.Function(self.V)
             with self.diag_tensor.dat.vec as x_, self.work.dat.vec as y_:
                 A.getDiagonal(y_)
                 x_ /= y_
@@ -655,6 +650,29 @@ class FDMPC(PCBase):
         return A_petsc
 
     @staticmethod
+    def fdm_setup(ref_el, degree):
+        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
+        from FIAT.quadrature import GaussLegendreQuadratureLineRule
+        elem = GaussLobattoLegendre(ref_el, degree)
+        rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
+        Ahat, Bhat, _, _, _ = semhat(elem, rule)
+        Sfdm = numpy.eye(Ahat.shape[0])
+        if Sfdm.shape[0] > 2:
+            rd = (0, -1)
+            kd = slice(1, -1)
+            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
+            Skk = Sfdm[kd, kd]
+            Srr = Sfdm[numpy.ix_(rd, rd)]
+            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
+
+        # Facet normal derivatives
+        basis = elem.tabulate(1, ref_el.get_vertices())
+        Dfacet = basis[(1,)]
+        Dfacet[:, 0] = -Dfacet[:, 0]
+        Dfdm = numpy.dot(Sfdm.T, Dfacet)
+        return Ahat, Bhat, Sfdm, Dfdm
+
+    @staticmethod
     def fdm_setup_cg(ref_el, degree):
         """
         Setup for the fast diagonalization method for continuous Lagrange
@@ -671,19 +689,7 @@ class FDMPC(PCBase):
             of Dirichlet eigenfunctions on the GLL nodes,
             Dfdm: None.
         """
-        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
-        from FIAT.quadrature import GaussLegendreQuadratureLineRule
-        elem = GaussLobattoLegendre(ref_el, degree)
-        rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-        Ahat, Bhat, _, _, _ = semhat(elem, rule)
-        Sfdm = numpy.eye(Ahat.shape[0])
-        if Sfdm.shape[0] > 2:
-            rd = (0, -1)
-            kd = slice(1, -1)
-            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Skk = Sfdm[kd, kd]
-            Srr = Sfdm[numpy.ix_(rd, rd)]
-            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
+        Ahat, Bhat, Sfdm, _ = FDMPC.fdm_setup(ref_el, degree)
 
         def apply_strong_bcs(Ahat, bc0, bc1):
             k0 = 0 if bc0 == 1 else 1
@@ -721,19 +727,7 @@ class FDMPC(PCBase):
             of Dirichlet eigenfunctions on the GLL nodes,
             Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
         """
-        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
-        from FIAT.quadrature import GaussLegendreQuadratureLineRule
-        elem = GaussLobattoLegendre(ref_el, degree)
-        rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-        Ahat, Bhat, _, _, _ = semhat(elem, rule)
-        Sfdm = numpy.eye(Ahat.shape[0])
-        if Sfdm.shape[0] > 2:
-            rd = (0, -1)
-            kd = slice(1, -1)
-            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Skk = Sfdm[kd, kd]
-            Srr = Sfdm[numpy.ix_(rd, rd)]
-            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(Skk.T, numpy.dot(Bhat[kd, rd], -Srr)))
+        Ahat, Bhat, Sfdm, Dfdm = FDMPC.fdm_setup(ref_el, degree)
 
         def apply_weak_bcs(Ahat, Dfacet, bcs, eta):
             Abc = Ahat.copy()
@@ -748,11 +742,6 @@ class FDMPC(PCBase):
         B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
         Afdm = [FDMPC.numpy_to_petsc(B, [])]
 
-        # Facet normal derivatives
-        basis = elem.tabulate(1, ref_el.get_vertices())
-        Dfacet = basis[(1,)]
-        Dfacet[:, 0] = -Dfacet[:, 0]
-        Dfdm = numpy.dot(Sfdm.T, Dfacet)
         for bc1 in range(2):
             for bc0 in range(2):
                 Afdm.append(apply_weak_bcs(A, Dfdm, (bc0, bc1), eta))
@@ -761,29 +750,24 @@ class FDMPC(PCBase):
     @staticmethod
     def assemble_matfree(line_elements, eta):
         """
-        Setup of coefficient-independent quantities in the FDM
-
         Assemble the sparse interval stiffness matrices and tabulate normal derivatives.
 
         :arg line_elements: a list of FIAT elements on the interval for each direction
         :arg eta: a `float` penalty parameter for the symmetric interior penalty method
 
-        :returns: a 4-tuple with
+        :returns: a 2-tuple with
             Afdm: a list of lists of interval matrices for each direction,
             Dfdm: a list with tabulations of the normal derivative for each direction
         """
         Afdm = []
         Dfdm = []
-        if any([e.formdegree != 0 for e in line_elements]):
-            for e in line_elements:
-                Ae, De = FDMPC.fdm_setup_ipdg(e.ref_el, e.degree(), eta)
-                Afdm.append(Ae)
-                Dfdm.append(De)
-        else:
-            for e in line_elements:
+        for e in line_elements:
+            if e.formdegree == 0:
                 Ae, De = FDMPC.fdm_setup_cg(e.ref_el, e.degree())
-                Afdm.append(Ae)
-                Dfdm.append(De)
+            else:
+                Ae, De = FDMPC.fdm_setup_ipdg(e.ref_el, e.degree(), eta)
+            Afdm.append(Ae)
+            Dfdm.append(De)
         return Afdm, Dfdm
 
     @staticmethod

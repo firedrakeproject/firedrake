@@ -254,8 +254,8 @@ class PMGBase(PCSNESBase):
 
         # Replace dictionary with coarse state, test and trial functions
         replace_d = {fu: cu,
-                     test: firedrake.TestFunction(cV),
-                     trial: firedrake.TrialFunction(cV)}
+                     test: test.reconstruct(function_space=cV),
+                     trial: trial.reconstruct(function_space=cV)}
 
         cF = coarsen_form(fctx.F, Nf, Nc, replace_d)
         cJ = coarsen_form(fctx.J, Nf, Nc, replace_d)

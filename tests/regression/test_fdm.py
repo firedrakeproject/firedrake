@@ -184,7 +184,7 @@ def fs(request, mesh):
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=1)
+        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-ndim)
 
 
 @pytest.mark.skipcomplex
@@ -240,7 +240,7 @@ def test_direct_solver(fs):
         if "bottom" not in dirichlet_ids:
             neumann_ids.append("bottom")
 
-    dxq = dx(degree=quad_degree)
+    dxq = dx(degree=quad_degree, domain=mesh)
     if extruded:
         dS_int = dS_v(degree=quad_degree) + dS_h(degree=quad_degree)
         ds_ext = {"on_boundary": ds_v(degree=quad_degree), "bottom": ds_b(degree=quad_degree), "top": ds_t(degree=quad_degree)}
