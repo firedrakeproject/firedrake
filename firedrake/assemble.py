@@ -577,6 +577,13 @@ def _matrix_arg(access, get_map, row, col, *,
                                   unroll_map=unroll)
 
 
+def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
+    dat = op2tensor[i, j].handle.getPythonContext().dat
+    if component is not None:
+        dat = op2.DatView(dat, component)
+    dat.zero(subset=node_set)
+
+
 def _apply_bcs(tensor, bcs, opts, assembly_rank):
     """Apply Dirichlet boundary conditions to a tensor.
 
@@ -604,6 +611,21 @@ def _apply_bcs(tensor, bcs, opts, assembly_rank):
                 # block is on the matrix diagonal and its index matches the
                 # index of the function space the bc is defined on.
                 op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component)
+                # Handle off-diagonal block involving real function space.
+                # "lgmaps" is correctly constructed in _matrix_arg, but
+                # is ignored by PyOP2 in this case.
+                # Walk through row blocks associated with index.
+                for j, s in enumerate(space):
+                    if j != index and s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
+                # Walk through col blocks associated with index.
+                for i, s in enumerate(space):
+                    if i != index and s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, i, index, component, bc.node_set)
+            elif isinstance(bc, EquationBCSplit):
+                for j, s in enumerate(spaces[1]):
+                    if s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
     elif assembly_rank == _AssemblyRank.VECTOR:
         for bc in [b for b in bcs if isinstance(b, DirichletBC)]:
             if opts.assembly_type == _AssemblyType.SOLUTION:
