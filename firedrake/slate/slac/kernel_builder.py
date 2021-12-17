@@ -656,7 +656,11 @@ class LocalLoopyKernelBuilder(object):
                 # if coefficient is not in names it is not an
                 # an action coefficient so we can use usual naming conventions
                 if not new:
-                    prefix = "w_{}".format(i)
+                    if c not in self.bag.coefficients:
+                        count = i+len(self.bag.coefficients)
+                    else:
+                        count = i
+                    prefix = "w_{}".format(count)
             element = c.ufl_element()
             # collect information about the coefficient in particular name and extent
             if type(element) == MixedElement:
@@ -803,7 +807,7 @@ class LocalLoopyKernelBuilder(object):
         knl = loopy.make_function(
             """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15]:
                  0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15<n
-                 and 0<=i_6<=2*n}""",
+                 and 0<=i_6<=3*n}""",
             [f"""{x}[i_0] = {b}[i_0] {{id=x0}}
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}

@@ -245,7 +245,7 @@ def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
         if expr.preconditioner:
-            assert isinstance(expr.preconditioner, sl.Inverse), "Preconditioner has to be an inverse"
+            # assert isinstance(expr.preconditioner, sl.Inverse), "Preconditioner has to be an inverse"
             assert expr.preconditioner not in self.gem2slate.values()
             prec = self(expr.preconditioner)
             Ponr = self(expr.Ponr)
@@ -666,7 +666,7 @@ def initialise_temps(builder, gem2slate, tensor2temps):
 
     # Get all coeffs into the wrapper kernel bag
     # so that we can generate the right wrapper kernel args of it
-    builder.bag.copy_coefficients(coeffs=init_coeffs)
+    builder.bag.coefficients.update(init_coeffs)
     return builder, tensor2temps, inits
 
 # A note on the following helper functions:
