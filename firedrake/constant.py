@@ -4,7 +4,6 @@ import ufl
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
-from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 
 import firedrake.utils as utils
@@ -24,7 +23,7 @@ def _globalify(value):
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient, ConstantMixin, metaclass=UFLType):
+class Constant(ufl.Coefficient, ConstantMixin):
 
     """A "constant" coefficient
 
