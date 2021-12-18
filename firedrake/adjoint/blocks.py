@@ -479,8 +479,10 @@ class InterpolateBlock(Block, Backend):
         """
         if len(adj_inputs) > 1:
             raise(NotImplementedError("Interpolate block must have a single output"))
-        dJdm = self.backend.derivative(prepared, inputs[idx])
-        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True).vector()
+        input = inputs[idx]
+        dJdm = self.backend.derivative(prepared, input)
+        output = self.backend.Cofunction(input.function_space().dual())
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True).vector()
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())

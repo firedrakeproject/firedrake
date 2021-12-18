@@ -14,20 +14,10 @@ from firedrake.petsc import PETSc
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'CellSize', 'FacetNormal',
-           'UFLType']
+           'action', 'CellSize', 'FacetNormal']
 
 
-class UFLType(ufl.core.ufl_type.UFLType):
-
-    def __init__(cls, name, bases, attrs):
-        # Workaround to overwrite the `ufl.core.ufl_type.UFLType` metaclass
-        # which keeps processing the Firedrake objects subclassing UFL classes
-        # as if there were new UFLTypes causing problems in many places.
-        pass
-
-
-class Argument(ufl.argument.Argument, metaclass=UFLType):
+class Argument(ufl.argument.Argument):
     """Representation of the argument to a form.
 
     :arg function_space: the :class:`.FunctionSpace` the argument
@@ -89,7 +79,7 @@ class Argument(ufl.argument.Argument, metaclass=UFLType):
         return Argument(function_space, number, part=part)
 
 
-class Coargument(ufl.argument.Coargument, metaclass=UFLType):
+class Coargument(ufl.argument.Coargument):
     """Representation of an argument to a form in a dual space.
     :arg function_space: the :class:`.FunctionSpace` the argument
         corresponds to.

@@ -4,7 +4,6 @@ import ufl
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
-from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 
 import firedrake.utils as utils
@@ -24,7 +23,7 @@ def _globalify(value):
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient, ConstantMixin, metaclass=UFLType):
+class Constant(ufl.Coefficient, ConstantMixin):
 
     """A "constant" coefficient
 
@@ -48,6 +47,12 @@ class Constant(ufl.Coefficient, ConstantMixin, metaclass=UFLType):
        :class:`~ufl.form.Form` on its own you need to pass a
        :func:`~.Mesh` as the domain argument.
     """
+
+    def __new__(cls, *args, **kwargs):
+        # Hack to avoid hitting `Coefficient.__new__`
+        # which checks if the function space is dual or not.
+        # -> There is no concept of function space yet!
+        return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None):

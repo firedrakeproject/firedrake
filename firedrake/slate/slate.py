@@ -18,9 +18,10 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict
 
-from ufl import Coefficient, Constant
+from ufl import Constant
+from ufl.coefficient import BaseCoefficient
 
-from firedrake.function import Function
+from firedrake.function import Function, Cofunction
 from firedrake.utils import cached_property
 
 from itertools import chain, count
@@ -210,7 +211,9 @@ class TensorBase(object, metaclass=ABCMeta):
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
         return tuple((n, tuple(range(len(c.split()))))
-                     if isinstance(c, Function) or isinstance(c, Constant)
+                     if isinstance(c, Function)
+                     or isinstance(c, Constant)
+                     or isinstance(c, Cofunction)
                      else (n, (0,))
                      for n, c in enumerate(self.coefficients()))
 
@@ -409,12 +412,12 @@ class AssembledVector(TensorBase):
     def __new__(cls, function):
         if isinstance(function, AssembledVector):
             return function
-        elif isinstance(function, Coefficient):
+        elif isinstance(function, BaseCoefficient):
             self = super().__new__(cls)
             self._function = function
             return self
         else:
-            raise TypeError("Expecting a Coefficient or AssembledVector (not a %r)" %
+            raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
 
     @cached_property
@@ -480,14 +483,14 @@ class BlockAssembledVector(AssembledVector):
 
     def __new__(cls, function, split_functions, indices):
         if isinstance(split_functions, tuple) \
-           and all(isinstance(f, Coefficient) for f in split_functions):
+           and all(isinstance(f, BaseCoefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
             self._original_function = function
             return self
         else:
-            raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
+            raise TypeError("Expecting a tuple of BaseCoefficients (not a %r)" %
                             type(split_functions))
 
     @cached_property

@@ -5,7 +5,6 @@ from pyop2 import op2
 import firedrake.assemble
 from firedrake.logging import warning
 from firedrake import utils, vector
-from firedrake.ufl_expr import UFLType
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -15,7 +14,7 @@ except ImportError:
     cachetools = None
 
 
-class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
+class Cofunction(ufl.Cofunction, FunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
     Like Functions, cofunctions are
     represented as sums of basis functions:
@@ -97,7 +96,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         if self.function_space().value_size == 1:
             return (self, )
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+            return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
     def sub(self, i):
@@ -211,6 +210,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
         :class:`Function`"""
         return vector.Vector(self)
 
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.Set` containing the nodes of this
+        :class:`Cofunction`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
+        """
+        return self.function_space().node_set
+
     def ufl_id(self):
         return self.uid
 
@@ -238,3 +246,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin, metaclass=UFLType):
             return self._name
         else:
             return super(Cofunction, self).__str__()
+
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
