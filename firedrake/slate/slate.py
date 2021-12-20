@@ -205,6 +205,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
 
+    @property
     def coeff_map(self):
         """A map from local coefficient numbers
         to the split global coefficient numbers.
