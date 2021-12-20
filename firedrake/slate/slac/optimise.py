@@ -347,14 +347,22 @@ def _push_mul_inverse(expr, self, state):
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
         return expr * state.coeff if state.pick_op else state.coeff * expr
     else:
-        if isinstance(child, Mul):
-            preconditioner, mat = child.children
-            assert state.pick_op == 1
+        if (self.action and state.coeff                                              # in matrix-free mode
+            and isinstance(child, Mul)                                               # when lhs == P.inv * A * x  
+            and (isinstance(state.coeff, Mul) or isinstance(state.coeff, Action))):  # and rhs == P.inv * b 
+            # turn the inverse into a preconditioned matrix-free solve    
+            assert state.pick_op == 1, "This case is not considered in the optimiser yet."
+            preconditioner_l, mat = child.children
+            preconditioner_r, coeff = state.coeff.children
+            assert preconditioner_l == preconditioner_r, "If you want to use a local precondtioner, \
+                                                          make sure you multiply with the same operator \
+                                                          on the left and on the right."
         else:
-            preconditioner = None
+            preconditioner_l = None
             mat = child
-        expr = (Solve(mat, state.coeff, preconditioner=preconditioner) if state.pick_op
-                else Transpose(Solve(Transpose(mat), Transpose(state.coeff), preconditioner=preconditioner)))
+            coeff = state.coeff
+        expr = (Solve(mat, coeff, preconditioner=preconditioner_l) if state.pick_op
+                else Transpose(Solve(Transpose(mat), Transpose(coeff), preconditioner=preconditioner_l)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
