@@ -777,8 +777,8 @@ class LocalLoopyKernelBuilder(object):
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
-        diagonal = False
-        z = (ctx.gem_to_pymbolic[expr.preconditioner].name+"_r" if preconditioned and not hasattr(expr.Aonp, "name")
+        diagonal = expr.diag_prec
+        z = (ctx.gem_to_pymbolic[expr.preconditioner].name+"_r" if preconditioned and not hasattr(expr.Ponr, "name")
             else expr.Ponr.name if preconditioned else "z")
 
         # rename x and p and z in case they are already arguments
@@ -813,7 +813,7 @@ class LocalLoopyKernelBuilder(object):
                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
              """,
              (f"""{z}[:] = action_P({P}[:,:], r[:]) {{dep=residual0, id=z0}}""" if preconditioned and not diagonal else
-             f"""{z}[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
+             f"""{z}[:] = action_P({P}[:], r[:]){{dep=residual0, id=z0}}""" if diagonal else
              f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
                 {p}[i_4] = -{z}[i_4] {{dep=z0, id=projector0}}
@@ -832,7 +832,7 @@ class LocalLoopyKernelBuilder(object):
             """,
             (f"""    {z}[i_15] = 0. {{dep=rk, id=zk0, inames=i_6}}
                      {z}[:] = action_P({P}[:,:], r[:]) {{dep=zk0, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
-            f"""     {z}[i_14] = {P}[i_14]*r[i_14] {{dep=rk, id=zk}}""" if diagonal else
+            f"""     {z}[:] = action_P({P}[:], r[:]){{dep=rk, id=zk}}""" if diagonal else
             f"""     {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
             f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
@@ -867,7 +867,7 @@ class LocalLoopyKernelBuilder(object):
         # to the their pymbolic variables
         ctx.gem_to_pymbolic[expr.Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
         ctx.gem_to_pymbolic[expr.Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
-        if preconditioned and not diagonal:
+        if preconditioned:
             ctx.gem_to_pymbolic[expr.Ponr] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["zk"].assignees[0].subscript.aggregate.name)
 
         # the expression which call the knl for the matfree solve kernel

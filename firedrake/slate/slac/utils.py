@@ -200,7 +200,7 @@ def _slate2gem_block(expr, self):
 
 @_slate2gem.register(sl.DiagonalTensor)
 def _slate2gem_diagonal(expr, self):
-    if not self.matfree or expr.terminal:
+    if not self.matfree:
         A, = map(self, expr.children)
         assert A.shape[0] == A.shape[1]
         i, j = (Index(extent=s) for s in A.shape)
@@ -208,8 +208,13 @@ def _slate2gem_diagonal(expr, self):
         jdx = (i,) if expr.vec else (i, j)
         return ComponentTensor(Product(Indexed(A, (i, i)), Delta(*idx)), jdx)
     else:
-        raise NotImplementedError("Diagonals on non-terminal Slate expressions are \
-                                      not implemented in a matrix-free manner yet.")
+        child, = expr.children
+        if child.terminal:
+            P = self(sl.Tensor(child.form, diagonal=True))
+            return P
+        else:
+            raise NotImplementedError("Diagonals on non-terminal Slate expressions are \
+                                        not implemented in a matrix-free manner yet.")
 
 
 @_slate2gem.register(sl.Inverse)
@@ -218,10 +223,14 @@ def _slate2gem_inverse(expr, self):
     if expr.diagonal:
         # optimise inverse on diagonal tensor by translating to
         # matrix which contains the reciprocal values of the diagonal tensor
-        A, = map(self, expr.children)
-        i, j = (Index(extent=s) for s in A.shape)
-        return ComponentTensor(Product(Division(Literal(1), Indexed(A, (i, i))),
-                                       Delta(i, j)), (i, j))
+        if self.matfree:
+            tensor, = tensor.children
+            return self(sl.Reciprocal(sl.Tensor(tensor.form, diagonal=True)))
+        else:
+            A, = map(self, expr.children)
+            i, j = (Index(extent=s) for s in A.shape)
+            return ComponentTensor(Product(Division(Literal(1), Indexed(A, (i, i))),
+                                        Delta(i, j)), (i, j))
     else:
         return Inverse(self(tensor))
 
@@ -230,7 +239,9 @@ def _slate2gem_inverse(expr, self):
 def _slate2gem_reciprocal(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+    var = ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+    self.gem2slate[var] = expr
+    return var
 
 
 @_slate2gem.register(sl.Action)
@@ -255,7 +266,7 @@ def _slate2gem_solve(expr, self):
             prec = None
             Ponr = None
         var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp),
-                    preconditioner=prec, Ponr=Ponr)
+                    preconditioner=prec, Ponr=Ponr, diag_prec=expr.diag_prec)
         self.gem2slate[var.name] = expr
         return var
     else:
@@ -301,6 +312,17 @@ def _slate2gem_mul(expr, self):
     ABikj = Product(Indexed(A, tuple(i + [k])),
                     Indexed(B, tuple([k] + j)))
     var = ComponentTensor(IndexSum(ABikj, (k, )), tuple(i + j))
+    self.gem2slate[var] = expr
+    return var
+
+
+@_slate2gem.register(sl.Hadamard)
+def _slate2gem_mul(expr, self):
+    A, B = map(self, expr.children)
+    idx = tuple(make_indices(len(A.shape)))
+    AB = Product(Indexed(A, idx),
+                    Indexed(B, idx))
+    var = ComponentTensor(AB, idx)
     self.gem2slate[var] = expr
     return var
 

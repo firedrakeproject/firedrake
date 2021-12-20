@@ -109,7 +109,8 @@ def _push_block_solve(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree,
                            Aonx=expr.Aonx, Aonp=expr.Aonp,
-                           preconditioner=expr.preconditioner, Ponr=expr.Ponr)
+                           preconditioner=expr.preconditioner, Ponr=expr.Ponr,
+                           diag_prec=expr.diag_prec)
     return Block(expr, indices) if indices else expr
 
 
@@ -296,7 +297,8 @@ def _drop_double_transpose_action(expr, self):
 def _drop_double_transpose_solve(expr, self):
     return type(expr)(*map(self, expr.children), matfree=expr.matfree,
                            Aonx=expr.Aonx, Aonp=expr.Aonp,
-                           preconditioner=expr.preconditioner, Ponr=expr.Ponr)
+                           preconditioner=expr.preconditioner, Ponr=expr.Ponr,
+                           diag_prec=expr.diag_prec)
 
 @_drop_double_transpose.register(DiagonalTensor)
 def _drop_double_transpose_diag(expr, self):
@@ -438,7 +440,8 @@ def _push_mul_solve(expr, self, state):
         rhs = expr.children[flip(state.pick_op)]
         Aonx = make_action(expr.children[state.pick_op], state.pick_op, self.action)
         Aonp = make_action(expr.children[state.pick_op], state.pick_op, self.action)
-        Ponr = make_action(expr.preconditioner, state.pick_op, self.action) if expr.preconditioner else None
+        Ponr_pickop = state.pick_op if expr.preconditioner.rank > 1 else 0
+        Ponr = make_action(expr.preconditioner, Ponr_pickop, self.action) if expr.preconditioner else None
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
@@ -457,7 +460,11 @@ def _push_mul_solve(expr, self, state):
         mat, rhs = expr.children
         Aonx = make_action(mat, state.pick_op, self.action)
         Aonp = make_action(mat, state.pick_op, self.action)
-        Ponr = make_action(expr.preconditioner, state.pick_op, self.action) if expr.preconditioner else None
+        if expr.preconditioner:
+            Ponr_pickop = state.pick_op if expr.preconditioner.rank > 1 else 0
+            Ponr = make_action(expr.preconditioner, Ponr_pickop, self.action)
+        else:
+            Ponr = None
         return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp,
                                preconditioner=expr.preconditioner, Ponr=Ponr)
 

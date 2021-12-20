@@ -1197,6 +1197,38 @@ class Mul(BinaryOp):
         return self._args
 
 
+class Hadamard(Mul):
+    """Abstract Slate class representing the Hadamard product or two tensors.
+    This is an entrywise multiplication.
+
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
+
+    def __init__(self, A, B):
+        """Constructor for the Mul class."""
+
+        super(Hadamard, self).__init__(A, B)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        self._args = A.arguments()
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        _, B = self.operands
+        return B.arg_function_spaces
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from multiplying two tensors A and B.
+        """
+        return self._args
+
+
 class Action(BinaryOp):
     """Slate class representing the interior product of two tensors,
     where the second tensor has one dimension less than the first tensor.
@@ -1211,11 +1243,17 @@ class Action(BinaryOp):
                   if pick_op is 1 A is actioned onto b
     """
 
-    def __init__(self, A, b, pick_op):
+    def __new__(cls, A, b, pick_op):
         """Constructor for the Action class."""
+        if A.diagonal:
+            if isinstance(A, TensorShell):
+                A, = A.children
+            return Hadamard(A, b)
+
         if A.shape[pick_op] != b.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, b.shape))
+
         # Not that b does not need to be an AssembledVector
         if b.rank != A.rank-1:
             raise ValueError("In Action(A, b) b needs to have a lower rank than A.")
@@ -1227,6 +1265,9 @@ class Action(BinaryOp):
             "They must be in the same function space."
         )
 
+        return super().__new__(cls)
+    
+    def __init__(self, A, b, pick_op):
         super(Action, self).__init__(A, b)
 
         # Function space check above ensures that middle arguments can
@@ -1318,6 +1359,7 @@ class TensorShell(UnaryOp):
         super(TensorShell, self).__init__()
         assert not A.terminal, "Terminal Slate tensors can be handled without a TensorShell node wrapped around."
         self.operands = (A,)
+        self.diagonal = A.diagonal
 
     @cached_property
     def arg_function_spaces(self):
@@ -1325,13 +1367,13 @@ class TensorShell(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces
+        return (tuple(arg.function_space() for arg in [tensor.arguments()[0]])
+                if self.diagonal else tuple(arg.function_space() for arg in tensor.arguments()))
 
     def arguments(self):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor."""
+        """Returns a tuple of arguments associated with the tensor."""
         tensor, = self.operands
-        return tensor.arguments()
+        return (tensor.arguments()[0],) if self.diagonal else tensor.arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -1394,7 +1436,7 @@ class Solve(BinaryOp):
         self.decomposition = "PartialPivLU"
         self.preconditioner = None
         self.Ponr = None
-        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition", "preconditioner", "Ponr"]
+        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition", "preconditioner", "Ponr", "diag_prec"]
         for key, value in kwargs.items():
             if key in valid_kwargs:
                 setattr(self, key, value)
@@ -1416,10 +1458,16 @@ class Solve(BinaryOp):
 
         # wrap tensor into a shell when its not terminal
         if self.matfree and not A.terminal and not isinstance(A, TensorShell):
-            A = TensorShell(A)      
+            A = TensorShell(A)
+
+        self.diag_prec = self.preconditioner.diagonal if self.preconditioner else None
         # wrap preconditioner into a shell when its not terminal
-        if self.preconditioner and not self.preconditioner.terminal and not isinstance(self.preconditioner, TensorShell):
+        if (self.preconditioner
+            and not self.preconditioner.terminal
+            # and not self.diag_prec
+            and not isinstance(self.preconditioner, TensorShell)):
             self.preconditioner = TensorShell(self.preconditioner)
+
 
         # Create a matrix factorization
         A_factored = A #(Factorization(A, decomposition=self.decomposition)
@@ -1439,8 +1487,6 @@ class Solve(BinaryOp):
             if self.Aonp.pick_op != pick_op:
                 arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
                 self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
-
-        # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
     @cached_property
     def arg_function_spaces(self):
