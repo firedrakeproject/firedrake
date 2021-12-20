@@ -1459,20 +1459,6 @@ class Solve(BinaryOp):
             coeffs.append([op.coefficients(artificial)[0] for op in [self.Aonx, self.Aonp, self.Ponr]])
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
-    def coeff_map(self, new_coeffs=None):
-        """A map from local coefficient numbers
-        to the split global coefficient numbers.
-        The split coefficients are defined on the pieces of the originally mixed function spaces.
-        """
-        c = new_coeffs if new_coeffs else self.coefficients()
-        ret = ()
-        for n, c in enumerate(c):
-            try:
-                ret += ((n, tuple(range(len(c.split())))),)
-            except:
-                ret += ((n, (0,)),)
-        return ret
-
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
