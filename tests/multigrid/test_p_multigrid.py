@@ -39,10 +39,13 @@ def test_prolongation_matrix_matfree():
         mat = diag(Constant([ndim+1]*ndim)) + Constant([[-1]*ndim]*ndim)
         expr = dot(mat, SpatialCoordinate(mesh)) + b
 
-        Q = VectorFunctionSpace(mesh, "Q", 3)
-        RTCF = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", 2)
-        RTCE = FunctionSpace(mesh, "NCE" if ndim == 3 else "RTCE", 2)
-        fs = [Q, RTCF, RTCE]
+        variant = None
+        cell = mesh.ufl_cell()
+        elems = []
+        elems.append(VectorElement(FiniteElement("Q", cell=cell, degree=3, variant=variant)))
+        elems.append(FiniteElement("NCF" if ndim == 3 else "RTCF", cell=cell, degree=2, variant=variant))
+        elems.append(FiniteElement("NCE" if ndim == 3 else "RTCE", cell=cell, degree=2, variant=variant))
+        fs = [FunctionSpace(mesh, e) for e in elems]
         us = [Function(V) for V in fs]
         us[0].interpolate(expr)
         for u in us:

@@ -3,8 +3,7 @@ from functools import lru_cache, partial
 from pyop2.sparsity import get_preallocation
 
 import ufl
-from ufl import as_tensor, diag_vector, dot, dx, inner
-from ufl import grad, diff, replace, variable
+from ufl import inner, diff
 from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
 from FIAT.fdm_element import FDMElement
@@ -16,7 +15,6 @@ from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 import numpy
-import numpy.linalg
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
@@ -99,7 +97,8 @@ class FDMPC(PCBase):
         # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        # opts = PETSc.Options(options_prefix)
+        opts = PETSc.Options(options_prefix)
+        embedded = opts.getBool("embedded", False)
 
         dm = pc.getDM()
         V = get_function_space(dm)
@@ -134,34 +133,43 @@ class FDMPC(PCBase):
         self.J = solverctx.J
         self.bcs = solverctx.bcs_J
 
-        if len(self.bcs) > 0:
-            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.bcs]))
-        else:
-            self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-
-        bcflags = self.get_bc_flags(self.bcs, self.J)
-
-        appctx = self.get_appctx(pc)
         # Get the interior penalty parameter from the appctx
+        appctx = self.get_appctx(pc)
         eta = float(appctx.get("eta", (N+1)**2))
         self.fcp = appctx.get("form_compiler_parameters", dict())
 
-        if use_fdm_element:
+        if use_fdm_element and not embedded:
             V_fdm = V
             self.fdm_interp = None
             self.fdm_form = self.J
+            self.fdm_bcs = self.bcs
         else:
             # Get the interpolator between the space V and its FDM variant
-            e_fdm = element.reconstruct(variant="fdm")
-            V_fdm = firedrake.FunctionSpace(self.mesh, e_fdm)
-            bcs_fdm = [firedrake.DirichletBC(V_fdm, firedrake.zero(), bc.sub_domain) for bc in self.bcs]
-            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-            rep_dict = {t: t.reconstruct(function_space=V_fdm) for t in self.J.arguments()}
-            self.fdm_form = replace(self.J, rep_dict)
+            if embedded:
+                e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=N, variant="fdm")
+                if element.value_shape():
+                    e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape())
+                fiat_elements = get_line_elements(e_fdm)
+                needs_hdiv = False
+            else:
+                e_fdm = element.reconstruct(variant="fdm")
 
+            V_fdm = firedrake.FunctionSpace(self.mesh, e_fdm)
+            self.fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in self.bcs)
+            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], self.fdm_bcs)
+            rep_dict = {t: t.reconstruct(function_space=V_fdm) for t in self.J.arguments()}
+            self.fdm_form = ufl.replace(self.J, rep_dict)
+
+        if len(self.fdm_bcs) > 0:
+            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.bcs]))
+            self.fdm_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.fdm_bcs]))
+        else:
+            self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+            self.fdm_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+
+        bcflags = self.get_bc_flags(self.fdm_bcs, self.fdm_form)
         self.work = firedrake.Function(V_fdm)
-        self.diag_tensor = None
-        self.fdm_form = None
+        self.diag_tensor = firedrake.Function(V_fdm)
 
         # Afdm = sparse interval mass and stiffness matrices for each direction
         # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
@@ -169,24 +177,30 @@ class FDMPC(PCBase):
 
         # Get coefficients w.r.t. the reference coordinates
         # we may use a lower quadrature degree, but using Nq is not so expensive
-        coefficients, self.assembly_callables = self.assemble_coef(self.J, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
+        coefficients, self.assembly_callables = self.assemble_coef(self.fdm_form, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
 
+        self.fdm_form = None
         # Set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
                 cvec.set(1.0E0)
 
-        # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        prealloc = PETSc.Mat().create(comm=A.comm)
-        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-        prealloc.setSizes(A.getSizes())
-        prealloc.setUp()
-        self.assemble_kron(prealloc, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-        nnz = get_preallocation(prealloc, V.value_size * V.dof_dset.set.size)
+        layout_vec = V_fdm.dof_dset.layout_vec
+        block_size = layout_vec.getBlockSize()
+        row_sizes = layout_vec.getSizes()
+        sizes = (row_sizes, row_sizes)
 
-        self.Pmat = PETSc.Mat().createAIJ(A.getSizes(), A.getBlockSize(), nnz=nnz, comm=A.comm)
-        self.Pmat.setLGMap(V.dof_dset.lgmap)
-        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V,
+        # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
+        prealloc = PETSc.Mat().create(comm=V_fdm.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(sizes)
+        prealloc.setUp()
+        self.assemble_kron(prealloc, V_fdm, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        nnz = get_preallocation(prealloc, V_fdm.value_size * V_fdm.dof_dset.set.size)
+
+        self.Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=prealloc.comm)
+        self.Pmat.setLGMap(V_fdm.dof_dset.lgmap)
+        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V_fdm,
                                       coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
         prealloc.destroy()
 
@@ -199,8 +213,7 @@ class FDMPC(PCBase):
 
         # We set a DM on the constructed PC so one
         # can do patch solves with ASMPC.
-        dm = opc.getDM()
-        pc.setDM(dm)
+        pc.setDM(V_fdm.dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.Pmat, self.Pmat)
         self.pc = pc
@@ -212,7 +225,8 @@ class FDMPC(PCBase):
             assemble_coef()
         self.Pmat.zeroEntries()
         self._assemble_Pmat()
-        self.Pmat.zeroRowsColumnsLocal(self.bc_nodes)
+        self.Pmat.zeroRowsColumnsLocal(self.fdm_bc_nodes)
+        self.diagonal_scaling(self.Pmat)
 
     def apply(self, pc, x, y, transpose=False):
         if self.fdm_interp is None:
@@ -221,15 +235,15 @@ class FDMPC(PCBase):
             else:
                 self.pc.apply(x, y)
         else:
-            with self.work.dat.vec as w:
-                self.fdm_interp.multTranspose(x, y)
+            with self.work.dat.vec as w1, self.diag_tensor.dat.vec as w2:
+                self.fdm_interp.multTranspose(x, w1)
 
                 if transpose:
-                    self.pc.applyTranspose(y, w)
+                    self.pc.applyTranspose(w1, w2)
                 else:
-                    self.pc.apply(y, w)
+                    self.pc.apply(w1, w2)
 
-                self.fdm_interp.mult(w, y)
+                self.fdm_interp.mult(w2, y)
 
             y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
@@ -241,6 +255,16 @@ class FDMPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
+
+    def diagonal_scaling(self, A):
+        if self.fdm_form is not None:
+            self.diag_tensor = firedrake.assemble(self.fdm_form, tensor=self.diag_tensor,
+                                                  bcs=self.fdm_bcs, diagonal=True, form_compiler_parameters=self.fcp)
+            with self.diag_tensor.dat.vec as x_, self.work.dat.vec as y_:
+                A.getDiagonal(y_)
+                x_ /= y_
+                x_.sqrtabs()
+                A.diagonalScale(L=x_, R=x_)
 
     @staticmethod
     def pull_axis(x, pshape, idir):
@@ -265,7 +289,7 @@ class FDMPC(PCBase):
         Bq = coefficients.get("Bq", None)
 
         imode = PETSc.InsertMode.ADD_VALUES
-        lgmap = V.local_to_global_map(self.bcs)
+        lgmap = V.local_to_global_map(self.fdm_bcs)
 
         bsize = V.value_size
         ndim = V.ufl_domain().topological_dimension()
@@ -470,7 +494,6 @@ class FDMPC(PCBase):
                         A.setValues(row, cols[i0:i1], data[i0:i1], imode)
                     Ae.destroy()
         A.assemble()
-        self.diagonal_scaling(A)
 
     def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False, needs_hdiv=False):
         """
@@ -513,52 +536,51 @@ class FDMPC(PCBase):
             if ndim < gdim:
                 Piola *= 1-2*mesh.cell_orientations()
         else:
-            raise NotImplementedError("Unrecognized element mapping %s" % mapping)
+            raise NotImplementedError("Unsupported element mapping %s" % mapping)
 
         # get second order coefficient
-        ref_grad = [variable(grad(t)) for t in args_J]
+        ref_grad = [ufl.variable(ufl.grad(t)) for t in args_J]
         if Piola:
-            replace_grad = {grad(t): dot(Piola, dot(dt, Finv)) for t, dt in zip(args_J, ref_grad)}
+            replace_grad = {ufl.grad(t): ufl.dot(Piola, ufl.dot(dt, Finv)) for t, dt in zip(args_J, ref_grad)}
         else:
-            replace_grad = {grad(t): dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
+            replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
 
-        alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_grad), ref_grad[0]), ref_grad[1]) for i in integrals_J]))
+        alpha = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_grad),
+                                             ref_grad[0]), ref_grad[1]) for i in integrals_J]))
 
         # get zero-th order coefficent
-        ref_val = [variable(t) for t in args_J]
+        ref_val = [ufl.variable(t) for t in args_J]
         if Piola:
-            dummy_Piola = ufl.Coefficient(firedrake.TensorFunctionSpace(mesh, "R", degree=0, shape=Piola.ufl_shape))
-            replace_val = {t: dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
+            dummy_Piola = ufl.Coefficient(firedrake.TensorFunctionSpace(mesh, "DQ", degree=1, shape=Piola.ufl_shape))
+            replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
         else:
             replace_val = {t: s for t, s in zip(args_J, ref_val)}
 
-        beta = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_val), ref_val[0]), ref_val[1]) for i in integrals_J]))
+        beta = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_val),
+                                            ref_val[0]), ref_val[1]) for i in integrals_J]))
         if Piola:
-            beta = replace(beta, {dummy_Piola: Piola})
+            beta = ufl.replace(beta, {dummy_Piola: Piola})
 
         G = alpha
         if discard_mixed:
             # discard mixed derivatives and mixed components
             if len(G.ufl_shape) == 2:
-                G = diag_vector(G)
-                Qe = ufl.VectorElement(family, mesh.ufl_cell(), degree=degree,
-                                       quad_scheme="default", dim=numpy.prod(G.ufl_shape))
-            elif len(G.ufl_shape) == 4:
-                G = as_tensor([[G[i, j, i, j] for j in range(G.ufl_shape[1])] for i in range(G.ufl_shape[0])])
-                Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree,
-                                       quad_scheme="default", shape=G.ufl_shape)
+                G = ufl.diag_vector(G)
             else:
-                raise ValueError("I don't know how to discard mixed entries of a tensor with shape ", G.ufl_shape)
+                Gshape = G.ufl_shape
+                Gshape = Gshape[:len(Gshape)//2]
+                G = ufl.as_tensor(numpy.reshape([G[i+i] for i in numpy.ndindex(Gshape)], (Gshape[0], -1)))
+            Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape)
         else:
-            Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree,
-                                   quad_scheme="default", shape=G.ufl_shape, symmetry=True)
+            Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         # assemble second order coefficient
+        dx = firedrake.dx(degree=quad_deg)
         Q = firedrake.FunctionSpace(mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
         coefficients["Gq"] = Gq
-        assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx(degree=quad_deg), Gq))
+        assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
         if isinstance(beta, Zero):
@@ -566,20 +588,18 @@ class FDMPC(PCBase):
         else:
             if Piola:
                 # keep diagonal
-                beta = diag_vector(beta)
+                beta = ufl.diag_vector(beta)
             shape = beta.ufl_shape
             if shape:
-                Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree,
-                                       quad_scheme="default", shape=shape)
+                Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=shape)
             else:
-                Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree,
-                                       quad_scheme="default")
+                Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default")
 
             Q = firedrake.FunctionSpace(mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
             coefficients["Bq"] = Bq
-            assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx(degree=quad_deg), Bq))
+            assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx, Bq))
 
         if needs_hdiv:
             # make DGT functions with the second order coefficient
@@ -589,11 +609,12 @@ class FDMPC(PCBase):
             ele = ufl.BrokenElement(ufl.FiniteElement("DGT", mesh.ufl_cell(), 0))
             area = firedrake.FacetArea(mesh)
 
-            replace_grad = {grad(t): dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
-            alpha = expand_derivatives(sum([diff(diff(replace(i.integrand(), replace_grad), ref_grad[0]), ref_grad[1]) for i in integrals_J]))
+            replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
+            alpha = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_grad),
+                                                 ref_grad[0]), ref_grad[1]) for i in integrals_J]))
             vol = abs(ufl.JacobianDeterminant(mesh))
             G = vol * alpha
-            G = as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
+            G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
             Q = firedrake.TensorFunctionSpace(mesh, ele, shape=G.ufl_shape)
             q = firedrake.TestFunction(Q)
@@ -608,16 +629,6 @@ class FDMPC(PCBase):
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
         return coefficients, assembly_callables
-
-    def diagonal_scaling(self, A):
-        if (self.fdm_form is not None) and (A.getType() != PETSc.Mat.Type.PREALLOCATOR):
-            self.diag_tensor = firedrake.assemble(self.fdm_form, tensor=self.diag_tensor, diagonal=True, assembly_type="residual",
-                                                  form_compiler_parameters=self.fcp)
-            with self.diag_tensor.dat.vec as x_, self.work.dat.vec as y_:
-                A.getDiagonal(y_)
-                x_ /= y_
-                x_.sqrtabs()
-                A.diagonalScale(L=x_, R=x_)
 
     @staticmethod
     def numpy_to_petsc(A_numpy, dense_indices, diag=True):
@@ -741,7 +752,6 @@ class FDMPC(PCBase):
         A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
         B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
         Afdm = [FDMPC.numpy_to_petsc(B, [])]
-
         for bc1 in range(2):
             for bc0 in range(2):
                 Afdm.append(apply_weak_bcs(A, Dfdm, (bc0, bc1), eta))

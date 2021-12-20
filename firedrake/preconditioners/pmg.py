@@ -4,7 +4,6 @@ from itertools import chain
 import os
 import tempfile
 
-from ufl.classes import Expr
 import ufl
 
 from pyop2 import op2, PermutedMap
@@ -142,15 +141,16 @@ class PMGBase(PCSNESBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
+        opts = PETSc.Options(options_prefix)
         pdm = PETSc.DMShell().create(comm=pc.comm)
         pdm.setOptionsPrefix(options_prefix)
 
         # Get the coarse degree from PETSc options
         fcp = ctx._problem.form_compiler_parameters
         mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
-        self.coarse_degree = PETSc.Options(options_prefix).getInt("coarse_degree", default=1)
-        self.coarse_mat_type = PETSc.Options(options_prefix).getString("coarse_mat_type", default=ctx.mat_type)
-        self.coarse_form_compiler_mode = PETSc.Options(options_prefix).getString("coarse_form_compiler_mode", default=mode)
+        self.coarse_degree = opts.getInt("coarse_degree", default=1)
+        self.coarse_mat_type = opts.getString("coarse_mat_type", default=ctx.mat_type)
+        self.coarse_form_compiler_mode = opts.getString("coarse_form_compiler_mode", default=mode)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -271,7 +271,7 @@ class PMGBase(PCSNESBase):
                 cappctx[key] = coarsen_quadrature(val, Nf, Nc)
             elif isinstance(val, ufl.Form):
                 cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
-            elif isinstance(val, Expr):
+            elif isinstance(val, ufl.classes.Expr):
                 cappctx[key] = ufl.replace(val, replace_d)
 
         cmat_type = fctx.mat_type
@@ -555,14 +555,14 @@ def get_line_elements(ele):
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
     if isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        sob = ele._sub_element.sobolev_space()
+        sobolev = ele._sub_element.sobolev_space()
     else:
-        sob = ele.sobolev_space()
+        sobolev = ele.sobolev_space()
 
     ele = expand_element(ele)
     if isinstance(ele, ufl.EnrichedElement):
         # TODO assert that all components are permutations of each other
-        ele = ele._elements[0]
+        ele = ele._elements[-1 if sobolev == ufl.HCurl else 0]
 
     factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else [ele]
     elements = []
@@ -588,9 +588,6 @@ def get_line_elements(ele):
                 elements.append(gauss_legendre.GaussLegendre(ref_el, degree))
         else:
             raise ValueError("Variant %s is not supported" % variant)
-
-    if sob == ufl.HCurl:
-        elements.reverse()
     return elements
 
 
@@ -867,10 +864,10 @@ def get_permuted_map(V):
     e = V.ufl_element()
     if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
         e = e._sub_element
-    sob = e.sobolev_space()
-    if sob == ufl.HDiv:
+    sobolev = e.sobolev_space()
+    if sobolev == ufl.HDiv:
         shift = 1
-    elif sob == ufl.HCurl:
+    elif sobolev == ufl.HCurl:
         shift = 0
     else:
         return V.cell_node_map()
@@ -961,7 +958,6 @@ class StandaloneInterpolationMatrix(object):
         if Vf_mapping == Vc_mapping:
             # interpolate on each direction via Kroncker product
             operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-            lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         else:
             decl = [""]*4
             prolong = [""]*5
@@ -973,7 +969,6 @@ class StandaloneInterpolationMatrix(object):
                 # permute to firedrake ordering and apply the mapping
                 decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
                 coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
                 fine_is_ordered = True
             else:
                 # interpolate to an embedding element with collocated vector component DOFs
@@ -990,12 +985,13 @@ class StandaloneInterpolationMatrix(object):
                 # permute to tensor-friendly ordering and interpolate to fine space
                 decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[1], "t1", "t0", "perm1")
                 decl[3], prolong[4], restrict[4], shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
-                lwork = numpy.prod([max(*dims) for dims in zip(*shapes, *shapes1)])
+                shapes.extend(shapes1)
 
             operator_decl = "".join(decl)
             prolong_code = "".join(prolong)
             restrict_code = "".join(reversed(restrict))
 
+        lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         # Firedrake elements order the component DOFs related to the same node contiguously.
         # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
