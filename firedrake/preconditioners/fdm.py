@@ -12,6 +12,7 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
+import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 import numpy
@@ -91,14 +92,16 @@ class FDMPC(PCBase):
     _prefix = "fdm_"
 
     def initialize(self, pc):
+        from firedrake.assemble import allocate_matrix, assemble
         Citations().register("Brubeck2021")
-        A, P = pc.getOperators()
+        # A, P = pc.getOperators()
 
         # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         embedded = opts.getBool("embedded", False)
+        mat_type = "matfree"
 
         dm = pc.getDM()
         V = get_function_space(dm)
@@ -125,61 +128,63 @@ class FDMPC(PCBase):
             pass
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
-        self.V = V
-        self.mesh = V.ufl_domain()
-
         # Get Jacobian form and bcs
         solverctx = get_appctx(dm)
-        self.J = solverctx.J
-        self.bcs = solverctx.bcs_J
+        J = solverctx.J
+        bcs = solverctx.bcs_J
 
         # Get the interior penalty parameter from the appctx
         appctx = self.get_appctx(pc)
         eta = float(appctx.get("eta", (N+1)**2))
-        self.fcp = appctx.get("form_compiler_parameters", dict())
+        fcp = appctx.get("form_compiler_parameters", dict())
 
         if use_fdm_element and not embedded:
             V_fdm = V
+            fdm_form = J
+            fdm_bcs = bcs
             self.fdm_interp = None
-            self.fdm_form = self.J
-            self.fdm_bcs = self.bcs
         else:
-            # Get the interpolator between the space V and its FDM variant
             if embedded:
                 e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=N, variant="fdm")
                 if element.value_shape():
-                    e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape())
+                    e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape(), symmetry=element.symmetry())
                 fiat_elements = get_line_elements(e_fdm)
                 needs_hdiv = False
             else:
                 e_fdm = element.reconstruct(variant="fdm")
 
-            V_fdm = firedrake.FunctionSpace(self.mesh, e_fdm)
-            self.fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in self.bcs)
-            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], self.fdm_bcs)
-            rep_dict = {t: t.reconstruct(function_space=V_fdm) for t in self.J.arguments()}
-            self.fdm_form = ufl.replace(self.J, rep_dict)
+            V_fdm = firedrake.FunctionSpace(V.ufl_domain(), e_fdm)
+            fdm_form = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
+            fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
+            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], fdm_bcs)
 
-        if len(self.fdm_bcs) > 0:
-            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.bcs]))
-            self.fdm_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in self.fdm_bcs]))
+        if len(fdm_bcs) > 0:
+            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
+            self.fdm_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in fdm_bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             self.fdm_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        bcflags = self.get_bc_flags(self.fdm_bcs, self.fdm_form)
+        self.A = allocate_matrix(fdm_form, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=mat_type,
+                                 options_prefix=options_prefix)
+        self._assemble_A = partial(assemble, fdm_form, tensor=self.A, bcs=fdm_bcs,
+                                   form_compiler_parameters=fcp, mat_type=mat_type,
+                                   assembly_type="residual")
+
         self.work = firedrake.Function(V_fdm)
-        self.diag_tensor = firedrake.Function(V_fdm)
+        self.diag = firedrake.Function(V_fdm)
+        self._assemble_diag = partial(assemble, fdm_form, tensor=self.diag, bcs=fdm_bcs,
+                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
 
         # Afdm = sparse interval mass and stiffness matrices for each direction
         # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
         Afdm, Dfdm = self.assemble_matfree(fiat_elements, eta)
+        bcflags = get_bc_flags(fdm_bcs, fdm_form)
 
         # Get coefficients w.r.t. the reference coordinates
         # we may use a lower quadrature degree, but using Nq is not so expensive
-        coefficients, self.assembly_callables = self.assemble_coef(self.fdm_form, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
+        coefficients, self.assembly_callables = self.assemble_coef(fdm_form, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
 
-        self.fdm_form = None
         # Set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
@@ -195,13 +200,14 @@ class FDMPC(PCBase):
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
-        self.assemble_kron(prealloc, V_fdm, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        self.assemble_kron(prealloc, V_fdm, fdm_bcs, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
         nnz = get_preallocation(prealloc, V_fdm.value_size * V_fdm.dof_dset.set.size)
 
-        self.Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=prealloc.comm)
-        self.Pmat.setLGMap(V_fdm.dof_dset.lgmap)
-        self._assemble_Pmat = partial(self.assemble_kron, self.Pmat, V_fdm,
-                                      coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V_fdm.comm)
+        Pmat.setLGMap(V_fdm.dof_dset.lgmap)
+        self._assemble_P = partial(self.assemble_kron, Pmat, V_fdm, fdm_bcs,
+                                   coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        self.Pmat = Pmat
         prealloc.destroy()
 
         opc = pc
@@ -211,38 +217,48 @@ class FDMPC(PCBase):
         pc = PETSc.PC().create(comm=opc.comm)
         pc.incrementTabLevel(1, parent=opc)
 
-        # We set a DM on the constructed PC so one
-        # can do patch solves with ASMPC.
-        pc.setDM(V_fdm.dm)
+        # We set a DM and an appropriate SNESContext on the constructed PC so one
+        # can do e.g. multigrid or patch solves.
+        from firedrake.variational_solver import NonlinearVariationalProblem
+        from firedrake.solving_utils import _SNESContext
+        oproblem = solverctx._problem
+        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, fdm_bcs, J=fdm_form, form_compiler_parameters=fcp)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, appctx, options_prefix=options_prefix)
+
+        dm = V_fdm.dm
+        pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(self.Pmat, self.Pmat)
+        pc.setOperators(self.A.petscmat, Pmat)
         self.pc = pc
-        pc.setFromOptions()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
+            pc.setFromOptions()
         self.update(pc)
 
     def update(self, pc):
+        self._assemble_A()
         for assemble_coef in self.assembly_callables:
             assemble_coef()
         self.Pmat.zeroEntries()
-        self._assemble_Pmat()
+        self._assemble_P()
         self.Pmat.zeroRowsColumnsLocal(self.fdm_bc_nodes)
-        self.diagonal_scaling(self.Pmat)
+        # self.diagonal_scaling(self.Pmat)
 
     def apply(self, pc, x, y, transpose=False):
+        dm = pc.getDM()
         if self.fdm_interp is None:
-            if transpose:
-                self.pc.applyTranspose(x, y)
-            else:
-                self.pc.apply(x, y)
-        else:
-            with self.work.dat.vec as w1, self.diag_tensor.dat.vec as w2:
-                self.fdm_interp.multTranspose(x, w1)
-
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
                 if transpose:
-                    self.pc.applyTranspose(w1, w2)
+                    self.pc.applyTranspose(x, y)
                 else:
-                    self.pc.apply(w1, w2)
-
+                    self.pc.apply(x, y)
+        else:
+            with self.work.dat.vec as w1, self.diag.dat.vec as w2:
+                self.fdm_interp.multTranspose(x, w1)
+                with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+                    if transpose:
+                        self.pc.applyTranspose(w1, w2)
+                    else:
+                        self.pc.apply(w1, w2)
                 self.fdm_interp.mult(w2, y)
 
             y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
@@ -257,21 +273,36 @@ class FDMPC(PCBase):
             self.pc.view(viewer)
 
     def diagonal_scaling(self, A):
-        if self.fdm_form is not None:
-            self.diag_tensor = firedrake.assemble(self.fdm_form, tensor=self.diag_tensor,
-                                                  bcs=self.fdm_bcs, diagonal=True, form_compiler_parameters=self.fcp)
-            with self.diag_tensor.dat.vec as x_, self.work.dat.vec as y_:
-                A.getDiagonal(y_)
-                x_ /= y_
-                x_.sqrtabs()
-                A.diagonalScale(L=x_, R=x_)
+        self._assemble_diag()
+        with self.diag.dat.vec as x_, self.work.dat.vec as y_:
+            A.getDiagonal(y_)
+            x_ /= y_
+            x_.sqrtabs()
+            A.diagonalScale(L=x_, R=x_)
 
-    @staticmethod
-    def pull_axis(x, pshape, idir):
-        # permute x by reshaping into pshape and moving axis idir to the front
-        return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
+    def assemble_matfree(self, line_elements, eta):
+        """
+        Assemble the sparse interval stiffness matrices and tabulate normal derivatives.
 
-    def assemble_kron(self, A, V, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv):
+        :arg line_elements: a list of FIAT elements on the interval for each direction
+        :arg eta: a `float` penalty parameter for the symmetric interior penalty method
+
+        :returns: a 2-tuple with
+            Afdm: a list of lists of interval matrices for each direction,
+            Dfdm: a list with tabulations of the normal derivative for each direction
+        """
+        Afdm = []
+        Dfdm = []
+        for e in line_elements:
+            if e.formdegree == 0:
+                Ae, De = fdm_setup_cg(e.ref_el, e.degree())
+            else:
+                Ae, De = fdm_setup_ipdg(e.ref_el, e.degree(), eta)
+            Afdm.append(Ae)
+            Dfdm.append(De)
+        return Afdm, Dfdm
+
+    def assemble_kron(self, A, V, bcs, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
@@ -282,22 +313,22 @@ class FDMPC(PCBase):
         :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
         :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
         :arg eta: the SIPG penalty parameter as a ``float``
-        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `FDMPC.get_bc_flags`
+        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
         :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
         """
         Gq = coefficients.get("Gq", None)
         Bq = coefficients.get("Bq", None)
 
         imode = PETSc.InsertMode.ADD_VALUES
-        lgmap = V.local_to_global_map(self.fdm_bcs)
+        lgmap = V.local_to_global_map(bcs)
 
         bsize = V.value_size
         ndim = V.ufl_domain().topological_dimension()
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
 
-        index_cell, nel = self.glonum_fun(V.cell_node_map())
-        index_coef, _ = self.glonum_fun(Gq.cell_node_map())
+        index_cell, nel = glonum_fun(V.cell_node_map())
+        index_coef, _ = glonum_fun(Gq.cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
@@ -399,14 +430,14 @@ class FDMPC(PCBase):
         if needs_interior_facet:
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
-            index_facet, local_facet_data, nfacets = self.get_interior_facet_maps(V)
+            index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             if needs_hdiv:
                 Gq_facet = coefficients.get("Gq_facet", None)
                 PT_facet = coefficients.get("PT_facet", None)
-                index_coef, _, _ = self.get_interior_facet_maps(Gq_facet)
+                index_coef, _, _ = get_interior_facet_maps(Gq_facet)
             else:
-                index_coef, _, _ = self.get_interior_facet_maps(Gq)
+                index_coef, _, _ = get_interior_facet_maps(Gq)
 
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
@@ -470,7 +501,7 @@ class FDMPC(PCBase):
                             Adense[i0:i1, jj] -= smu[i] * Dfacet[:, iface % 2]
                             Adense[ii, j0:j1] -= smu[j] * Dfacet[:, jface % 2]
 
-                    Ae = FDMPC.numpy_to_petsc(Adense, dense_indices, diag=False)
+                    Ae = numpy_to_petsc(Adense, dense_indices, diag=False)
                     if ndim > 1:
                         # assume that the mesh is oriented
                         Ae = Ae.kron(Afdm[dim_perm[1]][0])
@@ -479,12 +510,12 @@ class FDMPC(PCBase):
 
                     if needs_hdiv:
                         assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
-                        rows[:sdim] = self.pull_axis(icell[0][k0], pshape[k0], idir[0])
-                        rows[sdim:] = self.pull_axis(icell[1][k1], pshape[k1], idir[1])
+                        rows[:sdim] = pull_axis(icell[0][k0], pshape[k0], idir[0])
+                        rows[sdim:] = pull_axis(icell[1][k1], pshape[k1], idir[1])
                     else:
                         icell = numpy.reshape(lgmap.apply(k+bsize*ie), (2, -1))
-                        rows[:sdim] = self.pull_axis(icell[0], pshape, idir[0])
-                        rows[sdim:] = self.pull_axis(icell[1], pshape, idir[1])
+                        rows[:sdim] = pull_axis(icell[0], pshape, idir[0])
+                        rows[sdim:] = pull_axis(icell[1], pshape, idir[1])
 
                     indptr, indices, data = Ae.getValuesCSR()
                     cols = rows[indices]
@@ -630,386 +661,366 @@ class FDMPC(PCBase):
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
         return coefficients, assembly_callables
 
-    @staticmethod
-    def numpy_to_petsc(A_numpy, dense_indices, diag=True):
-        # Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
-        # If dense_indices is empty, then also include the off-diagonal corners of the matrix
-        n = A_numpy.shape[0]
-        nbase = int(diag) + len(dense_indices)
-        nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
-        if dense_indices:
-            nnz[dense_indices] = n
+
+def pull_axis(x, pshape, idir):
+    """permute x by reshaping into pshape and moving axis idir to the front"""
+    return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
+
+
+def numpy_to_petsc(A_numpy, dense_indices, diag=True):
+    # Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
+    # If dense_indices is empty, then also include the off-diagonal corners of the matrix
+    n = A_numpy.shape[0]
+    nbase = int(diag) + len(dense_indices)
+    nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
+    if dense_indices:
+        nnz[dense_indices] = n
+    else:
+        nnz[[0, -1]] = 2
+
+    imode = PETSc.InsertMode.INSERT
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
+    if diag:
+        for j, ajj in enumerate(A_numpy.diagonal()):
+            A_petsc.setValue(j, j, ajj, imode)
+
+    if dense_indices:
+        idx = numpy.arange(n, dtype=PETSc.IntType)
+        for j in dense_indices:
+            A_petsc.setValues(j, idx, A_numpy[j], imode)
+            A_petsc.setValues(idx, j, A_numpy[:][j], imode)
+    else:
+        A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
+        A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
+
+    A_petsc.assemble()
+    return A_petsc
+
+
+def fdm_setup(ref_el, degree):
+    from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
+    from FIAT.quadrature import GaussLegendreQuadratureLineRule
+    elem = GaussLobattoLegendre(ref_el, degree)
+    rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
+    Ahat, Bhat, _, _, _ = semhat(elem, rule)
+    Sfdm = numpy.eye(Ahat.shape[0])
+    if Sfdm.shape[0] > 2:
+        rd = (0, -1)
+        kd = slice(1, -1)
+        _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
+        Skk = Sfdm[kd, kd]
+        Srr = Sfdm[numpy.ix_(rd, rd)]
+        Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
+
+    # Facet normal derivatives
+    basis = elem.tabulate(1, ref_el.get_vertices())
+    Dfacet = basis[(1,)]
+    Dfacet[:, 0] = -Dfacet[:, 0]
+    Dfdm = numpy.dot(Sfdm.T, Dfacet)
+    return Ahat, Bhat, Sfdm, Dfdm
+
+
+def fdm_setup_cg(ref_el, degree):
+    """
+    Setup for the fast diagonalization method for continuous Lagrange
+    elements. Compute the FDM eigenvector basis and the sparsified interval
+    stiffness and mass matrices.
+
+    :arg ref_el: UFC cell
+    :arg degree: polynomial degree
+
+    :returns: 3-tuple of:
+        Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
+        Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
+        natural or strong Dirichlet BCs on each endpoint, where Sfdm is the tabulation
+        of Dirichlet eigenfunctions on the GLL nodes,
+        Dfdm: None.
+    """
+    def apply_strong_bcs(Ahat, bc0, bc1):
+        k0 = 0 if bc0 == 1 else 1
+        k1 = Ahat.shape[0] if bc1 == 1 else -1
+        kk = slice(k0, k1)
+        A = Ahat.copy()
+        a = A.diagonal().copy()
+        A[kk, kk] = 0.0E0
+        numpy.fill_diagonal(A, a)
+        return numpy_to_petsc(A, [0, A.shape[0]-1])
+
+    Ahat, Bhat, Sfdm, _ = fdm_setup(ref_el, degree)
+    A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
+    B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
+    Afdm = [numpy_to_petsc(B, [])]
+    for bc1 in range(2):
+        for bc0 in range(2):
+            Afdm.append(apply_strong_bcs(A, bc0, bc1))
+    return Afdm, None
+
+
+def fdm_setup_ipdg(ref_el, degree, eta):
+    """
+    Setup for the fast diagonalization method for the IP-DG formulation.
+    Compute the FDM eigenvector basis, its normal derivative and the
+    sparsified interval stiffness and mass matrices.
+
+    :arg ref_el: UFC cell
+    :arg degree: polynomial degree
+    :arg eta: penalty coefficient as a `float`
+
+    :returns: 2-tuple of:
+        Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
+        Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
+        natural or weak Dirichlet BCs on each endpoint, where Sfdm is the tabulation
+        of Dirichlet eigenfunctions on the GLL nodes,
+        Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+    """
+    def apply_weak_bcs(Ahat, Dfacet, bcs, eta):
+        Abc = Ahat.copy()
+        for j in (0, -1):
+            if bcs[j] == 1:
+                Abc[:, j] -= Dfacet[:, j]
+                Abc[j, :] -= Dfacet[:, j]
+                Abc[j, j] += eta
+        return numpy_to_petsc(Abc, [0, Abc.shape[0]-1])
+
+    Ahat, Bhat, Sfdm, Dfdm = fdm_setup(ref_el, degree)
+    A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
+    B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
+    Afdm = [numpy_to_petsc(B, [])]
+    for bc1 in range(2):
+        for bc0 in range(2):
+            Afdm.append(apply_weak_bcs(A, Dfdm, (bc0, bc1), eta))
+    return Afdm, Dfdm
+
+
+@lru_cache(maxsize=10)
+def get_interior_facet_maps(V):
+    """
+    Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
+
+    :arg V: a :class:`FunctionSpace`
+
+    :returns: the 3-tuple of
+        facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
+        local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
+        nfacets: the total number of interior facets owned by this process
+    """
+    mesh = V.ufl_domain()
+    intfacets = mesh.interior_facets
+    facet_to_cells = intfacets.facet_cell_map.values
+    local_facet_data = intfacets.local_facet_dat.data_ro
+
+    facet_node_map = V.interior_facet_node_map()
+    facet_to_nodes = facet_node_map.values
+    nbase = facet_to_nodes.shape[0]
+
+    if mesh.cell_set._extruded:
+        facet_offset = facet_node_map.offset
+        local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
+
+        cell_node_map = V.cell_node_map()
+        cell_to_nodes = cell_node_map.values_with_halo
+        cell_offset = cell_node_map.offset
+
+        nelv = cell_node_map.values.shape[0]
+        layers = facet_node_map.iterset.layers_array
+        itype = cell_offset.dtype
+        shift_h = numpy.array([[0], [1]], itype)
+
+        if mesh.variable_layers:
+            nv = 0
+            to_base = []
+            to_layer = []
+            for f, cells in enumerate(facet_to_cells):
+                istart = max(layers[cells, 0])
+                iend = min(layers[cells, 1])
+                nz = iend-istart-1
+                nv += nz
+                to_base.append(numpy.full((nz,), f, itype))
+                to_layer.append(numpy.arange(nz, dtype=itype))
+
+            nh = layers[:, 1]-layers[:, 0]-2
+            to_base.append(numpy.repeat(numpy.arange(len(nh), dtype=itype), nh))
+            to_layer += [numpy.arange(nf, dtype=itype) for nf in nh]
+
+            to_base = numpy.concatenate(to_base)
+            to_layer = numpy.concatenate(to_layer)
+            nfacets = nv + sum(nh[:nelv])
+
+            local_facet_data_fun = lambda e: local_facet_data[to_base[e]] if e < nv else local_facet_data_h
+            facet_to_nodes_fun = lambda e: facet_to_nodes[to_base[e]] + to_layer[e]*facet_offset if e < nv else numpy.reshape(cell_to_nodes[to_base[e]] + numpy.kron(to_layer[e]+shift_h, cell_offset), (-1,))
         else:
-            nnz[[0, -1]] = 2
+            nelz = layers[0, 1]-layers[0, 0]-1
+            nv = nbase * nelz
+            nh = nelv * (nelz-1)
+            nfacets = nv + nh
 
-        imode = PETSc.InsertMode.INSERT
-        A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
-        if diag:
-            for j, ajj in enumerate(A_numpy.diagonal()):
-                A_petsc.setValue(j, j, ajj, imode)
+            local_facet_data_fun = lambda e: local_facet_data[e//nelz] if e < nv else local_facet_data_h
+            facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv)//(nelz-1)] + numpy.kron(((e-nv) % (nelz-1))+shift_h, cell_offset), (-1,))
+    else:
+        facet_to_nodes_fun = lambda e: facet_to_nodes[e]
+        local_facet_data_fun = lambda e: local_facet_data[e]
+        nfacets = nbase
 
-        if dense_indices:
-            idx = numpy.arange(n, dtype=PETSc.IntType)
-            for j in dense_indices:
-                A_petsc.setValues(j, idx, A_numpy[j], imode)
-                A_petsc.setValues(idx, j, A_numpy[:][j], imode)
+    return facet_to_nodes_fun, local_facet_data_fun, nfacets
+
+
+@lru_cache(maxsize=10)
+def glonum_fun(node_map):
+    """
+    Return a function that maps each topological entity to its nodes and the total number of entities.
+
+    :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
+
+    :returns: a 2-tuple with the map and the number of cells owned by this process
+    """
+    nelv = node_map.values.shape[0]
+    if node_map.offset is None:
+        return lambda e: node_map.values_with_halo[e], nelv
+    else:
+        layers = node_map.iterset.layers_array
+        if layers.shape[0] == 1:
+            nelz = layers[0, 1]-layers[0, 0]-1
+            nel = nelz*nelv
+            return lambda e: node_map.values_with_halo[e//nelz] + (e % nelz)*node_map.offset, nel
         else:
-            A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
-            A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
+            nelz = layers[:, 1]-layers[:, 0]-1
+            nel = sum(nelz[:nelv])
+            to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
+            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
+            return lambda e: node_map.values_with_halo[to_base[e]] + to_layer[e]*node_map.offset, nel
 
-        A_petsc.assemble()
-        return A_petsc
 
-    @staticmethod
-    def fdm_setup(ref_el, degree):
-        from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
-        from FIAT.quadrature import GaussLegendreQuadratureLineRule
-        elem = GaussLobattoLegendre(ref_el, degree)
-        rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-        Ahat, Bhat, _, _, _ = semhat(elem, rule)
-        Sfdm = numpy.eye(Ahat.shape[0])
-        if Sfdm.shape[0] > 2:
-            rd = (0, -1)
-            kd = slice(1, -1)
-            _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-            Skk = Sfdm[kd, kd]
-            Srr = Sfdm[numpy.ix_(rd, rd)]
-            Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
+@lru_cache(maxsize=10)
+def glonum(node_map):
+    """
+    Return an array with the nodes of each topological entity of a certain kind.
 
-        # Facet normal derivatives
-        basis = elem.tabulate(1, ref_el.get_vertices())
-        Dfacet = basis[(1,)]
-        Dfacet[:, 0] = -Dfacet[:, 0]
-        Dfdm = numpy.dot(Sfdm.T, Dfacet)
-        return Ahat, Bhat, Sfdm, Dfdm
+    :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
 
-    @staticmethod
-    def fdm_setup_cg(ref_el, degree):
-        """
-        Setup for the fast diagonalization method for continuous Lagrange
-        elements. Compute the FDM eigenvector basis and the sparsified interval
-        stiffness and mass matrices.
+    :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
+    """
+    if node_map.offset is None:
+        return node_map.values_with_halo
+    else:
+        layers = node_map.iterset.layers_array
+        if layers.shape[0] == 1:
+            nelz = layers[0, 1]-layers[0, 0]-1
+            to_layer = numpy.tile(numpy.arange(nelz, dtype=node_map.offset.dtype), len(node_map.values_with_halo))
+        else:
+            nelz = layers[:, 1]-layers[:, 0]-1
+            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
+        return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
 
-        :arg ref_el: UFC cell
-        :arg degree: polynomial degree
 
-        :returns: 3-tuple of:
-            Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
-            Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
-            natural or strong Dirichlet BCs on each endpoint, where Sfdm is the tabulation
-            of Dirichlet eigenfunctions on the GLL nodes,
-            Dfdm: None.
-        """
-        Ahat, Bhat, Sfdm, _ = FDMPC.fdm_setup(ref_el, degree)
+@lru_cache(maxsize=10)
+def get_bc_flags(bcs, J):
+    # Return boundary condition flags on each cell facet
+    # 0 => natural, do nothing
+    # 1 => strong / weak Dirichlet
+    V = J.arguments()[0].function_space()
+    mesh = V.ufl_domain()
 
-        def apply_strong_bcs(Ahat, bc0, bc1):
-            k0 = 0 if bc0 == 1 else 1
-            k1 = Ahat.shape[0] if bc1 == 1 else -1
-            kk = slice(k0, k1)
-            A = Ahat.copy()
-            a = A.diagonal().copy()
-            A[kk, kk] = 0.0E0
-            numpy.fill_diagonal(A, a)
-            return FDMPC.numpy_to_petsc(A, [0, A.shape[0]-1])
+    if mesh.cell_set._extruded:
+        layers = mesh.cell_set.layers_array
+        nelv, nfacet, _ = mesh.cell_to_facets.data_with_halos.shape
+        if layers.shape[0] == 1:
+            nelz = layers[0, 1]-layers[0, 0]-1
+            nel = nelv*nelz
+        else:
+            nelz = layers[:, 1]-layers[:, 0]-1
+            nel = sum(nelz)
+        # extrude cell_to_facets
+        cell_to_facets = numpy.zeros((nel, nfacet+2, 2), dtype=mesh.cell_to_facets.data.dtype)
+        cell_to_facets[:, :nfacet, :] = numpy.repeat(mesh.cell_to_facets.data_with_halos, nelz, axis=0)
 
-        A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
-        B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
-        Afdm = [FDMPC.numpy_to_petsc(B, [])]
-        for bc1 in range(2):
-            for bc0 in range(2):
-                Afdm.append(apply_strong_bcs(A, bc0, bc1))
-        return Afdm, None
+        # get a function with a single node per facet
+        # mark interior facets by assembling a surface integral
+        dS_int = firedrake.dS_h(degree=0) + firedrake.dS_v(degree=0)
+        DGT = firedrake.FunctionSpace(mesh, "DGT", 0)
+        v = firedrake.TestFunction(DGT)
+        w = firedrake.assemble((v('+')+v('-'))*dS_int)
 
-    @staticmethod
-    def fdm_setup_ipdg(ref_el, degree, eta):
-        """
-        Setup for the fast diagonalization method for the IP-DG formulation.
-        Compute the FDM eigenvector basis, its normal derivative and the
-        sparsified interval stiffness and mass matrices.
+        # mark the bottom and top boundaries with DirichletBCs
+        markers = (-2, -4)
+        subs = ("bottom", "top")
+        bc_h = [firedrake.DirichletBC(DGT, marker, sub) for marker, sub in zip(markers, subs)]
+        [bc.apply(w) for bc in bc_h]
 
-        :arg ref_el: UFC cell
-        :arg degree: polynomial degree
-        :arg eta: penalty coefficient as a `float`
+        # index the function with the extruded cell_node_map
+        marked_facets = w.dat.data_ro_with_halos[glonum(DGT.cell_node_map())]
 
-        :returns: 2-tuple of:
-            Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
-            Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
-            natural or weak Dirichlet BCs on each endpoint, where Sfdm is the tabulation
-            of Dirichlet eigenfunctions on the GLL nodes,
-            Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
-        """
-        Ahat, Bhat, Sfdm, Dfdm = FDMPC.fdm_setup(ref_el, degree)
+        # complete the missing pieces of cell_to_facets
+        interior = marked_facets > 0
+        cell_to_facets[interior, :] = [1, -1]
+        topbot = marked_facets < 0
+        cell_to_facets[topbot, 0] = 0
+        cell_to_facets[topbot, 1] = marked_facets[topbot].astype(cell_to_facets.dtype)
+    else:
+        cell_to_facets = mesh.cell_to_facets.data_with_halos
 
-        def apply_weak_bcs(Ahat, Dfacet, bcs, eta):
-            Abc = Ahat.copy()
-            for j in (0, -1):
-                if bcs[j] == 1:
-                    Abc[:, j] -= Dfacet[:, j]
-                    Abc[j, :] -= Dfacet[:, j]
-                    Abc[j, j] += eta
-            return FDMPC.numpy_to_petsc(Abc, [0, Abc.shape[0]-1])
+    flags = cell_to_facets[:, :, 0]
+    sub = cell_to_facets[:, :, 1]
 
-        A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
-        B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
-        Afdm = [FDMPC.numpy_to_petsc(B, [])]
-        for bc1 in range(2):
-            for bc0 in range(2):
-                Afdm.append(apply_weak_bcs(A, Dfdm, (bc0, bc1), eta))
-        return Afdm, Dfdm
-
-    @staticmethod
-    def assemble_matfree(line_elements, eta):
-        """
-        Assemble the sparse interval stiffness matrices and tabulate normal derivatives.
-
-        :arg line_elements: a list of FIAT elements on the interval for each direction
-        :arg eta: a `float` penalty parameter for the symmetric interior penalty method
-
-        :returns: a 2-tuple with
-            Afdm: a list of lists of interval matrices for each direction,
-            Dfdm: a list with tabulations of the normal derivative for each direction
-        """
-        Afdm = []
-        Dfdm = []
-        for e in line_elements:
-            if e.formdegree == 0:
-                Ae, De = FDMPC.fdm_setup_cg(e.ref_el, e.degree())
+    maskall = []
+    comp = dict()
+    for bc in bcs:
+        if isinstance(bc, firedrake.DirichletBC):
+            labels = comp.get(bc._indices, ())
+            bs = bc.sub_domain
+            if bs == "on_boundary":
+                maskall.append(bc._indices)
+            elif bs == "bottom":
+                labels += (-2,)
+            elif bs == "top":
+                labels += (-4,)
             else:
-                Ae, De = FDMPC.fdm_setup_ipdg(e.ref_el, e.degree(), eta)
-            Afdm.append(Ae)
-            Dfdm.append(De)
-        return Afdm, Dfdm
+                labels += bs if type(bs) == tuple else (bs,)
+            comp[bc._indices] = labels
 
-    @staticmethod
-    @lru_cache(maxsize=10)
-    def get_interior_facet_maps(V):
-        """
-        Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
-
-        :arg V: a :class:`FunctionSpace`
-
-        :returns: the 3-tuple of
-            facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
-            local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
-            nfacets: the total number of interior facets owned by this process
-        """
-        mesh = V.ufl_domain()
-        intfacets = mesh.interior_facets
-        facet_to_cells = intfacets.facet_cell_map.values
-        local_facet_data = intfacets.local_facet_dat.data_ro
-
-        facet_node_map = V.interior_facet_node_map()
-        facet_to_nodes = facet_node_map.values
-        nbase = facet_to_nodes.shape[0]
-
-        if mesh.cell_set._extruded:
-            facet_offset = facet_node_map.offset
-            local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
-
-            cell_node_map = V.cell_node_map()
-            cell_to_nodes = cell_node_map.values_with_halo
-            cell_offset = cell_node_map.offset
-
-            nelv = cell_node_map.values.shape[0]
-            layers = facet_node_map.iterset.layers_array
-            itype = cell_offset.dtype
-            shift_h = numpy.array([[0], [1]], itype)
-
-            if mesh.variable_layers:
-                nv = 0
-                to_base = []
-                to_layer = []
-                for f, cells in enumerate(facet_to_cells):
-                    istart = max(layers[cells, 0])
-                    iend = min(layers[cells, 1])
-                    nz = iend-istart-1
-                    nv += nz
-                    to_base.append(numpy.full((nz,), f, itype))
-                    to_layer.append(numpy.arange(nz, dtype=itype))
-
-                nh = layers[:, 1]-layers[:, 0]-2
-                to_base.append(numpy.repeat(numpy.arange(len(nh), dtype=itype), nh))
-                to_layer += [numpy.arange(nf, dtype=itype) for nf in nh]
-
-                to_base = numpy.concatenate(to_base)
-                to_layer = numpy.concatenate(to_layer)
-                nfacets = nv + sum(nh[:nelv])
-
-                local_facet_data_fun = lambda e: local_facet_data[to_base[e]] if e < nv else local_facet_data_h
-                facet_to_nodes_fun = lambda e: facet_to_nodes[to_base[e]] + to_layer[e]*facet_offset if e < nv else numpy.reshape(cell_to_nodes[to_base[e]] + numpy.kron(to_layer[e]+shift_h, cell_offset), (-1,))
-            else:
-                nelz = layers[0, 1]-layers[0, 0]-1
-                nv = nbase * nelz
-                nh = nelv * (nelz-1)
-                nfacets = nv + nh
-
-                local_facet_data_fun = lambda e: local_facet_data[e//nelz] if e < nv else local_facet_data_h
-                facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv)//(nelz-1)] + numpy.kron(((e-nv) % (nelz-1))+shift_h, cell_offset), (-1,))
-        else:
-            facet_to_nodes_fun = lambda e: facet_to_nodes[e]
-            local_facet_data_fun = lambda e: local_facet_data[e]
-            nfacets = nbase
-
-        return facet_to_nodes_fun, local_facet_data_fun, nfacets
-
-    @staticmethod
-    @lru_cache(maxsize=10)
-    def glonum_fun(node_map):
-        """
-        Return a function that maps each topological entity to its nodes and the total number of entities.
-
-        :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
-
-        :returns: a 2-tuple with the map and the number of cells owned by this process
-        """
-        nelv = node_map.values.shape[0]
-        if node_map.offset is None:
-            return lambda e: node_map.values_with_halo[e], nelv
-        else:
-            layers = node_map.iterset.layers_array
-            if layers.shape[0] == 1:
-                nelz = layers[0, 1]-layers[0, 0]-1
-                nel = nelz*nelv
-                return lambda e: node_map.values_with_halo[e//nelz] + (e % nelz)*node_map.offset, nel
-            else:
-                nelz = layers[:, 1]-layers[:, 0]-1
-                nel = sum(nelz[:nelv])
-                to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
-                to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-                return lambda e: node_map.values_with_halo[to_base[e]] + to_layer[e]*node_map.offset, nel
-
-    @staticmethod
-    @lru_cache(maxsize=10)
-    def glonum(node_map):
-        """
-        Return an array with the nodes of each topological entity of a certain kind.
-
-        :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
-
-        :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
-        """
-        if node_map.offset is None:
-            return node_map.values_with_halo
-        else:
-            layers = node_map.iterset.layers_array
-            if layers.shape[0] == 1:
-                nelz = layers[0, 1]-layers[0, 0]-1
-                to_layer = numpy.tile(numpy.arange(nelz, dtype=node_map.offset.dtype), len(node_map.values_with_halo))
-            else:
-                nelz = layers[:, 1]-layers[:, 0]-1
-                to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-            return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
-
-    @staticmethod
-    @lru_cache(maxsize=10)
-    def get_bc_flags(bcs, J):
-        # Return boundary condition flags on each cell facet
-        # 0 => natural, do nothing
-        # 1 => strong / weak Dirichlet
-        V = J.arguments()[0].function_space()
-        mesh = V.ufl_domain()
-
-        if mesh.cell_set._extruded:
-            layers = mesh.cell_set.layers_array
-            nelv, nfacet, _ = mesh.cell_to_facets.data_with_halos.shape
-            if layers.shape[0] == 1:
-                nelz = layers[0, 1]-layers[0, 0]-1
-                nel = nelv*nelz
-            else:
-                nelz = layers[:, 1]-layers[:, 0]-1
-                nel = sum(nelz)
-            # extrude cell_to_facets
-            cell_to_facets = numpy.zeros((nel, nfacet+2, 2), dtype=mesh.cell_to_facets.data.dtype)
-            cell_to_facets[:, :nfacet, :] = numpy.repeat(mesh.cell_to_facets.data_with_halos, nelz, axis=0)
-
-            # get a function with a single node per facet
-            # mark interior facets by assembling a surface integral
-            dS_int = firedrake.dS_h(degree=0) + firedrake.dS_v(degree=0)
-            DGT = firedrake.FunctionSpace(mesh, "DGT", 0)
-            v = firedrake.TestFunction(DGT)
-            w = firedrake.assemble((v('+')+v('-'))*dS_int)
-
-            # mark the bottom and top boundaries with DirichletBCs
-            markers = (-2, -4)
-            subs = ("bottom", "top")
-            bc_h = [firedrake.DirichletBC(DGT, marker, sub) for marker, sub in zip(markers, subs)]
-            [bc.apply(w) for bc in bc_h]
-
-            # index the function with the extruded cell_node_map
-            marked_facets = w.dat.data_ro_with_halos[FDMPC.glonum(DGT.cell_node_map())]
-
-            # complete the missing pieces of cell_to_facets
-            interior = marked_facets > 0
-            cell_to_facets[interior, :] = [1, -1]
-            topbot = marked_facets < 0
-            cell_to_facets[topbot, 0] = 0
-            cell_to_facets[topbot, 1] = marked_facets[topbot].astype(cell_to_facets.dtype)
-        else:
-            cell_to_facets = mesh.cell_to_facets.data_with_halos
-
-        flags = cell_to_facets[:, :, 0]
-        sub = cell_to_facets[:, :, 1]
-
-        maskall = []
-        comp = dict()
-        for bc in bcs:
-            if isinstance(bc, firedrake.DirichletBC):
-                labels = comp.get(bc._indices, ())
-                bs = bc.sub_domain
-                if bs == "on_boundary":
-                    maskall.append(bc._indices)
-                elif bs == "bottom":
+    # The Neumann integral may still be present but it's zero
+    J = expand_derivatives(J)
+    # Assume that every facet integral in the Jacobian imposes a
+    # weak Dirichlet BC on all components
+    # TODO add support for weak component BCs
+    # FIXME for variable layers there is inconsistency between
+    # ds_t/ds_b and DirichletBC(V, ubc, "top/bottom").
+    # the labels here are the ones that DirichletBC would use
+    for it in J.integrals():
+        itype = it.integral_type()
+        if itype.startswith("exterior_facet"):
+            index = ()
+            labels = comp.get(index, ())
+            bs = it.subdomain_id()
+            if bs == "everywhere":
+                if itype == "exterior_facet_bottom":
                     labels += (-2,)
-                elif bs == "top":
+                elif itype == "exterior_facet_top":
                     labels += (-4,)
                 else:
-                    labels += bs if type(bs) == tuple else (bs,)
-                comp[bc._indices] = labels
+                    maskall.append(index)
+            else:
+                labels += bs if type(bs) == tuple else (bs,)
+            comp[index] = labels
 
-        # The Neumann integral may still be present but it's zero
-        J = expand_derivatives(J)
-        # Assume that every facet integral in the Jacobian imposes a
-        # weak Dirichlet BC on all components
-        # TODO add support for weak component BCs
-        # FIXME for variable layers there is inconsistency between
-        # ds_t/ds_b and DirichletBC(V, ubc, "top/bottom").
-        # the labels here are the ones that DirichletBC would use
-        for it in J.integrals():
-            itype = it.integral_type()
-            if itype.startswith("exterior_facet"):
-                index = ()
-                labels = comp.get(index, ())
-                bs = it.subdomain_id()
-                if bs == "everywhere":
-                    if itype == "exterior_facet_bottom":
-                        labels += (-2,)
-                    elif itype == "exterior_facet_top":
-                        labels += (-4,)
-                    else:
-                        maskall.append(index)
-                else:
-                    labels += bs if type(bs) == tuple else (bs,)
-                comp[index] = labels
+    labels = comp.get((), ())
+    labels = list(set(labels))
+    fbc = numpy.isin(sub, labels).astype(PETSc.IntType)
 
-        labels = comp.get((), ())
-        labels = list(set(labels))
-        fbc = numpy.isin(sub, labels).astype(PETSc.IntType)
+    if () in maskall:
+        fbc[sub >= -1] = 1
+    fbc[flags != 0] = 0
 
-        if () in maskall:
-            fbc[sub >= -1] = 1
-        fbc[flags != 0] = 0
+    others = set(comp.keys()) - {()}
+    if others:
+        # We have bcs on individual vector components
+        fbc = numpy.tile(fbc, (V.value_size, 1, 1))
+        for j in range(V.value_size):
+            key = (j,)
+            labels = comp.get(key, ())
+            labels = list(set(labels))
+            fbc[j] |= numpy.isin(sub, labels)
+            if key in maskall:
+                fbc[j][sub >= -1] = 1
 
-        others = set(comp.keys()) - {()}
-        if others:
-            # We have bcs on individual vector components
-            fbc = numpy.tile(fbc, (V.value_size, 1, 1))
-            for j in range(V.value_size):
-                key = (j,)
-                labels = comp.get(key, ())
-                labels = list(set(labels))
-                fbc[j] |= numpy.isin(sub, labels)
-                if key in maskall:
-                    fbc[j][sub >= -1] = 1
-
-            fbc = numpy.transpose(fbc, (1, 0, 2))
-        return fbc
+        fbc = numpy.transpose(fbc, (1, 0, 2))
+    return fbc

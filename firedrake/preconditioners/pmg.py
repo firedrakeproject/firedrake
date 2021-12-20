@@ -506,6 +506,15 @@ def prolongation_transfer_kernel_action(Vf, expr):
                       flop_count=kernel.flop_count), coefficients
 
 
+def get_sobolev_space(ele):
+    if isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
+        return get_sobolev_space(ele._sub_element)
+    elif isinstance(ele, ufl.WithMapping):
+        return get_sobolev_space(ele.wrapee)
+    else:
+        return ele.sobolev_space()
+
+
 def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
@@ -554,11 +563,8 @@ def get_line_elements(ele):
     from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange, fdm_element
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
-    if isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        sobolev = ele._sub_element.sobolev_space()
-    else:
-        sobolev = ele.sobolev_space()
 
+    sobolev = get_sobolev_space(ele)
     ele = expand_element(ele)
     if isinstance(ele, ufl.EnrichedElement):
         # TODO assert that all components are permutations of each other
@@ -803,9 +809,7 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
 
 
 def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
-    if isinstance(elem, (ufl.TensorElement, ufl.VectorElement)):
-        elem = elem._sub_element
-    sobolev = elem.sobolev_space()
+    sobolev = get_sobolev_space(elem)
     if sobolev in [ufl.HDiv, ufl.HCurl]:
         ndim = elem.cell().topological_dimension()
         pshape = shapes.copy()
@@ -862,9 +866,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
     """
     e = V.ufl_element()
-    if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
-        e = e._sub_element
-    sobolev = e.sobolev_space()
+    sobolev = get_sobolev_space(e)
     if sobolev == ufl.HDiv:
         shift = 1
     elif sobolev == ufl.HCurl:
@@ -962,30 +964,26 @@ class StandaloneInterpolationMatrix(object):
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
-            if (Vf_mapping == "identity") and (Vf_bsize == felem.value_size()):
-                qshape = (Vf_bsize, Vf_sdim)
-                # interpolate to fine space
-                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
-                # permute to firedrake ordering and apply the mapping
-                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
-                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Vf, felem, celem, "t0", "t1")
-                fine_is_ordered = True
-            else:
-                # interpolate to an embedding element with collocated vector component DOFs
+            # get embedding element with identity mapping and collocated vector component DOFs
+            if Vf_bsize != felem.value_size():
                 qdegree = PMGBase.max_degree(felem)
-                Qe = ufl.TensorElement("DQ", felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Qe = ufl.TensorElement("DQ", cell=felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-                qshape = (Q.value_size, Q.finat_element.space_dimension())
+            else:
+                fine_is_ordered = True
+                Q = Vf if Vf_mapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
 
-                decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-                # permute to firedrake ordering and apply the mapping
-                decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
-                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
+            qshape = (Q.value_size, Q.finat_element.space_dimension())
+            # interpolate to embedding fine space, permute to firedrake ordering, and apply the mapping
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
+            decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
+            coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
 
+            if Vf_bsize != felem.value_size():
                 # permute to tensor-friendly ordering and interpolate to fine space
                 decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[1], "t1", "t0", "perm1")
-                decl[3], prolong[4], restrict[4], shapes1 = make_kron_code(Vf, Q, "t0", "t1", "J1")
-                shapes.extend(shapes1)
+                decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
+                shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
             prolong_code = "".join(prolong)
