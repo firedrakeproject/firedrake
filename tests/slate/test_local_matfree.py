@@ -397,6 +397,18 @@ def test_preconditioning_like():
     matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
     schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
-    import sys
-    sys.exit()
-test_preconditioning_like()
+
+    # check if diagonal preconditioning is garbage
+    A = builder.inner_S
+    _, _, _, A11 = builder.list_split_mixed_ops
+    test, trial = A11.arguments()
+    p = solver.snes.ksp.pc.getPythonContext()
+    auxpc = DGLaplacian()
+    b, _ = auxpc.form(p, test, trial)
+    P = DiagonalTensor(Tensor(b))
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+
