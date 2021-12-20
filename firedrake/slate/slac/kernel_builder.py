@@ -816,7 +816,7 @@ class LocalLoopyKernelBuilder(object):
              f"""{z}[i_13] = {P}[i_13]*r[i_12] {{dep=residual0, id=z0}}""" if diagonal else
              f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
-                {p}[i_4] = -r[i_4] {{dep=z0, id=projector0}}
+                {p}[i_4] = -{z}[i_4] {{dep=z0, id=projector0}}
                 <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                 rk_norm = rk_norm + r[i_5]*{z}[i_5] {{dep=projector0, id=rk_norm1}}
                 for i_6
@@ -842,7 +842,7 @@ class LocalLoopyKernelBuilder(object):
              f"""   
                     <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
                     rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
-                    {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
+                    {p}[i_10] = beta * {p}[i_10] - {z}[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
                 end
                 {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
