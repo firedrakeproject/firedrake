@@ -362,33 +362,29 @@ def test_preconditioning_like():
 
     # Just double checking the single pieces in the hybridisation PC work correctly
     # check if schur complement is garbage
-    # A = builder.inner_S_inv_hat
-    # _, arg = A.arguments()
-    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    A = builder.inner_S_inv_hat
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if A00 is garbage
-    # A = builder.A00_inv_hat
-    # print(A)
-    # _, arg = A.arguments()
-    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    A = builder.A00_inv_hat
+    _, arg = A.arguments()
+    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
 
     # check if Srhs is garbage
-    # rhs, _ = builder.build_schur(builder.rhs)
-    # matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    # schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    rhs, _ = builder.build_schur(builder.rhs)
+    matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
-    # check if preconditioning is garbage
-    # FIXME in this test we use the "normal" CG algorithm in matrix-free manner
-    # while we should actually be using preconditioned CG, the infrastructure
-    # for that will be coming in the future
+    # check if normal preconditioning is garbage
     A = builder.inner_S
     _, _, _, A11 = builder.list_split_mixed_ops
     test, trial = A11.arguments()
@@ -398,10 +394,8 @@ def test_preconditioning_like():
     P = Tensor(b)
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P.inv*A).inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble((A.inv*A).inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    print(matfree_schur.dat.data)
-    print(schur.dat.data)
+    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
     import sys
     sys.exit()
