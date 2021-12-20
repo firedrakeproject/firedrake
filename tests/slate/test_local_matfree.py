@@ -307,7 +307,7 @@ class DGLaplacian(AuxiliaryOperatorPC):
         n = FacetNormal(W.mesh())
         alpha = Constant(3**2)
         gamma = Constant(4**2)
-        h = CellSize(W.mesh())
+        h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
                  - inner(jump(u, n), avg(grad(v)))*dS
@@ -321,9 +321,9 @@ class DGLaplacian(AuxiliaryOperatorPC):
 
 
 def test_preconditioning_like():
-    mymesh = UnitSquareMesh(6, 6)
-    U = FunctionSpace(mymesh, "RT", 2)
-    V = FunctionSpace(mymesh, "DG", 1)
+    mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
+    U = FunctionSpace(mymesh, "RTCF", 1)
+    V = FunctionSpace(mymesh, "DQ", 0)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
