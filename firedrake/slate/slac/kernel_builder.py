@@ -418,7 +418,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, coords=True):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -431,7 +431,7 @@ class LocalLoopyKernelBuilder(object):
         self.slate_loopy_name = slate_loopy_name
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
-        self.bag = SlateWrapperBag({})
+        self.bag = SlateWrapperBag({}, coords=coords)
         self.matfree_solve_knls = []
 
     def tsfc_cxt_kernels(self, terminal):
@@ -577,10 +577,10 @@ class LocalLoopyKernelBuilder(object):
 
         # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
-                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
-                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+        which = {"interior_facet_horiz_top": str(pym.Comparison(layer, "<", nlayer[0])),
+                 "interior_facet_horiz_bottom": str(pym.Comparison(layer, ">", 0)),
+                 "exterior_facet_top": str(pym.Comparison(layer, "==", nlayer[0])),
+                 "exterior_facet_bottom": str(pym.Comparison(layer, "==", 0))}[integral_type]
 
         return [which]
 
@@ -599,13 +599,13 @@ class LocalLoopyKernelBuilder(object):
         select = 1 if integral_type.startswith("interior_facet") else 0
 
         i = self.bag.index_creator((1,))
-        predicates = [pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select)]
+        predicates = [str(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 0)), "==", select))]
 
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
         # "otherwise" is treated incorrectly as "everywhere"
         # However, this replicates an existing slate bug.
         if kinfo.subdomain_id != "otherwise":
-            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", kinfo.subdomain_id))
+            predicates.append(str(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg), (fidx[0], 1)), "==", kinfo.subdomain_id)))
 
         # Additional facet array argument to be fed into tsfc loopy kernel
         subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg),
@@ -805,9 +805,9 @@ class LocalLoopyKernelBuilder(object):
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
         knl = loopy.make_function(
-            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15]:
-                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15<n
-                 and 0<=i_6<=n}""",
+            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
+                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16<n
+                 and 0<=i_6<=3*n}""",
             [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                  r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
@@ -832,7 +832,8 @@ class LocalLoopyKernelBuilder(object):
             """,
             (f"""    {z}[i_15] = 0. {{dep=rk, id=zk0, inames=i_6}}
                      {z}[:] = action_P({P}[:,:], r[:]) {{dep=zk0, id=zk, inames=i_6}}""" if preconditioned and not diagonal else
-            f"""     {z}[:] = action_P({P}[:], r[:]){{dep=rk, id=zk}}""" if diagonal else
+            f"""     {z}[i_16] = 0. {{dep=rk, id=zk0, inames=i_6}}
+                     {z}[:] = action_P({P}[:], r[:]){{dep=zk0, id=zk, inames=i_6}}""" if diagonal else
             f"""     {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_6}}"""),
             f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
@@ -953,11 +954,13 @@ class LocalLoopyKernelBuilder(object):
     def generate_wrapper_kernel_args(self, temporaries={}):
         # FIXME if we really need the dimtags and so on
         # maybe we should make a function for generating global args
-        coords_extent = self.extent(self.expression.ufl_domain().coordinates)
-        args = [loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
-                                dtype=self.tsfc_parameters["scalar_type"],
-                                dim_tags=None, strides=loopy.auto, order="C",
-                                target=loopy.CTarget(), is_input=True, is_output=False)]
+        args = []
+        if self.bag.coords:
+            coords_extent = self.extent(self.expression.ufl_domain().coordinates)
+            args.append(loopy.GlobalArg(self.coordinates_arg, shape=coords_extent,
+                                    dtype=self.tsfc_parameters["scalar_type"],
+                                    dim_tags=None, strides=loopy.auto, order="C",
+                                    target=loopy.CTarget(), is_input=True, is_output=False))
 
         if self.bag.needs_cell_orientations:
             ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
@@ -1079,7 +1082,7 @@ class LocalLoopyKernelBuilder(object):
 
 class SlateWrapperBag(object):
 
-    def __init__(self, coeffs, action_coeffs={}, name=""):
+    def __init__(self, coeffs, action_coeffs={}, name="", coords=True):
         self.coefficients = coeffs
         self.action_coefficients = action_coeffs
         self.needs_cell_orientations = False
@@ -1090,6 +1093,7 @@ class SlateWrapperBag(object):
         self.call_name_generator = UniqueNameGenerator()
         self.index_creator = IndexCreator()
         self.name = name
+        self.coords = coords
 
     def copy_extra_args(self, other):
         self.coefficients = other.coefficients
