@@ -13,6 +13,8 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
+from firedrake.dmhooks import push_appctx, pop_appctx
+from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 import numpy
@@ -100,8 +102,11 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
-        embedded = opts.getBool("embedded", False)
+        embedded = opts.getBool("embedded", default=False)
         mat_type = "matfree"
+
+        appctx = self.get_appctx(pc)
+        fcp = appctx.get("form_compiler_parameters")
 
         dm = pc.getDM()
         V = get_function_space(dm)
@@ -127,20 +132,21 @@ class FDMPC(PCBase):
         except TypeError:
             pass
         Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
+        eta = float(appctx.get("eta", (N+1)**2))
 
         # Get Jacobian form and bcs
-        solverctx = get_appctx(dm)
-        J = solverctx.J
-        bcs = solverctx.bcs_J
-
-        # Get the interior penalty parameter from the appctx
-        appctx = self.get_appctx(pc)
-        eta = float(appctx.get("eta", (N+1)**2))
-        fcp = appctx.get("form_compiler_parameters", dict())
+        octx = get_appctx(dm)
+        oproblem = octx._problem
+        F = oproblem.F
+        u = oproblem.u
+        J = oproblem.J
+        bcs = tuple(oproblem.bcs)
 
         if use_fdm_element and not embedded:
             V_fdm = V
-            fdm_form = J
+            fdm_F = F
+            fdm_u = u
+            fdm_J = J
             fdm_bcs = bcs
             self.fdm_interp = None
         else:
@@ -154,9 +160,26 @@ class FDMPC(PCBase):
                 e_fdm = element.reconstruct(variant="fdm")
 
             V_fdm = firedrake.FunctionSpace(V.ufl_domain(), e_fdm)
-            fdm_form = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
+            fdm_u = firedrake.Function(V_fdm)
+            soln = {u: fdm_u}
+            fdm_F = ufl.replace(F, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in F.arguments()}})
+            fdm_J = ufl.replace(J, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in J.arguments()}})
             fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], fdm_bcs)
+            self.fdm_inject = prolongation_matrix_matfree(V_fdm, V, [], [])
+            with u.dat.vec as x, fdm_u.dat.vec as y:
+                self.fdm_inject.mult(x, y)
+
+        self.A = allocate_matrix(fdm_J, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=mat_type,
+                                 options_prefix=options_prefix)
+        self._assemble_A = partial(assemble, fdm_J, tensor=self.A, bcs=fdm_bcs,
+                                   form_compiler_parameters=fcp, mat_type=mat_type,
+                                   assembly_type="residual")
+
+        self.work = firedrake.Function(V_fdm)
+        self.diag = firedrake.Function(V_fdm)
+        self._assemble_diag = partial(assemble, fdm_J, tensor=self.diag, bcs=fdm_bcs,
+                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
 
         if len(fdm_bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -165,25 +188,14 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             self.fdm_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        self.A = allocate_matrix(fdm_form, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=mat_type,
-                                 options_prefix=options_prefix)
-        self._assemble_A = partial(assemble, fdm_form, tensor=self.A, bcs=fdm_bcs,
-                                   form_compiler_parameters=fcp, mat_type=mat_type,
-                                   assembly_type="residual")
-
-        self.work = firedrake.Function(V_fdm)
-        self.diag = firedrake.Function(V_fdm)
-        self._assemble_diag = partial(assemble, fdm_form, tensor=self.diag, bcs=fdm_bcs,
-                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
-
         # Afdm = sparse interval mass and stiffness matrices for each direction
         # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
         Afdm, Dfdm = self.assemble_matfree(fiat_elements, eta)
-        bcflags = get_bc_flags(fdm_bcs, fdm_form)
+        bcflags = get_bc_flags(fdm_bcs, fdm_J)
 
         # Get coefficients w.r.t. the reference coordinates
         # we may use a lower quadrature degree, but using Nq is not so expensive
-        coefficients, self.assembly_callables = self.assemble_coef(fdm_form, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
+        coefficients, self.assembly_callables = self.assemble_coef(fdm_J, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
 
         # Set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
@@ -211,6 +223,7 @@ class FDMPC(PCBase):
         prealloc.destroy()
 
         opc = pc
+        odm = opc.getDM()
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
@@ -221,16 +234,23 @@ class FDMPC(PCBase):
         # can do e.g. multigrid or patch solves.
         from firedrake.variational_solver import NonlinearVariationalProblem
         from firedrake.solving_utils import _SNESContext
-        oproblem = solverctx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, fdm_bcs, J=fdm_form, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, appctx, options_prefix=options_prefix)
+        nproblem = NonlinearVariationalProblem(fdm_F, fdm_u, bcs=fdm_bcs, J=fdm_J, form_compiler_parameters=fcp)
+        cctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
+        self._ctx_ref = cctx
 
-        dm = V_fdm.dm
-        pc.setDM(dm)
+        cdm = V_fdm.dm
+        parent = get_parent(odm)
+        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
+        cdm.setSNESJacobian(_SNESContext.form_jacobian)
+        cdm.setSNESFunction(_SNESContext.form_function)
+        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+
+        pc.setDM(cdm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(self.A.petscmat, Pmat)
         self.pc = pc
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
+        with dmhooks.add_hooks(cdm, self, appctx=self._ctx_ref, save=False):
             pc.setFromOptions()
         self.update(pc)
 
@@ -243,28 +263,25 @@ class FDMPC(PCBase):
         self.Pmat.zeroRowsColumnsLocal(self.fdm_bc_nodes)
         # self.diagonal_scaling(self.Pmat)
 
-    def apply(self, pc, x, y, transpose=False):
-        dm = pc.getDM()
+    def apply(self, pc, x, y):
         if self.fdm_interp is None:
-            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-                if transpose:
-                    self.pc.applyTranspose(x, y)
-                else:
-                    self.pc.apply(x, y)
+            self.pc.apply(x, y)
         else:
-            with self.work.dat.vec as w1, self.diag.dat.vec as w2:
-                self.fdm_interp.multTranspose(x, w1)
-                with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-                    if transpose:
-                        self.pc.applyTranspose(w1, w2)
-                    else:
-                        self.pc.apply(w1, w2)
-                self.fdm_interp.mult(w2, y)
-
+            with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
+                self.fdm_interp.multTranspose(x, x_fdm)
+                self.pc.apply(x_fdm, y_fdm)
+                self.fdm_interp.mult(y_fdm, y)
             y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def applyTranspose(self, pc, x, y):
-        self.apply(pc, x, y, transpose=True)
+        if self.fdm_interp is None:
+            self.pc.applyTranspose(x, y)
+        else:
+            with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
+                self.fdm_interp.multTranspose(x, x_fdm)
+                self.pc.applyTranspose(x_fdm, y_fdm)
+                self.fdm_interp.mult(y_fdm, y)
+            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def view(self, pc, viewer=None):
         super(FDMPC, self).view(pc, viewer)
