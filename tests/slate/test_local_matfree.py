@@ -386,7 +386,7 @@ def test_preconditioning_like():
 
     # check if normal preconditioning is garbage
     A = builder.inner_S
-    _, _, _, A11 = builder.list_split_mixed_ops
+    A00, _, _, A11 = builder.list_split_mixed_ops
     test, trial = A11.arguments()
     p = solver.snes.ksp.pc.getPythonContext()
     auxpc = DGLaplacian()
