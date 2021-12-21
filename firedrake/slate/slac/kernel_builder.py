@@ -1096,7 +1096,7 @@ class SlateWrapperBag(object):
         self.coords = coords
 
     def copy_extra_args(self, other):
-        self.coefficients = other.coefficients
+        self.coefficients.update(other.coefficients)
         if not self.needs_cell_orientations:
             self.needs_cell_orientations = other.needs_cell_orientations
         if not self.needs_cell_sizes:
