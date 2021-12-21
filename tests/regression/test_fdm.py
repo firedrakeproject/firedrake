@@ -25,23 +25,36 @@ def expected(mesh):
         return [8, 8, 8]
 
 
+@pytest.fixture(params=[None, "fdm"], ids=["spectral", "fdm"])
+def variant(request):
+    return request.param
+
+
 @pytest.mark.skipcomplex
-def test_p_independence(mesh, expected):
+def test_p_independence(mesh, expected, variant):
     nits = []
     for p in range(3, 6):
-        V = FunctionSpace(mesh, "Lagrange", p)
+        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=p, variant=variant)
+        V = FunctionSpace(mesh, e)
         u = TrialFunction(V)
         v = TestFunction(V)
 
+        ndim = mesh.geometric_dimension()
+        x = SpatialCoordinate(mesh)
+        x -= Constant([0.5]*ndim)
+        u_exact = dot(x, x)
+        f_exact = grad(u_exact)
+        B = -div(f_exact)
+
         a = inner(grad(v), grad(u))*dx
-        L = inner(v, Constant(1))*dx
+        L = inner(v, B)*dx
 
         asm = "firedrake.ASMStarPC"
         subs = ("on_boundary",)
         if mesh.topological_dimension() == 3:
             asm = "firedrake.ASMExtrudedStarPC"
             subs += ("top", "bottom")
-        bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
+        bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
 
         uh = Function(V)
         problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
@@ -59,7 +72,7 @@ def test_p_independence(mesh, expected):
                 "ksp_type": "chebyshev",
                 "esteig_ksp_type": "cg",
                 "esteig_ksp_norm_type": "unpreconditioned",
-                "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
+                "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
                 "ksp_chebyshev_esteig_noisy": True,
                 "ksp_chebyshev_esteig_steps": 8,
                 "ksp_norm_type": "unpreconditioned",
@@ -83,7 +96,8 @@ def test_p_independence(mesh, expected):
             }})
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
-    assert (nits == expected)
+    assert norm(u_exact-uh, "H1") < 1.0E-7
+    assert nits <= expected
 
 
 @pytest.mark.skipcomplex
@@ -159,26 +173,28 @@ def test_variable_coefficient(mesh):
 def fs(request, mesh):
     degree = 3
     ndim = mesh.topological_dimension()
+    cell = mesh.ufl_cell()
     element = request.param
+    variant = None
     if element == "rt":
         family = "RTCF" if ndim == 2 else "NCF"
-        return FunctionSpace(mesh, family, degree)
+        return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
     else:
         if ndim == 1:
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, family, degree, dim=5-ndim)
+        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-ndim)
 
 
 @pytest.mark.skipcomplex
 def test_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
-    u_exact = dot(x, x)
     ndim = mesh.geometric_dimension()
     ncomp = fs.ufl_element().value_size()
-    if ncomp > 1:
+    u_exact = dot(x, x)
+    if ncomp:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
 
     N = fs.ufl_element().degree()
@@ -187,7 +203,7 @@ def test_direct_solver(fs):
     except TypeError:
         pass
 
-    Nq = 2*(N+1)-1
+    quad_degree = 2*(N+1)-1
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
@@ -203,38 +219,41 @@ def test_direct_solver(fs):
     B = dot(beta, u_exact) - div(f_exact)
     T = dot(f_exact, n)
 
-    subs = (1, 3)
-    if mesh.cell_set._extruded:
+    extruded = mesh.cell_set._extruded
+    subs = (1,)
+    if ndim > 1:
+        subs += (3,)
+    if extruded:
         subs += ("top",)
 
     bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
 
-    # sub_Dir = vertical subdomains for Dirichlet BCs
-    # sub_Neu = vertical subdomains for Neumann BCs
-    sub_Dir = "everywhere" if "on_boundary" in subs else tuple(s for s in subs if type(s) == int)
-    if sub_Dir == "everywhere":
-        sub_Neu = ()
+    dirichlet_ids = subs
+    if "on_boundary" in dirichlet_ids:
+        neumann_ids = []
     else:
-        sub_Neu = tuple(set(mesh.exterior_facets.unique_markers) - set(s for s in subs if type(s) == int))
+        make_tuple = lambda s: s if type(s) == tuple else (s,)
+        neumann_ids = list(set(mesh.exterior_facets.unique_markers) - set(sum([make_tuple(s) for s in subs if type(s) != str], ())))
+    if extruded:
+        if "top" not in dirichlet_ids:
+            neumann_ids.append("top")
+        if "bottom" not in dirichlet_ids:
+            neumann_ids.append("bottom")
 
-    dxq = dx(degree=Nq)
-    if mesh.cell_set._extruded:
-        dS_int = dS_v(degree=Nq) + dS_h(degree=Nq)
-        ds_Dir = ds_v(sub_Dir, degree=Nq)
-        ds_Neu = ds_v(sub_Neu, degree=Nq)
-        if "bottom" in subs:
-            ds_Dir += ds_b(degree=Nq)
-        else:
-            ds_Neu += ds_b(degree=Nq)
-        if "top" in subs:
-            ds_Dir += ds_t(degree=Nq)
-        else:
-            ds_Neu += ds_t(degree=Nq)
+    dxq = dx(degree=quad_degree, domain=mesh)
+    if extruded:
+        dS_int = dS_v(degree=quad_degree) + dS_h(degree=quad_degree)
+        ds_ext = {"on_boundary": ds_v(degree=quad_degree), "bottom": ds_b(degree=quad_degree), "top": ds_t(degree=quad_degree)}
+        ds_Dir = [ds_ext.get(s) or ds_v(s, degree=quad_degree) for s in dirichlet_ids]
+        ds_Neu = [ds_ext.get(s) or ds_v(s, degree=quad_degree) for s in neumann_ids]
     else:
-        dS_int = dS(degree=Nq)
-        ds_Dir = ds(sub_Dir, degree=Nq)
-        ds_Neu = ds(sub_Neu, degree=Nq)
+        dS_int = dS(degree=quad_degree)
+        ds_ext = {"on_boundary": ds(degree=quad_degree)}
+        ds_Dir = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in dirichlet_ids]
+        ds_Neu = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in neumann_ids]
 
+    ds_Dir = sum(ds_Dir, ds(tuple()))
+    ds_Neu = sum(ds_Neu, ds(tuple()))
     eta = Constant((N+1)**2)
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = eta/h
@@ -260,7 +279,7 @@ def test_direct_solver(fs):
         "ksp_type": "cg",
         "ksp_atol": 0.0E0,
         "ksp_rtol": 1.0E-8,
-        "ksp_max_it": 20,
+        "ksp_max_it": 3,
         "ksp_monitor": None,
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",
@@ -271,4 +290,5 @@ def test_direct_solver(fs):
     }, appctx={"eta": eta, })
     solver.solve()
 
-    assert solver.snes.ksp.getIterationNumber() == 1 and norm(u_exact-uh, "H1") < 1.0E-8
+    assert solver.snes.ksp.getIterationNumber() == 1
+    assert norm(u_exact-uh, "H1") < 1.0E-8
