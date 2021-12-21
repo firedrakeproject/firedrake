@@ -6,7 +6,6 @@ import ufl
 from ufl import inner, diff
 from ufl.constantvalue import Zero
 from ufl.algorithms.ad import expand_derivatives
-from FIAT.fdm_element import FDMElement
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -96,14 +95,12 @@ class FDMPC(PCBase):
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
         Citations().register("Brubeck2021")
-        # A, P = pc.getOperators()
 
         # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         embedded = opts.getBool("embedded", default=False)
-        mat_type = "matfree"
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -113,16 +110,15 @@ class FDMPC(PCBase):
         element = V.ufl_element()
         try:
             fiat_elements = get_line_elements(element)
-            use_fdm_element = all([isinstance(e, FDMElement) for e in fiat_elements])
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % element)
 
         if isinstance(element, (ufl.TensorElement, ufl.VectorElement)):
-            sob = element._sub_element.sobolev_space()
+            sobolev = element._sub_element.sobolev_space()
         else:
-            sob = element.sobolev_space()
-        needs_hdiv = sob == ufl.HDiv
-        needs_hcurl = sob == ufl.HCurl
+            sobolev = element.sobolev_space()
+        needs_hdiv = sobolev == ufl.HDiv
+        needs_hcurl = sobolev == ufl.HCurl
         if needs_hcurl:
             raise ValueError("FDMPC does not support H(Curl) elements")
 
@@ -131,55 +127,50 @@ class FDMPC(PCBase):
             N = max(N)
         except TypeError:
             pass
-        Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
         eta = float(appctx.get("eta", (N+1)**2))
+        Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
 
-        # Get Jacobian form and bcs
+        # Get original forms and bcs
         octx = get_appctx(dm)
         oproblem = octx._problem
         F = oproblem.F
-        u = oproblem.u
         J = oproblem.J
         bcs = tuple(oproblem.bcs)
 
-        if use_fdm_element and not embedded:
-            V_fdm = V
-            fdm_F = F
-            fdm_u = u
-            fdm_J = J
-            fdm_bcs = bcs
-            self.fdm_interp = None
+        # Transform the problem into the space with FDM shape functions
+        if embedded:
+            e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=N, variant="fdm")
+            if element.value_shape():
+                e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape(), symmetry=element.symmetry())
+            fiat_elements = get_line_elements(e_fdm)
+            needs_hdiv = False
         else:
-            if embedded:
-                e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=N, variant="fdm")
-                if element.value_shape():
-                    e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape(), symmetry=element.symmetry())
-                fiat_elements = get_line_elements(e_fdm)
-                needs_hdiv = False
-            else:
-                e_fdm = element.reconstruct(variant="fdm")
+            e_fdm = element.reconstruct(variant="fdm")
+        V_fdm = firedrake.FunctionSpace(V.ufl_domain(), e_fdm)
+        fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
+        fdm_u = oproblem.u if V == V_fdm else firedrake.Function(V_fdm)
+        soln = {oproblem.u: fdm_u}
+        fdm_F = ufl.replace(F, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in F.arguments()}})
+        fdm_J = ufl.replace(J, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in J.arguments()}})
 
-            V_fdm = firedrake.FunctionSpace(V.ufl_domain(), e_fdm)
-            fdm_u = firedrake.Function(V_fdm)
-            soln = {u: fdm_u}
-            fdm_F = ufl.replace(F, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in F.arguments()}})
-            fdm_J = ufl.replace(J, {**soln, **{t: t.reconstruct(function_space=V_fdm) for t in J.arguments()}})
-            fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
+        if V == V_fdm:
+            self.fdm_interp = None
+            self.A = None
+            self._assemble_A = lambda: None
+            Amat, _ = pc.getOperators()
+        else:
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], fdm_bcs)
-            self.fdm_inject = prolongation_matrix_matfree(V_fdm, V, [], [])
-            with u.dat.vec as x, fdm_u.dat.vec as y:
-                self.fdm_inject.mult(x, y)
-
-        self.A = allocate_matrix(fdm_J, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=mat_type,
-                                 options_prefix=options_prefix)
-        self._assemble_A = partial(assemble, fdm_J, tensor=self.A, bcs=fdm_bcs,
-                                   form_compiler_parameters=fcp, mat_type=mat_type,
-                                   assembly_type="residual")
+            self.A = allocate_matrix(fdm_J, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=octx.mat_type,
+                                     options_prefix=options_prefix)
+            self._assemble_A = partial(assemble, fdm_J, tensor=self.A, bcs=fdm_bcs,
+                                       form_compiler_parameters=fcp, mat_type=octx.mat_type,
+                                       assembly_type="residual")
+            Amat = self.A.petscmat
 
         self.work = firedrake.Function(V_fdm)
         self.diag = firedrake.Function(V_fdm)
         self._assemble_diag = partial(assemble, fdm_J, tensor=self.diag, bcs=fdm_bcs,
-                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
+                                      diagonal=True, form_compiler_parameters=fcp, mat_type=octx.mat_type)
 
         if len(fdm_bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -202,24 +193,21 @@ class FDMPC(PCBase):
             with coef.dat.vec as cvec:
                 cvec.set(1.0E0)
 
-        layout_vec = V_fdm.dof_dset.layout_vec
-        block_size = layout_vec.getBlockSize()
-        row_sizes = layout_vec.getSizes()
-        sizes = (row_sizes, row_sizes)
+        block_size = Amat.getBlockSize()
+        sizes = Amat.getSizes()
 
         # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        prealloc = PETSc.Mat().create(comm=V_fdm.comm)
+        prealloc = PETSc.Mat().create(comm=Amat.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
         self.assemble_kron(prealloc, V_fdm, fdm_bcs, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-        nnz = get_preallocation(prealloc, V_fdm.value_size * V_fdm.dof_dset.set.size)
+        nnz = get_preallocation(prealloc, block_size * V_fdm.dof_dset.set.size)
 
-        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V_fdm.comm)
+        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Amat.comm)
         Pmat.setLGMap(V_fdm.dof_dset.lgmap)
         self._assemble_P = partial(self.assemble_kron, Pmat, V_fdm, fdm_bcs,
                                    coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-        self.Pmat = Pmat
         prealloc.destroy()
 
         opc = pc
@@ -234,54 +222,59 @@ class FDMPC(PCBase):
         # can do e.g. multigrid or patch solves.
         from firedrake.variational_solver import NonlinearVariationalProblem
         from firedrake.solving_utils import _SNESContext
-        nproblem = NonlinearVariationalProblem(fdm_F, fdm_u, bcs=fdm_bcs, J=fdm_J, form_compiler_parameters=fcp)
-        cctx = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
+        nproblem = NonlinearVariationalProblem(fdm_F, fdm_u, bcs=fdm_bcs, J=fdm_J,
+                                               form_compiler_parameters=fcp, is_linear=oproblem.is_linear)
+        cctx = _SNESContext(nproblem, octx.mat_type, octx.pmat_type, appctx=octx.appctx,
+                            options_prefix=options_prefix)
         self._ctx_ref = cctx
-
         cdm = V_fdm.dm
-        parent = get_parent(odm)
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
-        cdm.setSNESJacobian(_SNESContext.form_jacobian)
-        cdm.setSNESFunction(_SNESContext.form_function)
-        cdm.setKSPComputeOperators(_SNESContext.compute_operators)
+        if cdm != odm:
+            parent = get_parent(odm)
+            assert parent is not None
+            add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent), call_setup=True)
+            add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
 
         pc.setDM(cdm)
         pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(self.A.petscmat, Pmat)
+        pc.setOperators(Amat, Pmat)
         self.pc = pc
         with dmhooks.add_hooks(cdm, self, appctx=self._ctx_ref, save=False):
             pc.setFromOptions()
-        self.update(pc)
+        self.update(opc)
 
     def update(self, pc):
+        _, P = self.pc.getOperators()
         self._assemble_A()
         for assemble_coef in self.assembly_callables:
             assemble_coef()
-        self.Pmat.zeroEntries()
+        P.zeroEntries()
         self._assemble_P()
-        self.Pmat.zeroRowsColumnsLocal(self.fdm_bc_nodes)
-        # self.diagonal_scaling(self.Pmat)
+        P.zeroRowsColumnsLocal(self.fdm_bc_nodes)
+        # self.diagonal_scaling(P)
 
     def apply(self, pc, x, y):
-        if self.fdm_interp is None:
-            self.pc.apply(x, y)
-        else:
-            with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
-                self.fdm_interp.multTranspose(x, x_fdm)
-                self.pc.apply(x_fdm, y_fdm)
-                self.fdm_interp.mult(y_fdm, y)
-            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+        dm = pc.getDM()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            if self.fdm_interp is None:
+                self.pc.apply(x, y)
+            else:
+                with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
+                    self.fdm_interp.multTranspose(x, x_fdm)
+                    self.pc.apply(x_fdm, y_fdm)
+                    self.fdm_interp.mult(y_fdm, y)
+                y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def applyTranspose(self, pc, x, y):
-        if self.fdm_interp is None:
-            self.pc.applyTranspose(x, y)
-        else:
-            with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
-                self.fdm_interp.multTranspose(x, x_fdm)
-                self.pc.applyTranspose(x_fdm, y_fdm)
-                self.fdm_interp.mult(y_fdm, y)
-            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+        dm = pc.getDM()
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            if self.fdm_interp is None:
+                self.pc.applyTranspose(x, y)
+            else:
+                with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
+                    self.fdm_interp.multTranspose(x, x_fdm)
+                    self.pc.applyTranspose(x_fdm, y_fdm)
+                    self.fdm_interp.mult(y_fdm, y)
+                y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
 
     def view(self, pc, viewer=None):
         super(FDMPC, self).view(pc, viewer)
@@ -325,16 +318,18 @@ class FDMPC(PCBase):
 
         :arg A: the :class:`PETSc.Mat` to assemble
         :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
         :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
-        :arg Bq: a :class:`firedrake.Function` with the zero-th order coefficients of the form
         :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
         :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
         :arg eta: the SIPG penalty parameter as a ``float``
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
         :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
         """
-        Gq = coefficients.get("Gq", None)
-        Bq = coefficients.get("Bq", None)
+        Gq = coefficients.get("Gq")
+        Bq = coefficients.get("Bq")
+        Gq_facet = coefficients.get("Gq_facet")
+        PT_facet = coefficients.get("PT_facet")
 
         imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(bcs)
@@ -449,13 +444,7 @@ class FDMPC(PCBase):
                 raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
-            if needs_hdiv:
-                Gq_facet = coefficients.get("Gq_facet", None)
-                PT_facet = coefficients.get("PT_facet", None)
-                index_coef, _, _ = get_interior_facet_maps(Gq_facet)
-            else:
-                index_coef, _, _ = get_interior_facet_maps(Gq)
-
+            index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
                 ie = index_facet(e)
@@ -563,6 +552,7 @@ class FDMPC(PCBase):
         gdim = mesh.geometric_dimension()
         ndim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
+        dx = firedrake.dx(degree=quad_deg)
 
         if cell_average:
             family = "Discontinuous Lagrange" if ndim == 1 else "DQ"
@@ -623,7 +613,6 @@ class FDMPC(PCBase):
             Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         # assemble second order coefficient
-        dx = firedrake.dx(degree=quad_deg)
         Q = firedrake.FunctionSpace(mesh, Qe)
         q = firedrake.TestFunction(Q)
         Gq = firedrake.Function(Q)
@@ -631,18 +620,14 @@ class FDMPC(PCBase):
         assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
-        if isinstance(beta, Zero):
-            Bq = None
-        else:
+        if not isinstance(beta, Zero):
             if Piola:
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
             shape = beta.ufl_shape
+            Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default")
             if shape:
-                Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=shape)
-            else:
-                Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default")
-
+                Qe = ufl.TensorElement(Qe, shape=shape)
             Q = firedrake.FunctionSpace(mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
@@ -668,14 +653,14 @@ class FDMPC(PCBase):
             q = firedrake.TestFunction(Q)
             Gq_facet = firedrake.Function(Q)
             coefficients["Gq_facet"] = Gq_facet
-            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), G('+')) + inner(q('-'), G('-')))/area) * dS_int, Gq_facet))
+            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), G('+')) + inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
 
             PT = Piola.T
             Q = firedrake.TensorFunctionSpace(mesh, ele, shape=PT.ufl_shape)
             q = firedrake.TestFunction(Q)
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
-            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area) * dS_int, PT_facet))
+            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
         return coefficients, assembly_callables
 
 
