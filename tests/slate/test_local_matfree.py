@@ -322,8 +322,8 @@ class DGLaplacian(AuxiliaryOperatorPC):
 
 def test_preconditioning_like():
     mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
-    U = FunctionSpace(mymesh, "RTCF", 1)
-    V = FunctionSpace(mymesh, "DQ", 0)
+    U = FunctionSpace(mymesh, "RTCF", 2)
+    V = FunctionSpace(mymesh, "DQ", 1)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
