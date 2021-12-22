@@ -360,3 +360,55 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
             slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
 
     return slate_wrapper
+
+
+def local_operator_plot_and_print_info(a, name):
+    import numpy as np
+    def petsctopy(petscmat):
+        n, m = petscmat.getSize()
+        aa = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                aa[i, j] = petscmat.getValues(i, j)
+        return aa
+
+
+    assert (a.ufl_domain().num_cells() == 1,
+            "These values are only accurate information about the local matrices, \
+            if matrices are assembled on meshes with one cell")
+    import warnings
+    warnings.warn("I don't know if the information about the local matrices are accurate when there are BCs")
+    if not a:
+        return 
+
+    print(name)
+    from firedrake import assemble
+    A = assemble(a, mat_type="aij", form_compiler_parameters={"slate_compiler":{"optimise": False, 
+                                                              "replace_mul": False}}).M.handle
+    A_np = petsctopy(A)
+    print("condition number:", np.linalg.cond(A_np))
+    print("positive semi definite?:", np.all(np.linalg.eigvals(A_np) >= 0))
+    print("neg semi definite?:", np.all(np.linalg.eigvals(A_np) <= 0))
+    print("eigenvalues bounded?:", np.all(np.linalg.eigvals(A_np)<= np.inf) and np.all(np.linalg.eigvals(A_np)>= -np.inf))
+    print("symmetric?:", np.allclose(A_np, A_np.T, rtol=0.0001))
+    print("Hermitian?:", np.allclose(A_np, A_np.conj().T, rtol=0.0001))
+
+    def dd(A_np):
+        n = len(A_np[0])
+        diag = np.zeros(n)
+        off_diag = np.zeros(n)
+        for i in range(n):
+            diag[i] = abs(A_np[i][i])
+            for j in range(n):
+                if i!=j:
+                    off_diag[i] += abs(A_np[i][j])
+        return np.all(diag>=off_diag)
+
+    print("diagonal dominant?:", dd(A_np))
+    print("\n")
+    
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.imshow(A_np)
+    plt.colorbar()
+    plt.savefig(name, dpi=150)
