@@ -310,9 +310,9 @@ class DGLaplacian(AuxiliaryOperatorPC):
         h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
-                 - inner(jump(u, n), avg(grad(v)))*dS
-                 - inner(avg(grad(u)), jump(v, n), )*dS
-                 + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS
+                #  - inner(jump(u, n), avg(grad(v)))*dS
+                #  - inner(avg(grad(u)), jump(v, n), )*dS
+                #  + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS
                  - inner(u*n, grad(v))*ds
                  - inner(grad(u), v*n)*ds
                  + (gamma/h)*inner(u, v)*ds)
@@ -321,9 +321,11 @@ class DGLaplacian(AuxiliaryOperatorPC):
 
 
 def test_preconditioning_like():
-    mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
-    U = FunctionSpace(mymesh, "RTCF", 2)
-    V = FunctionSpace(mymesh, "DQ", 1)
+    mymesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    RTe = FiniteElement("RTCF", quadrilateral, 3, variant="fdm")
+    DQe = FiniteElement("DQ", quadrilateral, 2, variant="fdm")
+    U = FunctionSpace(mymesh, RTe)
+    V = FunctionSpace(mymesh, DQe)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
@@ -362,27 +364,27 @@ def test_preconditioning_like():
 
     # Just double checking the single pieces in the hybridisation PC work correctly
     # check if schur complement is garbage
-    A = builder.inner_S_inv_hat
-    _, arg = A.arguments()
-    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # A = builder.inner_S_inv_hat
+    # _, arg = A.arguments()
+    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
-    # check if A00 is garbage
-    A = builder.A00_inv_hat
-    _, arg = A.arguments()
-    C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # # check if A00 is garbage
+    # A = builder.A00_inv_hat
+    # _, arg = A.arguments()
+    # C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    # matfree_schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(A * C, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
 
-    # check if Srhs is garbage
-    rhs, _ = builder.build_schur(builder.rhs)
-    matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # # check if Srhs is garbage
+    # rhs, _ = builder.build_schur(builder.rhs)
+    # matfree_schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble(rhs, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if normal preconditioning is garbage
     A = builder.inner_S
@@ -394,26 +396,27 @@ def test_preconditioning_like():
     P = Tensor(b)
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
     # check if diagonal Laplacian preconditioning is garbage
-    P = DiagonalTensor(Tensor(b))
+    PD = DiagonalTensor(Tensor(b))
     _, arg = A.arguments()
     C = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P.inv*A).inv*(P.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble(A.inv*(C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    # FIXME techincally this works, but it doesn't give a correct answer atm,
-    # probably because it's a bad idea to precondtion with the diagonal Laplacian
-    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-2)
+    matfree_schur = assemble((PD.inv*P).inv*(PD.inv*C), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    schur = assemble(P.solve(C), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    print(matfree_schur.dat.data)
+    print(schur.dat.data)
+    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-2)
 
     # # check if diagonal preconditioning of mass matrix is garbage
     # Jacobi on mass matrix works for higher order too
-    P00 = DiagonalTensor(Tensor(A00.form))
-    _, arg = A00.arguments()
-    C00 = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
-    matfree_schur = assemble((P00.inv*A00).inv*(P00.inv*C00), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
-    schur = assemble((A00).inv*(C00), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
-    assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
+    # P00 = DiagonalTensor(Tensor(A00.form))
+    # _, arg = A00.arguments()
+    # C00 = AssembledVector(Function(arg.function_space()).assign(Constant(2.)))
+    # matfree_schur = assemble((P00.inv*A00).inv*(P00.inv*C00), form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    # schur = assemble((A00).inv*(C00), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
+    # assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
+test_preconditioning_like()
