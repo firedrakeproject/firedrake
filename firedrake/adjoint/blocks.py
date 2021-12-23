@@ -1,7 +1,7 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
-from ufl.algorithms.analysis import extract_arguments_and_coefficients
+from ufl.algorithms.analysis import extract_arguments, extract_arguments_and_coefficients
 from ufl import replace
 
 import firedrake
@@ -481,7 +481,10 @@ class InterpolateBlock(Block, Backend):
             raise(NotImplementedError("Interpolate block must have a single output"))
         input = inputs[idx]
         dJdm = self.backend.derivative(prepared, input)
-        output = self.backend.Cofunction(input.function_space().dual())
+        # Get the function space from `dJdm` argument
+        arg, = extract_arguments(dJdm)
+        # Make sure to have a cofunction output
+        output = self.backend.Cofunction(arg.function_space().dual())
         return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True).vector()
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
