@@ -41,7 +41,8 @@ __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal', 'Action',
-           'TensorShell', 'BlockAssembledVector']
+           'TensorShell', 'BlockAssembledVector',
+           'Hadamard']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -1248,6 +1249,11 @@ class Action(BinaryOp):
         if A.diagonal:
             if isinstance(A, TensorShell):
                 A, = A.children
+            if isinstance(A, Inverse):
+                A, = A.children
+                if isinstance(A, DiagonalTensor):
+                    A = Tensor(A.children[0].form, diagonal=True)
+                A = Reciprocal(A)
             return Hadamard(A, b)
 
         if A.shape[pick_op] != b.shape[0]:
