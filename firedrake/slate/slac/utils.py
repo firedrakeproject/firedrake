@@ -684,9 +684,10 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
 
     if init_temporaries:
         # We need to do initialise the temporaries at the end, when we collected all the ones we need
-        builder, tensor2temps, inits = initialise_temps(builder, gem2slate, tensor2temps)
+        builder, tensor2temps, inits, init_knls = initialise_temps(builder, gem2slate, tensor2temps)
         for i in inits:
             insns.insert(0, i)
+            knl_list.update(init_knls)
 
     slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
     return tensor2temps, builder, slate_loopy
@@ -744,14 +745,40 @@ def initialise_temps(builder, gem2slate, tensor2temps):
                             for cv, ct in init_coeffs.items()
                             if isinstance(t, sl.AssembledVector)
                             and t._function == cv}
+    builder.bag.coefficients.update(init_coeffs)
 
     inits, tensor2temp = builder.initialise_terminals(gem2slate_vectors, init_coeffs)
     tensor2temps.update(tensor2temp)
 
     # Get all coeffs into the wrapper kernel bag
     # so that we can generate the right wrapper kernel args of it
-    builder.bag.coefficients.update(init_coeffs)
-    return builder, tensor2temps, inits
+    gem2slate_diags = {v: t for (v, t) in gem2slate.items()
+                        if t.diagonal and t.terminal and isinstance(t, sl.Tensor)}
+
+    knl_list = {}
+    tsfc_inits = []
+    for variable, terminal in gem2slate_diags.items():
+        ac_temp = builder.bag.action_coefficients
+        builder.bag.action_coefficients = None
+        # builder.bag.coefficients = None
+        if terminal not in tensor2temps.keys():
+            # gem terminal node corresponding to lhs of the instructions
+            gem_inlined_node = Variable(variable.name, variable.shape)
+            inits_diag, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, None)
+            tensor2temps.update(tensor2temp)
+            for init in inits_diag:
+                if init.id not in [insn.id for insn in inits]:
+                    inits.append(init)
+            
+            # replaces call with tsfc call, which gets linked to tsfc kernel later
+            tsfc_insns, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+            
+            tsfc_inits += tsfc_insns
+            for tk in tsfc_knls:
+                knl_list.update(tk)
+        builder.bag.action_coefficients = ac_temp
+
+    return builder, tensor2temps, tsfc_inits+inits, knl_list
 
 # A note on the following helper functions:
 # There are two update functions.
