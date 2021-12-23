@@ -326,6 +326,7 @@ def _push_mul_tensor(expr, self, state):
 @_push_mul.register(AssembledVector)
 @_push_mul.register(DiagonalTensor)
 @_push_mul.register(Reciprocal)
+@_push_mul.register(Hadamard)
 def _push_mul_vector(expr, self, state):
     """Do not push into these nodes."""
     return expr
@@ -337,8 +338,8 @@ def _push_mul_action(expr, self, state):
     tensor, rhs = expr.children
     if isinstance(tensor, TensorShell):
         tensor, = tensor.children
-    return (Action(tensor, rhs, expr.pick_op)
-            if tensor.terminal else self(tensor, ActionBag(rhs, expr.pick_op)))
+    return (Action(tensor, rhs, state.pick_op)
+            if tensor.terminal else self(tensor, ActionBag(rhs, state.pick_op)))
 
 
 @_push_mul.register(Negative)
@@ -356,7 +357,9 @@ def _push_mul_inverse(expr, self, state):
     child, = expr.children
     if expr.diagonal:
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
-        return expr * state.coeff if state.pick_op else state.coeff * expr
+        return (Action(expr, state.coeff, state.pick_op)
+                if self.action and child.children[0].terminal and False
+                else expr * state.coeff if state.pick_op else state.coeff * expr)
     else:
         if (self.action and state.coeff                                              # in matrix-free mode
             and isinstance(child, Mul)                                               # when lhs == P.inv * A * x  
