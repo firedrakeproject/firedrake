@@ -82,7 +82,7 @@ class PMGBase(PCSNESBase):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
         elif isinstance(ele, ufl.WithMapping):
             return PMGBase.max_degree(ele.wrapee)
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
             return PMGBase.max_degree(ele._element)
         else:
             N = ele.degree()
@@ -121,7 +121,7 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
         elif isinstance(ele, ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
             return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
         else:
             return ele.reconstruct(degree=N)
@@ -150,6 +150,7 @@ class PMGBase(PCSNESBase):
         mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
         self.coarse_degree = opts.getInt("coarse_degree", default=1)
         self.coarse_mat_type = opts.getString("coarse_mat_type", default=ctx.mat_type)
+        self.coarse_pmat_type = opts.getString("coarse_pmat_type", default=ctx.pmat_type)
         self.coarse_form_compiler_mode = opts.getString("coarse_form_compiler_mode", default=mode)
 
         # Construct a list with the elements we'll be using
@@ -274,11 +275,17 @@ class PMGBase(PCSNESBase):
             elif isinstance(val, ufl.classes.Expr):
                 cappctx[key] = ufl.replace(val, replace_d)
 
-        cmat_type = fctx.mat_type
-        cpmat_type = fctx.pmat_type
-        if Nc == self.coarse_degree:
-            cmat_type = self.coarse_mat_type
-            cpmat_type = self.coarse_mat_type
+        # If we're the coarsest grid of the p-hierarchy, don't
+        # overwrite the coarsen routine; this is so that you can
+        # use geometric multigrid for the p-coarse problem
+        try:
+            self.coarsen_element(cele)
+            cdm.setCoarsen(self.coarsen)
+            mat_type = fctx.mat_type
+            pmat_type = fctx.pmat_type
+        except ValueError:
+            mat_type = self.coarse_mat_type
+            pmat_type = self.coarse_pmat_type
             if fcp is None:
                 fcp = dict()
             elif fcp is fproblem.form_compiler_parameters:
@@ -290,7 +297,7 @@ class PMGBase(PCSNESBase):
                                                          form_compiler_parameters=fcp,
                                                          is_linear=fproblem.is_linear)
 
-        cctx = type(fctx)(cproblem, cmat_type, cpmat_type,
+        cctx = type(fctx)(cproblem, mat_type, pmat_type,
                           appctx=cappctx,
                           pre_jacobian_callback=fctx._pre_jacobian_callback,
                           pre_function_callback=fctx._pre_function_callback,
@@ -310,15 +317,6 @@ class PMGBase(PCSNESBase):
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
-
-        # If we're the coarsest grid of the p-hierarchy, don't
-        # overwrite the coarsen routine; this is so that you can
-        # use geometric multigrid for the p-coarse problem
-        try:
-            self.coarsen_element(cele)
-            cdm.setCoarsen(self.coarsen)
-        except ValueError:
-            pass
 
         # injection of the initial state
         def inject_state(mat):
@@ -527,7 +525,7 @@ def expand_element(ele):
         return expand_element(ele.reconstruct(cell=hexahedron_tpc))
     elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         return expand_element(ele._sub_element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
         return expand_element(ele._element)
     elif isinstance(ele, ufl.WithMapping):
         return expand_element(ele.wrapee)
