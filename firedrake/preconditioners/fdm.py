@@ -106,13 +106,13 @@ class FDMPC(PCBase):
         dm = pc.getDM()
         V = get_function_space(dm)
         element = V.ufl_element()
-        N = element.degree()
+        degree = element.degree()
         try:
-            N = max(N)
+            degree = max(degree)
         except TypeError:
             pass
-        eta = float(appctx.get("eta", (N+1)**2))
-        Nq = 2*N+1  # quadrature degree, gives exact interval stiffness matrices for constant coefficients
+        eta = float(appctx.get("eta", (degree+1)**2))
+        quad_degree = 2*degree+1
 
         # Get original Jacobian form and bcs
         octx = get_appctx(dm)
@@ -122,7 +122,7 @@ class FDMPC(PCBase):
 
         # Transform the problem into the space with FDM shape functions
         if embedded:
-            e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=N, variant="fdm")
+            e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=degree, variant="fdm")
             if element.value_shape():
                 e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape(), symmetry=element.symmetry())
         else:
@@ -159,42 +159,14 @@ class FDMPC(PCBase):
         self._assemble_diag = partial(assemble, fdm_J, tensor=self.diag, bcs=fdm_bcs,
                                       diagonal=True, form_compiler_parameters=fcp, mat_type=octx.mat_type)
 
-        # Assembly of the preconditioner with sparse local matrices
-        if len(fdm_bcs) > 0:
+        if len(bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        # Afdm = sparse interval mass and stiffness matrices for each direction
-        # Dfdm = tabulation of normal derivative of the FDM basis at the boundary for each direction
-        Afdm, Dfdm = self.assemble_matfree(V_fdm, eta)
-        bcflags = get_bc_flags(fdm_bcs, fdm_J)
-
-        # Get coefficients w.r.t. the reference coordinates
-        # we may use a lower quadrature degree, but using Nq is not so expensive
-        coefficients, self.assembly_callables = self.assemble_coef(fdm_J, Nq, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
-
-        # Set arbitrary non-zero coefficients for preallocation
-        for coef in coefficients.values():
-            with coef.dat.vec as cvec:
-                cvec.set(1.0E0)
-
-        block_size = Amat.getBlockSize()
-        sizes = Amat.getSizes()
-
-        # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        prealloc = PETSc.Mat().create(comm=Amat.comm)
-        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-        prealloc.setSizes(sizes)
-        prealloc.setUp()
-        self.assemble_kron(prealloc, V_fdm, fdm_bcs, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
-        nnz = get_preallocation(prealloc, block_size * V_fdm.dof_dset.set.size)
-
-        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Amat.comm)
-        self._assemble_P = partial(self.assemble_kron, Pmat, V_fdm, fdm_bcs,
-                                   coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv)
+        # Assemble the preconditioner with sparse local matrices
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, fdm_J, fdm_bcs, eta, Amat, quad_degree, needs_hdiv)
         self._assemble_P()
-        prealloc.destroy()
 
         opc = pc
         # Internally, we just set up a PC object that the user can configure
@@ -222,8 +194,7 @@ class FDMPC(PCBase):
         if hasattr(self, "A"):
             self._assemble_A()
         self._assemble_P()
-        # _, P = self.pc.getOperators()
-        # self.diagonal_scaling(P)
+        # self.diagonal_scaling()
 
     def apply(self, pc, x, y):
         dm = self._dm
@@ -255,28 +226,35 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
-    def diagonal_scaling(self, A):
+    def diagonal_scaling(self):
+        _, P = self.pc.getOperators()
         self._assemble_diag()
         with self.diag.dat.vec as x_, self.work.dat.vec as y_:
-            A.getDiagonal(y_)
+            P.getDiagonal(y_)
             x_.pointwiseDivide(x_, y_)
             x_.sqrtabs()
-            A.diagonalScale(L=x_, R=x_)
+            P.diagonalScale(L=x_, R=x_)
 
-    def assemble_matfree(self, V, eta):
+    def assemble_fdm_op(self, V, J, bcs, eta, Amat, quad_degree, needs_hdiv):
         """
-        Assemble the sparse interval stiffness matrices and tabulate normal derivatives.
+        Assemble the sparse preconditioner with cell-wise constant coefficients.
 
-        :arg line_elements: a list of FIAT elements on the interval for each direction
+        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg J: the Jacobian bilinear form
+        :arg bcs: an iterable of boundary conditions on V
         :arg eta: a `float` penalty parameter for the symmetric interior penalty method
+        :arg Amat: the :class:`PETSc.Mat` to precondition
+        :arg quad_degree: the quadrature degree to be used to assemble coefficients
+        :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
 
-        :returns: a 2-tuple with
-            Afdm: a list of lists of interval matrices for each direction,
-            Dfdm: a list with tabulations of the normal derivative for each direction
+        :returns: a 2-tuple with the preconditioner PETSc.Mat and its assembly callable
         """
-        line_elements = get_line_elements(V.ufl_element())
-        Afdm = []
-        Dfdm = []
+        try:
+            line_elements = get_line_elements(V.ufl_element())
+        except ValueError:
+            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+        Afdm = []  # sparse interval mass and stiffness matrices for each direction
+        Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
         for e in line_elements:
             if e.formdegree == 0:
                 Ae, De = fdm_setup_cg(e.ref_el, e.degree())
@@ -284,19 +262,42 @@ class FDMPC(PCBase):
                 Ae, De = fdm_setup_ipdg(e.ref_el, e.degree(), eta)
             Afdm.append(Ae)
             Dfdm.append(De)
-        return Afdm, Dfdm
 
-    def assemble_kron(self, A, V, bcs, coefficients, Afdm, Dfdm, eta, bcflags, needs_hdiv):
+        bcflags = get_bc_flags(bcs, J)
+
+        # coefficients w.r.t. the reference values
+        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
+        # set arbitrary non-zero coefficients for preallocation
+        for coef in coefficients.values():
+            with coef.dat.vec as cvec:
+                cvec.set(1.0E0)
+
+        # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
+        sizes = Amat.getSizes()
+        block_size = Amat.getBlockSize()
+        prealloc = PETSc.Mat().create(comm=Amat.comm)
+        prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
+        prealloc.setSizes(sizes)
+        prealloc.setUp()
+        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags, needs_hdiv)
+        nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
+        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Amat.comm)
+        assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
+                             coefficients, Afdm, Dfdm, bcflags, needs_hdiv)
+        prealloc.destroy()
+        return Pmat, assemble_P
+
+    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags, needs_hdiv):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
         :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
         :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
+        :arg eta: a ``float`` penalty parameter for the symmetric interior penalty method
         :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
         :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
         :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
-        :arg eta: the SIPG penalty parameter as a ``float``
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
         :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
         """
@@ -354,13 +355,8 @@ class FDMPC(PCBase):
 
                 ie = index_cell(e)
                 ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=ie.dtype), len(ie))
-                indptr, indices, data = Ae.getValuesCSR()
                 rows = lgmap.apply(ie)
-                cols = rows[indices]
-                for i, row in enumerate(rows):
-                    i0 = indptr[i]
-                    i1 = indptr[i+1]
-                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                set_submat_csr(A, Ae, rows, imode)
                 Ae.destroy()
             Be.destroy()
             Bq = None
@@ -406,19 +402,14 @@ class FDMPC(PCBase):
                         Ae = Ae.kron(Afdm[dim_perm[2]][0])
                         Ae.axpy(muk[2], Be.kron(Afdm[dim_perm[2]][1+fbc[2]]))
 
-                indptr, indices, data = Ae.getValuesCSR()
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
-                cols = rows[indices]
-                for i, row in enumerate(rows):
-                    i0 = indptr[i]
-                    i1 = indptr[i+1]
-                    A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                set_submat_csr(A, Ae, rows, imode)
                 Ae.destroy()
                 Be.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
-        needs_interior_facet = any(Dk is not None for Dk in Dfdm)
-        if needs_interior_facet:
+        needs_sipg = any(Dk is not None for Dk in Dfdm)
+        if needs_sipg:
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
@@ -502,12 +493,7 @@ class FDMPC(PCBase):
                         rows[:sdim] = pull_axis(icell[0], pshape, idir[0])
                         rows[sdim:] = pull_axis(icell[1], pshape, idir[1])
 
-                    indptr, indices, data = Ae.getValuesCSR()
-                    cols = rows[indices]
-                    for i, row in enumerate(rows):
-                        i0 = indptr[i]
-                        i1 = indptr[i+1]
-                        A.setValues(row, cols[i0:i1], data[i0:i1], imode)
+                    set_submat_csr(A, Ae, rows, imode)
                     Ae.destroy()
         A.assemble()
 
@@ -647,6 +633,14 @@ class FDMPC(PCBase):
 def pull_axis(x, pshape, idir):
     """permute x by reshaping into pshape and moving axis idir to the front"""
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
+
+
+def set_submat_csr(A_global, A_local, global_rows, imode):
+    indptr, indices, data = A_local.getValuesCSR()
+    for i, row in enumerate(global_rows):
+        i0 = indptr[i]
+        i1 = indptr[i+1]
+        A_global.setValues(row, global_rows[indices[i0:i1]], data[i0:i1], imode)
 
 
 def numpy_to_petsc(A_numpy, dense_indices, diag=True):
