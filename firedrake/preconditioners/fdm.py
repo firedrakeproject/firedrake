@@ -97,8 +97,7 @@ class FDMPC(PCBase):
         # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        opts = PETSc.Options(options_prefix)
-        embedded = opts.getBool("embedded", default=False)
+        # opts = PETSc.Options(options_prefix)
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -116,18 +115,13 @@ class FDMPC(PCBase):
 
         # Get original Jacobian form and bcs
         octx = get_appctx(dm)
+        mat_type = octx.mat_type
         oproblem = octx._problem
         J = oproblem.J
         bcs = tuple(oproblem.bcs)
 
         # Transform the problem into the space with FDM shape functions
-        if embedded:
-            e_fdm = ufl.FiniteElement("DQ", cell=element.cell(), degree=degree, variant="fdm")
-            if element.value_shape():
-                e_fdm = ufl.TensorElement(e_fdm, shape=element.value_shape(), symmetry=element.symmetry())
-        else:
-            e_fdm = element.reconstruct(variant="fdm")
-
+        e_fdm = element.reconstruct(variant="fdm")
         if isinstance(e_fdm, (ufl.TensorElement, ufl.VectorElement)):
             sobolev = e_fdm._sub_element.sobolev_space()
         else:
@@ -138,26 +132,29 @@ class FDMPC(PCBase):
             raise ValueError("FDMPC does not support H(Curl) elements")
 
         V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
-        fdm_J = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
-        fdm_bcs = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
+        J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
+        bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
 
         # Matrix-free assembly of the transformed Jacobian and its diagonal
-        if V == V_fdm:
+        if J == J_fdm:
             Amat, _ = pc.getOperators()
+            self._ctx_ref = octx
         else:
-            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], fdm_bcs)
-            self.A = allocate_matrix(fdm_J, bcs=fdm_bcs, form_compiler_parameters=fcp, mat_type=octx.mat_type,
+            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
+            self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
                                      options_prefix=options_prefix)
-            self._assemble_A = partial(assemble, fdm_J, tensor=self.A, bcs=fdm_bcs,
-                                       form_compiler_parameters=fcp, mat_type=octx.mat_type,
+            self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
+                                       form_compiler_parameters=fcp, mat_type=mat_type,
                                        assembly_type="residual")
             self._assemble_A()
             Amat = self.A.petscmat
+            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+                                              fcp=fcp, options_prefix=options_prefix)
 
         self.work = firedrake.Function(V_fdm)
         self.diag = firedrake.Function(V_fdm)
-        self._assemble_diag = partial(assemble, fdm_J, tensor=self.diag, bcs=fdm_bcs,
-                                      diagonal=True, form_compiler_parameters=fcp, mat_type=octx.mat_type)
+        self._assemble_diag = partial(assemble, J_fdm, tensor=self.diag, bcs=bcs_fdm,
+                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
 
         if len(bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -165,30 +162,30 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, fdm_J, fdm_bcs, eta, Amat, quad_degree, needs_hdiv)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, eta,
+                                                      Amat, quad_degree, needs_hdiv)
         self._assemble_P()
 
-        opc = pc
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
-        pc = PETSc.PC().create(comm=opc.comm)
-        pc.incrementTabLevel(1, parent=opc)
+        fdmpc = PETSc.PC().create(comm=pc.comm)
+        fdmpc.incrementTabLevel(1, parent=pc)
 
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. multigrid or patch solves.
         fdm_dm = V_fdm.dm
         self._dm = fdm_dm
 
-        pc.setDM(fdm_dm)
-        pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(A=Amat, P=Pmat)
-        pc.setUseAmat(True)
-        self.pc = pc
+        fdmpc.setDM(fdm_dm)
+        fdmpc.setOptionsPrefix(options_prefix)
+        fdmpc.setOperators(A=Amat, P=Pmat)
+        fdmpc.setUseAmat(True)
+        self.pc = fdmpc
 
-        self._ctx_ref = self.new_snes_ctx(opc, fdm_J, fdm_bcs, octx.mat_type, fcp, options_prefix=options_prefix)
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
-            pc.setFromOptions()
+            fdmpc.setFromOptions()
+        # self.diagonal_scaling()
 
     def update(self, pc):
         if hasattr(self, "A"):
@@ -266,7 +263,10 @@ class FDMPC(PCBase):
         bcflags = get_bc_flags(bcs, J)
 
         # coefficients w.r.t. the reference values
-        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree, discard_mixed=True, cell_average=True, needs_hdiv=needs_hdiv)
+        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree,
+                                                                   discard_mixed=True,
+                                                                   cell_average=True,
+                                                                   needs_hdiv=needs_hdiv)
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
