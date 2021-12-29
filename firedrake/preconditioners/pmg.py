@@ -47,7 +47,8 @@ class PMGBase(PCSNESBase):
     The default coarsen_element is to perform power-of-2 reduction
     of the polynomial degree.
     It is expected that some applications of this preconditioner
-    will subclass :class:`PMGBase` to override `coarsen_element`.
+    will subclass :class:`PMGBase` to override `coarsen_element` and
+    `coarsen_form`.
     """
 
     _prefix = "pmg_"
