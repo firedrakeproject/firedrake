@@ -150,7 +150,7 @@ class PMGBase(PCSNESBase):
         mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
         self.coarse_degree = opts.getInt("coarse_degree", default=1)
         self.coarse_mat_type = opts.getString("coarse_mat_type", default=ctx.mat_type)
-        self.coarse_pmat_type = opts.getString("coarse_pmat_type", default=ctx.pmat_type)
+        self.coarse_pmat_type = opts.getString("coarse_pmat_type", default=self.coarse_mat_type)
         self.coarse_form_compiler_mode = opts.getString("coarse_form_compiler_mode", default=mode)
 
         # Construct a list with the elements we'll be using
@@ -218,38 +218,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        def coarsen_quadrature(df, Nf, Nc):
-            # Coarsen the quadrature degree in a dictionary
-            # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
-            if isinstance(df, dict):
-                Nq = df.get("quadrature_degree", None)
-                if Nq is not None:
-                    dc = dict(df)
-                    dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
-                    return dc
-            return df
-
-        def coarsen_form(form, Nf, Nc, replace_d):
-            # Coarsen a form, by replacing the solution, test and trial functions, and
-            # reconstructing each integral with a coarsened quadrature degree.
-            # If form is not a Form, then return form.
-            return ufl.Form([f.reconstruct(metadata=coarsen_quadrature(f.metadata(), Nf, Nc))
-                            for f in ufl.replace(form, replace_d).integrals()]) if isinstance(form, ufl.Form) else form
-
-        def coarsen_bcs(fbcs):
-            cbcs = []
-            for bc in fbcs:
-                cV_ = cV
-                for index in bc._indices:
-                    cV_ = cV_.sub(index)
-                cbc_value = self.coarsen_bc_value(bc, cV_)
-                if type(bc) == firedrake.DirichletBC:
-                    cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                      bc.sub_domain))
-                else:
-                    raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
-            return cbcs
-
         Nf = PMGBase.max_degree(fV.ufl_element())
         Nc = PMGBase.max_degree(cV.ufl_element())
 
@@ -258,20 +226,21 @@ class PMGBase(PCSNESBase):
                      test: test.reconstruct(function_space=cV),
                      trial: trial.reconstruct(function_space=cV)}
 
-        cF = coarsen_form(fctx.F, Nf, Nc, replace_d)
-        cJ = coarsen_form(fctx.J, Nf, Nc, replace_d)
-        cJp = coarsen_form(fctx.Jp, Nf, Nc, replace_d)
-        fcp = coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
-        cbcs = coarsen_bcs(fproblem.bcs)
+        coarsen_form = lambda a: self.coarsen_quadrature(self.coarsen_form(a, replace_d), Nf, Nc)
+        cF = coarsen_form(fctx.F)
+        cJ = coarsen_form(fctx.J)
+        cJp = coarsen_form(fctx.Jp)
+        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
+        cbcs = self.coarsen_bcs(fproblem.bcs, cV)
 
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
         for key in cappctx:
             val = cappctx[key]
             if isinstance(val, dict):
-                cappctx[key] = coarsen_quadrature(val, Nf, Nc)
+                cappctx[key] = self.coarsen_quadrature(val, Nf, Nc)
             elif isinstance(val, ufl.Form):
-                cappctx[key] = coarsen_form(val, Nf, Nc, replace_d)
+                cappctx[key] = coarsen_form(val)
             elif isinstance(val, ufl.classes.Expr):
                 cappctx[key] = ufl.replace(val, replace_d)
 
@@ -361,6 +330,42 @@ class PMGBase(PCSNESBase):
         cctx._near_nullspace = coarsen_nullspace(cV, I, fctx._near_nullspace)
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         return cdm
+
+    def coarsen_quadrature(self, df, Nf, Nc):
+        if isinstance(df, dict):
+            # Coarsen the quadrature degree in a dictionary
+            # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
+            Nq = df.get("quadrature_degree", None)
+            if Nq is not None:
+                dc = dict(df)
+                dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+                return dc
+        elif isinstance(df, ufl.Form):
+            # Coarsen a form by reconstructing each integral with a coarsened quadrature degree
+            return ufl.Form([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), Nf, Nc))
+                             for f in df.integrals()])
+        return df
+
+    def coarsen_form(self, form, fine_to_coarse_map):
+        """
+        Coarsen a form, by replacing the solution, test and trial functions.
+        Users may override this to e.g. throw away facet integrals when the coarse space is H1.
+        """
+        return ufl.replace(form, fine_to_coarse_map) if isinstance(form, ufl.Form) else form
+
+    def coarsen_bcs(self, fbcs, cV):
+        cbcs = []
+        for bc in fbcs:
+            cV_ = cV
+            for index in bc._indices:
+                cV_ = cV_.sub(index)
+            cbc_value = self.coarsen_bc_value(bc, cV_)
+            if type(bc) == firedrake.DirichletBC:
+                cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
+                                                  bc.sub_domain))
+            else:
+                raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
+        return cbcs
 
     @staticmethod
     @lru_cache(maxsize=20)
