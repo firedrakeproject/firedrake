@@ -671,7 +671,7 @@ if(A2){
     p = 0;  s = 0;
     m = mx;  k = ny;  n = my;
     lda = (tflag>0)? ny : my;
-        for(PetscBLASInt i=0; i<nz*nel; i++){
+    for(PetscBLASInt i=0; i<nz*nel; i++){
         BLASgemm_(&notr, &TA2, &m, &n, &k, &one, ptr[idx]+p, &m, A2, &lda, &zero, ptr[!idx]+s, &m);
         p += m*k;
         s += m*n;
@@ -715,29 +715,29 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
                 Jk = numpy.dot(Jk, numpy.linalg.inv(fe.tabulate(0, nodes)[(0,)]))
             J.append(Jk)
         else:
-            J.append(numpy.array([[]]))
+            J.append(numpy.array([]))
 
     # Declare array shapes to be used as literals inside the kernels
-    m = [e.space_dimension() for e in felems]
-    n = [e.space_dimension() for e in celems]
-    shapes = [(nscal,) + tuple(m), (nscal,) + tuple(n)]
+    fdim = [e.space_dimension() for e in felems]
+    cdim = [e.space_dimension() for e in celems]
+    shapes = [(nscal,) + tuple(fdim), (nscal,) + tuple(cdim)]
 
     # Pass the 1D tabulation as hexadecimal string
-    # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass one instead of Jhat
     Jsize = sum([Jk.size for Jk in J])
     Jdata = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in J])))
-    Jptr = ["NULL" if J[k].size == 0 else mat+"+"+str(sum([Jk.size for Jk in J[:k]])) for k in range(len(J))]
-    Jstr = ", ".join(Jptr+["NULL"]*(3-len(Jptr)))
-    mstr = ", ".join(map(str, m+[1]*(3-len(m))))
-    nstr = ", ".join(map(str, n+[1]*(3-len(n))))
+    Jptr = [mat+"+"+str(sum([Jk.size for Jk in J[:k]])) if J[k].size else "NULL" for k in range(len(J))]
+    # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
+    Jargs = ", ".join(Jptr+["NULL"]*(3-len(Jptr)))
+    fargs = ", ".join(map(str, fdim+[1]*(3-len(fdim))))
+    cargs = ", ".join(map(str, cdim+[1]*(3-len(cdim))))
     operator_decl = f"""
             PetscScalar {mat}[{Jsize}] = {{ {Jdata} }};
     """
     prolong_code = f"""
-            kronmxv(0, {mstr}, {nstr}, {nscal}, {Jstr}, {t_in}, {t_out});
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}, {t_out});
     """
     restrict_code = f"""
-            kronmxv(1, {nstr}, {mstr}, {nscal}, {Jstr}, {t_out}, {t_in});
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}, {t_in});
     """
     return operator_decl, prolong_code, restrict_code, shapes
 
