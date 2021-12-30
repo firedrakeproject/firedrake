@@ -65,67 +65,16 @@ class PMGBase(PCSNESBase):
 
         :arg ele: a :class:`ufl.FiniteElement` to coarsen.
         """
-        N = PMGBase.max_degree(ele)
-        if N <= self.coarse_degree:
+        degree = PMGBase.max_degree(ele)
+        if degree <= self.coarse_degree:
             raise ValueError
-        return PMGBase.reconstruct_degree(ele, max(N // 2, self.coarse_degree))
+        return PMGBase.reconstruct_degree(ele, max(degree//2, self.coarse_degree))
 
-    @staticmethod
-    def max_degree(ele):
+    def coarsen_form(self, form, fine_to_coarse_map):
         """
-        Return the maximum degree of a :class:`ufl.FiniteElement`
+        Coarsen a form, by replacing the solution, test and trial functions.
         """
-        if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
-            return PMGBase.max_degree(ele._sub_element)
-        elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
-            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
-        elif isinstance(ele, ufl.EnrichedElement):
-            return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, ufl.WithMapping):
-            return PMGBase.max_degree(ele.wrapee)
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
-            return PMGBase.max_degree(ele._element)
-        else:
-            N = ele.degree()
-            try:
-                return max(N)
-            except TypeError:
-                return N
-
-    @staticmethod
-    def reconstruct_degree(ele, N):
-        """
-        Reconstruct an element, modifying its polynomial degree.
-
-        By default, reconstructed EnrichedElements, TensorProductElements,
-        and MixedElements will have the degree of the sub-elements shifted
-        by the same amount so that the maximum degree is N.
-        This is useful to coarsen spaces like NCF(N) x DQ(N-1).
-
-        :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
-        :arg N: an integer degree.
-
-        :returns: the reconstructed element
-        """
-        if isinstance(ele, ufl.VectorElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, N), dim=ele.num_sub_elements())
-        elif isinstance(ele, ufl.TensorElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, N), shape=ele.value_shape(), symmetry=ele.symmetry())
-        elif isinstance(ele, ufl.EnrichedElement):
-            shift = N-PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
-        elif isinstance(ele, ufl.TensorProductElement):
-            shift = N-PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()), cell=ele.cell())
-        elif isinstance(ele, ufl.MixedElement):
-            shift = N-PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
-        elif isinstance(ele, ufl.WithMapping):
-            return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, N), ele.mapping())
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
-            return type(ele)(PMGBase.reconstruct_degree(ele._element, N))
-        else:
-            return ele.reconstruct(degree=N)
+        return ufl.replace(form, fine_to_coarse_map)
 
     def initialize(self, pc):
         # Make a new DM.
@@ -194,6 +143,12 @@ class PMGBase(PCSNESBase):
     def update(self, pc):
         pass
 
+    def view(self, pc, viewer=None):
+        if viewer is None:
+            viewer = PETSc.Viewer.STDOUT
+        viewer.printfASCII("p-multigrid PC\n")
+        self.ppc.view(viewer)
+
     def coarsen(self, fdm, comm):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
@@ -219,19 +174,23 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        Nf = PMGBase.max_degree(fV.ufl_element())
-        Nc = PMGBase.max_degree(cV.ufl_element())
+        fdeg = PMGBase.max_degree(fV.ufl_element())
+        cdeg = PMGBase.max_degree(cV.ufl_element())
 
-        # Replace dictionary with coarse state, test and trial functions
-        replace_d = {fu: cu,
-                     test: test.reconstruct(function_space=cV),
-                     trial: trial.reconstruct(function_space=cV)}
+        fine_to_coarse_map = {fu: cu,
+                              test: test.reconstruct(function_space=cV),
+                              trial: trial.reconstruct(function_space=cV)}
 
-        coarsen_form = lambda a: self.coarsen_quadrature(self.coarsen_form(a, replace_d), Nf, Nc)
-        cF = coarsen_form(fctx.F)
-        cJ = coarsen_form(fctx.J)
-        cJp = coarsen_form(fctx.Jp)
-        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, Nf, Nc)
+        def _coarsen_form(a):
+            if isinstance(a, ufl.Form):
+                return self.coarsen_quadrature(self.coarsen_form(a, fine_to_coarse_map), fdeg, cdeg)
+            else:
+                return a
+
+        cF = _coarsen_form(fctx.F)
+        cJ = _coarsen_form(fctx.J)
+        cJp = _coarsen_form(fctx.Jp)
+        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
 
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
@@ -239,11 +198,11 @@ class PMGBase(PCSNESBase):
         for key in cappctx:
             val = cappctx[key]
             if isinstance(val, dict):
-                cappctx[key] = self.coarsen_quadrature(val, Nf, Nc)
+                cappctx[key] = self.coarsen_quadrature(val, fdeg, cdeg)
             elif isinstance(val, ufl.Form):
-                cappctx[key] = coarsen_form(val)
+                cappctx[key] = _coarsen_form(val)
             elif isinstance(val, ufl.classes.Expr):
-                cappctx[key] = ufl.replace(val, replace_d)
+                cappctx[key] = ufl.replace(val, fine_to_coarse_map)
 
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
@@ -332,27 +291,20 @@ class PMGBase(PCSNESBase):
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         return cdm
 
-    def coarsen_quadrature(self, df, Nf, Nc):
-        if isinstance(df, dict):
+    def coarsen_quadrature(self, obj, fdeg, cdeg):
+        if isinstance(obj, dict):
             # Coarsen the quadrature degree in a dictionary
-            # such that the ratio of quadrature nodes to interpolation nodes (Nq+1)/(Nf+1) is preserved
-            Nq = df.get("quadrature_degree", None)
-            if Nq is not None:
-                dc = dict(df)
-                dc["quadrature_degree"] = max(2*Nc+1, ((Nq+1) * (Nc+1) + Nf) // (Nf+1) - 1)
+            # such that the ratio of quadrature nodes to interpolation nodes (quad_deg+1)//(fdeg+1) is preserved
+            quad_deg = obj.get("quadrature_degree", None)
+            if quad_deg is not None:
+                dc = dict(obj)
+                dc["quadrature_degree"] = max(2*cdeg+1, ((quad_deg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
                 return dc
-        elif isinstance(df, ufl.Form):
+        elif isinstance(obj, ufl.Form):
             # Coarsen a form by reconstructing each integral with a coarsened quadrature degree
-            return ufl.Form([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), Nf, Nc))
-                             for f in df.integrals()])
-        return df
-
-    def coarsen_form(self, form, fine_to_coarse_map):
-        """
-        Coarsen a form, by replacing the solution, test and trial functions.
-        Users may override this to e.g. throw away facet integrals when the coarse space is H1.
-        """
-        return ufl.replace(form, fine_to_coarse_map) if isinstance(form, ufl.Form) else form
+            return type(obj)([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
+                              for f in obj.integrals()])
+        return obj
 
     def coarsen_bcs(self, fbcs, cV):
         cbcs = []
@@ -398,11 +350,62 @@ class PMGBase(PCSNESBase):
         I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False, True)
         return PETSc.Mat().createTranspose(I)
 
-    def view(self, pc, viewer=None):
-        if viewer is None:
-            viewer = PETSc.Viewer.STDOUT
-        viewer.printfASCII("p-multigrid PC\n")
-        self.ppc.view(viewer)
+    @staticmethod
+    def max_degree(ele):
+        """
+        Return the maximum degree of a :class:`ufl.FiniteElement`
+        """
+        if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
+            return PMGBase.max_degree(ele._sub_element)
+        elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
+            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
+        elif isinstance(ele, ufl.EnrichedElement):
+            return max(PMGBase.max_degree(sub) for sub in ele._elements)
+        elif isinstance(ele, ufl.WithMapping):
+            return PMGBase.max_degree(ele.wrapee)
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
+            return PMGBase.max_degree(ele._element)
+        else:
+            degree = ele.degree()
+            try:
+                return max(degree)
+            except TypeError:
+                return degree
+
+    @staticmethod
+    def reconstruct_degree(ele, degree):
+        """
+        Reconstruct an element, modifying its polynomial degree.
+
+        By default, reconstructed EnrichedElements, TensorProductElements,
+        and MixedElements will have the degree of the sub-elements shifted
+        by the same amount so that the maximum degree is N.
+        This is useful to coarsen spaces like NCF(N) x DQ(N-1).
+
+        :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
+        :arg N: an integer degree.
+
+        :returns: the reconstructed element
+        """
+        if isinstance(ele, ufl.VectorElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements())
+        elif isinstance(ele, ufl.TensorElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), shape=ele.value_shape(), symmetry=ele.symmetry())
+        elif isinstance(ele, ufl.EnrichedElement):
+            shift = degree-PMGBase.max_degree(ele)
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
+        elif isinstance(ele, ufl.TensorProductElement):
+            shift = degree-PMGBase.max_degree(ele)
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()), cell=ele.cell())
+        elif isinstance(ele, ufl.MixedElement):
+            shift = degree-PMGBase.max_degree(ele)
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
+        elif isinstance(ele, ufl.WithMapping):
+            return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, degree), ele.mapping())
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
+            return type(ele)(PMGBase.reconstruct_degree(ele._element, degree))
+        else:
+            return ele.reconstruct(degree=degree)
 
 
 class PMGPC(PCBase, PMGBase):
@@ -564,7 +567,8 @@ def expand_element(ele):
 
 
 def get_line_elements(ele):
-    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, lagrange, discontinuous_lagrange, fdm_element
+    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, fdm_element
+    from FIAT.reference_element import LINE
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
 
@@ -577,19 +581,14 @@ def get_line_elements(ele):
     factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else [ele]
     elements = []
     for e in factors:
-        if e.cell() != ufl.interval:
+        ref_el = ufc_cell(e.cell())
+        if ref_el.shape != LINE:
             raise ValueError("Expecting %s to be on the interval" % e)
 
         degree = e.degree()
         variant = e.variant()
-        ref_el = ufc_cell(e.cell())
         formdegree = 0 if e.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
-        if variant == "equispaced":
-            if formdegree == 0:
-                elements.append(lagrange.Lagrange(ref_el, degree))
-            else:
-                elements.append(discontinuous_lagrange.DiscontinuousLagrange(ref_el, degree))
-        elif variant == "fdm":
+        if variant == "fdm":
             elements.append(fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
         elif (variant == "spectral") or (variant is None):
             if formdegree == 0:
@@ -601,23 +600,19 @@ def get_line_elements(ele):
     return elements
 
 
-def get_line_nodes(element):
+def get_line_nodes(fiat_element):
     # Return the Line nodes for 1D elements
-    from FIAT import quadrature, Lagrange, P0
-    from FIAT.discontinuous_lagrange import HigherOrderDiscontinuousLagrange
-    cell = element.ref_el
-    degree = element.degree()
-    equispaced = isinstance(element, (Lagrange, P0, HigherOrderDiscontinuousLagrange))
-    if equispaced:
-        return cell.make_points(1, 0, degree+1)
-    elif element.formdegree == 0:
+    from FIAT import quadrature
+    cell = fiat_element.ref_el
+    degree = fiat_element.degree()
+    if fiat_element.formdegree == 0:
         rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, degree+1)
         return rule.get_points()
-    elif element.formdegree == 1:
+    elif fiat_element.formdegree == 1:
         rule = quadrature.GaussLegendreQuadratureLineRule(cell, degree+1)
         return rule.get_points()
     else:
-        raise ValueError("Don't know how to get line nodes for %s" % element)
+        raise ValueError("Don't know how to get line nodes for %s" % fiat_element)
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -626,7 +621,7 @@ kronmxv_code = """
 #include <petscsys.h>
 #include <petscblaslapack.h>
 
-static void kronmxv(int tflag,
+static void kronmxv(PetscBLASInt tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
@@ -654,6 +649,8 @@ PetscBLASInt m, n, k, s, p, lda;
 char TA1, TA2, TA3;
 char tran='T', notr='N';
 PetscScalar zero=0.0E0, one=1.0E0;
+PetscScalar *ptr[2] = {x, y};
+PetscBLASInt idx = 0;
 
 if(tflag>0){
    TA1 = tran;
@@ -664,27 +661,37 @@ if(tflag>0){
 }
 TA3 = TA2;
 
-m = mx;  k = nx;  n = ny*nz*nel;
-lda = (tflag>0)? nx : mx;
-
-BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, x, &k, &zero, y, &m);
-
-p = 0;  s = 0;
-m = mx;  k = ny;  n = my;
-lda = (tflag>0)? ny : my;
-for(PetscBLASInt i=0; i<nz*nel; i++){
-   BLASgemm_(&notr, &TA2, &m, &n, &k, &one, y+p, &m, A2, &lda, &zero, x+s, &m);
-   p += m*k;
-   s += m*n;
+if(A1){
+    m = mx;  k = nx;  n = ny*nz*nel;
+    lda = (tflag>0)? nx : mx;
+    BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, ptr[idx], &k, &zero, ptr[!idx], &m);
+    idx = !idx;
 }
-
-p = 0;  s = 0;
-m = mx*my;  k = nz;  n = mz;
-lda = (tflag>0)? nz : mz;
-for(PetscBLASInt i=0; i<nel; i++){
-   BLASgemm_(&notr, &TA3, &m, &n, &k, &one, x+p, &m, A3, &lda, &zero, y+s, &m);
-   p += m*k;
-   s += m*n;
+if(A2){
+    p = 0;  s = 0;
+    m = mx;  k = ny;  n = my;
+    lda = (tflag>0)? ny : my;
+        for(PetscBLASInt i=0; i<nz*nel; i++){
+        BLASgemm_(&notr, &TA2, &m, &n, &k, &one, ptr[idx]+p, &m, A2, &lda, &zero, ptr[!idx]+s, &m);
+        p += m*k;
+        s += m*n;
+    }
+    idx = !idx;
+}
+if(A3){
+    p = 0;  s = 0;
+    m = mx*my;  k = nz;  n = mz;
+    lda = (tflag>0)? nz : mz;
+    for(PetscBLASInt i=0; i<nel; i++){
+        BLASgemm_(&notr, &TA3, &m, &n, &k, &one, ptr[idx]+p, &m, A3, &lda, &zero, ptr[!idx]+s, &m);
+        p += m*k;
+        s += m*n;
+    }
+    idx = !idx;
+}
+if(ptr[idx] == x){
+    for(PetscBLASInt i=0; i<mx*my*mz*nel; i++)
+        y[i] = x[i];
 }
 return;
 }
@@ -692,42 +699,45 @@ return;
 
 
 def make_kron_code(Vf, Vc, t_in, t_out, mat):
-    from FIAT import functional
-    nscal = Vf.ufl_element().value_size()
-    celem = get_line_elements(Vc.ufl_element())
-    felem = get_line_elements(Vf.ufl_element())
-    nodes = [get_line_nodes(e) for e in felem]
-    Jhat = [e.tabulate(0, z)[(0,)] for e, z in zip(celem, nodes)]
-    ndim = len(Jhat)
-
-    for k, e in enumerate(felem):
-        if not all([isinstance(phi, functional.PointEvaluation) for phi in e.dual_basis()]):
-            Jhat[k] = numpy.dot(Jhat[k], numpy.linalg.inv(e.tabulate(0, nodes[k])[(0,)]))
+    from FIAT import FDMElement
+    nscal = Vf.ufl_element().reference_value_size()
+    felems = get_line_elements(Vf.ufl_element())
+    celems = get_line_elements(Vc.ufl_element())
+    J = []
+    for fe, ce in zip(felems, celems):
+        fdual = fe.dual_basis()
+        cdual = ce.dual_basis()
+        if (len(fdual) != len(cdual) or any(fphi.get_point_dict() != cphi.get_point_dict()
+                                            for fphi, cphi in zip(fdual, cdual))):
+            nodes = get_line_nodes(fe)
+            Jk = ce.tabulate(0, nodes)[(0,)]
+            if type(fe) == FDMElement:
+                Jk = numpy.dot(Jk, numpy.linalg.inv(fe.tabulate(0, nodes)[(0,)]))
+            J.append(Jk)
+        else:
+            J.append(numpy.array([[]]))
 
     # Declare array shapes to be used as literals inside the kernels
-    # I follow to the m-by-n convention with the FORTRAN ordering (so I have to do n-by-m in python)
-    shapes = [[Jk.shape[j] for Jk in Jhat] for j in range(2)]
-    n, m = shapes.copy()
-    m += [1]*(3-ndim)
-    n += [1]*(3-ndim)
-    shapes[0].append(nscal)
-    shapes[1].append(nscal)
+    m = [e.space_dimension() for e in felems]
+    n = [e.space_dimension() for e in celems]
+    shapes = [(nscal,) + tuple(m), (nscal,) + tuple(n)]
 
     # Pass the 1D tabulation as hexadecimal string
     # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass one instead of Jhat
-    JX = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in Jhat])))
-    JY = "&one" if ndim < 2 else f"{mat}+{Jhat[0].size}"
-    JZ = "&one" if ndim < 3 else f"{mat}+{Jhat[0].size+Jhat[1].size}"
-    Jlen = sum([Jk.size for Jk in Jhat])
-
+    Jsize = sum([Jk.size for Jk in J])
+    Jdata = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in J])))
+    Jptr = ["NULL" if J[k].size == 0 else mat+"+"+str(sum([Jk.size for Jk in J[:k]])) for k in range(len(J))]
+    Jstr = ", ".join(Jptr+["NULL"]*(3-len(Jptr)))
+    mstr = ", ".join(map(str, m+[1]*(3-len(m))))
+    nstr = ", ".join(map(str, n+[1]*(3-len(n))))
     operator_decl = f"""
-            PetscScalar {mat}[{Jlen}] = {{ {JX} }};
+            PetscScalar {mat}[{Jsize}] = {{ {Jdata} }};
     """
     prolong_code = f"""
-            kronmxv(0, {m[0]}, {m[1]}, {m[2]}, {n[0]}, {n[1]}, {n[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_in}, {t_out});
+            kronmxv(0, {mstr}, {nstr}, {nscal}, {Jstr}, {t_in}, {t_out});
     """
     restrict_code = f"""
-            kronmxv(1, {n[0]}, {n[1]}, {n[2]}, {m[0]}, {m[1]}, {m[2]}, {nscal}, {mat}, {JY}, {JZ}, {t_out}, {t_in});
+            kronmxv(1, {nstr}, {mstr}, {nscal}, {Jstr}, {t_out}, {t_in});
     """
     return operator_decl, prolong_code, restrict_code, shapes
 
@@ -812,13 +822,10 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
 
 
-def make_permutation_code(elem, vshape, shapes, t_in, t_out, array_name):
+def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
     sobolev = get_sobolev_space(elem)
     if sobolev in [ufl.HDiv, ufl.HCurl]:
         ndim = elem.cell().topological_dimension()
-        pshape = shapes.copy()
-        pshape = [-1] + pshape[:ndim]
-
         ndof = numpy.prod(vshape)
         shift = int(sobolev == ufl.HDiv)
 
@@ -881,7 +888,7 @@ def get_permuted_map(V):
     elements = get_line_elements(e)
     ndim = len(elements)
     pshape = [-1] + [e.space_dimension() for e in elements]
-    ndof = V.value_size * V.finat_element.space_dimension()
+    ndof = V.finat_element.space_dimension()
     permutation = numpy.reshape(numpy.arange(ndof), pshape)
     for k in range(permutation.shape[0]):
         permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)+((2*shift-1)*k+shift)) % ndim), pshape[1:])
@@ -943,7 +950,7 @@ class StandaloneInterpolationMatrix(object):
         tensor product spaces on quads and hexes.
 
         Works by tabulating the coarse 1D Lagrange basis
-        functions as the (Nf+1)-by-(Nc+1) matrix Jhat,
+        functions as the (fdegree+1)-by-(cdegree+1) matrix Jhat,
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
@@ -971,7 +978,9 @@ class StandaloneInterpolationMatrix(object):
             # get embedding element with identity mapping and collocated vector component DOFs
             if Vf_bsize != felem.value_size():
                 qdegree = PMGBase.max_degree(felem)
-                Qe = ufl.TensorElement("DQ", cell=felem.cell(), degree=qdegree, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=qdegree, variant=None)
+                if felem.value_shape():
+                    Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
             else:
                 fine_is_ordered = True
@@ -980,12 +989,12 @@ class StandaloneInterpolationMatrix(object):
             qshape = (Q.value_size, Q.finat_element.space_dimension())
             # interpolate to embedding fine space, permute to firedrake ordering, and apply the mapping
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-            decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[1], "t0", "t1", "perm0")
+            decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[0], "t0", "t1", "perm0")
             coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
 
-            if Vf_bsize != felem.value_size():
+            if Vf_bsize != felem.reference_value_size():
                 # permute to tensor-friendly ordering and interpolate to fine space
-                decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[1], "t1", "t0", "perm1")
+                decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[0], "t1", "t0", "perm1")
                 decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
                 shapes.extend(_shapes)
 
@@ -1037,7 +1046,6 @@ class StandaloneInterpolationMatrix(object):
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
                           const PetscScalar *restrict w{coef_decl}){{
             PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one = 1.0E0;
             {operator_decl}
             {coarse_read}
             {prolong_code}
@@ -1048,7 +1056,6 @@ class StandaloneInterpolationMatrix(object):
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
             PetscScalar t0[{lwork}], t1[{lwork}];
-            PetscScalar one = 1.0E0;
             {operator_decl}
             {fine_read}
             {restrict_code}

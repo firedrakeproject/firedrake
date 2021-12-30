@@ -131,15 +131,17 @@ class FDMPC(PCBase):
         if needs_hcurl:
             raise ValueError("FDMPC does not support H(Curl) elements")
 
-        V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
-        J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
-        bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
-
         # Matrix-free assembly of the transformed Jacobian and its diagonal
-        if J == J_fdm:
+        if element == e_fdm:
+            V_fdm = V
+            J_fdm = J
+            bcs_fdm = bcs
             Amat, _ = pc.getOperators()
             self._ctx_ref = octx
         else:
+            V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
+            J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
+            bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
             self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
                                      options_prefix=options_prefix)
