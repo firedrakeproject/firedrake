@@ -625,7 +625,7 @@ static void kronmxv(PetscBLASInt tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
-    PetscScalar *x , PetscScalar *y){
+    PetscScalar **x, PetscScalar **y){
 
 /*
 Kronecker matrix-vector product
@@ -645,54 +645,46 @@ The input data in x is destroyed in the process.
 Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
 */
 
+PetscScalar *ptr[2] = {*x, *y};
+PetscScalar zero = 0.0E0, one = 1.0E0;
 PetscBLASInt m, n, k, s, p, lda;
-char TA1, TA2, TA3;
-char tran='T', notr='N';
-PetscScalar zero=0.0E0, one=1.0E0;
-PetscScalar *ptr[2] = {x, y};
-PetscBLASInt idx = 0;
+PetscBLASInt ires = 0;
 
-if(tflag>0){
-   TA1 = tran;
-   TA2 = notr;
-}else{
-   TA1 = notr;
-   TA2 = tran;
-}
-TA3 = TA2;
+char tran = 'T', notr = 'N';
+char TA1 = tflag ? tran : notr;
+char TA2 = tflag ? notr : tran;
 
 if(A1){
-    m = mx;  k = nx;  n = ny*nz*nel;
-    lda = (tflag>0)? nx : mx;
-    BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, ptr[idx], &k, &zero, ptr[!idx], &m);
-    idx = !idx;
+    m = mx; k = nx; n = ny*nz*nel;
+    lda = tflag ? nx : mx;
+    BLASgemm_(&TA1, &notr, &m, &n, &k, &one, A1, &lda, ptr[ires], &k, &zero, ptr[!ires], &m);
+    ires = !ires;
 }
 if(A2){
-    p = 0;  s = 0;
-    m = mx;  k = ny;  n = my;
-    lda = (tflag>0)? ny : my;
+    p = 0; s = 0;
+    m = mx; k = ny; n = my;
+    lda = tflag ? ny : my;
     for(PetscBLASInt i=0; i<nz*nel; i++){
-        BLASgemm_(&notr, &TA2, &m, &n, &k, &one, ptr[idx]+p, &m, A2, &lda, &zero, ptr[!idx]+s, &m);
+        BLASgemm_(&notr, &TA2, &m, &n, &k, &one, ptr[ires]+p, &m, A2, &lda, &zero, ptr[!ires]+s, &m);
         p += m*k;
         s += m*n;
     }
-    idx = !idx;
+    ires = !ires;
 }
 if(A3){
-    p = 0;  s = 0;
-    m = mx*my;  k = nz;  n = mz;
-    lda = (tflag>0)? nz : mz;
+    p = 0; s = 0;
+    m = mx*my; k = nz; n = mz;
+    lda = tflag ? nz : mz;
     for(PetscBLASInt i=0; i<nel; i++){
-        BLASgemm_(&notr, &TA3, &m, &n, &k, &one, ptr[idx]+p, &m, A3, &lda, &zero, ptr[!idx]+s, &m);
+        BLASgemm_(&notr, &TA2, &m, &n, &k, &one, ptr[ires]+p, &m, A3, &lda, &zero, ptr[!ires]+s, &m);
         p += m*k;
         s += m*n;
     }
-    idx = !idx;
+    ires = !ires;
 }
-if(ptr[idx] == x){
-    for(PetscBLASInt i=0; i<mx*my*mz*nel; i++)
-        y[i] = x[i];
-}
+// Reassign pointers such that y always points to the result
+*x = ptr[!ires];
+*y = ptr[ires];
 return;
 }
 """
@@ -734,10 +726,10 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
             PetscScalar {mat}[{Jsize}] = {{ {Jdata} }};
     """
     prolong_code = f"""
-            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}, {t_out});
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
     """
     restrict_code = f"""
-            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}, {t_in});
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
     """
     return operator_decl, prolong_code, restrict_code, shapes
 
@@ -964,7 +956,7 @@ class StandaloneInterpolationMatrix(object):
         Vf_mapping = felem.mapping().lower()
         Vc_mapping = celem.mapping().lower()
 
-        fine_is_ordered = False
+        in_place_mapping = False
         coefficients = []
         mapping_code = ""
         coef_decl = ""
@@ -976,24 +968,25 @@ class StandaloneInterpolationMatrix(object):
             prolong = [""]*5
             restrict = [""]*5
             # get embedding element with identity mapping and collocated vector component DOFs
-            if Vf_bsize != felem.value_size():
-                qdegree = PMGBase.max_degree(felem)
-                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=qdegree, variant=None)
+            try:
+                Q = Vf if Vf_mapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
+                mapping_output = make_mapping_code(Q, felem, celem, "t0", "t1")
+                in_place_mapping = True
+            except Exception:
+                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem), variant=None)
                 if felem.value_shape():
                     Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-            else:
-                fine_is_ordered = True
-                Q = Vf if Vf_mapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
+                mapping_output = make_mapping_code(Q, felem, celem, "t0", "t1")
 
             qshape = (Q.value_size, Q.finat_element.space_dimension())
             # interpolate to embedding fine space, permute to firedrake ordering, and apply the mapping
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
             decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[0], "t0", "t1", "perm0")
-            coef_decl, prolong[2], restrict[2], mapping_code, coefficients = make_mapping_code(Q, felem, celem, "t0", "t1")
+            coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
 
-            if Vf_bsize != felem.reference_value_size():
-                # permute to tensor-friendly ordering and interpolate to fine space
+            if not in_place_mapping:
+                # permute to Kronecker-friendly ordering and interpolate to fine space
                 decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[0], "t1", "t0", "perm1")
                 decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
                 shapes.extend(_shapes)
@@ -1003,7 +996,7 @@ class StandaloneInterpolationMatrix(object):
             restrict_code = "".join(reversed(restrict))
 
         lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
-        # Firedrake elements order the component DOFs related to the same node contiguously.
+        # FInAT elements order the component DOFs related to the same node contiguously.
         # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
 
@@ -1024,7 +1017,7 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{Vc_bsize}; i++)
                     x[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
             """
-        if (Vf_bsize == 1) or fine_is_ordered:
+        if (Vf_bsize == 1) or in_place_mapping:
             fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) t1[i] = y[i] * w[i];"""
             fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] += t1[i] * w[i];"""
         else:
@@ -1045,7 +1038,9 @@ class StandaloneInterpolationMatrix(object):
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
                           const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar t0[{lwork}], t1[{lwork}];
+            PetscScalar work[2][{lwork}];
+            PetscScalar *t0 = work[0];
+            PetscScalar *t1 = work[1];
             {operator_decl}
             {coarse_read}
             {prolong_code}
@@ -1055,7 +1050,9 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar t0[{lwork}], t1[{lwork}];
+            PetscScalar work[2][{lwork}];
+            PetscScalar *t0 = work[0];
+            PetscScalar *t1 = work[1];
             {operator_decl}
             {fine_read}
             {restrict_code}
@@ -1124,18 +1121,15 @@ class StandaloneInterpolationMatrix(object):
         """
         with self.uf.dat.vec_wo as xf:
             resf.copy(xf)
-
-        with self.uc.dat.vec_wo as xc:
-            xc.set(0.0E0)
-
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
+        with self.uc.dat.vec_wo as xc:
+            xc.set(0.0E0)
         self._restrict()
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
-
         with self.uc.dat.vec_ro as xc:
             xc.copy(resc)
 
@@ -1145,18 +1139,15 @@ class StandaloneInterpolationMatrix(object):
         """
         with self.uc.dat.vec_wo as xc_:
             xc.copy(xc_)
-
-        with self.uf.dat.vec_wo as xf_:
-            xf_.set(0.0E0)
-
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
 
+        with self.uf.dat.vec_wo as xf_:
+            xf_.set(0.0E0)
         self._prolong()
 
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
-
         if inc:
             with self.uf.dat.vec_ro as xf_:
                 xf.axpy(1.0, xf_)
