@@ -68,6 +68,11 @@ def test_p_independence(mesh, expected, variant):
             "ksp_converged_reason": None,
             "pc_type": "python",
             "pc_python_type": "firedrake.P1PC",
+            "pmg_coarse_mat_type": "aij",
+            "pmg_mg_coarse": {
+                "ksp_type": "preonly",
+                "pc_type": "cholesky",
+            },
             "pmg_mg_levels": {
                 "ksp_type": "chebyshev",
                 "esteig_ksp_type": "cg",
@@ -79,20 +84,12 @@ def test_p_independence(mesh, expected, variant):
                 "pc_type": "python",
                 "pc_python_type": "firedrake.FDMPC",
                 "fdm": {
-                    "ksp_type": "preonly",
                     "pc_type": "python",
                     "pc_python_type": asm,
                     "pc_star_backend": "petscasm",
                     "pc_star_sub_sub_pc_type": "cholesky",
                     "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
                 }
-            },
-            "pmg_mg_coarse": {
-                "mat_type": "aij",
-                "ksp_type": "preonly",
-                "pc_type": "python",
-                "pc_python_type": "firedrake.AssembledPC",
-                "assembled_pc_type": "cholesky",
             }})
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
@@ -138,31 +135,28 @@ def test_variable_coefficient(mesh):
         "ksp_converged_reason": None,
         "pc_type": "python",
         "pc_python_type": "firedrake.P1PC",
+        "pmg_coarse_mat_type": "aij",
+        "pmg_mg_coarse": {
+            "ksp_type": "preonly",
+            "pc_type": "cholesky",
+        },
         "pmg_mg_levels": {
             "ksp_type": "chebyshev",
             "esteig_ksp_type": "cg",
             "esteig_ksp_norm_type": "unpreconditioned",
-            "ksp_chebyshev_esteig": "0.8,0.2,0.0,1.0",
+            "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
             "ksp_chebyshev_esteig_noisy": True,
             "ksp_chebyshev_esteig_steps": 8,
             "ksp_norm_type": "unpreconditioned",
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",
             "fdm": {
-                "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": asm,
                 "pc_star_backend": "petscasm",
                 "pc_star_sub_sub_pc_type": "cholesky",
                 "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
             }
-        },
-        "pmg_mg_coarse": {
-            "mat_type": "aij",
-            "ksp_type": "preonly",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.AssembledPC",
-            "assembled_pc_type": "cholesky",
         }})
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() <= 14

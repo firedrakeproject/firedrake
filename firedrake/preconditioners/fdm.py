@@ -126,7 +126,6 @@ class FDMPC(PCBase):
             sobolev = e_fdm._sub_element.sobolev_space()
         else:
             sobolev = e_fdm.sobolev_space()
-        needs_hdiv = sobolev == ufl.HDiv
         needs_hcurl = sobolev == ufl.HCurl
         if needs_hcurl:
             raise ValueError("FDMPC does not support H(Curl) elements")
@@ -165,7 +164,7 @@ class FDMPC(PCBase):
 
         # Assemble the preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, eta,
-                                                      Amat, quad_degree, needs_hdiv)
+                                                      Amat, quad_degree)
         self._assemble_P()
 
         # Internally, we just set up a PC object that the user can configure
@@ -234,7 +233,7 @@ class FDMPC(PCBase):
             x_.sqrtabs()
             P.diagonalScale(L=x_, R=x_)
 
-    def assemble_fdm_op(self, V, J, bcs, eta, Amat, quad_degree, needs_hdiv):
+    def assemble_fdm_op(self, V, J, bcs, eta, Amat, quad_degree):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -244,7 +243,6 @@ class FDMPC(PCBase):
         :arg eta: a `float` penalty parameter for the symmetric interior penalty method
         :arg Amat: the :class:`PETSc.Mat` to precondition
         :arg quad_degree: the quadrature degree to be used to assemble coefficients
-        :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
 
         :returns: a 2-tuple with the preconditioner PETSc.Mat and its assembly callable
         """
@@ -267,8 +265,7 @@ class FDMPC(PCBase):
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree,
                                                                    discard_mixed=True,
-                                                                   cell_average=True,
-                                                                   needs_hdiv=needs_hdiv)
+                                                                   cell_average=True)
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
@@ -281,15 +278,15 @@ class FDMPC(PCBase):
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
-        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags, needs_hdiv)
+        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Amat.comm)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
-                             coefficients, Afdm, Dfdm, bcflags, needs_hdiv)
+                             coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()
         return Pmat, assemble_P
 
-    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags, needs_hdiv):
+    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
@@ -301,7 +298,6 @@ class FDMPC(PCBase):
         :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
         :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
-        :arg needs_hdiv: a ``bool`` indicating whether the function space V is H(div)-conforming
         """
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
@@ -312,19 +308,19 @@ class FDMPC(PCBase):
         lgmap = V.local_to_global_map(bcs)
 
         bsize = V.value_size
-        ndim = V.ufl_domain().topological_dimension()
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
+        ndim = V.ufl_domain().topological_dimension()
 
         index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun(Gq.cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
-        if needs_hdiv:
-            pshape = [[Afdm[(k-i) % ncomp][0].size[0] for i in range(ndim)] for k in range(ncomp)]
-        else:
+        if bsize == ncomp:
             pshape = [Ak[0].size[0] for Ak in Afdm]
+        else:
+            pshape = [[Afdm[(k-i) % ncomp][0].size[0] for i in range(ndim)] for k in range(ncomp)]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
@@ -338,10 +334,9 @@ class FDMPC(PCBase):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
-        use_separate_reaction = False if Bq is None else not needs_hdiv and Bq.ufl_shape
+        use_separate_reaction = False if Bq is None else len(Bq.ufl_shape) == 2
         if use_separate_reaction:
             bshape = Bq.ufl_shape
-            assert (len(bshape) == 2) and (bshape[0] == bshape[1])
             # Be = Bhat kron ... kron Bhat
             Be = Afdm[0][0].copy()
             for k in range(1, ndim):
@@ -384,7 +379,7 @@ class FDMPC(PCBase):
 
                 # permutation of dimensions with respect to the first vector component
                 dim_perm = numpy.arange(ndim)
-                if needs_hdiv:
+                if bsize != ncomp:
                     dim_perm = (dim_perm-k) % ndim
 
                 # Ae = mue[k][0] Ahat + bqe[k] Bhat
@@ -410,8 +405,7 @@ class FDMPC(PCBase):
                 Be.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
-        needs_sipg = any(Dk is not None for Dk in Dfdm)
-        if needs_sipg:
+        if any(Dk is not None for Dk in Dfdm):
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
@@ -424,7 +418,7 @@ class FDMPC(PCBase):
                 lfd = local_facet_data(e)
                 idir = lfd // 2
 
-                if needs_hdiv:
+                if PT_facet:
                     icell = numpy.reshape(lgmap.apply(ie), (2, ncomp, -1))
                     iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
                     iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
@@ -435,7 +429,7 @@ class FDMPC(PCBase):
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
                 for k in range(ncomp):
-                    if needs_hdiv:
+                    if PT_facet:
                         k0 = iord0[k]
                         k1 = iord1[k]
                         dim_perm = numpy.insert(numpy.delete(numpy.arange(ndim), 0), k, 0)
@@ -469,7 +463,7 @@ class FDMPC(PCBase):
                             ii = i0 + (offset-1) * (iface % 2)
 
                             sij = 0.5E0 if i == j else -0.5E0
-                            if needs_hdiv:
+                            if PT_facet:
                                 smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
                                        sij*numpy.dot(numpy.dot(mu[1], Piola[i]), Piola[j])]
                             else:
@@ -486,20 +480,20 @@ class FDMPC(PCBase):
                         if ndim > 2:
                             Ae = Ae.kron(Afdm[dim_perm[2]][0])
 
-                    if needs_hdiv:
-                        assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
-                        rows[:sdim] = pull_axis(icell[0][k0], pshape[k0], idir[0])
-                        rows[sdim:] = pull_axis(icell[1][k1], pshape[k1], idir[1])
-                    else:
+                    if bsize == ncomp:
                         icell = numpy.reshape(lgmap.apply(k+bsize*ie), (2, -1))
                         rows[:sdim] = pull_axis(icell[0], pshape, idir[0])
                         rows[sdim:] = pull_axis(icell[1], pshape, idir[1])
+                    else:
+                        assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
+                        rows[:sdim] = pull_axis(icell[0][k0], pshape[k0], idir[0])
+                        rows[sdim:] = pull_axis(icell[1][k1], pshape[k1], idir[1])
 
                     set_submat_csr(A, Ae, rows, imode)
                     Ae.destroy()
         A.assemble()
 
-    def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False, needs_hdiv=False):
+    def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False):
         """
         Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
 
@@ -603,13 +597,13 @@ class FDMPC(PCBase):
             coefficients["Bq"] = Bq
             assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx, Bq))
 
-        if needs_hdiv:
+        if Piola:
             # make DGT functions with the second order coefficient
-            # and the Piola transform matrix for each side of each facet
+            # and the Piola tensor for each side of each facet
             extruded = mesh.cell_set._extruded
             dS_int = firedrake.dS_h(degree=quad_deg) + firedrake.dS_v(degree=quad_deg) if extruded else firedrake.dS(degree=quad_deg)
             ele = ufl.BrokenElement(ufl.FiniteElement("DGT", mesh.ufl_cell(), 0))
-            area = firedrake.FacetArea(mesh)
+            area = ufl.FacetArea(mesh)
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
             alpha = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_grad),
