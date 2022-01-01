@@ -739,10 +739,12 @@ def get_piola_tensor(elem, domain, inverse=False):
     if emap == "identity":
         return None
     elif emap == "contravariant piola":
+        tdim = domain.topological_dimension()
+        sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=domain))
         if inverse:
-            return ufl.JacobianInverse(domain) * ufl.JacobianDeterminant(domain)
+            return sign*ufl.JacobianInverse(domain)*ufl.JacobianDeterminant(domain)
         else:
-            return ufl.Jacobian(domain) / ufl.JacobianDeterminant(domain)
+            return ufl.Jacobian(domain)*sign/ufl.JacobianDeterminant(domain)
     elif emap == "covariant piola":
         if inverse:
             return ufl.Jacobian(domain).T
@@ -783,7 +785,7 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
     if tensor is None:
         tensor = firedrake.Identity(Q.ufl_element().value_shape()[0])
 
-    u = firedrake.Coefficient(Q)
+    u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
     prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
@@ -835,18 +837,10 @@ def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
         decl = f"""
             PetscInt {array_name}[{ndof}] = {{ {perm} }};
         """
-
-        nflip = 0
-        if sobolev == ufl.HDiv:
-            # flip the sign of the first component
-            nflip = ndof // elem.value_shape()[0]
-
         prolong = f"""
             for({IntType_c} i=0; i<{ndof}; i++) {t_out}[{array_name}[i]] = {t_in}[i];
-            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
         """
         restrict = f"""
-            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
             for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[{array_name}[i]];
         """
     else:
@@ -1115,45 +1109,45 @@ class StandaloneInterpolationMatrix(object):
                            {"w": (weight, op2.INC)}, is_loopy_kernel=True)
         return weight
 
-    def multTranspose(self, mat, resf, resc):
+    def multTranspose(self, mat, rf, rc):
         """
-        Implement restriction: restrict residual on fine grid resf to coarse grid resc.
+        Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
-        with self.uf.dat.vec_wo as xf:
-            resf.copy(xf)
+        with self.uf.dat.vec_wo as uf:
+            rf.copy(uf)
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
-        with self.uc.dat.vec_wo as xc:
-            xc.set(0.0E0)
+        with self.uc.dat.vec_wo as uc:
+            uc.set(0.0E0)
         self._restrict()
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
-        with self.uc.dat.vec_ro as xc:
-            xc.copy(resc)
+        with self.uc.dat.vec_ro as uc:
+            uc.copy(rc)
 
     def mult(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-        with self.uc.dat.vec_wo as xc_:
-            xc.copy(xc_)
+        with self.uc.dat.vec_wo as uc:
+            xc.copy(uc)
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
 
-        with self.uf.dat.vec_wo as xf_:
-            xf_.set(0.0E0)
+        with self.uf.dat.vec_wo as uf:
+            uf.set(0.0E0)
         self._prolong()
 
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
         if inc:
-            with self.uf.dat.vec_ro as xf_:
-                xf.axpy(1.0, xf_)
+            with self.uf.dat.vec_ro as uf:
+                xf.axpy(1.0, uf)
         else:
-            with self.uf.dat.vec_ro as xf_:
-                xf_.copy(xf)
+            with self.uf.dat.vec_ro as uf:
+                uf.copy(xf)
 
     def multAdd(self, mat, x, y, w):
         if y.handle == w.handle:

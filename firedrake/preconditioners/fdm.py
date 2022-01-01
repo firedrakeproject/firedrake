@@ -468,7 +468,7 @@ class FDMPC(PCBase):
                             i1 = i0 + offset
                             ii = i0 + (offset-1) * (iface % 2)
 
-                            sij = 0.5E0 if (i == j) or (bool(k0) != bool(k1)) else -0.5E0
+                            sij = 0.5E0 if i == j else -0.5E0
                             if needs_hdiv:
                                 smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
                                        sij*numpy.dot(numpy.dot(mu[1], Piola[i]), Piola[j])]
@@ -537,7 +537,8 @@ class FDMPC(PCBase):
         elif mapping == 'covariant piola':
             Piola = Finv.T
         elif mapping == 'contravariant piola':
-            Piola = ufl.Jacobian(mesh) / ufl.JacobianDeterminant(mesh)
+            sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=mesh))
+            Piola = ufl.Jacobian(mesh)*sign/ufl.JacobianDeterminant(mesh)
             if tdim < gdim:
                 Piola *= 1-2*mesh.cell_orientations()
         else:
