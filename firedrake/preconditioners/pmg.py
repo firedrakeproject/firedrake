@@ -739,12 +739,10 @@ def get_piola_tensor(elem, domain, inverse=False):
     if emap == "identity":
         return None
     elif emap == "contravariant piola":
-        tdim = domain.topological_dimension()
-        sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=domain))
         if inverse:
-            return sign*ufl.JacobianInverse(domain)*ufl.JacobianDeterminant(domain)
+            return ufl.JacobianInverse(domain)*ufl.JacobianDeterminant(domain)
         else:
-            return ufl.Jacobian(domain)*sign/ufl.JacobianDeterminant(domain)
+            return ufl.Jacobian(domain)/ufl.JacobianDeterminant(domain)
     elif emap == "covariant piola":
         if inverse:
             return ufl.Jacobian(domain).T
@@ -829,18 +827,27 @@ def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
             permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)-((2*shift-1)*k+shift)) % ndim), pshape[1:])
 
         if sobolev == ufl.HCurl:
+            # revert the order of reference components
             permutation = numpy.flip(permutation, axis=0)
 
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
         permutation = numpy.reshape(permutation, (-1,))
         perm = ", ".join(map(str, permutation))
+
+        nflip = 0
+        if sobolev == ufl.HDiv:
+            # flip the sign of the first component
+            nflip = ndof//elem.reference_value_shape()[0]
+
         decl = f"""
             PetscInt {array_name}[{ndof}] = {{ {perm} }};
         """
         prolong = f"""
             for({IntType_c} i=0; i<{ndof}; i++) {t_out}[{array_name}[i]] = {t_in}[i];
+            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
         """
         restrict = f"""
+            for({IntType_c} i=0; i<{nflip}; i++) {t_out}[i] = -{t_out}[i];
             for({IntType_c} i=0; i<{ndof}; i++) {t_in}[i] = {t_out}[{array_name}[i]];
         """
     else:
