@@ -102,18 +102,8 @@ class FDMPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        dm = pc.getDM()
-        V = get_function_space(dm)
-        element = V.ufl_element()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
-        eta = float(appctx.get("eta", (degree+1)**2))
-        quad_degree = 2*degree+1
-
         # Get original Jacobian form and bcs
+        dm = pc.getDM()
         octx = get_appctx(dm)
         mat_type = octx.mat_type
         oproblem = octx._problem
@@ -121,6 +111,8 @@ class FDMPC(PCBase):
         bcs = tuple(oproblem.bcs)
 
         # Transform the problem into the space with FDM shape functions
+        V = get_function_space(dm)
+        element = V.ufl_element()
         e_fdm = element.reconstruct(variant="fdm")
         if isinstance(e_fdm, (ufl.TensorElement, ufl.VectorElement)):
             sobolev = e_fdm._sub_element.sobolev_space()
@@ -132,9 +124,7 @@ class FDMPC(PCBase):
 
         # Matrix-free assembly of the transformed Jacobian and its diagonal
         if element == e_fdm:
-            V_fdm = V
-            J_fdm = J
-            bcs_fdm = bcs
+            V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
             Amat, _ = pc.getOperators()
             self._ctx_ref = octx
         else:
@@ -162,9 +152,8 @@ class FDMPC(PCBase):
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        # Assemble the preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, eta,
-                                                      Amat, quad_degree)
+        # Assemble the FDM preconditioner with sparse local matrices
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, Amat)
         self._assemble_P()
 
         # Internally, we just set up a PC object that the user can configure
@@ -233,21 +222,30 @@ class FDMPC(PCBase):
             x_.sqrtabs()
             P.diagonalScale(L=x_, R=x_)
 
-    def assemble_fdm_op(self, V, J, bcs, eta, Amat, quad_degree):
+    def assemble_fdm_op(self, V, J, bcs, appctx, Amat):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
         :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
-        :arg eta: a `float` penalty parameter for the symmetric interior penalty method
+        :arg appctx: the application context
         :arg Amat: the :class:`PETSc.Mat` to precondition
-        :arg quad_degree: the quadrature degree to be used to assemble coefficients
 
-        :returns: a 2-tuple with the preconditioner PETSc.Mat and its assembly callable
+        :returns: a 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
+
+        element = V.ufl_element()
+        degree = element.degree()
         try:
-            line_elements = get_line_elements(V.ufl_element())
+            degree = max(degree)
+        except TypeError:
+            pass
+        eta = float(appctx.get("eta", (degree+1)**2))
+        quad_degree = 2*degree+1
+
+        try:
+            line_elements = get_line_elements(element)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
@@ -372,7 +370,7 @@ class FDMPC(PCBase):
                 bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
 
             for k in range(ncomp):
-                # for each component: compute the element stiffness matrix Ae
+                # for each component: compute the stiffness matrix Ae
                 muk = mue[k] if len(mue.shape) == 2 else mue
                 bck = bce[k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
