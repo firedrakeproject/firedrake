@@ -10,7 +10,7 @@ from ufl.algorithms.ad import expand_derivatives
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
+from firedrake.preconditioners.pmg import get_sobolev_space, get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -114,12 +114,7 @@ class FDMPC(PCBase):
         V = get_function_space(dm)
         element = V.ufl_element()
         e_fdm = element.reconstruct(variant="fdm")
-        if isinstance(e_fdm, (ufl.TensorElement, ufl.VectorElement)):
-            sobolev = e_fdm._sub_element.sobolev_space()
-        else:
-            sobolev = e_fdm.sobolev_space()
-        needs_hcurl = sobolev == ufl.HCurl
-        if needs_hcurl:
+        if get_sobolev_space(e_fdm) == ufl.HCurl:
             raise ValueError("FDMPC does not support H(Curl) elements")
 
         # Matrix-free assembly of the transformed Jacobian and its diagonal
@@ -255,8 +250,8 @@ class FDMPC(PCBase):
                 Ae, De = fdm_setup_cg(e.ref_el, e.degree())
             else:
                 Ae, De = fdm_setup_ipdg(e.ref_el, e.degree(), eta)
-            Afdm.append(Ae)
-            Dfdm.append(De)
+            Afdm.insert(0, Ae)
+            Dfdm.insert(0, De)
 
         bcflags = get_bc_flags(bcs, J)
 
@@ -316,7 +311,7 @@ class FDMPC(PCBase):
 
         # pshape is the shape of the DOFs in the tensor product
         if bsize == ncomp:
-            pshape = [Ak[0].size[0] for Ak in Afdm]
+            pshape = [Ak[0].size[0] for Ak in reversed(Afdm)]
         else:
             pshape = [[Afdm[(k-i) % ncomp][0].size[0] for i in range(ndim)] for k in range(ncomp)]
 
@@ -378,7 +373,7 @@ class FDMPC(PCBase):
                 # permutation of dimensions with respect to the first vector component
                 dim_perm = numpy.arange(ndim)
                 if bsize != ncomp:
-                    dim_perm = (dim_perm-k) % ndim
+                    dim_perm = numpy.roll(dim_perm, k)
 
                 # Ae = mue[k][0] Ahat + bqe[k] Bhat
                 Be = Afdm[dim_perm[0]][0].copy()
@@ -405,10 +400,10 @@ class FDMPC(PCBase):
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         if any(Dk is not None for Dk in Dfdm):
             if ndim < V.ufl_domain().geometric_dimension():
-                raise NotImplementedError("Interior facet integrals on immersed meshes are not implemented")
+                raise NotImplementedError("SIPG on immersed meshes is not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
-            rows = numpy.zeros((2*sdim,), dtype=PETSc.IntType)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
+            rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
                 ie = index_facet(e)
@@ -480,12 +475,12 @@ class FDMPC(PCBase):
 
                     if bsize == ncomp:
                         icell = numpy.reshape(lgmap.apply(k+bsize*ie), (2, -1))
-                        rows[:sdim] = pull_axis(icell[0], pshape, idir[0])
-                        rows[sdim:] = pull_axis(icell[1], pshape, idir[1])
+                        rows[0] = pull_axis(icell[0], pshape, idir[0])
+                        rows[1] = pull_axis(icell[1], pshape, idir[1])
                     else:
                         assert pshape[k0][idir[0]] == pshape[k1][idir[1]]
-                        rows[:sdim] = pull_axis(icell[0][k0], pshape[k0], idir[0])
-                        rows[sdim:] = pull_axis(icell[1][k1], pshape[k1], idir[1])
+                        rows[0] = pull_axis(icell[0][k0], pshape[k0], idir[0])
+                        rows[1] = pull_axis(icell[1][k1], pshape[k1], idir[1])
 
                     set_submat_csr(A, Ae, rows, imode)
                     Ae.destroy()
@@ -632,10 +627,10 @@ def pull_axis(x, pshape, idir):
 
 def set_submat_csr(A_global, A_local, global_rows, imode):
     indptr, indices, data = A_local.getValuesCSR()
-    for i, row in enumerate(global_rows):
+    for i, row in enumerate(global_rows.flat):
         i0 = indptr[i]
         i1 = indptr[i+1]
-        A_global.setValues(row, global_rows[indices[i0:i1]], data[i0:i1], imode)
+        A_global.setValues(row, global_rows.flat[indices[i0:i1]], data[i0:i1], imode)
 
 
 def numpy_to_petsc(A_numpy, dense_indices, diag=True):

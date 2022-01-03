@@ -183,9 +183,10 @@ class PMGBase(PCSNESBase):
 
         def _coarsen_form(a):
             if isinstance(a, ufl.Form):
-                return self.coarsen_quadrature(self.coarsen_form(a, fine_to_coarse_map), fdeg, cdeg)
-            else:
-                return a
+                a = self.coarsen_form(a, fine_to_coarse_map)
+                a = type(a)([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
+                             for f in a.integrals()])
+            return a
 
         cF = _coarsen_form(fctx.F)
         cJ = _coarsen_form(fctx.J)
@@ -291,20 +292,16 @@ class PMGBase(PCSNESBase):
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         return cdm
 
-    def coarsen_quadrature(self, obj, fdeg, cdeg):
-        if isinstance(obj, dict):
+    def coarsen_quadrature(self, metadata, fdeg, cdeg):
+        if isinstance(metadata, dict):
             # Coarsen the quadrature degree in a dictionary
-            # such that the ratio of quadrature nodes to interpolation nodes (quad_deg+1)//(fdeg+1) is preserved
-            quad_deg = obj.get("quadrature_degree", None)
-            if quad_deg is not None:
-                dc = dict(obj)
-                dc["quadrature_degree"] = max(2*cdeg+1, ((quad_deg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
-                return dc
-        elif isinstance(obj, ufl.Form):
-            # Coarsen a form by reconstructing each integral with a coarsened quadrature degree
-            return type(obj)([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
-                              for f in obj.integrals()])
-        return obj
+            # such that the ratio of quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1) is preserved
+            qdeg = metadata.get("quadrature_degree", None)
+            if qdeg is not None:
+                cmd = dict(metadata)
+                cmd["quadrature_degree"] = max(2*cdeg+1, ((qdeg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
+                return cmd
+        return metadata
 
     def coarsen_bcs(self, fbcs, cV):
         cbcs = []
@@ -518,6 +515,8 @@ def get_sobolev_space(ele):
         return get_sobolev_space(ele._sub_element)
     elif isinstance(ele, ufl.WithMapping):
         return get_sobolev_space(ele.wrapee)
+    elif isinstance(ele, (ufl.BrokenElement, ufl.RestrictedElement)):
+        return get_sobolev_space(ele._element)
     else:
         return ele.sobolev_space()
 
@@ -572,13 +571,11 @@ def get_line_elements(ele):
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
 
-    sobolev = get_sobolev_space(ele)
     ele = expand_element(ele)
     if isinstance(ele, ufl.EnrichedElement):
-        # TODO assert that all components are permutations of each other
-        ele = ele._elements[-1 if sobolev == ufl.HCurl else 0]
+        ele = ele._elements[0]
 
-    factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else [ele]
+    factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else (ele,)
     elements = []
     for e in factors:
         ref_el = ufc_cell(e.cell())
@@ -589,12 +586,12 @@ def get_line_elements(ele):
         variant = e.variant()
         formdegree = 0 if e.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
         if variant == "fdm":
-            elements.append(fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
+            elements.insert(0, fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
         elif (variant == "spectral") or (variant is None):
             if formdegree == 0:
-                elements.append(gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree))
+                elements.insert(0, gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree))
             else:
-                elements.append(gauss_legendre.GaussLegendre(ref_el, degree))
+                elements.insert(0, gauss_legendre.GaussLegendre(ref_el, degree))
         else:
             raise ValueError("Variant %s is not supported" % variant)
     return elements
@@ -621,7 +618,7 @@ kronmxv_code = """
 #include <petscsys.h>
 #include <petscblaslapack.h>
 
-static void kronmxv(PetscBLASInt tflag,
+static inline void kronmxv(PetscBLASInt tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
@@ -710,18 +707,18 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
             J.append(numpy.array([]))
 
     # Declare array shapes to be used as literals inside the kernels
-    fdim = [e.space_dimension() for e in felems]
-    cdim = [e.space_dimension() for e in celems]
-    shapes = [(nscal,) + tuple(fdim), (nscal,) + tuple(cdim)]
+    fshape = [e.space_dimension() for e in felems]
+    cshape = [e.space_dimension() for e in celems]
+    shapes = [(nscal,) + tuple(fshape), (nscal,) + tuple(cshape)]
 
     # Pass the 1D tabulation as hexadecimal string
     Jsize = sum([Jk.size for Jk in J])
-    Jdata = ', '.join(map(float.hex, numpy.concatenate([numpy.asarray(Jk).flatten() for Jk in J])))
-    Jptr = [mat+"+"+str(sum([Jk.size for Jk in J[:k]])) if J[k].size else "NULL" for k in range(len(J))]
+    Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in J])))
+    Jptrs = [mat+"+"+str(sum([Jk.size for Jk in J[:k]])) if J[k].size else "NULL" for k in range(len(J))]
     # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
-    Jargs = ", ".join(Jptr+["NULL"]*(3-len(Jptr)))
-    fargs = ", ".join(map(str, fdim+[1]*(3-len(fdim))))
-    cargs = ", ".join(map(str, cdim+[1]*(3-len(cdim))))
+    Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
+    fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
+    cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
     operator_decl = f"""
             PetscScalar {mat}[{Jsize}] = {{ {Jdata} }};
     """
@@ -817,26 +814,24 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
 def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
     sobolev = get_sobolev_space(elem)
     if sobolev in [ufl.HDiv, ufl.HCurl]:
-        ndim = elem.cell().topological_dimension()
         ndof = numpy.prod(vshape)
-        shift = int(sobolev == ufl.HDiv)
+        shift = -1 if sobolev == ufl.HDiv else 1
 
         # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(numpy.arange(ndof), pshape)
+        axes = numpy.arange(len(pshape)-1)
         for k in range(permutation.shape[0]):
-            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)-((2*shift-1)*k+shift)) % ndim), pshape[1:])
+            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, -shift*k)), pshape[1:])
 
         if sobolev == ufl.HCurl:
             # revert the order of reference components
             permutation = numpy.flip(permutation, axis=0)
-
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
-        permutation = numpy.reshape(permutation, (-1,))
-        perm = ", ".join(map(str, permutation))
+        perm = ", ".join(map(str, permutation.flat))
 
         nflip = 0
         if sobolev == ufl.HDiv:
-            # flip the sign of the first component
+            # flip the sign of the last component
             nflip = ndof//elem.reference_value_shape()[0]
 
         decl = f"""
@@ -867,24 +862,21 @@ def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
 
 def get_permuted_map(V):
     """
-    Return a PermutedMap with the same tensor product shape for every component of H(div) or H(curl) tensor product elements
+    Return a PermutedMap with the same tensor product shape for
+    every component of H(div) or H(curl) tensor product elements
     """
     e = V.ufl_element()
     sobolev = get_sobolev_space(e)
-    if sobolev == ufl.HDiv:
-        shift = 1
-    elif sobolev == ufl.HCurl:
-        shift = 0
-    else:
+    if sobolev not in [ufl.HDiv, ufl.HCurl]:
         return V.cell_node_map()
 
+    shift = -1 if sobolev == ufl.HDiv else 1
     elements = get_line_elements(e)
-    ndim = len(elements)
+    axes = numpy.arange(len(elements))
     pshape = [-1] + [e.space_dimension() for e in elements]
-    ndof = V.finat_element.space_dimension()
-    permutation = numpy.reshape(numpy.arange(ndof), pshape)
+    permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), pshape)
     for k in range(permutation.shape[0]):
-        permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=(numpy.arange(ndim)+((2*shift-1)*k+shift)) % ndim), pshape[1:])
+        permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, shift*k)), pshape[1:])
 
     permutation = numpy.reshape(permutation, (-1,))
     return PermutedMap(V.cell_node_map(), permutation)
