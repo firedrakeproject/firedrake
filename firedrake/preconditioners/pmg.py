@@ -510,17 +510,6 @@ def prolongation_transfer_kernel_action(Vf, expr):
                       flop_count=kernel.flop_count), coefficients
 
 
-def get_sobolev_space(ele):
-    if isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        return get_sobolev_space(ele._sub_element)
-    elif isinstance(ele, ufl.WithMapping):
-        return get_sobolev_space(ele.wrapee)
-    elif isinstance(ele, (ufl.BrokenElement, ufl.RestrictedElement)):
-        return get_sobolev_space(ele._element)
-    else:
-        return ele.sobolev_space()
-
-
 def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
@@ -610,6 +599,14 @@ def get_line_nodes(fiat_element):
         return rule.get_points()
     else:
         raise ValueError("Don't know how to get line nodes for %s" % fiat_element)
+
+
+def get_shift(ele):
+    """Return the form degree of a FInAT element after discarding modifiers"""
+    if hasattr(ele, "element"):
+        return get_shift(ele.element)
+    else:
+        return ele.formdegree
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -811,31 +808,29 @@ def make_mapping_code(Q, felem, celem, t_in, t_out):
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
 
 
-def make_permutation_code(elem, vshape, pshape, t_in, t_out, array_name):
-    sobolev = get_sobolev_space(elem)
-    if sobolev in [ufl.HDiv, ufl.HCurl]:
+def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
+    shift = get_shift(V.finat_element)
+    tdim = V.mesh().topological_dimension()
+    if shift % tdim:
         ndof = numpy.prod(vshape)
-        shift = -1 if sobolev == ufl.HDiv else 1
-
-        # compose with the inverse H(div)/H(curl) permutation
         permutation = numpy.reshape(numpy.arange(ndof), pshape)
         axes = numpy.arange(len(pshape)-1)
         for k in range(permutation.shape[0]):
             permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, -shift*k)), pshape[1:])
-
-        if sobolev == ufl.HCurl:
-            # revert the order of reference components
-            permutation = numpy.flip(permutation, axis=0)
-        permutation = numpy.transpose(numpy.reshape(permutation, vshape))
-        perm = ", ".join(map(str, permutation.flat))
-
         nflip = 0
-        if sobolev == ufl.HDiv:
-            # flip the sign of the last component
-            nflip = ndof//elem.reference_value_shape()[0]
+        mapping = V.ufl_element().mapping().lower()
+        if mapping == "contravariant piola":
+            # flip the sign of the first component
+            nflip = ndof//tdim
+        elif mapping == "covariant piola":
+            # flip the order of reference components
+            permutation = numpy.flip(permutation, axis=0)
+        
+        permutation = numpy.transpose(numpy.reshape(permutation, vshape))
+        pdata = ", ".join(map(str, permutation.flat))
 
         decl = f"""
-            PetscInt {array_name}[{ndof}] = {{ {perm} }};
+            PetscInt {array_name}[{ndof}] = {{ {pdata} }};
         """
         prolong = f"""
             for({IntType_c} i=0; i<{ndof}; i++) {t_out}[{array_name}[i]] = {t_in}[i];
@@ -865,13 +860,11 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    e = V.ufl_element()
-    sobolev = get_sobolev_space(e)
-    if sobolev not in [ufl.HDiv, ufl.HCurl]:
+    shift = get_shift(V.finat_element)
+    if shift % V.mesh().topological_dimension() == 0:
         return V.cell_node_map()
 
-    shift = -1 if sobolev == ufl.HDiv else 1
-    elements = get_line_elements(e)
+    elements = get_line_elements(V.ufl_element())
     axes = numpy.arange(len(elements))
     pshape = [-1] + [e.space_dimension() for e in elements]
     permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), pshape)
@@ -975,12 +968,12 @@ class StandaloneInterpolationMatrix(object):
             qshape = (Q.value_size, Q.finat_element.space_dimension())
             # interpolate to embedding fine space, permute to firedrake ordering, and apply the mapping
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-            decl[1], restrict[1], prolong[1] = make_permutation_code(celem, qshape, shapes[0], "t0", "t1", "perm0")
+            decl[1], restrict[1], prolong[1] = make_permutation_code(Vc, qshape, shapes[0], "t0", "t1", "perm0")
             coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
 
             if not in_place_mapping:
                 # permute to Kronecker-friendly ordering and interpolate to fine space
-                decl[2], prolong[3], restrict[3] = make_permutation_code(felem, qshape, shapes[0], "t1", "t0", "perm1")
+                decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
                 decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
                 shapes.extend(_shapes)
 

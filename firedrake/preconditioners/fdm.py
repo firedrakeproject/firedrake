@@ -10,7 +10,7 @@ from ufl.algorithms.ad import expand_derivatives
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
+from firedrake.preconditioners.pmg import get_shift, get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -300,18 +300,17 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
+        shift = get_shift(V.finat_element) % ndim
 
         index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun(Gq.cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
-        if bsize == ncomp:
-            shift = 0
-            pshape = [Ak[0].size[0] for Ak in reversed(Afdm)]
-        else:
-            shift = -1 if V.ufl_element().sobolev_space() == ufl.HDiv else 1
-            pshape = [[Afdm[(i+shift*k) % ncomp][0].size[0] for i in reversed(range(ndim))] for k in reversed(range(ncomp))]
+        pshape = [Ak[0].size[0] for Ak in Afdm]
+        if shift:
+            assert ncomp == ndim
+            pshape = [[pshape[(i+shift*k) % ndim] for i in range(ndim)] for k in range(ncomp)]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
@@ -420,8 +419,8 @@ class FDMPC(PCBase):
                 for k in range(ncomp):
                     if PT_facet:
                         axes = numpy.roll(numpy.arange(ndim), -shift*k)
-                        k0 = iord0[k] if shift == -1 else ndim-1-iord0[-k-1]
-                        k1 = iord1[k] if shift == -1 else ndim-1-iord1[-k-1]
+                        k0 = iord0[k] if shift != 1 else ndim-1-iord0[-k-1]
+                        k1 = iord1[k] if shift != 1 else ndim-1-iord1[-k-1]
                         mu = Gfacet[[0, 1], idir]
                         Piola = Pfacet[[0, 1], [k0, k1]]
                     else:
