@@ -10,7 +10,7 @@ from ufl.algorithms.ad import expand_derivatives
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_sobolev_space, get_line_elements, prolongation_matrix_matfree
+from firedrake.preconditioners.pmg import get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
@@ -114,8 +114,6 @@ class FDMPC(PCBase):
         V = get_function_space(dm)
         element = V.ufl_element()
         e_fdm = element.reconstruct(variant="fdm")
-        if get_sobolev_space(e_fdm) == ufl.HCurl:
-            raise ValueError("FDMPC does not support H(Curl) elements")
 
         # Matrix-free assembly of the transformed Jacobian and its diagonal
         if element == e_fdm:
@@ -229,7 +227,6 @@ class FDMPC(PCBase):
 
         :returns: a 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
-
         element = V.ufl_element()
         degree = element.degree()
         try:
@@ -238,7 +235,6 @@ class FDMPC(PCBase):
             pass
         eta = float(appctx.get("eta", (degree+1)**2))
         quad_degree = 2*degree+1
-
         try:
             line_elements = get_line_elements(element)
         except ValueError:
@@ -253,8 +249,6 @@ class FDMPC(PCBase):
             Afdm.insert(0, Ae)
             Dfdm.insert(0, De)
 
-        bcflags = get_bc_flags(bcs, J)
-
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree,
                                                                    discard_mixed=True,
@@ -263,6 +257,8 @@ class FDMPC(PCBase):
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
                 cvec.set(1.0E0)
+
+        bcflags = get_bc_flags(bcs, J)
 
         # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = Amat.getSizes()
@@ -311,9 +307,11 @@ class FDMPC(PCBase):
 
         # pshape is the shape of the DOFs in the tensor product
         if bsize == ncomp:
+            shift = 0
             pshape = [Ak[0].size[0] for Ak in reversed(Afdm)]
         else:
-            pshape = [[Afdm[(k-i) % ncomp][0].size[0] for i in range(ndim)] for k in range(ncomp)]
+            shift = -1 if V.ufl_element().sobolev_space() == ufl.HDiv else 1
+            pshape = [[Afdm[(i+shift*k) % ncomp][0].size[0] for i in reversed(range(ndim))] for k in reversed(range(ncomp))]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
@@ -327,8 +325,8 @@ class FDMPC(PCBase):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
-        use_separate_reaction = False if Bq is None else len(Bq.ufl_shape) == 2
-        if use_separate_reaction:
+        use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2
+        if not use_diag_Bq:
             bshape = Bq.ufl_shape
             # Be = Bhat kron ... kron Bhat
             Be = Afdm[0][0].copy()
@@ -370,27 +368,25 @@ class FDMPC(PCBase):
                 bck = bce[k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
 
-                # permutation of dimensions with respect to the first vector component
-                dim_perm = numpy.arange(ndim)
-                if bsize != ncomp:
-                    dim_perm = numpy.roll(dim_perm, k)
+                # permutation of axes with respect to the first vector component
+                axes = numpy.roll(numpy.arange(ndim), -shift*k)
 
                 # Ae = mue[k][0] Ahat + bqe[k] Bhat
-                Be = Afdm[dim_perm[0]][0].copy()
-                Ae = Afdm[dim_perm[0]][1+fbc[0]].copy()
+                Be = Afdm[axes[0]][0].copy()
+                Ae = Afdm[axes[0]][1+fbc[0]].copy()
                 Ae.scale(muk[0])
                 if Bq is not None:
                     Ae.axpy(bqe[k], Be)
 
                 if ndim > 1:
                     # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
-                    Ae = Ae.kron(Afdm[dim_perm[1]][0])
-                    Ae.axpy(muk[1], Be.kron(Afdm[dim_perm[1]][1+fbc[1]]))
+                    Ae = Ae.kron(Afdm[axes[1]][0])
+                    Ae.axpy(muk[1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
                     if ndim > 2:
                         # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
-                        Be = Be.kron(Afdm[dim_perm[1]][0])
-                        Ae = Ae.kron(Afdm[dim_perm[2]][0])
-                        Ae.axpy(muk[2], Be.kron(Afdm[dim_perm[2]][1+fbc[2]]))
+                        Be = Be.kron(Afdm[axes[1]][0])
+                        Ae = Ae.kron(Afdm[axes[2]][0])
+                        Ae.axpy(muk[2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
 
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
                 set_submat_csr(A, Ae, rows, imode)
@@ -423,15 +419,15 @@ class FDMPC(PCBase):
 
                 for k in range(ncomp):
                     if PT_facet:
-                        k0 = iord0[k]
-                        k1 = iord1[k]
-                        dim_perm = numpy.insert(numpy.delete(numpy.arange(ndim), 0), k, 0)
+                        axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                        k0 = iord0[k] if shift == -1 else ndim-1-iord0[-k-1]
+                        k1 = iord1[k] if shift == -1 else ndim-1-iord1[-k-1]
                         mu = Gfacet[[0, 1], idir]
                         Piola = Pfacet[[0, 1], [k0, k1]]
                     else:
                         k0 = k
                         k1 = k
-                        dim_perm = (idir[0]+numpy.arange(ndim)) % ndim
+                        axes = (idir[0]+numpy.arange(ndim)) % ndim
                         if len(Gfacet.shape) == 3:
                             mu = Gfacet[[0, 1], [k0, k1], idir]
                         elif len(Gfacet.shape) == 2:
@@ -439,9 +435,10 @@ class FDMPC(PCBase):
                         else:
                             mu = Gfacet
 
-                    Dfacet = Dfdm[dim_perm[0]]
+                    Dfacet = Dfdm[axes[0]]
                     if Dfacet is None:
                         continue
+
                     offset = Dfacet.shape[0]
                     Adense = numpy.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
                     dense_indices = []
@@ -469,9 +466,9 @@ class FDMPC(PCBase):
                     Ae = numpy_to_petsc(Adense, dense_indices, diag=False)
                     if ndim > 1:
                         # assume that the mesh is oriented
-                        Ae = Ae.kron(Afdm[dim_perm[1]][0])
+                        Ae = Ae.kron(Afdm[axes[1]][0])
                         if ndim > 2:
-                            Ae = Ae.kron(Afdm[dim_perm[2]][0])
+                            Ae = Ae.kron(Afdm[axes[2]][0])
 
                     if bsize == ncomp:
                         icell = numpy.reshape(lgmap.apply(k+bsize*ie), (2, -1))
@@ -523,6 +520,7 @@ class FDMPC(PCBase):
             Piola = None
         elif mapping == 'covariant piola':
             Piola = Finv.T
+            Piola = Piola * firedrake.Constant(numpy.flipud(numpy.identity(tdim)), domain=mesh)
         elif mapping == 'contravariant piola':
             sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=mesh))
             Piola = ufl.Jacobian(mesh)*sign/ufl.JacobianDeterminant(mesh)
