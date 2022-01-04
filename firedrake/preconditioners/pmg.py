@@ -825,7 +825,7 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
         elif mapping == "covariant piola":
             # flip the order of reference components
             permutation = numpy.flip(permutation, axis=0)
-        
+
         permutation = numpy.transpose(numpy.reshape(permutation, vshape))
         pdata = ", ".join(map(str, permutation.flat))
 
@@ -932,21 +932,16 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
-        Vf_bsize = Vf.value_size
-        Vc_bsize = Vc.value_size
-        Vf_sdim = Vf.finat_element.space_dimension()
-        Vc_sdim = Vc.finat_element.space_dimension()
-
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
-        Vf_mapping = felem.mapping().lower()
-        Vc_mapping = celem.mapping().lower()
+        fmapping = felem.mapping().lower()
+        cmapping = celem.mapping().lower()
 
         in_place_mapping = False
         coefficients = []
         mapping_code = ""
         coef_decl = ""
-        if Vf_mapping == Vc_mapping:
+        if fmapping == cmapping:
             # interpolate on each direction via Kroncker product
             operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
         else:
@@ -955,7 +950,7 @@ class StandaloneInterpolationMatrix(object):
             restrict = [""]*5
             # get embedding element with identity mapping and collocated vector component DOFs
             try:
-                Q = Vf if Vf_mapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
+                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
                 mapping_output = make_mapping_code(Q, felem, celem, "t0", "t1")
                 in_place_mapping = True
             except Exception:
@@ -989,33 +984,35 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        if Vc_bsize == 1:
-            coarse_read = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) t0[i] = x[i];"""
-            coarse_write = f"""for({IntType_c} i=0; i<{Vc_sdim*Vc_bsize}; i++) x[i] += t0[i];"""
+        fshape = (Vf.value_size, Vf.finat_element.space_dimension())
+        cshape = (Vc.value_size, Vc.finat_element.space_dimension())
+        if cshape[0] == 1:
+            coarse_read = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) t0[i] = x[i];"""
+            coarse_write = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) x[i] += t0[i];"""
         else:
             coarse_read = f"""
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    t0[j + {Vc_sdim}*i] = x[i + {Vc_bsize}*j];
+            for({IntType_c} j=0; j<{cshape[1]}; j++)
+                for({IntType_c} i=0; i<{cshape[0]}; i++)
+                    t0[j + {cshape[1]}*i] = x[i + {cshape[0]}*j];
             """
             coarse_write = f"""
-            for({IntType_c} j=0; j<{Vc_sdim}; j++)
-                for({IntType_c} i=0; i<{Vc_bsize}; i++)
-                    x[i + {Vc_bsize}*j] += t0[j + {Vc_sdim}*i];
+            for({IntType_c} j=0; j<{cshape[1]}; j++)
+                for({IntType_c} i=0; i<{cshape[0]}; i++)
+                    x[i + {cshape[0]}*j] += t0[j + {cshape[1]}*i];
             """
-        if (Vf_bsize == 1) or in_place_mapping:
-            fine_read = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) t1[i] = y[i] * w[i];"""
-            fine_write = f"""for({IntType_c} i=0; i<{Vf_sdim*Vf_bsize}; i++) y[i] += t1[i] * w[i];"""
+        if (fshape[0] == 1) or in_place_mapping:
+            fine_read = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) t1[i] = y[i] * w[i];"""
+            fine_write = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) y[i] += t1[i] * w[i];"""
         else:
             fine_read = f"""
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                    t1[j + {Vf_sdim}*i] = y[i + {Vf_bsize}*j] * w[i + {Vf_bsize}*j];
+            for({IntType_c} j=0; j<{fshape[1]}; j++)
+                for({IntType_c} i=0; i<{fshape[0]}; i++)
+                    t1[j + {fshape[1]}*i] = y[i + {fshape[0]}*j] * w[i + {fshape[0]}*j];
             """
             fine_write = f"""
-            for({IntType_c} j=0; j<{Vf_sdim}; j++)
-                for({IntType_c} i=0; i<{Vf_bsize}; i++)
-                   y[i + {Vf_bsize}*j] += t1[j + {Vf_sdim}*i] * w[i + {Vf_bsize}*j];
+            for({IntType_c} j=0; j<{fshape[1]}; j++)
+                for({IntType_c} i=0; i<{fshape[0]}; i++)
+                   y[i + {fshape[0]}*j] += t1[j + {fshape[1]}*i] * w[i + {fshape[0]}*j];
             """
         kernel_code = f"""
         {mapping_code}

@@ -31,42 +31,6 @@ Citations().add("Brubeck2021", """
 __all__ = ("FDMPC",)
 
 
-def sym_eig(A, B):
-    """
-    numpy version of `scipy.linalg.eigh`
-    """
-    L = numpy.linalg.cholesky(B)
-    Linv = numpy.linalg.inv(L)
-    C = numpy.dot(Linv, numpy.dot(A, Linv.T))
-    Z, W = numpy.linalg.eigh(C)
-    V = numpy.dot(Linv.T, W)
-    return Z, V
-
-
-def semhat(elem, rule):
-    """
-    Construct Laplacian stiffness and mass matrices
-
-    :arg elem: the element
-    :arg rule: quadrature rule
-
-    :returns: 5-tuple of
-        Ahat: stiffness matrix
-        Bhat: mass matrix
-        Jhat: tabulation of the shape functions on the quadrature nodes
-        Dhat: tabulation of the first derivative of the shape functions on the quadrature nodes
-        xhat: nodes of the element
-    """
-    basis = elem.tabulate(1, rule.get_points())
-    Jhat = basis[(0,)]
-    Dhat = basis[(1,)]
-    what = rule.get_weights()
-    Ahat = numpy.dot(numpy.multiply(Dhat, what), Dhat.T)
-    Bhat = numpy.dot(numpy.multiply(Jhat, what), Jhat.T)
-    xhat = numpy.array([list(x.get_point_dict().keys())[0][0] for x in elem.dual_basis()])
-    return Ahat, Bhat, Jhat, Dhat, xhat
-
-
 class FDMPC(PCBase):
     """
     A preconditioner for tensor-product elements that changes the shape
@@ -94,10 +58,8 @@ class FDMPC(PCBase):
         from firedrake.assemble import allocate_matrix, assemble
         Citations().register("Brubeck2021")
 
-        # Read options
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        # opts = PETSc.Options(options_prefix)
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -227,6 +189,8 @@ class FDMPC(PCBase):
 
         :returns: a 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
+        element = V.finat_element
+        is_dg = element.entity_dofs() == element.entity_closure_dofs()
         element = V.ufl_element()
         degree = element.degree()
         try:
@@ -242,10 +206,10 @@ class FDMPC(PCBase):
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
         for e in line_elements:
-            if e.formdegree == 0:
-                Ae, De = fdm_setup_cg(e.ref_el, e.degree())
-            else:
+            if e.formdegree or is_dg:
                 Ae, De = fdm_setup_ipdg(e.ref_el, e.degree(), eta)
+            else:
+                Ae, De = fdm_setup_cg(e.ref_el, e.degree())
             Afdm.insert(0, Ae)
             Dfdm.insert(0, De)
 
@@ -260,7 +224,7 @@ class FDMPC(PCBase):
 
         bcflags = get_bc_flags(bcs, J)
 
-        # Preallocate by calling the assembly routine on a PREALLOCATOR Mat
+        # preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = Amat.getSizes()
         block_size = Amat.getBlockSize()
         prealloc = PETSc.Mat().create(comm=Amat.comm)
@@ -284,8 +248,8 @@ class FDMPC(PCBase):
         :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
         :arg eta: a ``float`` penalty parameter for the symmetric interior penalty method
         :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
-        :arg Afdm: the list with interval matrices returned by `FDMPC.assemble_matfree`
-        :arg Dfdm: the list with normal derivatives matrices returned by `FDMPC.assemble_matfree`
+        :arg Afdm: the list with sparse interval matrices
+        :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
         """
         Gq = coefficients.get("Gq")
@@ -352,23 +316,22 @@ class FDMPC(PCBase):
         # discarding mixed derivatives and mixed components
         for e in range(nel):
             ie = numpy.reshape(index_cell(e), (ncomp//bsize, -1))
-
-            bce = bcflags[e]
-            # get second order coefficient on this cell
             je = index_coef(e)
+            bce = bcflags[e]
+
+            # get second order coefficient on this cell
             mue = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro[je], axis=0))
             if Bq is not None:
                 # get zero-th order coefficient on this cell
                 bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
 
             for k in range(ncomp):
+                # permutation of axes with respect to the first vector component
+                axes = numpy.roll(numpy.arange(ndim), -shift*k)
                 # for each component: compute the stiffness matrix Ae
                 muk = mue[k] if len(mue.shape) == 2 else mue
                 bck = bce[k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
-
-                # permutation of axes with respect to the first vector component
-                axes = numpy.roll(numpy.arange(ndim), -shift*k)
 
                 # Ae = mue[k][0] Ahat + bqe[k] Bhat
                 Be = Afdm[axes[0]][0].copy()
@@ -417,26 +380,23 @@ class FDMPC(PCBase):
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
                 for k in range(ncomp):
+                    axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                    Dfacet = Dfdm[axes[0]]
+                    if Dfacet is None:
+                        continue
+
                     if PT_facet:
-                        axes = numpy.roll(numpy.arange(ndim), -shift*k)
                         k0 = iord0[k] if shift != 1 else ndim-1-iord0[-k-1]
                         k1 = iord1[k] if shift != 1 else ndim-1-iord1[-k-1]
-                        mu = Gfacet[[0, 1], idir]
                         Piola = Pfacet[[0, 1], [k0, k1]]
+                        mu = Gfacet[[0, 1], idir]
                     else:
-                        k0 = k
-                        k1 = k
-                        axes = (idir[0]+numpy.arange(ndim)) % ndim
                         if len(Gfacet.shape) == 3:
-                            mu = Gfacet[[0, 1], [k0, k1], idir]
+                            mu = Gfacet[[0, 1], [k, k], idir]
                         elif len(Gfacet.shape) == 2:
                             mu = Gfacet[[0, 1], idir]
                         else:
                             mu = Gfacet
-
-                    Dfacet = Dfdm[axes[0]]
-                    if Dfacet is None:
-                        continue
 
                     offset = Dfacet.shape[0]
                     Adense = numpy.zeros((2*offset, 2*offset), dtype=PETSc.RealType)
@@ -658,6 +618,42 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True):
 
     A_petsc.assemble()
     return A_petsc
+
+
+def sym_eig(A, B):
+    """
+    numpy version of `scipy.linalg.eigh`
+    """
+    L = numpy.linalg.cholesky(B)
+    Linv = numpy.linalg.inv(L)
+    C = numpy.dot(Linv, numpy.dot(A, Linv.T))
+    Z, W = numpy.linalg.eigh(C)
+    V = numpy.dot(Linv.T, W)
+    return Z, V
+
+
+def semhat(elem, rule):
+    """
+    Construct Laplacian stiffness and mass matrices
+
+    :arg elem: the element
+    :arg rule: quadrature rule
+
+    :returns: 5-tuple of
+        Ahat: stiffness matrix
+        Bhat: mass matrix
+        Jhat: tabulation of the shape functions on the quadrature nodes
+        Dhat: tabulation of the first derivative of the shape functions on the quadrature nodes
+        xhat: nodes of the element
+    """
+    basis = elem.tabulate(1, rule.get_points())
+    Jhat = basis[(0,)]
+    Dhat = basis[(1,)]
+    what = rule.get_weights()
+    Ahat = numpy.dot(numpy.multiply(Dhat, what), Dhat.T)
+    Bhat = numpy.dot(numpy.multiply(Jhat, what), Jhat.T)
+    xhat = numpy.array([list(x.get_point_dict().keys())[0][0] for x in elem.dual_basis()])
+    return Ahat, Bhat, Jhat, Dhat, xhat
 
 
 def fdm_setup(ref_el, degree):
