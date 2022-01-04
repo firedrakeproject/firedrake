@@ -214,9 +214,7 @@ class FDMPC(PCBase):
             Dfdm.insert(0, De)
 
         # coefficients w.r.t. the reference values
-        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree,
-                                                                   discard_mixed=True,
-                                                                   cell_average=True)
+        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
@@ -442,7 +440,7 @@ class FDMPC(PCBase):
                     Ae.destroy()
         A.assemble()
 
-    def assemble_coef(self, J, quad_deg, discard_mixed=False, cell_average=False):
+    def assemble_coef(self, J, quad_deg, discard_mixed=True, cell_average=True):
         """
         Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
 

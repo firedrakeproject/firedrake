@@ -543,7 +543,7 @@ def expand_element(ele):
         for e in factors:
             new_terms = []
             for f in e._elements if isinstance(e, ufl.EnrichedElement) else [e]:
-                f_factors = tuple(f.sub_elements()) if isinstance(f, ufl.TensorProductElement) else (f,)
+                f_factors = f.sub_elements() if isinstance(f, ufl.TensorProductElement) else (f,)
                 new_terms.extend([t_factors + f_factors for t_factors in terms])
             terms = new_terms
         if len(terms) == 1:
@@ -555,7 +555,7 @@ def expand_element(ele):
 
 
 def get_line_elements(ele):
-    from FIAT import ufc_cell, gauss_legendre, gauss_lobatto_legendre, fdm_element
+    from FIAT import ufc_cell, GaussLegendre, GaussLobattoLegendre, FDMElement
     from FIAT.reference_element import LINE
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
@@ -566,7 +566,7 @@ def get_line_elements(ele):
 
     factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else (ele,)
     elements = []
-    for e in factors:
+    for e in reversed(factors):
         ref_el = ufc_cell(e.cell())
         if ref_el.shape != LINE:
             raise ValueError("Expecting %s to be on the interval" % e)
@@ -575,30 +575,33 @@ def get_line_elements(ele):
         variant = e.variant()
         formdegree = 0 if e.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
         if variant == "fdm":
-            elements.insert(0, fdm_element.FDMElement(ref_el, degree, formdegree=formdegree))
+            elements.append(FDMElement(ref_el, degree, formdegree=formdegree))
         elif (variant == "spectral") or (variant is None):
             if formdegree == 0:
-                elements.insert(0, gauss_lobatto_legendre.GaussLobattoLegendre(ref_el, degree))
+                elements.append(GaussLobattoLegendre(ref_el, degree))
             else:
-                elements.insert(0, gauss_legendre.GaussLegendre(ref_el, degree))
+                elements.append(GaussLegendre(ref_el, degree))
         else:
             raise ValueError("Variant %s is not supported" % variant)
     return elements
 
 
-def get_line_nodes(fiat_element):
-    # Return the Line nodes for 1D elements
-    from FIAT import quadrature
-    cell = fiat_element.ref_el
-    degree = fiat_element.degree()
-    if fiat_element.formdegree == 0:
-        rule = quadrature.GaussLobattoLegendreQuadratureLineRule(cell, degree+1)
-        return rule.get_points()
-    elif fiat_element.formdegree == 1:
-        rule = quadrature.GaussLegendreQuadratureLineRule(cell, degree+1)
-        return rule.get_points()
+def get_line_interpolator(felem, celem):
+    from FIAT import functional, quadrature
+    fdual = felem.dual_basis()
+    cdual = celem.dual_basis()
+    if len(fdual) == len(cdual):
+        if all(f.get_point_dict() == c.get_point_dict() for f, c in zip(fdual, cdual)):
+            return numpy.array([])
+
+    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
+        pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
+        return celem.tabulate(0, pts)[(0,)]
     else:
-        raise ValueError("Don't know how to get line nodes for %s" % fiat_element)
+        rule = quadrature.GaussLegendreQuadratureLineRule(felem.ref_el, felem.degree()+1)
+        pts = rule.get_points()
+        return numpy.dot(celem.tabulate(0, pts)[(0,)],
+                         numpy.linalg.inv(felem.tabulate(0, pts)[(0,)]))
 
 
 def get_shift(ele):
@@ -685,23 +688,9 @@ return;
 
 
 def make_kron_code(Vf, Vc, t_in, t_out, mat):
-    from FIAT import FDMElement
     nscal = Vf.ufl_element().reference_value_size()
     felems = get_line_elements(Vf.ufl_element())
     celems = get_line_elements(Vc.ufl_element())
-    J = []
-    for fe, ce in zip(felems, celems):
-        fdual = fe.dual_basis()
-        cdual = ce.dual_basis()
-        if (len(fdual) != len(cdual) or any(fphi.get_point_dict() != cphi.get_point_dict()
-                                            for fphi, cphi in zip(fdual, cdual))):
-            nodes = get_line_nodes(fe)
-            Jk = ce.tabulate(0, nodes)[(0,)]
-            if type(fe) == FDMElement:
-                Jk = numpy.dot(Jk, numpy.linalg.inv(fe.tabulate(0, nodes)[(0,)]))
-            J.append(Jk)
-        else:
-            J.append(numpy.array([]))
 
     # Declare array shapes to be used as literals inside the kernels
     fshape = [e.space_dimension() for e in felems]
@@ -709,15 +698,17 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     shapes = [(nscal,) + tuple(fshape), (nscal,) + tuple(cshape)]
 
     # Pass the 1D tabulation as hexadecimal string
-    Jsize = sum([Jk.size for Jk in J])
+    J = [get_line_interpolator(fe, ce) for fe, ce in zip(felems, celems)]
     Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in J])))
-    Jptrs = [mat+"+"+str(sum([Jk.size for Jk in J[:k]])) if J[k].size else "NULL" for k in range(len(J))]
+    Jsize = numpy.cumsum([0]+[Jk.size for Jk in J])
+    Jptrs = [mat+"+"+str(Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
+
     # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
     Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
     fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
     cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
     operator_decl = f"""
-            PetscScalar {mat}[{Jsize}] = {{ {Jdata} }};
+            PetscScalar {mat}[{Jsize[-1]}] = {{ {Jdata} }};
     """
     prolong_code = f"""
             kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
@@ -728,22 +719,22 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     return operator_decl, prolong_code, restrict_code, shapes
 
 
-def get_piola_tensor(elem, domain, inverse=False):
-    emap = elem.mapping().lower()
-    if emap == "identity":
+def get_piola_tensor(mapping, domain, inverse=False):
+    mapping = mapping.lower()
+    if mapping == "identity":
         return None
-    elif emap == "contravariant piola":
+    elif mapping == "contravariant piola":
         if inverse:
             return ufl.JacobianInverse(domain)*ufl.JacobianDeterminant(domain)
         else:
             return ufl.Jacobian(domain)/ufl.JacobianDeterminant(domain)
-    elif emap == "covariant piola":
+    elif mapping == "covariant piola":
         if inverse:
             return ufl.Jacobian(domain).T
         else:
             return ufl.JacobianInverse(domain).T
     else:
-        raise ValueError("Unsupported mapping")
+        raise ValueError("Mapping %s is not supported" % mapping)
 
 
 def cache_generate_code(kernel, comm):
@@ -767,15 +758,15 @@ def cache_generate_code(kernel, comm):
     return code
 
 
-def make_mapping_code(Q, felem, celem, t_in, t_out):
+def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     domain = Q.ufl_domain()
-    A = get_piola_tensor(celem, domain, inverse=False)
-    B = get_piola_tensor(felem, domain, inverse=True)
+    A = get_piola_tensor(cmapping, domain, inverse=False)
+    B = get_piola_tensor(fmapping, domain, inverse=True)
     tensor = A
     if B:
-        tensor = firedrake.dot(B, tensor) if tensor else B
+        tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = firedrake.Identity(Q.ufl_element().value_shape()[0])
+        tensor = ufl.Identity(Q.ufl_element().value_shape()[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -814,7 +805,7 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     if shift % tdim:
         ndof = numpy.prod(vshape)
         permutation = numpy.reshape(numpy.arange(ndof), pshape)
-        axes = numpy.arange(len(pshape)-1)
+        axes = numpy.arange(tdim)
         for k in range(permutation.shape[0]):
             permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, -shift*k)), pshape[1:])
         nflip = 0
@@ -948,20 +939,21 @@ class StandaloneInterpolationMatrix(object):
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
-            # get embedding element with identity mapping and collocated vector component DOFs
+            # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(), felem.reconstruct(mapping="identity"))
-                mapping_output = make_mapping_code(Q, felem, celem, "t0", "t1")
+                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(),
+                                                                              felem.reconstruct(mapping="identity"))
+                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
-                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem), variant=None)
+                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-                mapping_output = make_mapping_code(Q, felem, celem, "t0", "t1")
+                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
 
             qshape = (Q.value_size, Q.finat_element.space_dimension())
-            # interpolate to embedding fine space, permute to firedrake ordering, and apply the mapping
+            # interpolate to embedding fine space, permute to FInAT ordering, and apply the mapping
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
             decl[1], restrict[1], prolong[1] = make_permutation_code(Vc, qshape, shapes[0], "t0", "t1", "perm0")
             coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
