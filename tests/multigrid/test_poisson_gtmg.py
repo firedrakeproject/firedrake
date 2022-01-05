@@ -54,7 +54,7 @@ def run_gtmg_mixed_poisson():
     uex = x[0]*(L-x[0])*x[1]*(L-x[1])*x[2]*(L-x[2])
     f = -div(grad(uex))
 
-    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
     L = -inner(f, v)*dx
 
     appctx = {'get_coarse_operator': p1_callback,
