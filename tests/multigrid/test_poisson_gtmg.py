@@ -2,6 +2,7 @@ from firedrake import *
 import pytest
 from firedrake.petsc import PETSc
 from mpi4py import MPI
+PETSc.Sys.popErrorHandler()
 
 def clean():
     from tempfile import gettempdir
@@ -36,7 +37,7 @@ def run_gtmg_mixed_poisson():
         q = TestFunction(P1)
         return inner(grad(p), grad(q))*dx
 
-    degree = 2
+    degree = 3
     RT = FiniteElement("RTCF", quadrilateral, degree)
     DG_v = FiniteElement("DG", interval, degree-1)
     DG_h = FiniteElement("DQ", quadrilateral, degree-1)
@@ -135,7 +136,7 @@ def run_gtmg_mixed_poisson():
                                         'pc_type': 'python',
                                         'pc_python_type': 'firedrake.GTMGPC',
                                         'gt': {'mg_levels': {'ksp_type': 'chebyshev',
-                                                            'pc_type': 'jacobi',
+                                                            'pc_type': 'none',
                                                             'ksp_max_it': 3},
                                             'mg_coarse': {'ksp_type': 'preonly',
                                                             'pc_type': 'mg',
@@ -150,41 +151,56 @@ def run_gtmg_mixed_poisson():
                      'pc_python_type': 'firedrake.HybridizationPC',
                      'hybridization': {'ksp_type': 'cg',
                                        'pc_type': 'python',
-                                       'mat_type': 'matfree', # only difference!
+                                       'mat_type': 'matfree',  # only difference!
                                        'pc_python_type': 'firedrake.GTMGPC',
-                                       'gt': {'mg_levels': {'ksp_type': 'chebyshev',
-                                                            'pc_type': 'jacobi',
+                                       'localsolve': {'ksp_type': 'preonly',
+                                                        'pc_type': 'fieldsplit',
+                                                        'pc_fieldsplit_type': 'schur'},
+                                       'gt': {'mat_type': 'matfree',  # only difference!
+                                              'mg_levels': {'ksp_type': 'chebyshev',
+                                                            'pc_type': 'none',
                                                             'ksp_max_it': 3},
                                               'mg_coarse': {'ksp_type': 'preonly',
-                                                            'pc_type': 'mg',
-                                                            'pc_mg_type': 'full',
-                                                            'mg_levels': {'ksp_type': 'chebyshev',
-                                                                         'pc_type': 'jacobi',
-                                                                         'ksp_max_it': 3}}}}}
+                                                            "mat_type": "aij",
+                                                            'pc_type': 'python',
+                                                            'pc_python_type': "firedrake.AssembledPC",
+                                                            'assembled_pc_type': 'mg',
+                                                            'assembled_pc_mg_type': 'full',
+                                                            'assembled_pc_mg_levels': {'ksp_type': 'chebyshev',
+                                                                                       'pc_type': 'jacobi',
+                                                                                       'ksp_max_it': 3}}}}}
     clean()
-    PETSc.Log.begin()
-    with PETSc.Log.Stage("warmup"):
-        w = Function(W)
-        solve(a == L, w, solver_parameters=base_params, appctx=appctx)
+    # PETSc.Log.begin()
+    # with PETSc.Log.Stage("warmup"):
+    #     w = Function(W)
+    #     solve(a == L, w, solver_parameters=base_params, appctx=appctx)
+    #     trace_solve_time_expl_warm = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
+    #                                             op=MPI.SUM) / mesh.comm.size)
 
-    with PETSc.Log.Stage("warmedup"):
-        w = Function(W)
-        solve(a == L, w, solver_parameters=base_params, appctx=appctx)
-        trace_solve_time_expl = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
-                                                op=MPI.SUM) / mesh.comm.size)
+    # with PETSc.Log.Stage("warmedup"):
+    #     w = Function(W)
+    #     solve(a == L, w, solver_parameters=base_params, appctx=appctx)
+    #     trace_solve_time_expl = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
+    #                                             op=MPI.SUM) / mesh.comm.size)
+    # print("Timing for matrix-explicit GTMG:",trace_solve_time_expl)
+    # print("Timing for matrix-explicit GTMG warm:",trace_solve_time_expl_warm)
     clean()
     with PETSc.Log.Stage("warmup2"):
         w = Function(W)
         solve(a == L, w, solver_parameters=perform_params, appctx=appctx)
-
-    with PETSc.Log.Stage("warmedup2"):
-        w = Function(W)
-        solve(a == L, w, solver_parameters=perform_params, appctx=appctx)
-        trace_solve_time_matf = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
+        trace_solve_time_matf_warm = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
                                                 op=MPI.SUM) / mesh.comm.size)
+
+    # with PETSc.Log.Stage("warmedup2"):
+    #     w = Function(W)
+    #     solve(a == L, w, solver_parameters=perform_params, appctx=appctx)
+    #     trace_solve_time_matf = (mesh.comm.allreduce(PETSc.Log.Event("SCSolve").getPerfInfo()["time"],
+    #                                             op=MPI.SUM) / mesh.comm.size)
+    u, p = w.split()
+    print("DOFS", u.dof_dset.layout_vec.getSize()+p.dof_dset.layout_vec.getSize())
     
-    print("Timing for matrix-explicit GTMG:",trace_solve_time_expl)
-    print("Timing for matrix-free GTMG:",trace_solve_time_matf)
+    # print("Timing for matrix-free GTMG:",trace_solve_time_matf)
+    print("Timing for matrix-free GTMG warm:",trace_solve_time_matf_warm)
     
     return e_analytical
 
