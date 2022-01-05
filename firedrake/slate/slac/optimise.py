@@ -4,6 +4,7 @@ from itertools import repeat
 from firedrake.slate.slate import *
 from collections import namedtuple
 from firedrake.ufl_expr import adjoint
+from firedrake.petsc import PETSc
 
 """ ActionBag class
 :arg coeff:     This is the object b in Action(A, b) or Mul(A, b).
@@ -19,6 +20,8 @@ def flip(pick_op):
     return pick_op ^ 1
 
 
+
+@PETSc.Log.EventDecorator()
 def optimise(expression, parameters):
     """Optimises a Slate expression, by pushing blocks and multiplications
     inside the expression and by removing double transposes.
