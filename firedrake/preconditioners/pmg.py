@@ -555,8 +555,8 @@ def expand_element(ele):
 
 
 def get_line_elements(ele):
-    from FIAT import ufc_cell, GaussLegendre, GaussLobattoLegendre, FDMElement
     from FIAT.reference_element import LINE
+    from tsfc.finatinterface import as_fiat_cell, create_element
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
 
@@ -567,22 +567,12 @@ def get_line_elements(ele):
     factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else (ele,)
     elements = []
     for e in reversed(factors):
-        ref_el = ufc_cell(e.cell())
-        if ref_el.shape != LINE:
+        if as_fiat_cell(e.cell()).shape != LINE:
             raise ValueError("Expecting %s to be on the interval" % e)
-
-        degree = e.degree()
-        variant = e.variant()
-        formdegree = 0 if e.sobolev_space() == ufl.H1 else ref_el.get_spatial_dimension()
-        if variant == "fdm":
-            elements.append(FDMElement(ref_el, degree, formdegree=formdegree))
-        elif (variant == "spectral") or (variant is None):
-            if formdegree == 0:
-                elements.append(GaussLobattoLegendre(ref_el, degree))
-            else:
-                elements.append(GaussLegendre(ref_el, degree))
-        else:
-            raise ValueError("Variant %s is not supported" % variant)
+        if e.variant() == "equispaced":
+            raise ValueError("Variant %s is not decomposed into tensor products" % e.variant())
+        finat_element = create_element(e)
+        elements.append(finat_element.fiat_equivalent)
     return elements
 
 

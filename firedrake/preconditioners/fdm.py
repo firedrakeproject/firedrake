@@ -108,7 +108,7 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, Amat)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx)
         self._assemble_P()
 
         # Internally, we just set up a PC object that the user can configure
@@ -177,7 +177,7 @@ class FDMPC(PCBase):
             x_.sqrtabs()
             P.diagonalScale(L=x_, R=x_)
 
-    def assemble_fdm_op(self, V, J, bcs, appctx, Amat):
+    def assemble_fdm_op(self, V, J, bcs, appctx):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -185,9 +185,8 @@ class FDMPC(PCBase):
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg appctx: the application context
-        :arg Amat: the :class:`PETSc.Mat` to precondition
 
-        :returns: a 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
+        :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         element = V.finat_element
         is_dg = element.entity_dofs() == element.entity_closure_dofs()
@@ -207,11 +206,9 @@ class FDMPC(PCBase):
         Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
         for e in line_elements:
             if e.formdegree or is_dg:
-                Ae, De = fdm_setup_ipdg(e.ref_el, e.degree(), eta)
+                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e.ref_el, e.degree(), eta)))
             else:
-                Ae, De = fdm_setup_cg(e.ref_el, e.degree())
-            Afdm.insert(0, Ae)
-            Dfdm.insert(0, De)
+                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_cg(e.ref_el, e.degree())))
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -223,15 +220,15 @@ class FDMPC(PCBase):
         bcflags = get_bc_flags(bcs, J)
 
         # preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        sizes = Amat.getSizes()
-        block_size = Amat.getBlockSize()
-        prealloc = PETSc.Mat().create(comm=Amat.comm)
+        sizes = (V.dof_dset.layout_vec.getSizes(),)*2
+        block_size = V.dof_dset.layout_vec.getBlockSize()
+        prealloc = PETSc.Mat().create(comm=V.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
-        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Amat.comm)
+        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
                              coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()
@@ -269,10 +266,10 @@ class FDMPC(PCBase):
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
-        pshape = [Ak[0].size[0] for Ak in Afdm]
+        pshape = tuple(Ak[0].size[0] for Ak in Afdm)
         if shift:
             assert ncomp == ndim
-            pshape = [[pshape[(i+shift*k) % ndim] for i in range(ndim)] for k in range(ncomp)]
+            pshape = [tuple(numpy.roll(pshape, -shift*k)) for k in range(ncomp)]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
