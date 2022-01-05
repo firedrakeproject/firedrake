@@ -206,9 +206,9 @@ class FDMPC(PCBase):
         Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
         for e in line_elements:
             if e.formdegree or is_dg:
-                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e.ref_el, e.degree(), eta)))
+                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
             else:
-                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_cg(e.ref_el, e.degree())))
+                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_cg(e)))
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -615,18 +615,6 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True):
     return A_petsc
 
 
-def sym_eig(A, B):
-    """
-    numpy version of `scipy.linalg.eigh`
-    """
-    L = numpy.linalg.cholesky(B)
-    Linv = numpy.linalg.inv(L)
-    C = numpy.dot(Linv, numpy.dot(A, Linv.T))
-    Z, W = numpy.linalg.eigh(C)
-    V = numpy.dot(Linv.T, W)
-    return Z, V
-
-
 def semhat(elem, rule):
     """
     Construct Laplacian stiffness and mass matrices
@@ -651,37 +639,27 @@ def semhat(elem, rule):
     return Ahat, Bhat, Jhat, Dhat, xhat
 
 
-def fdm_setup(ref_el, degree):
-    from FIAT.gauss_lobatto_legendre import GaussLobattoLegendre
+def fdm_setup(fdm_element):
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
-    elem = GaussLobattoLegendre(ref_el, degree)
+    ref_el = fdm_element.ref_el
+    degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-    Ahat, Bhat, _, _, _ = semhat(elem, rule)
-    Sfdm = numpy.eye(Ahat.shape[0])
-    if Sfdm.shape[0] > 2:
-        rd = (0, -1)
-        kd = slice(1, -1)
-        _, Sfdm[kd, kd] = sym_eig(Ahat[kd, kd], Bhat[kd, kd])
-        Skk = Sfdm[kd, kd]
-        Srr = Sfdm[numpy.ix_(rd, rd)]
-        Sfdm[kd, rd] = numpy.dot(Skk, numpy.dot(numpy.dot(Skk.T, Bhat[kd, rd]), -Srr))
+    Ahat, Bhat, _, _, _ = semhat(fdm_element, rule)
 
     # Facet normal derivatives
-    basis = elem.tabulate(1, ref_el.get_vertices())
+    basis = fdm_element.tabulate(1, ref_el.get_vertices())
     Dfacet = basis[(1,)]
     Dfacet[:, 0] = -Dfacet[:, 0]
-    Dfdm = numpy.dot(Sfdm.T, Dfacet)
-    return Ahat, Bhat, Sfdm, Dfdm
+    return Ahat, Bhat, Dfacet
 
 
-def fdm_setup_cg(ref_el, degree):
+def fdm_setup_cg(fdm_element):
     """
     Setup for the fast diagonalization method for continuous Lagrange
     elements. Compute the FDM eigenvector basis and the sparsified interval
     stiffness and mass matrices.
 
-    :arg ref_el: UFC cell
-    :arg degree: polynomial degree
+    :arg fdm_element: :class:`FIAT.FDMElement`
 
     :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
@@ -700,9 +678,7 @@ def fdm_setup_cg(ref_el, degree):
         numpy.fill_diagonal(A, a)
         return numpy_to_petsc(A, [0, A.shape[0]-1])
 
-    Ahat, Bhat, Sfdm, _ = fdm_setup(ref_el, degree)
-    A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
-    B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
+    A, B, _ = fdm_setup(fdm_element)
     Afdm = [numpy_to_petsc(B, [])]
     for bc1 in range(2):
         for bc0 in range(2):
@@ -710,14 +686,13 @@ def fdm_setup_cg(ref_el, degree):
     return Afdm, None
 
 
-def fdm_setup_ipdg(ref_el, degree, eta):
+def fdm_setup_ipdg(fdm_element, eta):
     """
     Setup for the fast diagonalization method for the IP-DG formulation.
     Compute the FDM eigenvector basis, its normal derivative and the
     sparsified interval stiffness and mass matrices.
 
-    :arg ref_el: UFC cell
-    :arg degree: polynomial degree
+    :arg fdm_element: :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
 
     :returns: 2-tuple of:
@@ -736,9 +711,7 @@ def fdm_setup_ipdg(ref_el, degree, eta):
                 Abc[j, j] += eta
         return numpy_to_petsc(Abc, [0, Abc.shape[0]-1])
 
-    Ahat, Bhat, Sfdm, Dfdm = fdm_setup(ref_el, degree)
-    A = numpy.dot(Sfdm.T, numpy.dot(Ahat, Sfdm))
-    B = numpy.dot(Sfdm.T, numpy.dot(Bhat, Sfdm))
+    A, B, Dfdm = fdm_setup(fdm_element)
     Afdm = [numpy_to_petsc(B, [])]
     for bc1 in range(2):
         for bc0 in range(2):

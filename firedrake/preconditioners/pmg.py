@@ -569,8 +569,6 @@ def get_line_elements(ele):
     for e in reversed(factors):
         if as_fiat_cell(e.cell()).shape != LINE:
             raise ValueError("Expecting %s to be on the interval" % e)
-        if e.variant() == "equispaced":
-            raise ValueError("Variant %s is not decomposed into tensor products" % e.variant())
         finat_element = create_element(e)
         elements.append(finat_element.fiat_equivalent)
     return elements
