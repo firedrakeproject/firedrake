@@ -49,6 +49,7 @@ from tsfc.kernel_args import OutputKernelArg
 from tsfc.loopy import generate as generate_loopy
 from firedrake.slate.slac.kernel_settings import knl_counter
 import copy
+from firedrake.petsc import PETSc
 
 __all__ = ['compile_expression']
 
@@ -99,6 +100,7 @@ class SlateKernel(TSFCKernel):
         self._initialized = True
 
 
+@PETSc.Log.EventDecorator()
 def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
@@ -153,6 +155,7 @@ def get_temp_info(loopy_kernel):
     return mem_total, num_temps, mems, shapes
 
 
+@PETSc.Log.EventDecorator()
 def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
