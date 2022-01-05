@@ -687,7 +687,7 @@ return;
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out, mat):
+def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
     nscal = Vf.ufl_element().reference_value_size()
     felems = get_line_elements(Vf.ufl_element())
     celems = get_line_elements(Vc.ufl_element())
@@ -701,14 +701,14 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat):
     J = [get_line_interpolator(fe, ce) for fe, ce in zip(felems, celems)]
     Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in J])))
     Jsize = numpy.cumsum([0]+[Jk.size for Jk in J])
-    Jptrs = [mat+"+"+str(Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
+    Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
 
     # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
     Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
     fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
     cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
     operator_decl = f"""
-            PetscScalar {mat}[{Jsize[-1]}] = {{ {Jdata} }};
+            PetscScalar {mat_name}[{Jsize[-1]}] = {{ {Jdata} }};
     """
     prolong_code = f"""
             kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});

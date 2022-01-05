@@ -125,7 +125,7 @@ class ASMStarPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
-        if mesh.layers:
+        if mesh.cell_set._extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -313,7 +313,7 @@ def get_basemesh_nodes(W):
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
 
-class ASMExtrudedStarPC(ASMPatchPC):
+class ASMExtrudedStarPC(ASMStarPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
 
@@ -326,8 +326,10 @@ class ASMExtrudedStarPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V.mesh()
-        nlayers = mesh.layers
         mesh_dm = mesh.topology_dm
+        nlayers = mesh.layers
+        if not mesh.cell_set._extruded:
+            return super(ASMExtrudedStarPC, self).get_patches(V)
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim",
