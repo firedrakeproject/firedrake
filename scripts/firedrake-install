@@ -1616,20 +1616,21 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
 
-    # Temporary workaround for missing VTK wheel on Python 3.9
-    if sys.version_info[:2] == (3, 9):
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20210113/"
+    # "Temporary" workaround for missing VTK wheel on Python 3.10
+    if sys.version_info[:2] == (3, 10):
+        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20220106/"
         if osname == "Darwin":
             if arch == "arm64":
-                source += "vtk-9.0.1-cp39-cp39-macosx_11_0_arm64.whl"
+                source += "insert name of mac OS ARM wheel here"
             elif arch == "x86_64":
-                source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+                source += "insert name of mac OS x86_64 wheel here"
             else:
                 log.error("unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
-            source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
-        log.info("Pip installing VTK for Python 3.9 to venv")
+            source += "vtk-9.1.0.dev0-cp310-cp310-linux_x86_64.whl"
+        log.info("Pip installing VTK for Python 3.10 to venv")
         run_pip_install([source])
+    if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
