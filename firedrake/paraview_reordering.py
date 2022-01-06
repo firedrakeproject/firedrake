@@ -5,37 +5,8 @@ from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
 
-"""
-This requires some explanation:
-VTK has some .so deps that might not be present (e.g. libsm.so (X11 Sessions))
-However, we only need vtkCommonDataModel (previously vtkCommonKitPython),
-which, according to ldd, only cares about things that we should expect:
-libc, libdl.so, libstdc++, libm, libgcc_s,
-as well as "vtkCommon" libs and "vtkPython" libs.
-Thus, we hackily import the module that lives in vtkCommonDataModel.so
-However, since VTK9 this library name is now polluted with the Python version
-and othe system information hence we fish out the exact name by trawling
-through the VTK library directory.
-"""
-vtkSoLoc = importlib.util.find_spec("vtkmodules").submodule_search_locations[0]
-findStr = "vtkCommonDataModel"
-# Find the module name as this is system dependent in VTK9
-contents = os.listdir(vtkSoLoc)
-for item in contents:
-    if (findStr in item) and ("lib" not in item):
-        vtkSoName = "/" + item
-        break
-
-moduleName = "vtkCommonDataModel"
-loader = importlib.machinery.ExtensionFileLoader(moduleName,
-                                                 vtkSoLoc+vtkSoName)
-mod = loader.load_module(moduleName)
-
-vtkLagrangeTetra = mod.vtkLagrangeTetra
-vtkLagrangeHexahedron = mod.vtkLagrangeHexahedron
-vtkLagrangeTriangle = mod.vtkLagrangeTriangle
-vtkLagrangeQuadrilateral = mod.vtkLagrangeQuadrilateral
-vtkLagrangeWedge = mod.vtkLagrangeWedge
+from vtkmodules.vtkCommonDataModel import (vtkLagrangeTriangle, vtkLagrangeTetra,
+    vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge)
 
 paraviewUsesVTK8 = True
 
