@@ -1,20 +1,13 @@
 from functools import lru_cache, partial
 
-from pyop2.sparsity import get_preallocation
-
-import ufl
-from ufl import inner, diff
-from ufl.constantvalue import Zero
-from ufl.algorithms.ad import expand_derivatives
-
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import get_shift, get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
-from firedrake.dmhooks import get_function_space, get_appctx
 import firedrake
 import numpy
+import ufl
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
@@ -65,15 +58,14 @@ class FDMPC(PCBase):
         fcp = appctx.get("form_compiler_parameters")
 
         # Get original Jacobian form and bcs
-        dm = pc.getDM()
-        octx = get_appctx(dm)
+        octx = dmhooks.get_appctx(pc.getDM())
         mat_type = octx.mat_type
         oproblem = octx._problem
         J = oproblem.J
         bcs = tuple(oproblem.bcs)
 
         # Transform the problem into the space with FDM shape functions
-        V = get_function_space(dm)
+        V = J.arguments()[0].function_space()
         element = V.ufl_element()
         e_fdm = element.reconstruct(variant="fdm")
 
@@ -188,6 +180,8 @@ class FDMPC(PCBase):
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
+        from pyop2.sparsity import get_preallocation
+
         element = V.finat_element
         is_dg = element.entity_dofs() == element.entity_closure_dofs()
         element = V.ufl_element()
@@ -450,6 +444,9 @@ class FDMPC(PCBase):
             coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
             assembly_callables: a list of assembly callables for each coefficient of the form
         """
+        from ufl import inner, diff
+        from ufl.algorithms.ad import expand_derivatives
+
         coefficients = {}
         assembly_callables = []
 
@@ -528,7 +525,7 @@ class FDMPC(PCBase):
         assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
-        if not isinstance(beta, Zero):
+        if not isinstance(beta, ufl.constantvalue.Zero):
             if Piola:
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
@@ -639,6 +636,7 @@ def semhat(elem, rule):
     return Ahat, Bhat, Jhat, Dhat, xhat
 
 
+@lru_cache(maxsize=10)
 def fdm_setup(fdm_element):
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
     ref_el = fdm_element.ref_el
@@ -817,7 +815,6 @@ def glonum_fun(node_map):
             return lambda e: node_map.values_with_halo[to_base[e]] + to_layer[e]*node_map.offset, nel
 
 
-@lru_cache(maxsize=10)
 def glonum(node_map):
     """
     Return an array with the nodes of each topological entity of a certain kind.
@@ -839,11 +836,11 @@ def glonum(node_map):
         return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
 
 
-@lru_cache(maxsize=10)
 def get_bc_flags(bcs, J):
     # Return boundary condition flags on each cell facet
     # 0 => natural, do nothing
     # 1 => strong / weak Dirichlet
+    from ufl.algorithms.ad import expand_derivatives
     V = J.arguments()[0].function_space()
     mesh = V.ufl_domain()
 

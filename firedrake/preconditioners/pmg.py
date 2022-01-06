@@ -510,6 +510,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
                       flop_count=kernel.flop_count), coefficients
 
 
+@lru_cache(maxsize=10)
 def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
@@ -556,7 +557,7 @@ def expand_element(ele):
 
 def get_line_elements(ele):
     from FIAT.reference_element import LINE
-    from tsfc.finatinterface import as_fiat_cell, create_element
+    from tsfc.finatinterface import create_element
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
 
@@ -564,16 +565,18 @@ def get_line_elements(ele):
     if isinstance(ele, ufl.EnrichedElement):
         ele = ele._elements[0]
 
-    factors = ele.sub_elements() if isinstance(ele, ufl.TensorProductElement) else (ele,)
-    elements = []
+    finat_ele = create_element(ele)
+    factors = finat_ele.factors if hasattr(finat_ele, "factors") else (finat_ele,)
+    line_elements = []
     for e in reversed(factors):
-        if as_fiat_cell(e.cell()).shape != LINE:
-            raise ValueError("Expecting %s to be on the interval" % e)
-        finat_element = create_element(e)
-        elements.append(finat_element.fiat_equivalent)
-    return elements
+        fiat_ele = e.fiat_equivalent
+        if fiat_ele.ref_el.shape != LINE:
+            raise ValueError("Expecting %s to be on the interval" % fiat_ele)
+        line_elements.append(fiat_ele)
+    return line_elements
 
 
+@lru_cache(maxsize=10)
 def get_line_interpolator(felem, celem):
     from FIAT import functional, quadrature
     fdual = felem.dual_basis()
@@ -590,14 +593,6 @@ def get_line_interpolator(felem, celem):
         pts = rule.get_points()
         return numpy.dot(celem.tabulate(0, pts)[(0,)],
                          numpy.linalg.inv(felem.tabulate(0, pts)[(0,)]))
-
-
-def get_shift(ele):
-    """Return the form degree of a FInAT element after discarding modifiers"""
-    if hasattr(ele, "element"):
-        return get_shift(ele.element)
-    else:
-        return ele.formdegree
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -785,6 +780,14 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     """
     mapping_code = prolong_map_code + restrict_map_code
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
+
+
+def get_shift(ele):
+    """Return the form degree of a FInAT element after discarding modifiers"""
+    if hasattr(ele, "element"):
+        return get_shift(ele.element)
+    else:
+        return ele.formdegree
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
