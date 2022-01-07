@@ -208,7 +208,7 @@ class FDMPC(PCBase):
             with coef.dat.vec as cvec:
                 cvec.set(1.0E0)
 
-        bcflags = get_bc_flags(bcs, J)
+        bcflags = get_weak_bc_flags(J)
 
         # preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = (V.dof_dset.layout_vec.getSizes(),)*2
@@ -316,7 +316,7 @@ class FDMPC(PCBase):
                 axes = numpy.roll(numpy.arange(ndim), -shift*k)
                 # for each component: compute the stiffness matrix Ae
                 muk = mue[k] if len(mue.shape) == 2 else mue
-                bck = bce[k] if len(bce.shape) == 2 else bce
+                bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
 
                 # Ae = mue[k][0] Ahat + bqe[k] Bhat
@@ -448,7 +448,6 @@ class FDMPC(PCBase):
         assembly_callables = []
 
         mesh = J.ufl_domain()
-        gdim = mesh.geometric_dimension()
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
         dx = firedrake.dx(degree=quad_deg)
@@ -464,18 +463,7 @@ class FDMPC(PCBase):
         args_J = J.arguments()
         integrals_J = J.integrals_by_type("cell")
         mapping = args_J[0].ufl_element().mapping().lower()
-        if mapping == 'identity':
-            Piola = None
-        elif mapping == 'covariant piola':
-            Piola = Finv.T
-            Piola = Piola * firedrake.Constant(numpy.flipud(numpy.identity(tdim)), domain=mesh)
-        elif mapping == 'contravariant piola':
-            sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=mesh))
-            Piola = ufl.Jacobian(mesh)*sign/ufl.JacobianDeterminant(mesh)
-            if tdim < gdim:
-                Piola *= 1-2*mesh.cell_orientations()
-        else:
-            raise NotImplementedError("Unsupported element mapping %s" % mapping)
+        Piola = get_piola_tensor(mapping, mesh)
 
         # get second order coefficient
         ref_grad = [ufl.variable(ufl.grad(t)) for t in args_J]
@@ -564,6 +552,19 @@ class FDMPC(PCBase):
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
         return coefficients, assembly_callables
+
+
+def get_piola_tensor(mapping, domain):
+    tdim = domain.topological_dimension()
+    if mapping == 'identity':
+        return None
+    elif mapping == 'covariant piola':
+        return ufl.JacobianInverse(domain).T * firedrake.Constant(numpy.flipud(numpy.identity(tdim)), domain=domain)
+    elif mapping == 'contravariant piola':
+        sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=domain))
+        return ufl.Jacobian(domain)*sign/ufl.JacobianDeterminant(domain)
+    else:
+        raise NotImplementedError("Unsupported element mapping %s" % mapping)
 
 
 def pull_axis(x, pshape, idir):
@@ -833,115 +834,36 @@ def glonum(node_map):
         return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
 
 
-def get_bc_flags(bcs, J):
+def get_weak_bc_flags(J):
     # Return boundary condition flags on each cell facet
     # 0 => natural, do nothing
-    # 1 => strong / weak Dirichlet
+    # 1 => weak Dirichlet
     from ufl.algorithms.ad import expand_derivatives
-    V = J.arguments()[0].function_space()
-    mesh = V.ufl_domain()
+    mesh = J.ufl_domain()
+    args_J = J.arguments()
+    V = args_J[0].function_space()
+    rvs = V.ufl_element().reference_value_shape()
+    Qe = ufl.TensorElement(ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0), shape=rvs)
+    Q = firedrake.FunctionSpace(mesh, Qe)
+    q = firedrake.TestFunction(Q)
 
-    if mesh.cell_set._extruded:
-        layers = mesh.cell_set.layers_array
-        nelv, nfacet, _ = mesh.cell_to_facets.data_with_halos.shape
-        if layers.shape[0] == 1:
-            nelz = layers[0, 1]-layers[0, 0]-1
-            nel = nelv*nelz
-        else:
-            nelz = layers[:, 1]-layers[:, 0]-1
-            nel = sum(nelz)
-        # extrude cell_to_facets
-        cell_to_facets = numpy.zeros((nel, nfacet+2, 2), dtype=mesh.cell_to_facets.data.dtype)
-        cell_to_facets[:, :nfacet, :] = numpy.repeat(mesh.cell_to_facets.data_with_halos, nelz, axis=0)
+    ref_args = [ufl.variable(t) for t in args_J]
+    replace_args = {t: s for t, s in zip(args_J, ref_args)}
 
-        # get a function with a single node per facet
-        # mark interior facets by assembling a surface integral
-        dS_int = firedrake.dS_h(degree=0) + firedrake.dS_v(degree=0)
-        DGT = firedrake.FunctionSpace(mesh, "DGT", 0)
-        v = firedrake.TestFunction(DGT)
-        w = firedrake.assemble((v('+')+v('-'))*dS_int)
-
-        # mark the bottom and top boundaries with DirichletBCs
-        markers = (-2, -4)
-        subs = ("bottom", "top")
-        bc_h = [firedrake.DirichletBC(DGT, marker, sub) for marker, sub in zip(markers, subs)]
-        [bc.apply(w) for bc in bc_h]
-
-        # index the function with the extruded cell_node_map
-        marked_facets = w.dat.data_ro_with_halos[glonum(DGT.cell_node_map())]
-
-        # complete the missing pieces of cell_to_facets
-        interior = marked_facets > 0
-        cell_to_facets[interior, :] = [1, -1]
-        topbot = marked_facets < 0
-        cell_to_facets[topbot, 0] = 0
-        cell_to_facets[topbot, 1] = marked_facets[topbot].astype(cell_to_facets.dtype)
-    else:
-        cell_to_facets = mesh.cell_to_facets.data_with_halos
-
-    flags = cell_to_facets[:, :, 0]
-    sub = cell_to_facets[:, :, 1]
-
-    maskall = []
-    comp = dict()
-    for bc in bcs:
-        if isinstance(bc, firedrake.DirichletBC):
-            labels = comp.get(bc._indices, ())
-            bs = bc.sub_domain
-            if bs == "on_boundary":
-                maskall.append(bc._indices)
-            elif bs == "bottom":
-                labels += (-2,)
-            elif bs == "top":
-                labels += (-4,)
-            else:
-                labels += bs if type(bs) == tuple else (bs,)
-            comp[bc._indices] = labels
-
-    # The Neumann integral may still be present but it's zero
-    J = expand_derivatives(J)
-    # Assume that every facet integral in the Jacobian imposes a
-    # weak Dirichlet BC on all components
-    # TODO add support for weak component BCs
-    # FIXME for variable layers there is inconsistency between
-    # ds_t/ds_b and DirichletBC(V, ubc, "top/bottom").
-    # the labels here are the ones that DirichletBC would use
+    forms = []
+    md = {"quadrature_degree": 0}
     for it in J.integrals():
         itype = it.integral_type()
         if itype.startswith("exterior_facet"):
-            index = ()
-            labels = comp.get(index, ())
-            bs = it.subdomain_id()
-            if bs == "everywhere":
-                if itype == "exterior_facet_bottom":
-                    labels += (-2,)
-                elif itype == "exterior_facet_top":
-                    labels += (-4,)
-                else:
-                    maskall.append(index)
-            else:
-                labels += bs if type(bs) == tuple else (bs,)
-            comp[index] = labels
+            beta = ufl.diff(ufl.diff(ufl.replace(it.integrand(), replace_args), ref_args[0]), ref_args[1])
+            beta = ufl.diag_vector(expand_derivatives(beta))
+            ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
+            forms.append(ufl.inner(q, beta)*ds_ext)
 
-    labels = comp.get((), ())
-    labels = list(set(labels))
-    fbc = numpy.isin(sub, labels).astype(PETSc.IntType)
+    bq = firedrake.Function(Q)
+    if len(forms):
+        firedrake.assemble(sum(forms), tensor=bq)
 
-    if () in maskall:
-        fbc[sub >= -1] = 1
-    fbc[flags != 0] = 0
-
-    others = set(comp.keys()) - {()}
-    if others:
-        # We have bcs on individual vector components
-        fbc = numpy.tile(fbc, (V.value_size, 1, 1))
-        for j in range(V.value_size):
-            key = (j,)
-            labels = comp.get(key, ())
-            labels = list(set(labels))
-            fbc[j] |= numpy.isin(sub, labels)
-            if key in maskall:
-                fbc[j][sub >= -1] = 1
-
-        fbc = numpy.transpose(fbc, (1, 0, 2))
+    fbc = bq.dat.data_ro[glonum(Q.cell_node_map())]
+    fbc = (fbc > 0.0E0).astype(PETSc.IntType)
     return fbc

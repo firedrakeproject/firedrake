@@ -683,7 +683,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
     cshape = [e.space_dimension() for e in celems]
     shapes = [(nscal,) + tuple(fshape), (nscal,) + tuple(cshape)]
 
-    # Pass the 1D tabulation as hexadecimal string
+    # Pass the 1D interpolators as a hexadecimal string
     J = [get_line_interpolator(fe, ce) for fe, ce in zip(felems, celems)]
     Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in J])))
     Jsize = numpy.cumsum([0]+[Jk.size for Jk in J])
