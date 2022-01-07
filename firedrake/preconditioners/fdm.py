@@ -184,18 +184,15 @@ class FDMPC(PCBase):
 
         element = V.finat_element
         is_dg = element.entity_dofs() == element.entity_closure_dofs()
-        element = V.ufl_element()
-        degree = element.degree()
         try:
-            degree = max(degree)
-        except TypeError:
-            pass
-        eta = float(appctx.get("eta", (degree+1)**2))
-        quad_degree = 2*degree+1
-        try:
-            line_elements = get_line_elements(element)
+            line_elements = get_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+
+        degree = max(e.degree() for e in line_elements)
+        eta = float(appctx.get("eta", (degree+1)**2))
+        quad_degree = 2*degree+1
+
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
         for e in line_elements:
@@ -616,8 +613,8 @@ def semhat(elem, rule):
     """
     Construct Laplacian stiffness and mass matrices
 
-    :arg elem: the element
-    :arg rule: quadrature rule
+    :arg elem: a :class:`FIATElement`
+    :arg rule: a quadrature rule
 
     :returns: 5-tuple of
         Ahat: stiffness matrix

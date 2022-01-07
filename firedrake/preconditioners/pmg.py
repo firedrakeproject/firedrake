@@ -555,17 +555,20 @@ def expand_element(ele):
         return ele
 
 
-def get_line_elements(ele):
+def get_line_elements(V):
     from FIAT.reference_element import LINE
     from tsfc.finatinterface import create_element
+    ele = V.ufl_element()
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
-
+    rvs = ele.reference_value_size()
     ele = expand_element(ele)
     if isinstance(ele, ufl.EnrichedElement):
         ele = ele._elements[0]
 
     finat_ele = create_element(ele)
+    if rvs*finat_ele.space_dimension() != V.value_size*V.finat_element.space_dimension():
+        raise ValueError("Failed to decompose %s into a single tensor product" % V.ufl_element())
     factors = finat_ele.factors if hasattr(finat_ele, "factors") else (finat_ele,)
     line_elements = []
     for e in reversed(factors):
@@ -672,8 +675,8 @@ return;
 
 def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
     nscal = Vf.ufl_element().reference_value_size()
-    felems = get_line_elements(Vf.ufl_element())
-    celems = get_line_elements(Vc.ufl_element())
+    felems = get_line_elements(Vf)
+    celems = get_line_elements(Vc)
 
     # Declare array shapes to be used as literals inside the kernels
     fshape = [e.space_dimension() for e in felems]
@@ -846,7 +849,7 @@ def get_permuted_map(V):
     if shift % V.mesh().topological_dimension() == 0:
         return V.cell_node_map()
 
-    elements = get_line_elements(V.ufl_element())
+    elements = get_line_elements(V)
     axes = numpy.arange(len(elements))
     pshape = [-1] + [e.space_dimension() for e in elements]
     permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), pshape)
