@@ -181,9 +181,6 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-
-        element = V.finat_element
-        is_dg = element.entity_dofs() == element.entity_closure_dofs()
         try:
             line_elements = get_line_elements(V)
         except ValueError:
@@ -192,14 +189,15 @@ class FDMPC(PCBase):
         degree = max(e.degree() for e in line_elements)
         eta = float(appctx.get("eta", (degree+1)**2))
         quad_degree = 2*degree+1
+        element = V.finat_element
+        is_dg = element.entity_dofs() == element.entity_closure_dofs()
 
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
-        Dfdm = []  # tabulation of normal derivative of the FDM basis at the boundary for each direction
+        Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
         for e in line_elements:
-            if e.formdegree or is_dg:
-                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
-            else:
-                Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_cg(e)))
+            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            if not (e.formdegree or is_dg):
+                Dfdm[0] = None
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -236,7 +234,7 @@ class FDMPC(PCBase):
         :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
         :arg Afdm: the list with sparse interval matrices
         :arg Dfdm: the list with normal derivatives matrices
-        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_bc_flags`
+        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
@@ -572,17 +570,20 @@ def pull_axis(x, pshape, idir):
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
 
-def set_submat_csr(A_global, A_local, global_rows, imode):
+def set_submat_csr(A_global, A_local, global_indices, imode):
+    """insert values from A_local to A_global on the diagonal block with indices global_indices"""
     indptr, indices, data = A_local.getValuesCSR()
-    for i, row in enumerate(global_rows.flat):
+    for i, row in enumerate(global_indices.flat):
         i0 = indptr[i]
         i1 = indptr[i+1]
-        A_global.setValues(row, global_rows.flat[indices[i0:i1]], data[i0:i1], imode)
+        A_global.setValues(row, global_indices.flat[indices[i0:i1]], data[i0:i1], imode)
 
 
 def numpy_to_petsc(A_numpy, dense_indices, diag=True):
-    # Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns
-    # If dense_indices is empty, then also include the off-diagonal corners of the matrix
+    """
+    Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
+    If dense_indices is empty, then also include the off-diagonal corners of the matrix.
+    """
     n = A_numpy.shape[0]
     nbase = int(diag) + len(dense_indices)
     nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
@@ -635,7 +636,21 @@ def semhat(elem, rule):
 
 
 @lru_cache(maxsize=10)
-def fdm_setup(fdm_element):
+def fdm_setup_ipdg(fdm_element, eta):
+    """
+    Setup for the fast diagonalization method for the IP-DG formulation.
+    Compute the FDM eigenvector basis, its normal derivative and the
+    sparsified interval stiffness and mass matrices.
+
+    :arg fdm_element: a :class:`FIAT.FDMElement`
+    :arg eta: penalty coefficient as a `float`
+
+    :returns: 2-tuple of:
+        Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
+        Bhat, and bcs(Ahat) for every combination of either natural or weak
+        Dirichlet BCs on each endpoint.
+        Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+    """
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
     ref_el = fdm_element.ref_el
     degree = fdm_element.degree()
@@ -646,73 +661,18 @@ def fdm_setup(fdm_element):
     basis = fdm_element.tabulate(1, ref_el.get_vertices())
     Dfacet = basis[(1,)]
     Dfacet[:, 0] = -Dfacet[:, 0]
-    return Ahat, Bhat, Dfacet
 
-
-def fdm_setup_cg(fdm_element):
-    """
-    Setup for the fast diagonalization method for continuous Lagrange
-    elements. Compute the FDM eigenvector basis and the sparsified interval
-    stiffness and mass matrices.
-
-    :arg fdm_element: :class:`FIAT.FDMElement`
-
-    :returns: 3-tuple of:
-        Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
-        Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
-        natural or strong Dirichlet BCs on each endpoint, where Sfdm is the tabulation
-        of Dirichlet eigenfunctions on the GLL nodes,
-        Dfdm: None.
-    """
-    def apply_strong_bcs(Ahat, bc0, bc1):
-        k0 = 0 if bc0 == 1 else 1
-        k1 = Ahat.shape[0] if bc1 == 1 else -1
-        kk = slice(k0, k1)
-        A = Ahat.copy()
-        a = A.diagonal().copy()
-        A[kk, kk] = 0.0E0
-        numpy.fill_diagonal(A, a)
-        return numpy_to_petsc(A, [0, A.shape[0]-1])
-
-    A, B, _ = fdm_setup(fdm_element)
-    Afdm = [numpy_to_petsc(B, [])]
-    for bc1 in range(2):
-        for bc0 in range(2):
-            Afdm.append(apply_strong_bcs(A, bc0, bc1))
-    return Afdm, None
-
-
-def fdm_setup_ipdg(fdm_element, eta):
-    """
-    Setup for the fast diagonalization method for the IP-DG formulation.
-    Compute the FDM eigenvector basis, its normal derivative and the
-    sparsified interval stiffness and mass matrices.
-
-    :arg fdm_element: :class:`FIAT.FDMElement`
-    :arg eta: penalty coefficient as a `float`
-
-    :returns: 2-tuple of:
-        Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
-        Sfdm.T * Bhat * Sfdm, and bcs(Sfdm.T * Ahat * Sfdm) for every combination of either
-        natural or weak Dirichlet BCs on each endpoint, where Sfdm is the tabulation
-        of Dirichlet eigenfunctions on the GLL nodes,
-        Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
-    """
-    def apply_weak_bcs(Ahat, Dfacet, bcs, eta):
+    Afdm = [numpy_to_petsc(Bhat, [])]
+    for bc in range(4):
+        bcs = (bc % 2, bc//2)
         Abc = Ahat.copy()
         for j in (0, -1):
             if bcs[j] == 1:
                 Abc[:, j] -= Dfacet[:, j]
                 Abc[j, :] -= Dfacet[:, j]
                 Abc[j, j] += eta
-        return numpy_to_petsc(Abc, [0, Abc.shape[0]-1])
-
-    A, B, Dfdm = fdm_setup(fdm_element)
-    Afdm = [numpy_to_petsc(B, [])]
-    for bc1 in range(2):
-        for bc0 in range(2):
-            Afdm.append(apply_weak_bcs(A, Dfdm, (bc0, bc1), eta))
-    return Afdm, Dfdm
+        Afdm.append(numpy_to_petsc(Abc, [0, Abc.shape[0]-1]))
+    return Afdm, Dfacet
 
 
 @lru_cache(maxsize=10)
