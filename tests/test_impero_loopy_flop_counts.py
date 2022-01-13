@@ -22,7 +22,6 @@ def count_loopy_flops(kernel):
     )
     op_map = loopy.get_op_map(program
                               .with_entrypoints(kernel.name),
-                              numpy_types=None,
                               subgroup_size=1)
     return op_map.filter_by(name=['add', 'sub', 'mul', 'div',
                                   'func:abs'],
