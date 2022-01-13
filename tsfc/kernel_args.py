@@ -5,6 +5,13 @@ import loopy as lp
 
 
 class KernelArg(abc.ABC):
+    """Abstract base class wrapping either a COFFEE or loopy argument.
+
+    Defining this type system allows Firedrake (or other libraries) to
+    prepare arguments for the kernel without needing to worry about their
+    ordering. Instead this can be offloaded to tools such as
+    :func:`functools.singledispatch`.
+    """
 
     def __init__(self, ast_arg):
         self._ast_arg = ast_arg
@@ -36,6 +43,7 @@ class KernelArg(abc.ABC):
     def _is_loopy_backend(self):
         return isinstance(self._ast_arg, lp.ArrayArg)
 
+
 class OutputKernelArg(KernelArg):
     ...
 
@@ -66,5 +74,3 @@ class ExteriorFacetKernelArg(KernelArg):
 
 class InteriorFacetKernelArg(KernelArg):
     ...
-
-
