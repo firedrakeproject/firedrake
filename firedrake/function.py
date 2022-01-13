@@ -337,8 +337,8 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
-        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
-        :class:`.Expression`.
+        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
+        UFL expression.
 
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
@@ -361,7 +361,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param expression: a UFL expression to interpolate
         :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
@@ -408,6 +408,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -426,6 +428,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -444,6 +448,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
@@ -462,6 +468,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         if np.isscalar(expr):
             self.dat /= expr
             return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
         if isinstance(expr, Function) and \
            expr.function_space() == self.function_space():
             self.dat /= expr.dat
@@ -474,6 +482,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self
 
     __itruediv__ = __idiv__
+
+    def __float__(self):
+
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            return float(self.dat.data_ro[0])
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
     @utils.cached_property
     def _constant_ctypes(self):
@@ -661,7 +679,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.sequential import generate_single_cell_wrapper
+    from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
     mesh = function.ufl_domain()

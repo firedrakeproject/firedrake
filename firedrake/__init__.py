@@ -30,6 +30,8 @@ if _is_logging:
     import atexit
     atexit.register(lambda: _main_event.end())
     del atexit
+
+_blas_lib_path = petsc.get_blas_library()
 del petsc
 
 # UFL Exprs come with a custom __del__ method, but we hold references
@@ -72,7 +74,6 @@ from firedrake.bcs import *
 from firedrake.checkpointing import *
 from firedrake.constant import *
 from firedrake.exceptions import *
-from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.subspace import *
@@ -124,16 +125,25 @@ del get_versions
 # - MKL_NUM_THREADS: mkl,
 # - VECLIB_MAXIMUM_THREADS: accelerate,
 # - NUMEXPR_NUM_THREADS: numexpr
-# We only handle the first two cases
+# We only handle the first three cases
 from ctypes import cdll
-from ctypes.util import find_library
 try:
-    _openblas_lib = find_library('openblas')
-    _openblas_dll = cdll.LoadLibrary(_openblas_lib)
-    _openblas_dll.openblas_set_num_threads(1)
-except (OSError, AttributeError):
-    warning('Cannot set OpenBLAS threads, if you are using another BLAS'
-            'implementation, be sure to limit the number of threads to 1')
+    _blas_lib = cdll.LoadLibrary(_blas_lib_path)
+    _method_name = None
+    if "openblas" in _blas_lib_path:
+        _method_name = "openblas_set_num_threads"
+    elif "libmkl" in _blas_lib_path:
+        _method_name = "MKL_Set_Num_Threads"
+
+    if _method_name:
+        try:
+            getattr(_blas_lib, _method_name)(1)
+        except AttributeError:
+            info("Cannot set number of threads in BLAS library")
+except OSError:
+    info("Cannot set number of threads in BLAS library because the library could not be loaded")
+except TypeError:
+    info("Cannot set number of threads in BLAS library because the library could not be found")
 
 # OMP_NUM_THREADS can be set to a comma-separated list of positive integers
 try:
@@ -143,7 +153,7 @@ except (ValueError, TypeError):
 if (_omp_num_threads is None) or (_omp_num_threads > 1):
     warning('OMP_NUM_THREADS is not set or is set to a value greater than 1,'
             ' we suggest setting OMP_NUM_THREADS=1 to improve performance')
-del _openblas_lib, _openblas_dll, _omp_num_threads, os, cdll, find_library
+del _blas_lib, _method_name, _omp_num_threads, os, cdll
 
 # Stop profiling Firedrake import
 if _is_logging:

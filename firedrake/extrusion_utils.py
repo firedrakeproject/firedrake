@@ -247,6 +247,25 @@ def flat_entity_dofs(entity_dofs):
     return flat_entity_dofs
 
 
+def flat_entity_permutations(entity_permutations):
+    flat_entity_permutations = {}
+    for b in set(b for b, v in entity_permutations):
+        flat_entity_permutations[b] = {}
+        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
+            flat_entity_permutations[b][eb] = {}
+            for ob in set(ob for ob, ov in entity_permutations[(b, 0)][2 * eb]):
+                # Orientation in the extruded direction is always 0
+                ov = 0
+                perm0 = entity_permutations[(b, 0)][2 * eb][(ob, ov)]
+                perm1 = entity_permutations[(b, 1)][eb][(ob, ov)]
+                n0, n1 = len(perm0), len(perm1)
+                flat_entity_permutations[b][eb][ob] = \
+                    list(perm0) + \
+                    [n0 + p for p in perm1] + \
+                    [n0 + n1 + p for p in perm0]
+    return flat_entity_permutations
+
+
 def entity_indices(cell):
     """Return a dict mapping topological entities on a cell to their integer index.
 

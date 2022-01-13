@@ -13,17 +13,14 @@ import abc
 from mpi4py import MPI
 from firedrake.utils import IntType, RealType
 from pyop2 import op2
-from pyop2.base import DataSet
 from pyop2.mpi import COMM_WORLD, dup_comm
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
-import firedrake.expression as expression
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
-from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
@@ -451,6 +448,27 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
+    @property
+    @abc.abstractmethod
+    def entity_orientations(self):
+        """2D array of entity orientations
+
+        `entity_orientations` has the same shape as `cell_closure`.
+        Each row of this array contains orientations of the entities
+        in the closure of the associated cell. Here, for each cell in the mesh,
+        orientation of an entity, say e, encodes how the the canonical
+        representation of the entity defined by Cone(e) compares to
+        that of the associated entity in the reference FInAT (FIAT) cell. (Note
+        that `cell_closure` defines how each cell in the mesh is mapped to
+        the FInAT (FIAT) reference cell and each entity of the FInAT (FIAT)
+        reference cell has a canonical representation based on the entity ids of
+        the lower dimensional entities.) Orientations of vertices are always 0.
+        See :class:`FIAT.reference_element.Simplex` and
+        :class:`FIAT.reference_element.UFCQuadrilateral` for example computations
+        of orientations.
+        """
+        pass
+
     @abc.abstractmethod
     def _facets(self, kind):
         pass
@@ -495,15 +513,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof (may be None).
         """
         return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, offsets)
+                                       entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -836,6 +855,10 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
+    @utils.cached_property
+    def entity_orientations(self):
+        return dmcommon.entity_orientations(self, self.cell_closure)
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
@@ -898,9 +921,9 @@ class MeshTopology(AbstractMeshTopology):
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
-            dataset = DataSet(self.cell_set, dim=cell_facets.shape[1:])
+            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
@@ -1054,6 +1077,10 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
+    @utils.cached_property
+    def entity_orientations(self):
+        return self._base_mesh.entity_orientations
+
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
@@ -1065,15 +1092,25 @@ class ExtrudedMeshTopology(MeshTopology):
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof.
         """
+        if entity_permutations is None:
+            # FInAT entity_permutations not yet implemented
+            entity_dofs = eutils.flat_entity_dofs(entity_dofs)
+            return super().make_cell_node_list(global_numbering, entity_dofs, None, offsets)
+        assert sorted(entity_dofs.keys()) == sorted(entity_permutations.keys()), "Mismatching dimension tuples"
+        for key in entity_dofs.keys():
+            assert sorted(entity_dofs[key].keys()) == sorted(entity_permutations[key].keys()), "Mismatching entity tuples"
+        assert all(v in {0, 1} for _, v in entity_permutations), "Vertical dim index must be in [0, 1]"
         entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-        return super().make_cell_node_list(global_numbering, entity_dofs, offsets)
+        entity_permutations = eutils.flat_entity_permutations(entity_permutations)
+        return super().make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1267,6 +1304,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         return dmcommon.closure_ordering(swarm, vertex_numbering,
                                          cell_numbering, entity_per_cell)
+
+    entity_orientations = None
 
     def _facets(self, kind):
         """Raises an AttributeError since cells in a
@@ -1594,7 +1633,7 @@ values from f.)"""
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
-        :arg expr: an :class:`.Expression` evaluated to produce a
+        :arg expr: a UFL expression evaluated to produce a
              reference normal direction.
 
         """
@@ -1610,16 +1649,11 @@ values from f.)"""
         if hasattr(self.topology, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
-        if isinstance(expr, expression.Expression):
-            if expr.value_shape()[0] != 3:
-                raise NotImplementedError('Only implemented for 3-vectors')
-
-            expr = interpolate(expr, functionspace.VectorFunctionSpace(self, 'DG', 0))
-        elif isinstance(expr, ufl.classes.Expr):
+        if isinstance(expr, ufl.classes.Expr):
             if expr.ufl_shape != (3,):
                 raise NotImplementedError('Only implemented for 3-vectors')
         else:
-            raise TypeError("UFL expression or Expression object expected!")
+            raise TypeError("UFL expression expected!")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)

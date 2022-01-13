@@ -11,14 +11,14 @@
 Firedrake '21
 -------------
                
-We are very happy to announce that the fifth Firedrake user and
-developer workshop will be held online between 15-17 September 2021.
+The fifth Firedrake user and
+developer workshop was held online between 15-17 September 2021.
 
-The workshop will provide the opportunity for Firedrake users and
+The workshop was an opportunity for Firedrake users and
 developers to engage with each other to communicate the ways that
 Firedrake can be used in simulation science, the latest developments
 in the project, and the future developments anticipated. The event
-will provide Firedrake users with the opportunity to interact directly
+provided Firedrake users with the opportunity to interact directly
 with developers and other users.
 
 Key Dates
@@ -31,52 +31,18 @@ Key Dates
 Programme
 ---------
 
-Each day will run between 14:00 and 18:30 (BST) and will be split up
-into two sessions with the following events planned for each session:
+The full programme is on `EasyChair <https://easychair.org/smart-program/Firedrake'21/>`_.
 
-+----------------+----------------------+-------------------------+-------------------+
-|                | Wednesday (15/09/21) | Thursday (16/09/21)     | Friday (17/09/21) |
-+================+======================+=========================+===================+
-| **Session 1**  | Presentations        | Presentations           | Presentations     |
-+----------------+----------------------+-------------------------+-------------------+
-| **Session 2**  | Poster session       | Q&A with Firedrake team | Code clinic       | 
-+----------------+----------------------+-------------------------+-------------------+
-
-Coffee breaks and evening drinks will be held on `gather.town <https://www.gather.town/>`_.
-
-The full programme will be made available on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_.
-
-Registration
-------------
-
-You can register for the event using `this link <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake>`_.
-Registration before 31st August costs £10 after which it will increase to £20.
-
-Location
---------
-
-The workshop will be held on Zoom.
-
-Code clinic
------------
-
-The last session of the workshop is a 'code clinic'. Please bring your
-own codes that use Firedrake and members of the Firedrake development
-team will be on hand to offer expert advice on how to fix or improve
-your code.
-
-Abstract submission
--------------------
-
-If you would like to deliver a talk or present a poster please submit
-an abstract on `EasyChair <https://easychair.org/conferences/?conf=firedrake21>`_..
+The recorded talks are available on `Vimeo <https://vimeo.com/showcase/8850810>`_. 
 
 Prizes
 ------
 
-Prizes will be awarded for the best presentations and posters given by students and postdocs.
+The prizes for best presentation by a student or postdoc were won by `Fabian
+Laakmann <https://www.maths.ox.ac.uk/people/fabian.laakmann>`_ and
+`Reuben Nixon-Hill <https://www.imperial.ac.uk/people/reuben.nixon-hill10>`_.
 
-Each winner will be awarded with a copy of `PETSc for Partial Differential Equations:
+Each winner receives a copy of `PETSc for Partial Differential Equations:
 Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
 by Ed Bueler, which contains an excellent chapter on using Firedrake.
 

@@ -441,6 +441,9 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     :arg opts: :class:`_AssemblyOpts` containing the assembly options.
     :arg assembly_rank: The appropriate :class:`_AssemblyRank`.
     """
+    eq_bcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
+    if eq_bcs and opts.diagonal:
+        raise NotImplementedError("Diagonal assembly and EquationBC not supported")
     # We cache the parloops on the form but since parloops (currently) hold
     # references to large data structures (e.g. the output tensor) we only
     # cache a single set of parloops at any one time to prevent memory leaks.
@@ -449,23 +452,13 @@ def _assemble_expr(expr, tensor, bcs, opts, assembly_rank):
     parloop_init_args = (expr, tensor, bcs, opts.diagonal, opts.fc_params, assembly_rank)
     cached_init_args, cached_parloops = expr._cache.get("parloops", (None, None))
     parloops = cached_parloops if cached_init_args == parloop_init_args else None
-
     if not parloops:
         parloops = _make_parloops(*parloop_init_args)
         expr._cache["parloops"] = (parloop_init_args, parloops)
-
     for parloop in parloops:
         parloop.compute()
-
-    dir_bcs = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
-    _apply_dirichlet_bcs(tensor, dir_bcs, opts, assembly_rank)
-
-    eq_bcs = tuple(bc for bc in bcs if isinstance(bc, EquationBCSplit))
-    if eq_bcs and opts.diagonal:
-        raise NotImplementedError("Diagonal assembly and EquationBC not supported")
+    _apply_bcs(tensor, bcs, opts, assembly_rank)
     for bc in eq_bcs:
-        if assembly_rank == _AssemblyRank.VECTOR:
-            bc.zero(tensor)
         _assemble_expr(bc.f, tensor, bc.bcs, opts, assembly_rank)
 
 
@@ -585,44 +578,57 @@ def _matrix_arg(access, get_map, row, col, *,
                                   unroll_map=unroll)
 
 
-def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
+def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
+    dat = op2tensor[i, j].handle.getPythonContext().dat
+    if component is not None:
+        dat = op2.DatView(dat, component)
+    dat.zero(subset=node_set)
+
+
+def _apply_bcs(tensor, bcs, opts, assembly_rank):
     """Apply Dirichlet boundary conditions to a tensor.
 
     :arg tensor: The tensor.
-    :arg bcs: Iterable of :class:`DirichletBC` objects.
+    :arg bcs: Iterable of :class:`DirichletBC` and/or :class:`EquationBCSplit` objects.
     :arg opts: :class:`_AssemblyOpts` containing the assembly options.
     :arg assembly_rank: are we doing a scalar, vector, or matrix.
     """
     if assembly_rank == _AssemblyRank.MATRIX:
         op2tensor = tensor.M
-        shape = tuple(len(a.function_space()) for a in tensor.a.arguments())
+        spaces = tuple(a.function_space() for a in tensor.a.arguments())
         for bc in bcs:
             V = bc.function_space()
-            nodes = bc.nodes
-            for i, j in numpy.ndindex(shape):
+            component = V.component
+            if component is not None:
+                V = V.parent
+            index = 0 if V.index is None else V.index
+            space = V if V.parent is None else V.parent
+            if isinstance(bc, DirichletBC):
+                if space != spaces[0]:
+                    raise TypeError("bc space does not match the test function space")
+                elif space != spaces[1]:
+                    raise TypeError("bc space does not match the trial function space")
                 # Set diagonal entries on bc nodes to 1 if the current
                 # block is on the matrix diagonal and its index matches the
                 # index of the function space the bc is defined on.
-                if i != j:
-                    continue
-                if V.component is None and V.index is not None:
-                    # Mixed, index (no ComponentFunctionSpace)
-                    if V.index == i:
-                        op2tensor[i, j].set_local_diagonal_entries(nodes)
-                elif V.component is not None:
-                    # ComponentFunctionSpace, check parent index
-                    if V.parent.index is not None:
-                        # Mixed, index doesn't match
-                        if V.parent.index != i:
-                            continue
-                        # Index matches
-                    op2tensor[i, j].set_local_diagonal_entries(nodes, idx=V.component)
-                elif V.index is None:
-                    op2tensor[i, j].set_local_diagonal_entries(nodes)
-                else:
-                    raise RuntimeError("Unhandled BC case")
+                op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component)
+                # Handle off-diagonal block involving real function space.
+                # "lgmaps" is correctly constructed in _matrix_arg, but
+                # is ignored by PyOP2 in this case.
+                # Walk through row blocks associated with index.
+                for j, s in enumerate(space):
+                    if j != index and s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
+                # Walk through col blocks associated with index.
+                for i, s in enumerate(space):
+                    if i != index and s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, i, index, component, bc.node_set)
+            elif isinstance(bc, EquationBCSplit):
+                for j, s in enumerate(spaces[1]):
+                    if s.ufl_element().family() == "Real":
+                        _apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
     elif assembly_rank == _AssemblyRank.VECTOR:
-        for bc in bcs:
+        for bc in [b for b in bcs if isinstance(b, DirichletBC)]:
             if opts.assembly_type == _AssemblyType.SOLUTION:
                 if opts.diagonal:
                     bc.set(tensor, 1)
@@ -632,6 +638,8 @@ def _apply_dirichlet_bcs(tensor, bcs, opts, assembly_rank):
                 bc.zero(tensor)
             else:
                 raise AssertionError
+        for bc in [b for b in bcs if isinstance(b, EquationBCSplit)]:
+            bc.zero(tensor)
     elif assembly_rank == _AssemblyRank.SCALAR:
         pass
     else:
@@ -695,9 +703,7 @@ def _make_parloops(expr, tensor, bcs, diagonal, fc_params, assembly_rank):
     domains = expr.ufl_domains()
 
     if isinstance(expr, slate.TensorBase):
-        if diagonal:
-            raise NotImplementedError("Diagonal + slate not supported")
-        kernels = slac.compile_expression(expr, tsfc_parameters=form_compiler_parameters)
+        kernels = slac.compile_expression(expr, compiler_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(expr, "form", parameters=form_compiler_parameters, diagonal=diagonal)
 

@@ -16,6 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+from pkg_resources import parse_version
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -142,6 +143,24 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
     sys.exit(1)
 
+# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
+# But only for Linux
+if platform.system() == "Linux":
+    # Get the cpu information
+    cpuinfostring = os.popen('lscpu').read()
+    # Check if it is a tigerlake processor
+    if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
+        # Get the compiler versions
+        gccversionstring = os.popen('gcc -dumpfullversion').read()
+
+        gppversionstring = os.popen('g++ -dumpfullversion').read()
+
+        gfortranversionstring = os.popen('gfortran -dumpfullversion').read()
+
+        # Check if the combination is a problem
+        if parse_version(gccversionstring) < parse_version("9.4") or parse_version(gppversionstring) < parse_version("9.4") or parse_version(gfortranversionstring) < parse_version("9.4"):
+            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
+            sys.exit(1)
 
 branches = {}
 
@@ -397,9 +416,13 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
-    if config["options"].get("with_blas") is not None and \
-       config["options"].get("with_blas") != args.with_blas:
-        args.rebuild = True
+    if config["options"].get("with_blas") is not None:
+        if config["options"].get("with_blas") != args.with_blas:
+            # Rebuild if BLAS library explicitly changed at command line
+            args.rebuild = True
+        else:
+            # Prevent deep_update overwriting BLAS options if they exist in the config, but are unspecified at the command line
+            args.with_blas = config["options"].get("with_blas")
 
     petsc_complex_type_changed = False
     previously_complex = config["options"].get("complex", False)
@@ -539,103 +562,108 @@ If you really want to use your own Python packages, please run again with the
 --honour-pythonpath option.
 """)
 
-petsc_options = {"--with-fortran-bindings=0",
-                 "--with-debugging=0",
-                 "--with-shared-libraries=1",
-                 "--with-c2html=0",
-                 "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
-                 # File format
-                 "--download-hdf5",
-                 # AMG
-                 "--download-hypre",
-                 # Sparse direct solver
-                 "--download-superlu_dist",
-                 # Parallel mesh partitioner
-                 "--download-ptscotch",
-                 # For superlu_dist amongst others.
-                 "--with-cxx-dialect=C++11"}
 
-if osname == "Darwin":
-    petsc_options.add("--with-x=0")
+def get_petsc_options():
+    petsc_options = {"--with-fortran-bindings=0",
+                     "--with-debugging=0",
+                     "--with-shared-libraries=1",
+                     "--with-c2html=0",
+                     "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
+                     # File format
+                     "--download-hdf5",
+                     # AMG
+                     "--download-hypre",
+                     # Sparse direct solver
+                     "--download-superlu_dist",
+                     # Parallel mesh partitioner
+                     "--download-ptscotch",
+                     # For superlu_dist amongst others.
+                     "--with-cxx-dialect=C++11"}
 
-if not options["minimal_petsc"]:
-    petsc_options.add("--with-zlib")
-    # File formats
-    petsc_options.add("--download-netcdf")
-    petsc_options.add("--download-pnetcdf")
-    # Sparse direct solvers
-    petsc_options.add("--download-suitesparse")
-    petsc_options.add("--download-pastix")
-    # Required by pastix
-    petsc_options.add("--download-hwloc")
     if osname == "Darwin":
-        petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
-    # Serial mesh partitioner
-    petsc_options.add("--download-metis")
-    if options.get("with_parmetis", None):
-        # Non-free license.
-        petsc_options.add("--download-parmetis")
+        petsc_options.add("--with-x=0")
 
-if options["petsc_int_type"] == "int32":
-    # Sparse direct solver
-    petsc_options.add("--download-scalapack")  # Needed for mumps
-    petsc_options.add("--download-mumps")
-    # Serial mesh partitioner
-    petsc_options.add("--download-chaco")
     if not options["minimal_petsc"]:
-        # AMG
-        petsc_options.add("--download-ml")
-else:
-    petsc_options.add("--with-64-bit-indices")
+        petsc_options.add("--with-zlib")
+        # File formats
+        petsc_options.add("--download-netcdf")
+        petsc_options.add("--download-pnetcdf")
+        # Sparse direct solvers
+        petsc_options.add("--download-suitesparse")
+        petsc_options.add("--download-pastix")
+        # Required by pastix
+        petsc_options.add("--download-hwloc")
+        if osname == "Darwin":
+            petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
+        # Serial mesh partitioner
+        petsc_options.add("--download-metis")
+        if options.get("with_parmetis", None):
+            # Non-free license.
+            petsc_options.add("--download-parmetis")
 
-if options["complex"]:
-    petsc_options -= {'--download-hypre'}
-    petsc_options -= {'--download-ml'}
-    petsc_options.add('--with-scalar-type=complex')
-
-if options.get("mpiexec") is not None:
-    petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
-    petsc_options.add("--with-cc={}".format(options["mpicc"]))
-    petsc_options.add("--with-cxx={}".format(options["mpicxx"]))
-    petsc_options.add("--with-fc={}".format(options["mpif90"]))
-else:
-    # Download mpich if the user does not tell us about an MPI.
-    petsc_options.add("--download-mpich")
-    if osname == "Darwin":
-        petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
-
-if options.get("with_blas") == "download":
-    # Download openblas if the user specifies.
-    petsc_options.add("--download-openblas")
-    petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
-    if osname == "Darwin":
-        petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
-elif options.get("with_blas") is not None:
-    petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
-    if osname == "Darwin":
-        petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+    if options["petsc_int_type"] == "int32":
+        # Sparse direct solver
+        petsc_options.add("--download-scalapack")  # Needed for mumps
+        petsc_options.add("--download-mumps")
+        # Serial mesh partitioner
+        petsc_options.add("--download-chaco")
+        if not options["minimal_petsc"]:
+            # AMG
+            petsc_options.add("--download-ml")
     else:
-        petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
-elif osname == "Darwin":
-    brew_prefix = check_output(['brew', '--prefix'])[:-1]
-    mac_blas = brew_prefix+"/opt/openblas"
-    petsc_options.add("--with-blaslapack-dir={}".format(mac_blas))
-    petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(mac_blas))
-    petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(mac_blas))
+        petsc_options.add("--with-64-bit-indices")
 
-for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
-    if option.startswith("--with-hdf5-dir"):
-        petsc_options.discard("--download-hdf5")
-        os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
-    petsc_options.add(option)
-if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
-    del os.environ["HDF5_DIR"]
-    log.info("""\nWarning: HDF5_DIR environment variable set, but ignored;
-use PETSC_CONFIGURE_OPTIONS="--with-hdf5-dir=$HDF5_DIR"
-to have PETSc built against $HDF5_DIR.
-""")
-petsc_options = list(petsc_options)
+    if options["complex"]:
+        petsc_options -= {'--download-hypre'}
+        petsc_options -= {'--download-ml'}
+        petsc_options.add('--with-scalar-type=complex')
+
+    if options.get("mpiexec") is not None:
+        petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
+        petsc_options.add("--with-cc={}".format(options["mpicc"]))
+        petsc_options.add("--with-cxx={}".format(options["mpicxx"]))
+        petsc_options.add("--with-fc={}".format(options["mpif90"]))
+    else:
+        # Download mpich if the user does not tell us about an MPI.
+        petsc_options.add("--download-mpich")
+        if osname == "Darwin":
+            petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
+
+    if options.get("with_blas") == "download":
+        # Download openblas if the user specifies.
+        petsc_options.add("--download-openblas")
+        petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
+        if osname == "Darwin":
+            petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+    elif options.get("with_blas") is not None:
+        petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
+        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+        if osname == "Darwin":
+            petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+        else:
+            petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+    elif osname == "Darwin":
+        brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
+        brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
+        gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
+        brew_gcc_libdir = brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
+        brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
+        petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
+        petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
+        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
+
+    for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+        if option.startswith("--with-hdf5-dir"):
+            petsc_options.discard("--download-hdf5")
+            os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+        petsc_options.add(option)
+    if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
+        del os.environ["HDF5_DIR"]
+        log.info("\nWarning: HDF5_DIR environment variable set, but ignored; "
+                 "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
+                 "to have PETSc built against $HDF5_DIR.")
+    return list(petsc_options)
+
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
@@ -770,7 +798,7 @@ def git_update(name, url=None):
         if url:
             _, plain_url, branch = split_requirements_url(url)
             current_url = check_output(["git", "remote", "-v"]).split()[1]
-            current_branch = check_output(["git", "branch", "--show-current"]).strip()
+            current_branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
             protocol = "https" if current_url.startswith("https") else "ssh"
             new_url = git_url(plain_url, protocol)
             # Ensure we only change from bitbucket to github and not the reverse.
@@ -989,7 +1017,8 @@ def build_and_install_petsc():
     with directory("petsc"):
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
-        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + list(petsc_options))
+        petsc_options = get_petsc_options()
+        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
         check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
@@ -1074,12 +1103,18 @@ def build_and_install_libsupermesh():
             check_call(["git", "clean", "-f", "-x", "-d"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
-                check_call(["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                            "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                            "-DMPI_C_COMPILER=" + cc,
-                            "-DMPI_CXX_COMPILER=" + cxx,
-                            "-DMPI_Fortran_COMPILER=" + f90,
-                            "-DCMAKE_Fortran_COMPILER=" + f90])
+                cmd = ["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                       "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                       "-DMPI_C_COMPILER=" + cc,
+                       "-DMPI_CXX_COMPILER=" + cxx,
+                       "-DMPI_Fortran_COMPILER=" + f90,
+                       "-DCMAKE_Fortran_COMPILER=" + f90,
+                       "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
+                if osname == "Darwin":
+                    # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
+                    # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
+                    cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
+                check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
@@ -1217,10 +1252,10 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip_install(["sphinx"])
-    run_pip_install(["sphinxcontrib-bibtex"])
-    run_pip_install(["bibtexparser"])
-    run_pip_install(["git+https://github.com/sphinx-contrib/youtube.git"])
+    run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinxcontrib-bibtex"])
+    run_pip(["install", "-U", "bibtexparser"])
+    run_pip(["install", "-U", "sphinxcontrib-youtube"])
 
 
 def clean_obsolete_packages():
@@ -1287,6 +1322,7 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("*********************************************")
     log.info("Would build PETSc with the following options:")
     log.info("*********************************************\n")
+    petsc_options = get_petsc_options()
     log.info("\n".join(petsc_options))
     log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
     sys.exit(0)
@@ -1398,19 +1434,19 @@ if mode == "install" or not args.update_script:
     blas_location = args.with_blas
 
     if osname == "Darwin":
-        if options["package_manager"]:
+        try:
+            check_call(["brew", "--version"])
+        except subprocess.CalledProcessError:
+            quit("Installing Firedrake on MacOS requires Homebrew. Please install "
+                 "it using the instructions at http://brew.sh and then try again.")
 
+        if options["package_manager"]:
             log.info("Installing command line tools...")
             try:
                 check_call(["xcode-select", "--install"])
             except subprocess.CalledProcessError:
                 # expected failure if already installed
                 pass
-
-            try:
-                check_call(["brew", "--version"])
-            except subprocess.CalledProcessError:
-                quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
             log.info("Checking brew doctor...")
             try:
@@ -1431,14 +1467,17 @@ if mode == "install" or not args.update_script:
                 else:
                     log.info("Installing required package '{0}' via Homebrew.".format(package))
                     brew_install(package)
-
-            if args.with_blas is None and mode == "install":
-                blas_location = brew_prefix+"/opt/openblas"
-                config["with_blas"] = blas_location
         else:
             log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 
+        # Unconditionally require openblas ("brew" is required above)
+        if args.with_blas is None and mode == "install":
+            config["options"]["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
+            blas_location = config["options"]["with_blas"]
+            if not os.path.exists(blas_location):
+                raise InstallError("Automatic determination of BLAS looked for openblas in %s but didn't find it\n"
+                                   "Please provide location of a BLAS library with --with-blas (or use --with-blas=download)" % blas_location)
     elif osname == "Linux":
         # Check for apt.
         try:
@@ -1530,6 +1569,7 @@ if blas_location == "download":
 if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
+log.info("BLAS config is %s" % blas)
 
 # Configuration is now complete, and we have a venv so we dump the
 # config file in order to maximise the chance that firedrake-update
@@ -1661,6 +1701,12 @@ else:
         git_update("firedrake")
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
+
+    # Pre-install requested packages
+    if args.pip_packages is not None:
+        for package in args.pip_packages:
+            log.info("Pip installing %s to venv" % package)
+            run_pip_install(package.split())
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))

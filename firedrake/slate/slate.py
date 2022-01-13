@@ -39,7 +39,8 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve']
+           'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
+           'Reciprocal']
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -119,6 +120,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
     terminal = False
     assembled = False
+    diagonal = False
 
     _id = count()
 
@@ -155,7 +157,7 @@ class TensorBase(object, metaclass=ABCMeta):
             elif isinstance(op, Factorization):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
-                data = (op.form.signature(), )
+                data = (op.form.signature(), op.diagonal, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -470,11 +472,12 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`firedrake.Function`s
+    vector of data contained in a set of :class:`firedrake.Function` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.
     """
+
     def __new__(cls, function, split_functions, indices):
         if isinstance(split_functions, tuple) \
            and all(isinstance(f, Coefficient) for f in split_functions):
@@ -814,14 +817,17 @@ class Tensor(TensorBase):
     operands = ()
     terminal = True
 
-    def __init__(self, form):
+    def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
             if isinstance(form, Function):
                 raise TypeError("Use AssembledVector instead of Tensor.")
             raise TypeError("Only UFL forms are acceptable inputs.")
 
-        r = len(form.arguments())
+        if self.diagonal:
+            assert len(form.arguments()) > 1, "Diagonal option only makes sense on rank-2 tensors."
+
+        r = len(form.arguments()) - diagonal
         if r not in (0, 1, 2):
             raise NotImplementedError("No support for tensors of rank %d." % r)
 
@@ -831,6 +837,7 @@ class Tensor(TensorBase):
         super(Tensor, self).__init__()
 
         self.form = form
+        self.diagonal = diagonal
 
     @cached_property
     def arg_function_spaces(self):
@@ -841,7 +848,8 @@ class Tensor(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.form.arguments()
+        r = len(self.form.arguments()) - self.diagonal
+        return self.form.arguments()[0:r]
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -870,7 +878,7 @@ class Tensor(TensorBase):
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        return (type(self), self.form)
+        return (type(self), self.form, self.diagonal)
 
 
 class TensorOp(TensorBase):
@@ -940,6 +948,37 @@ class UnaryOp(TensorOp):
         return "%s(%r)" % (type(self).__name__, tensor)
 
 
+class Reciprocal(UnaryOp):
+    """An abstract Slate class representing the reciprocal of a vector.
+    """
+
+    def __init__(self, A):
+        """Constructor for the Inverse class."""
+        assert A.rank == 1, "The tensor must be rank 1."
+
+        super(Reciprocal, self).__init__(A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return tensor.arg_function_spaces
+
+    def arguments(self):
+        """Returns the expected arguments of the resulting tensor of
+        performing a specific unary operation on a tensor.
+        """
+        tensor, = self.operands
+        return tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the inverse of a tensor."""
+        tensor, = self.operands
+        return "(%s).reciprocal" % tensor
+
+
 class Inverse(UnaryOp):
     """An abstract Slate class representing the inverse of a tensor.
 
@@ -954,8 +993,9 @@ class Inverse(UnaryOp):
         assert A.shape[0] == A.shape[1], (
             "The inverse can only be computed on square tensors."
         )
+        self.diagonal = A.diagonal
 
-        if A.shape > (4, 4) and not isinstance(A, Factorization):
+        if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
             A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
@@ -1121,7 +1161,7 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
-        if A.shape[1] != B.shape[0]:
+        if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
@@ -1198,7 +1238,7 @@ class Solve(BinaryOp):
         decomposition = decomposition or "PartialPivLU"
 
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition)
+        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal else A
 
         super(Solve, self).__init__(A_factored, B)
 
@@ -1219,6 +1259,43 @@ class Solve(BinaryOp):
         return self._args
 
 
+class DiagonalTensor(UnaryOp):
+    """An abstract Slate class representing the diagonal of a tensor.
+
+    .. warning::
+
+       This class will raise an error if the tensor is not square.
+    """
+    diagonal = True
+
+    def __init__(self, A):
+        """Constructor for the Diagonal class."""
+        assert A.rank == 2, "The tensor must be rank 2."
+        assert A.shape[0] == A.shape[1], (
+            "The diagonal can only be computed on square tensors."
+        )
+
+        super(DiagonalTensor, self).__init__(A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return tuple(arg.function_space() for arg in tensor.arguments())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        tensor, = self.operands
+        return tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the diagonal of a tensor."""
+        tensor, = self.operands
+        return "(%s).diag" % tensor
+
+
 def space_equivalence(A, B):
     """Checks that two function spaces are equivalent.
 
@@ -1234,9 +1311,10 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor],
+    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],
     [Add],
-    [Mul, Solve],
+    [Mul],
+    [Solve],
     [UnaryOp],
 ]
 

@@ -248,12 +248,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
-        iterable of literal constants (converted to an
-        :class:`.Expression`), or a literal constant which can be
-        pointwise evaluated at the nodes of
-        ``V``. :class:`.Expression`\s are projected onto ``V`` if it
-        does not support pointwise evaluation.
+        ``V``, or a UFL expression that can be interpolated into
+        ``V``, for example, a :class:`.Constant`, an iterable of
+        literal constants (converted to a UFL expression), or a
+        literal constant which can be pointwise evaluated at the nodes
+        of ``V``.
     :arg sub_domain: the integer id(s) of the boundary region over which the
         boundary condition should be applied. The string "on_boundary" may be used
         to indicate all of the boundaries of the domain. In the case of extrusion

@@ -62,7 +62,7 @@ read-write access to the PETSc object.  For read-only access, we use:
    with assemble(linear_form).dat.vec_ro as v:
        petsc_vec_ro = v
 
-For read-write access, use:
+For write-only access, use ``.vec_wo``, and for read-write access, use:
 
 .. code-block:: python3
 
@@ -71,6 +71,31 @@ For read-write access, use:
 
 These context managers ensure that if PETSc writes to the vector,
 Firedrake sees the modification of the values.
+
+
+Plotting the sparsity of a PETSc ``Mat``
+----------------------------------------
+
+Given a PETSc matrix of type ``'seqaij'``, we may access
+its compressed sparse row format and convert to that used in
+SciPy in the following way:
+
+.. code-block:: python3
+
+    import scipy.sparse as sp
+
+    indptr, indices, data = petsc_mat.getValuesCSR()
+    scipy_mat = sp.csr_matrix((data, indices, indptr), shape=petsc_mat.getSize())
+
+The sparsity pattern may then be straightforwardly plotted
+using matplotlib:
+
+.. code-block:: python3
+
+    import matplotlib.pyplot as plt
+
+    plt.spy(scipy_mat)
+
 
 Building an operator
 ====================
@@ -161,6 +186,13 @@ Now we can solve a system using this ``ksp`` object:
 
 Defining a preconditioner
 =========================
+
+.. note::
+
+   In many cases it is not necessary to drop to this low a level to
+   construct problem-specific preconditioners. More details on this
+   approach are discussed in the manual section on
+   :doc:`preconditioning`.
 
 Since PETSc only knows how to compute the action of :math:`B`, and
 does not have access to any of the entries, it will not be able to
@@ -280,4 +312,102 @@ before going on to solve the system as before:
            ksp.solve(b, x)
 
 
+Accessing the PETSc mesh representation
+=======================================
+
+Under the hood, Firedrake uses PETSc's DMPlex unstructured mesh
+representation. It uses a hierarchical approach, where entities
+of different dimension are put on different levels of the
+hierarchy. The single tetrahedral element shown on the left below
+may be interpreted using the graph representation on the right.
+Entities of dimension zero (vertices) are shown at the top.
+Entities of dimension one (edges) are shown on the next level down.
+Entities of dimension two (faces) are shown on the penultimate
+level and the (dimension three) element itself is on the bottom
+level. Edges in the graph indicate which entities own/are owned
+by others.
+
+.. image:: _static/dmplex.png
+   :width: 75%
+   :align: center
+
+The DMPlex associated with a given ``mesh`` may be accessed via
+its ``topology_dm`` attribute:
+
+.. code-block:: python3
+
+    plex = mesh.topology_dm
+
+All entities in a DMPlex are given a unique number. The range
+of these numbers may be deduced using the method
+``plex.getDepthStratum``, whose only argument is the entity
+dimension sought. For example, 0 for vertices, 1 for edges, etc.
+Similarly, the method ``plex.getHeightStratum`` can be used for
+codimension access. For example, height 0 corresponds to cells.
+The hierarchical DMPlex structure may be traversed using other
+methods, such as ``plex.getCone``, ``plex.getSupport`` and
+``plex.getTransitiveClosure``. See the `Firedrake DMPlex paper`_
+and the `PETSc manual`_ for details.
+
+If vertex coordinate information is to be accessed from the
+DMPlex then we must first establish a mapping between
+`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+by establishing a 'section'. A section provides a way of associating
+data with the mesh - in this case, coordinate field data.
+For a $d$-dimensional mesh, we seek to establish offsets to recover
+$d$-tuple coordinates for the degrees of freedom.
+
+For a linear mesh, we seek $d$ values at each vertex and no values for
+entities of higher dimension. In 2D, for example, this corresponds to the array
+
+.. math::
+
+   (d, 0, 0).
+
+For an order $p$ Lagrange mesh, it is a little more complicated. In
+the 2D triangular case, we require the following entities:
+
+.. math::
+
+   (d, d(p-1), d(p-1)(p-2)/2).
+
+Accordingly, set
+
+.. code-block:: python3
+
+    dim = mesh.topological_dimension()
+    gdim = mesh.geometrical_dimension()
+    entity_dofs = np.zeros(dim+1, dtype=np.int32)
+    entity_dofs[0] = gdim
+    entity_dofs[1] = gdim*(p-1)
+    entity_dofs[2] = gdim*((p-1)*(p-2))//2
+
+We then use Firedrake's helper function for creating a PETSc
+section to establish the mapping:
+
+.. code-block:: python3
+
+    from firedrake.cython.dmcommon import create_section
+
+    coord_section = create_section(mesh, entity_dofs)
+    plex = mesh.topology_dm
+    plex_coords = plex.getCoordinateDM()
+    plex_coords.setDefaultSection(coord_section)
+    coords_local = plex_coords.createLocalVec()
+    coords_local.array[:] = np.reshape(mesh.coordinates.dat.data_ro_with_halos, coords_local.array.shape)
+    plex.setCoordinatesLocal(coords_local)
+
+We can then extract coordinates for node ``i`` belonging to
+entity ``d`` (according to the DMPlex numbering) by
+
+.. code-block:: python3
+
+    dofs = coord_section.getDof(d)
+    offset = coord_section.getOffset(d)//dim + i
+    coord = mesh.coordinates.dat.data_ro_with_halos[offset]
+    print(f"Node {i} belonging to entity {d} has coordinates {coord}")
+
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
+.. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
+.. _PETSc manual: https://petsc.org/release/docs/manual/dmplex/
+.. _its numbering: https://petsc.org/release/docs/manual/dmplex/#data-layout
