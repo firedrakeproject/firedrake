@@ -1,12 +1,11 @@
-import os
-import importlib
-
 from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
 
-from vtkmodules.vtkCommonDataModel import (vtkLagrangeTriangle, vtkLagrangeTetra,
-    vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge)
+from vtkmodules.vtkCommonDataModel import (
+    vtkLagrangeTriangle, vtkLagrangeTetra,
+    vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge
+)
 
 paraviewUsesVTK8 = True
 
