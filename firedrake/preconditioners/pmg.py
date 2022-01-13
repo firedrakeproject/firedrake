@@ -1,24 +1,19 @@
 from functools import partial, lru_cache
 from itertools import chain
-
-import os
-import tempfile
-
-import ufl
-
 from pyop2 import op2, PermutedMap
-import loopy
-import numpy
-
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
-from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
-from firedrake.dmhooks import attach_hooks, get_appctx, push_appctx, pop_appctx
-from firedrake.dmhooks import add_hook, get_parent, push_parent, pop_parent
-from firedrake.dmhooks import get_function_space, set_function_space
+from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
+                               add_hook, get_parent, push_parent, pop_parent,
+                               get_function_space, set_function_space)
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import ScalarType_c, IntType_c
 from firedrake.petsc import PETSc
 import firedrake
+import ufl
+import loopy
+import numpy
+import os
+import tempfile
 
 __all__ = ("PMGPC", "PMGSNES")
 
@@ -152,6 +147,8 @@ class PMGBase(PCSNESBase):
     def coarsen(self, fdm, comm):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
+        from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
+
         fctx = get_appctx(fdm)
         parent = get_parent(fdm)
         assert parent is not None
@@ -785,16 +782,16 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
 
 
-def get_shift(ele):
+def get_axes_shift(ele):
     """Return the form degree of a FInAT element after discarding modifiers"""
     if hasattr(ele, "element"):
-        return get_shift(ele.element)
+        return get_axes_shift(ele.element)
     else:
         return ele.formdegree
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    shift = get_shift(V.finat_element)
+    shift = get_axes_shift(V.finat_element)
     tdim = V.mesh().topological_dimension()
     if shift % tdim:
         ndof = numpy.prod(vshape)
@@ -845,7 +842,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    shift = get_shift(V.finat_element)
+    shift = get_axes_shift(V.finat_element)
     if shift % V.mesh().topological_dimension() == 0:
         return V.cell_node_map()
 

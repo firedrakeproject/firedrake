@@ -1,9 +1,6 @@
 from functools import lru_cache, partial
-
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import get_shift, get_line_elements, prolongation_matrix_matfree
 import firedrake.dmhooks as dmhooks
 import firedrake
 import numpy
@@ -49,6 +46,8 @@ class FDMPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
+        from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+        from firedrake.preconditioners.patch import bcdofs
         Citations().register("Brubeck2021")
 
         prefix = pc.getOptionsPrefix()
@@ -181,6 +180,8 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
+        from firedrake.preconditioners.pmg import get_line_elements
+
         try:
             line_elements = get_line_elements(V)
         except ValueError:
@@ -236,6 +237,8 @@ class FDMPC(PCBase):
         :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
+        from firedrake.preconditioners.pmg import get_axes_shift
+
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -248,7 +251,7 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
-        shift = get_shift(V.finat_element) % ndim
+        shift = get_axes_shift(V.finat_element) % ndim
 
         index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun(Gq.cell_node_map())
