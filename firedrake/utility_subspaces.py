@@ -15,7 +15,21 @@ from finat.quadrature import QuadratureRule
 import ufl
 
 
-__all__ = ['BoundarySubspace', 'BoundaryComponentSubspace']
+__all__ = ['DofConstrainedSubspace', 'VectorComponentConstrainedSubspace', 'BoundarySubspace', 'BoundaryComponentSubspace']
+
+
+def DofConstrainedSubspace(V, constraints):
+    pass
+
+def VectorComponentConstrainedSubspace(V, subdomains_constraints_map):
+    r"""
+
+    :arg V: The function space.
+    :arg subdomains_constraints_map:
+
+    """
+    V.finat_element.fiat_equivalent.dual.nodes[0].get_point_dict()
+
 
 
 def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
