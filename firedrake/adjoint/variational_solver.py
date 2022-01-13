@@ -9,11 +9,14 @@ from ufl import replace
 class NonlinearVariationalProblemMixin:
     @staticmethod
     def _ad_annotate_init(init):
-        @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
             from firedrake import derivative, adjoint, TrialFunction
-            init(self, *args, **kwargs)
+            annotate = annotate_tape(kwargs)
+            with stop_annotating():
+                init(self, *args, **kwargs)
+            if not annotate:
+                return
             self._ad_F = self.F
             self._ad_u = self.u
             self._ad_bcs = self.bcs
