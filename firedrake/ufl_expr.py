@@ -81,6 +81,7 @@ class Argument(ufl.argument.Argument):
 
 class Coargument(ufl.argument.Coargument):
     """Representation of an argument to a form in a dual space.
+
     :arg function_space: the :class:`.FunctionSpace` the argument
         corresponds to.
     :arg number: the number of the argument being constructed.
