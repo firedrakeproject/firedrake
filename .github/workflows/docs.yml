@@ -29,9 +29,6 @@ jobs:
         run: |
           sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
       - uses: actions/checkout@v2
-        with:
-          repository: firedrakeproject/ufl
-          ref: dualspace_update
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -49,6 +46,9 @@ jobs:
           firedrake-preprocess-bibtex --validate source/_static/references.bib
       - name: Build docs
         run: |
+          cd /home/firedrake/firedrake/src/ufl
+          git checkout dualspace_update
+          cd /home/firedrake/firedrake/src/firedrake
           . /home/firedrake/firedrake/bin/activate
           cd docs
           make html
