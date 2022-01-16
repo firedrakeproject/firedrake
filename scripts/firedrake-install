@@ -416,9 +416,13 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
-    if config["options"].get("with_blas") is not None and \
-       config["options"].get("with_blas") != args.with_blas:
-        args.rebuild = True
+    if config["options"].get("with_blas") is not None:
+        if config["options"].get("with_blas") != args.with_blas:
+            # Rebuild if BLAS library explicitly changed at command line
+            args.rebuild = True
+        else:
+            # Prevent deep_update overwriting BLAS options if they exist in the config, but are unspecified at the command line
+            args.with_blas = config["options"].get("with_blas")
 
     petsc_complex_type_changed = False
     previously_complex = config["options"].get("complex", False)
@@ -1469,8 +1473,8 @@ if mode == "install" or not args.update_script:
 
         # Unconditionally require openblas ("brew" is required above)
         if args.with_blas is None and mode == "install":
-            config["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
-            blas_location = config["with_blas"]
+            config["options"]["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
+            blas_location = config["options"]["with_blas"]
             if not os.path.exists(blas_location):
                 raise InstallError("Automatic determination of BLAS looked for openblas in %s but didn't find it\n"
                                    "Please provide location of a BLAS library with --with-blas (or use --with-blas=download)" % blas_location)
@@ -1489,7 +1493,6 @@ if mode == "install" or not args.update_script:
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 else:
-    # Only actually relevant on MacOS
     blas_location = config["options"].get("with_blas")
 
 if mode == "install":
