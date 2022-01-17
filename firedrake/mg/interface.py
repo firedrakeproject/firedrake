@@ -1,6 +1,7 @@
 from pyop2 import op2
 
 import firedrake
+from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
 
@@ -23,6 +24,7 @@ def check_arguments(coarse, fine):
         raise ValueError("Mismatching function space shapes")
 
 
+@PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
@@ -83,6 +85,7 @@ def prolong(coarse, fine):
     return fine
 
 
+@PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual)
     Vf = fine_dual.function_space()
@@ -144,6 +147,7 @@ def restrict(fine_dual, coarse_dual):
     return coarse_dual
 
 
+@PETSc.Log.EventDecorator()
 def inject(fine, coarse):
     check_arguments(coarse, fine)
     Vf = fine.function_space()

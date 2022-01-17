@@ -1,8 +1,11 @@
 import pytest
 from firedrake import *
+from firedrake.plot import FunctionPlotter
 import matplotlib.pyplot as plt
 import matplotlib.colors
+from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
 
 
 def test_plotting_1d():
@@ -117,6 +120,29 @@ def test_tricontour_quad_mesh():
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate(x[0] ** 2 + x[1] ** 2)
+
+    fig, axes = plt.subplots()
+    contours = tricontourf(f, axes=axes)
+    colorbar = fig.colorbar(contours)
+    assert contours is not None
+    assert colorbar is not None
+
+
+def test_tricontour_extruded_mesh():
+    nx = 12
+    Lx = Constant(3.0)
+    interval = IntervalMesh(nx, float(Lx))
+    rectangle = ExtrudedMesh(interval, 1)
+    Vc = rectangle.coordinates.function_space()
+    x = SpatialCoordinate(rectangle)
+    expr = as_vector((x[0], (1 - 0.5 * x[0] / Lx) * x[1] + 0.25 * x[0] / Lx))
+    f = interpolate(expr, Vc)
+    mesh = Mesh(f)
+
+    V = FunctionSpace(mesh, "CG", 1, vfamily="CG", vdegree=1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0] + x[1])
 
     fig, axes = plt.subplots()
     contours = tricontourf(f, axes=axes)
@@ -273,3 +299,30 @@ def test_trisurf3d_quad():
     axes = fig.add_subplot(111, projection='3d')
     collection = trisurf(f, axes=axes)
     assert collection is not None
+
+
+def test_tripcolor_movie():
+    mesh = UnitSquareMesh(16, 16)
+    Q = FunctionSpace(mesh, 'CG', 2)
+    x = SpatialCoordinate(mesh)
+    t = Constant(0)
+    expr = sin(np.pi * (x[0] + 2 * x[1] + t))
+    q = interpolate(expr, Q)
+
+    fig, axes = plt.subplots()
+    axes.set_aspect('equal')
+    colors = tripcolor(q, num_sample_points=10, vmin=0.0, vmax=1.0, axes=axes)
+
+    fn_plotter = FunctionPlotter(mesh, num_sample_points=10)
+
+    def animate(time):
+        t.assign(time)
+        q.interpolate(expr)
+        colors.set_array(fn_plotter(q))
+
+    duration = 6
+    fps = 24
+    frames = np.linspace(0.0, duration, duration * fps)
+    interval = 1e3 / fps
+    movie = FuncAnimation(fig, animate, frames=frames, interval=interval)
+    assert movie is not None

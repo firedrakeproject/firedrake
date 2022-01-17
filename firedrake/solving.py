@@ -27,10 +27,11 @@ from firedrake import solving_utils
 from firedrake import dmhooks
 import firedrake
 from firedrake.adjoint import annotate_solve
-
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 
 
+@PETSc.Log.EventDecorator()
 @annotate_solve
 def solve(*args, **kwargs):
     r"""Solve linear system Ax = b or variational problem a == L or F == 0.

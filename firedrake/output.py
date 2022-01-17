@@ -5,8 +5,10 @@ import os
 import ufl
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, dup_comm
-from firedrake.utils import IntType
 from pyop2.utils import as_tuple
+from pyadjoint import no_annotations
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
     vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
@@ -114,6 +116,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
                              variant="equispaced")
 
 
+@PETSc.Log.EventDecorator()
 def get_topology(coordinates):
     r"""Get the topology for VTU output.
 
@@ -352,7 +355,7 @@ class File(object):
                b'</VTKFile>\n')
 
     def __init__(self, filename, project_output=False, comm=None, mode="w",
-                 target_degree=None, target_continuity=None):
+                 target_degree=None, target_continuity=None, adaptive=False):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -369,6 +372,7 @@ class File(object):
         :kwarg target_continuity: override the continuity of the output space;
             A UFL :class:`~.SobolevSpace` object: `H1` for a
             continuous output and `L2` for a discontinuous output.
+        :kwarg adaptive: allow different meshes at different exports if `True`.
 
         .. note::
 
@@ -433,7 +437,9 @@ class File(object):
 
         self._fnames = None
         self._topology = None
+        self._adaptive = adaptive
 
+    @no_annotations
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
             TensorFunctionSpace, Function
@@ -515,7 +521,7 @@ class File(object):
         functions = tuple(self._prepare_output(f, max_elem)
                           for f in functions)
 
-        if self._topology is None:
+        if self._topology is None or self._adaptive:
             self._topology = get_topology(coordinates.function)
 
         basename = "%s_%s" % (self.basename, next(self.counter))
@@ -617,6 +623,7 @@ class File(object):
             f.write(b'</VTKFile>\n')
         return fname
 
+    @PETSc.Log.EventDecorator()
     def write(self, *functions, **kwargs):
         """Write functions to this :class:`File`.
 

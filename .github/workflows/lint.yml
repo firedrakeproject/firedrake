@@ -1,14 +1,15 @@
-name: Lint
+name: Run lint
 
 on:
   # Push to master or PR
   push:
     branches:
       - master
-  pull_request_target:
+  pull_request:
 
 jobs:
-  test:
+  linter:
+    name: "Run linter"
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     # Steps represent a sequence of tasks that will be executed as
@@ -25,3 +26,12 @@ jobs:
       - name: Lint
         run: |
           make lint
+      - name: Install bibtex linter
+        run: |
+          pip install bibtexparser
+      - name: Check bibtex
+        run: |
+          for bibfile in docs/source/_static/*.bib; do
+              echo "Checking $(basename $bibfile) for validation errors"
+              python3 scripts/firedrake-preprocess-bibtex --validate $bibfile
+          done

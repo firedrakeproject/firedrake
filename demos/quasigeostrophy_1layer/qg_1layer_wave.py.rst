@@ -111,38 +111,38 @@ Next we define the domain we will solve the equations on, square
 domain with 50 cells in each direction that is periodic along the
 x-axis. ::
 
-  Lx   = 2.*pi                                     # Zonal length
-  Ly   = 2.*pi                                     # Meridonal length
-  n0   = 50                                        # Spatial resolution
-  mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly,  direction="x", quadrilateral=True)
+  Lx = 2.0 * pi  # Zonal length
+  Ly = 2.0 * pi  # Meridonal length
+  n0 = 50  # Spatial resolution
+  mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly, direction="x", quadrilateral=True)
 
 We define function spaces::
 
-  Vdg = FunctionSpace(mesh,"DG",1)               # DG elements for Potential Vorticity (PV)
-  Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
-  Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
+  Vdg = FunctionSpace(mesh, "DQ", 1)  # DQ elements for Potential Vorticity (PV)
+  Vcg = FunctionSpace(mesh, "CG", 1)  # CG elements for Streamfunction
+  Vu = VectorFunctionSpace(mesh, "DQ", 0)  # DQ elements for velocity
 
 and initial conditions for the potential vorticity, here we use
 Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`. ::
 
   x = SpatialCoordinate(mesh)
-  q0 = Function(Vdg).interpolate(0.1*sin(x[0])*sin(x[1]))
+  q0 = Function(Vdg).interpolate(0.1 * sin(x[0]) * sin(x[1]))
 
 We define some :class:`~.Function`\s to store the fields::
 
-  dq1 = Function(Vdg)       # PV fields for different time steps
-  qh  = Function(Vdg)
-  q1  = Function(Vdg)
+  dq1 = Function(Vdg)  # PV fields for different time steps
+  qh = Function(Vdg)
+  q1 = Function(Vdg)
 
-  psi0 = Function(Vcg)      # Streamfunctions for different time steps
+  psi0 = Function(Vcg)  # Streamfunctions for different time steps
   psi1 = Function(Vcg)
 
 along with the physical parameters of the model. ::
 
-  F    = Constant(1.0)         # Rotational Froude number
-  beta = Constant(0.1)         # beta plane coefficient
-  Dt   = 0.1                   # Time step
-  dt   = Constant(Dt)
+  F = Constant(1.0)  # Rotational Froude number
+  beta = Constant(0.1)  # beta plane coefficient
+  Dt = 0.1  # Time step
+  dt = Constant(Dt)
 
 Next, we define the variational problems.  First the elliptic problem
 for the stream function. ::
@@ -151,20 +151,16 @@ for the stream function. ::
   phi = TestFunction(Vcg)
 
   # Build the weak form for the inversion
-  Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx
-  Lpsi = -q1*phi*dx
+  Apsi = (inner(grad(psi), grad(phi)) + F * psi * phi) * dx
+  Lpsi = -q1 * phi * dx
 
 We impose homogeneous dirichlet boundary conditions on the stream
 function at the top and bottom of the domain. ::
 
-  bc1 = DirichletBC(Vcg, 0., (1, 2))
+  bc1 = DirichletBC(Vcg, 0.0, (1, 2))
 
-  psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1)
-  psi_solver = LinearVariationalSolver(psi_problem,
-                                       solver_parameters={
-          'ksp_type':'cg',
-          'pc_type':'sor'
-          })
+  psi_problem = LinearVariationalProblem(Apsi, Lpsi, psi0, bcs=bc1, constant_jacobian=True)
+  psi_solver = LinearVariationalSolver(psi_problem, solver_parameters={"ksp_type": "cg", "pc_type": "hypre"})
 
 Next we'll set up the advection equation, for which we need an
 operator :math:`\vec\nabla^\perp`, defined as a python anonymouus
@@ -176,29 +172,27 @@ For upwinding, we'll need a representation of the normal to a facet,
 and a way of selecting the upwind side::
 
   n = FacetNormal(mesh)
-  un = 0.5*(dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
+  un = 0.5 * (dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
 
 Now the variational problem for the advection equation itself. ::
 
   q = TrialFunction(Vdg)
   p = TestFunction(Vdg)
-  a_mass = p*q*dx
-  a_int  = (dot(grad(p), -gradperp(psi0)*q) + beta*p*psi0.dx(0))*dx
-  a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')) )*dS
-  arhs   = a_mass - dt*(a_int + a_flux)
+  a_mass = p * q * dx
+  a_int = (dot(grad(p), -gradperp(psi0) * q) + beta * p * psi0.dx(0)) * dx
+  a_flux = (dot(jump(p), un("+") * q("+") - un("-") * q("-"))) * dS
+  arhs = a_mass - dt * (a_int + a_flux)
 
-  q_problem = LinearVariationalProblem(a_mass, action(arhs,q1), dq1)
+  q_problem = LinearVariationalProblem(a_mass, action(arhs, q1), dq1)
 
 Since the operator is a mass matrix in a discontinuous space, it can
 be inverted exactly using an incomplete LU factorisation with zero
 fill. ::
 
-  q_solver  = LinearVariationalSolver(q_problem,
-                                      solver_parameters={
-          'ksp_type':'preonly',
-          'pc_type':'bjacobi',
-          'sub_pc_type': 'ilu'
-          })
+  q_solver = LinearVariationalSolver(q_problem,
+                                     solver_parameters={"ksp_type": "preonly",
+                                                        "pc_type": "bjacobi",
+                                                        "sub_pc_type": "ilu"})
 
 To visualise the output of the simulation, we create a :class:`~.File`
 object.  To which we can store multiple :class:`~.Function`\s.  So
@@ -217,42 +211,39 @@ names. ::
 Now all that is left is to define the timestepping parameters and
 execute the time loop. ::
 
-  t = 0.
-  T = 10.
+  t = 0.0
+  T = 10.0
   dumpfreq = 5
   tdump = 0
 
-  v0 = Function(Vu)
+  while t < (T - Dt / 2):
+      # Compute the streamfunction for the known value of q0
+      q1.assign(q0)
+      psi_solver.solve()
+      q_solver.solve()
 
-  while(t < (T-Dt/2)):
+      # Find intermediate solution q^(1)
+      q1.assign(dq1)
+      psi_solver.solve()
+      q_solver.solve()
 
-    # Compute the streamfunction for the known value of q0
-    q1.assign(q0)
-    psi_solver.solve()
-    q_solver.solve()
+      # Find intermediate solution q^(2)
+      q1.assign(0.75 * q0 + 0.25 * dq1)
+      psi_solver.solve()
+      q_solver.solve()
 
-    # Find intermediate solution q^(1)
-    q1.assign(dq1)
-    psi_solver.solve()
-    q_solver.solve()
+      # Find new solution q^(n+1)
+      q0.assign(q0 / 3 + 2 * dq1 / 3)
 
-    # Find intermediate solution q^(2)
-    q1.assign(0.75*q0 + 0.25*dq1)
-    psi_solver.solve()
-    q_solver.solve()
+      # Store solutions to xml and pvd
+      t += Dt
+      print(t)
 
-    # Find new solution q^(n+1)
-    q0.assign(q0/3 + 2*dq1/3)
-
-    # Store solutions to xml and pvd
-    t += Dt
-    print(t)
-
-    tdump += 1
-    if tdump == dumpfreq:
-        tdump -= dumpfreq
-        v.project(gradperp(psi0))
-        output.write(q0, psi0, v, time=t)
+      tdump += 1
+      if tdump == dumpfreq:
+          tdump -= dumpfreq
+          v.project(gradperp(psi0))
+          output.write(q0, psi0, v, time=t)
 
 A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
 
@@ -261,3 +252,4 @@ A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
    :keyprefix: QG-
+   :labelprefix: QG-

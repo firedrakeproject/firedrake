@@ -130,7 +130,7 @@ say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
 :py:meth:`~.Mesh.init_cell_orientations`, which
-takes a UFL expression or an :py:class:`~.Expression` used to produce
+takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
@@ -499,8 +499,8 @@ for the various :ref:`utility meshes <utility_mesh_functions>` are
 described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
-more generally an :py:class:`~.Expression`, :py:class:`~.Function` or
-:py:class:`~.Constant` of the appropriate shape.  You may also supply
+more generally a UFL expression, for example a :class:`~.Function` or
+:py:class:`~.Constant`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
 .. code-block:: python3
@@ -519,6 +519,34 @@ description of the interface Firedrake provides to solve PDEs.  The
 details of how Firedrake applies strong boundary conditions are
 slightly involved and therefore have :doc:`their own section
 <boundary_conditions>` in the manual.
+
+Boundary conditions on interior facets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you wish to apply strong boundary conditions to interior facets of
+your mesh, this is transparently supported. You should arrange that
+your mesh generator marks those facets on which you wish to apply
+boundary conditions, and just use the subdomain ids as usual.
+
+Special subdomain ids
+~~~~~~~~~~~~~~~~~~~~~
+
+As well as integer subdomain ids that come from marked portions of the
+mesh, Firedrake also supports the magic string ``"on_boundary"`` to
+apply a boundary condition to all exterior facets of the mesh.
+Further, on :doc`:extruded meshes <extruded-meshes>` the special
+strings ``"top"`` and ``"bottom"`` can be used to apply a boundary
+condition on respectively the top and bottom of the extruded domain.
+
+.. note::
+
+   These special strings cannot be combined with integer ids, so if
+   you want to apply boundary data on an extruded mesh on (say) ids
+   ``1`` and ``2`` as well as the top of the domain you would write
+
+   .. code-block:: python3
+
+      bcs = [DirichletBC(V, ..., (1, 2)), DirichletBC(V, ..., "top")]
 
 Specifying conditions on components of a space
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -559,35 +587,14 @@ velocity is zero, using the same function space definitions:
 
    bcv_x = DirichletBC(W.sub(0).sub(0), Constant(0), boundary_ids)
 
-.. note::
-
-   Extruded meshes have full support for indexing
-   :py:class:`~.MixedFunctionSpace`\s, but currently do not support
-   indexing on :py:func:`~.VectorFunctionSpace`\s.
-
 Boundary conditions in discontinuous spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The default method Firedrake uses to determine where to apply strong
-boundary conditions is :py:data:`"topological"`, meaning that nodes
-topologically associated with a boundary facet will be included.  In
-discontinuous spaces, however, the nodes to be included do not all
-live on boundary facets, in this case, you should use the
-:py:data:`"geometric"` method for determining boundary condition
-nodes.  In this case, nodes associated with basis functions that do
-not vanish on the boundary are included.  This method can be used to
-impose strong boundary conditions on discontinuous galerkin spaces, or
-no-slip conditions on :math:`H(\textrm{div})` spaces.  To select the method used for
-determining boundary condition nodes, use the :py:data:`method`
-argument to the :py:class:`DirichletBC` constructor.  For example, to
-select geometric boundary node determination we would write:
-
-.. code-block:: python3
-
-   V = FunctionSpace(mesh, 'DG', 2)
-   bc = DirichletBC(V, 1.0, subdomain_id, method="geometric")
-   ...
-
+Firedrake uses the topological association of nodes to facets to
+determine where to apply strong boundary conditions. For spaces where
+nodes are not topologically associated with the boundary facets, such
+as discontinuous Galerkin spaces, you should instead apply boundary
+conditions weakly.
 
 Time dependent boundary conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

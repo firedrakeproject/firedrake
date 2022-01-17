@@ -7,6 +7,7 @@ from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
 
 
@@ -32,6 +33,7 @@ class ExtractSubBlock(MultiFunction):
 
     index_inliner = IndexInliner()
 
+    @PETSc.Log.EventDecorator()
     def split(self, form, argument_indices):
         """Split a form.
 
@@ -70,15 +72,18 @@ class ExtractSubBlock(MultiFunction):
         return self.expr(o, *map_expr_dags(self.index_inliner, operands))
 
     def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
-        # If we're only taking a derivative wrt part of an argument in
-        # a mixed space other bits might come back as zero. We want to
-        # propagate a zero in that case.
         argument, = arguments
-        if all(isinstance(a, Zero) for a in argument.ufl_operands):
+        if (isinstance(argument, Zero)
+            or (isinstance(argument, ListTensor)
+                and all(isinstance(a, Zero) for a in argument.ufl_operands))):
+            # If we're only taking a derivative wrt part of an argument in
+            # a mixed space other bits might come back as zero. We want to
+            # propagate a zero in that case.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
             return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
 
+    @PETSc.Log.EventDecorator()
     def argument(self, o):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
@@ -127,6 +132,7 @@ class ExtractSubBlock(MultiFunction):
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
+@PETSc.Log.EventDecorator()
 def split_form(form, diagonal=False):
     """Split a form into a tuple of sub-forms defined on the component spaces.
 
