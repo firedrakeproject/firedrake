@@ -578,7 +578,7 @@ def get_line_elements(V):
 
 @lru_cache(maxsize=10)
 def get_line_interpolator(felem, celem):
-    from FIAT import functional, quadrature
+    from FIAT import functional, make_quadrature
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
     if len(fdual) == len(cdual):
@@ -589,8 +589,8 @@ def get_line_interpolator(felem, celem):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
         return celem.tabulate(0, pts)[(0,)]
     else:
-        rule = quadrature.GaussLegendreQuadratureLineRule(felem.get_reference_element(), felem.degree()+1)
-        pts = rule.get_points()
+        pts = make_quadrature(felem.get_reference_element(),
+                              felem.space_dimension()).get_points()
         return numpy.dot(celem.tabulate(0, pts)[(0,)],
                          numpy.linalg.inv(felem.tabulate(0, pts)[(0,)]))
 
