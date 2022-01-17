@@ -181,7 +181,6 @@ class FDMPC(PCBase):
         """
         from pyop2.sparsity import get_preallocation
         from firedrake.preconditioners.pmg import get_line_elements
-
         try:
             line_elements = get_line_elements(V)
         except ValueError:
@@ -238,7 +237,6 @@ class FDMPC(PCBase):
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
         from firedrake.preconditioners.pmg import get_axes_shift
-
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -444,7 +442,6 @@ class FDMPC(PCBase):
         """
         from ufl import inner, diff
         from ufl.algorithms.ad import expand_derivatives
-
         coefficients = {}
         assembly_callables = []
 
@@ -655,7 +652,7 @@ def fdm_setup_ipdg(fdm_element, eta):
         Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
     """
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
-    ref_el = fdm_element.ref_el
+    ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
     Ahat, Bhat, _, _, _ = semhat(fdm_element, rule)
@@ -798,9 +795,9 @@ def glonum(node_map):
 
 
 def get_weak_bc_flags(J):
-    # Return boundary condition flags on each cell facet
-    # 0 => natural, do nothing
-    # 1 => weak Dirichlet
+    """
+    Return flags indicating whether the zero-th order coefficient on each facet of every cell is non-zero
+    """
     from ufl.algorithms.ad import expand_derivatives
     mesh = J.ufl_domain()
     args_J = J.arguments()
@@ -823,10 +820,10 @@ def get_weak_bc_flags(J):
             ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
             forms.append(ufl.inner(q, beta)*ds_ext)
 
-    bq = firedrake.Function(Q)
+    tol = 1E-8
     if len(forms):
-        firedrake.assemble(sum(forms), tensor=bq)
-
-    fbc = bq.dat.data_ro[glonum(Q.cell_node_map())]
-    fbc = (fbc > 0.0E0).astype(PETSc.IntType)
-    return fbc
+        bq = firedrake.assemble(sum(forms))
+        fbc = bq.dat.data_ro[glonum(Q.cell_node_map())]
+        return (abs(fbc) > tol).astype(PETSc.IntType)
+    else:
+        return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)

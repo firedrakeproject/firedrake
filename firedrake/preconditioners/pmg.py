@@ -570,7 +570,7 @@ def get_line_elements(V):
     line_elements = []
     for e in reversed(factors):
         fiat_ele = e.fiat_equivalent
-        if fiat_ele.ref_el.shape != LINE:
+        if fiat_ele.get_reference_element().shape != LINE:
             raise ValueError("Expecting %s to be on the interval" % fiat_ele)
         line_elements.append(fiat_ele)
     return line_elements
@@ -589,7 +589,7 @@ def get_line_interpolator(felem, celem):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
         return celem.tabulate(0, pts)[(0,)]
     else:
-        rule = quadrature.GaussLegendreQuadratureLineRule(felem.ref_el, felem.degree()+1)
+        rule = quadrature.GaussLegendreQuadratureLineRule(felem.get_reference_element(), felem.degree()+1)
         pts = rule.get_points()
         return numpy.dot(celem.tabulate(0, pts)[(0,)],
                          numpy.linalg.inv(felem.tabulate(0, pts)[(0,)]))
