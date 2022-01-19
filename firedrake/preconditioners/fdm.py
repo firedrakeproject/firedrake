@@ -823,7 +823,7 @@ def get_weak_bc_flags(J):
     tol = 1E-8
     if len(forms):
         bq = firedrake.assemble(sum(forms))
-        fbc = bq.dat.data_ro[glonum(Q.cell_node_map())]
+        fbc = bq.dat.data_with_halos[glonum(Q.cell_node_map())]
         return (abs(fbc) > tol).astype(PETSc.IntType)
     else:
         return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
