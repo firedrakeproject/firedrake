@@ -1623,11 +1623,11 @@ if mode == "install":
             if arch == "arm64":
                 source += "insert name of mac OS ARM wheel here"
             elif arch == "x86_64":
-                source += "insert name of mac OS x86_64 wheel here"
+                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_10_15_x86_64.whl"
             else:
                 log.error("unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
-            source += "vtk-9.1.0.dev0-cp310-cp310-linux_x86_64.whl"
+            source += "vtk-9.1.0.dev0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
         log.info("Pip installing VTK for Python 3.10 to venv")
         run_pip_install([source])
     if sys.version_info[:2] >= (3, 9):
