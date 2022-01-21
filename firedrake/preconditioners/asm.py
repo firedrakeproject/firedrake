@@ -53,9 +53,11 @@ class ASMPatchPC(PCBase):
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
+            dosort = PETSc.Options().getBool(self.prefix + "sort", default=True)
             asmpc.setType(asmpc.Type.ASM)
             # Set default solver parameters
             asmpc.setASMType(PETSc.PC.ASMType.BASIC)
+            asmpc.setASMSortIndices(dosort)
             opts = PETSc.Options(asmpc.getOptionsPrefix())
             if "sub_pc_type" not in opts:
                 opts["sub_pc_type"] = "lu"
@@ -147,6 +149,7 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            pt_array = nested_dissection(mesh_dm, pt_array)
 
             # Get DoF indices for patch
             indices = []
@@ -280,6 +283,16 @@ class ASMLinesmoothPC(ASMPatchPC):
         return ises
 
 
+def nested_dissection(mesh_dm, pt_array):
+    num_pt = len(pt_array)
+    subgraph = [numpy.intersect1d(pt_array, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in pt_array]
+    cols = numpy.concatenate(subgraph).astype(PETSc.IntType)
+    rows = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
+    G = PETSc.Mat().createAIJ((num_pt, num_pt), csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
+    rperm, _ = G.getOrdering(PETSc.Mat.OrderingType.ND)
+    return pt_array[rperm.getIndices()]
+
+
 def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
     section = W.dm.getDefaultSection()
@@ -358,6 +371,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
             # Create point list from mesh DM
             points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            points = nested_dissection(mesh_dm, points)
             points -= pstart  # offset by chart start
             for k in range(nlayers):
                 indices = []
