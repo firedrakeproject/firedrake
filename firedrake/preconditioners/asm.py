@@ -53,10 +53,11 @@ class ASMPatchPC(PCBase):
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
-            dosort = PETSc.Options().getBool(self.prefix + "sort", default=True)
             asmpc.setType(asmpc.Type.ASM)
             # Set default solver parameters
             asmpc.setASMType(PETSc.PC.ASMType.BASIC)
+
+            dosort = PETSc.Options().getBool(self.prefix + "sort", default=True)
             asmpc.setASMSortIndices(dosort)
             opts = PETSc.Options(asmpc.getOptionsPrefix())
             if "sub_pc_type" not in opts:
@@ -374,37 +375,42 @@ class ASMExtrudedStarPC(ASMStarPC):
             points = nested_dissection(mesh_dm, points)
             points -= pstart  # offset by chart start
             for k in range(nlayers):
+                if k == 0:
+                    planes = [1, 0]
+                elif k == nlayers - 1:
+                    planes = [-1, 0]
+                else:
+                    planes = [-1, 1, 0]
+
                 indices = []
                 # Get DoF indices for patch
                 for i, W in enumerate(V):
                     iset = V_ises[i]
-                    for p in points:
-                        # How to walk up one layer
-                        blayer_offset = basemeshlayeroffsets[i][p]
-                        if blayer_offset <= 0:
-                            # In this case we don't have any dofs on
-                            # this entity.
-                            continue
-                        # Offset in the global array for the bottom of
-                        # the column
-                        off = basemeshoff[i][p]
-                        # Number of dofs in the interior of the
-                        # vertical interval cell on top of this base
-                        # entity
-                        dof = basemeshdof[i][p]
-                        # Hard-code taking the star
-                        if k == 0:
-                            begin = off
-                            end = off + blayer_offset
-                        elif k < nlayers - 1:
-                            begin = off + (k-1) * blayer_offset + dof
-                            end = off + (k+1) * blayer_offset
-                        else:  # k == nlayers - 1:
-                            begin = off + (k-1) * blayer_offset + dof
-                            end = off + k * blayer_offset + dof
-                        zlice = slice(W.value_size * begin,
-                                      W.value_size * end)
-                        indices.extend(iset[zlice])
+                    for plane in planes:
+                        for p in points:
+                            # How to walk up one layer
+                            blayer_offset = basemeshlayeroffsets[i][p]
+                            if blayer_offset <= 0:
+                                # In this case we don't have any dofs on
+                                # this entity.
+                                continue
+                            # Offset in the global array for the bottom of
+                            # the columnSushi
+                            off = basemeshoff[i][p]
+                            # Number of dofs in the interior of the
+                            # vertical interval cell on top of this base
+                            # entity
+                            dof = basemeshdof[i][p]
+                            # Hard-code taking the star
+                            if plane == 0:
+                                begin = off + k * blayer_offset
+                                end = off + k * blayer_offset + dof
+                            else:
+                                begin = off + min(k, k+plane) * blayer_offset + dof
+                                end = off + max(k, k+plane) * blayer_offset
+                            zlice = slice(W.value_size * begin,
+                                          W.value_size * end)
+                            indices.extend(iset[zlice])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
         return ises
