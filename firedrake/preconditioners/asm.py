@@ -415,10 +415,10 @@ class ASMExtrudedStarPC(ASMStarPC):
                                           W.value_size * end)
                             slices.append(zlice)
                             sdof.append(end-begin)
-                            #indices.extend(iset[zlice])
+                            # indices.extend(iset[zlice])
 
                     perm = numpy.argsort(numpy.array(sdof), kind='mergesort')
-                    #print(list(reversed(perm)))
+                    # print(list(reversed(perm)))
                     for k in reversed(perm):
                         indices.extend(iset[slices[k]])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
