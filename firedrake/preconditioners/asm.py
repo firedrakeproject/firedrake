@@ -291,7 +291,8 @@ def nested_dissection(mesh_dm, pt_array):
     rows = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
     G = PETSc.Mat().createAIJ((num_pt, num_pt), csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
     rperm, _ = G.getOrdering(PETSc.Mat.OrderingType.ND)
-    return pt_array[rperm.getIndices()]
+    idx = rperm.getIndices()
+    return pt_array[idx]
 
 
 def get_basemesh_nodes(W):
@@ -386,6 +387,8 @@ class ASMExtrudedStarPC(ASMStarPC):
                 # Get DoF indices for patch
                 for i, W in enumerate(V):
                     iset = V_ises[i]
+                    sdof = []
+                    slices = []
                     for plane in planes:
                         for p in points:
                             # How to walk up one layer
@@ -395,7 +398,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 # this entity.
                                 continue
                             # Offset in the global array for the bottom of
-                            # the columnSushi
+                            # the column
                             off = basemeshoff[i][p]
                             # Number of dofs in the interior of the
                             # vertical interval cell on top of this base
@@ -410,7 +413,14 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 end = off + max(k, k+plane) * blayer_offset
                             zlice = slice(W.value_size * begin,
                                           W.value_size * end)
-                            indices.extend(iset[zlice])
+                            slices.append(zlice)
+                            sdof.append(end-begin)
+                            #indices.extend(iset[zlice])
+
+                    perm = numpy.argsort(numpy.array(sdof), kind='mergesort')
+                    #print(list(reversed(perm)))
+                    for k in reversed(perm):
+                        indices.extend(iset[slices[k]])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
         return ises

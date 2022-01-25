@@ -631,7 +631,7 @@ def fdm_setup_ipdg(fdm_element, eta):
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-    
+
     phi = fdm_element.tabulate(1, rule.get_points())
     Jhat = phi[(0, )]
     Dhat = phi[(1, )]
