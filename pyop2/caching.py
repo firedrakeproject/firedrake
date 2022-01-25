@@ -33,7 +33,15 @@
 
 """Provides common base classes for cached objects."""
 
+import hashlib
+import os
+from pathlib import Path
+import pickle
 
+import cachetools
+
+from pyop2.configuration import configuration
+from pyop2.mpi import hash_comm
 from pyop2.utils import cached_property
 
 
@@ -230,3 +238,88 @@ class Cached(object):
     def cache_key(self):
         """Cache key."""
         return self._key
+
+
+cached = cachetools.cached
+"""Cache decorator for functions. See the cachetools documentation for more
+information.
+
+.. note::
+    If you intend to use this decorator to cache things that are collective
+    across a communicator then you must include the communicator as part of
+    the cache key. Since communicators are themselves not hashable you should
+    use :func:`pyop2.mpi.hash_comm`.
+
+    You should also make sure to use unbounded caches as otherwise some ranks
+    may evict results leading to deadlocks.
+"""
+
+
+def disk_cached(cache, cachedir=None, key=cachetools.keys.hashkey, collective=False):
+    """Decorator for wrapping a function in a cache that stores values in memory and to disk.
+
+    :arg cache: The in-memory cache, usually a :class:`dict`.
+    :arg cachedir: The location of the cache directory. Defaults to ``PYOP2_CACHE_DIR``.
+    :arg key: Callable returning the cache key for the function inputs. If ``collective``
+        is ``True`` then this function must return a 2-tuple where the first entry is the
+        communicator to be collective over and the second is the key. This is required to ensure
+        that deadlocks do not occur when using different subcommunicators.
+    :arg collective: If ``True`` then cache lookup is done collectively over a communicator.
+    """
+    if cachedir is None:
+        cachedir = configuration["cache_dir"]
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if collective:
+                comm, disk_key = key(*args, **kwargs)
+                k = hash_comm(comm), disk_key
+            else:
+                k = key(*args, **kwargs)
+
+            # first try the in-memory cache
+            try:
+                return cache[k]
+            except KeyError:
+                pass
+
+            # then try to retrieve from disk
+            if collective:
+                if comm.rank == 0:
+                    v = _disk_cache_setdefault(cachedir, disk_key, lambda: func(*args, **kwargs))
+                    comm.bcast(v, root=0)
+                else:
+                    v = comm.bcast(None, root=0)
+            else:
+                v = _disk_cache_setdefault(cachedir, k, lambda: func(*args, **kwargs))
+            return cache.setdefault(k, v)
+        return wrapper
+    return decorator
+
+
+def _disk_cache_setdefault(cachedir, key, default):
+    """If ``key`` is in cache, return it. If not, store ``default`` in the cache
+    and return it.
+
+    :arg cachedir: The cache directory.
+    :arg key: The cache key.
+    :arg default: Lazily evaluated callable that returns a new value to insert into the cache.
+
+    :returns: The value associated with ``key``.
+    """
+    key = hashlib.md5(str(key).encode()).hexdigest()
+    key1, key2 = key[:2], key[2:]
+
+    basedir = Path(cachedir, key1)
+    filepath = basedir.joinpath(key2)
+    try:
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        basedir.mkdir(parents=True, exist_ok=True)
+        tempfile = basedir.joinpath(f"{key2}_p{os.getpid()}.tmp")
+        obj = default()
+        with open(tempfile, "wb") as f:
+            pickle.dump(obj, f)
+        tempfile.rename(filepath)
+        return obj

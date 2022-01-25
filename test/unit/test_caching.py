@@ -32,9 +32,13 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import os
 import pytest
+import tempfile
+import cachetools
 import numpy
-from pyop2 import op2
+from pyop2 import op2, mpi
+from pyop2.caching import disk_cached
 
 from coffee.base import *
 
@@ -529,6 +533,73 @@ class TestSparsityCache:
         assert sp1 is sp2
 
 
+class TestDiskCachedDecorator:
+
+    @staticmethod
+    def myfunc(arg):
+        """Example function to cache the outputs of."""
+        return {arg}
+
+    @staticmethod
+    def collective_key(*args):
+        """Return a cache key suitable for use when collective over a communicator."""
+        return mpi.COMM_SELF, cachetools.keys.hashkey(*args)
+
+    @pytest.fixture
+    def cache(cls):
+        return {}
+
+    @pytest.fixture
+    def cachedir(cls):
+        return tempfile.TemporaryDirectory()
+
+    def test_decorator_in_memory_cache_reuses_results(self, cache, cachedir):
+        decorated_func = disk_cached(cache, cachedir.name)(self.myfunc)
+
+        obj1 = decorated_func("input1")
+        assert len(cache) == 1
+        assert len(os.listdir(cachedir.name)) == 1
+
+        obj2 = decorated_func("input1")
+        assert obj1 is obj2
+        assert len(cache) == 1
+        assert len(os.listdir(cachedir.name)) == 1
+
+    def test_decorator_collective_has_different_in_memory_key(self, cache, cachedir):
+        decorated_func = disk_cached(cache, cachedir.name)(self.myfunc)
+        collective_func = disk_cached(cache, cachedir.name, self.collective_key,
+                                      collective=True)(self.myfunc)
+
+        obj1 = collective_func("input1")
+        assert len(cache) == 1
+        assert len(os.listdir(cachedir.name)) == 1
+
+        # The new entry should have a different in-memory key since the communicator
+        # is not included but the same key on disk.
+        obj2 = decorated_func("input1")
+        assert obj1 == obj2 and obj1 is not obj2
+        assert len(cache) == 2
+        assert len(os.listdir(cachedir.name)) == 1
+
+    def test_decorator_disk_cache_reuses_results(self, cache, cachedir):
+        decorated_func = disk_cached(cache, cachedir.name)(self.myfunc)
+
+        obj1 = decorated_func("input1")
+        cache.clear()
+        obj2 = decorated_func("input1")
+        assert obj1 == obj2 and obj1 is not obj2
+        assert len(cache) == 1
+        assert len(os.listdir(cachedir.name)) == 1
+
+    def test_decorator_cache_misses(self, cache, cachedir):
+        decorated_func = disk_cached(cache, cachedir.name)(self.myfunc)
+
+        obj1 = decorated_func("input1")
+        obj2 = decorated_func("input2")
+        assert obj1 != obj2
+        assert len(cache) == 2
+        assert len(os.listdir(cachedir.name)) == 2
+
+
 if __name__ == '__main__':
-    import os
     pytest.main(os.path.abspath(__file__))
