@@ -635,11 +635,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     body = generate_coffee(impero_c, index_names, ScalarType)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
-    local_tensor = coarse_builder.local_tensor
+    local_tensor = coarse_builder.output_arg.coffee_arg
     local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
-                                                   coarse_builder.coordinates_arg]
+                                                   coarse_builder.coordinates_arg.coffee_arg]
 
     # Now we have the kernel that computes <f, phi_c>dx_c
     # So now we need to hit it with the inverse mass matrix on dx_c
@@ -651,13 +651,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
     Ainv = Ainv.kinfo.kernel
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")
-    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
+    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.coffee_arg.sym, A))
     from coffee.base import Node
-    assert isinstance(Ainv._code, Node)
-    return op2.Kernel(ast.Node([Ainv._code,
+    assert isinstance(Ainv.code, Node)
+    return op2.Kernel(ast.Node([Ainv.code,
                                 ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
                                             pred=["static", "inline"])]),
                       name="pyop2_kernel_injection_dg",
                       cpp=True,
-                      include_dirs=Ainv._include_dirs,
-                      headers=Ainv._headers)
+                      include_dirs=Ainv.include_dirs,
+                      headers=Ainv.headers)
