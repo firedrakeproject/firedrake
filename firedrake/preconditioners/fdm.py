@@ -611,36 +611,12 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True):
     return A_petsc
 
 
-def semhat(elem, rule):
-    """
-    Construct Laplacian stiffness and mass matrices
-
-    :arg elem: a :class:`FIATElement`
-    :arg rule: a quadrature rule
-
-    :returns: 5-tuple of
-        Ahat: stiffness matrix
-        Bhat: mass matrix
-        Jhat: tabulation of the shape functions on the quadrature nodes
-        Dhat: tabulation of the first derivative of the shape functions on the quadrature nodes
-        xhat: nodes of the element
-    """
-    basis = elem.tabulate(1, rule.get_points())
-    Jhat = basis[(0,)]
-    Dhat = basis[(1,)]
-    what = rule.get_weights()
-    Ahat = numpy.dot(numpy.multiply(Dhat, what), Dhat.T)
-    Bhat = numpy.dot(numpy.multiply(Jhat, what), Jhat.T)
-    xhat = numpy.array([list(x.get_point_dict().keys())[0][0] for x in elem.dual_basis()])
-    return Ahat, Bhat, Jhat, Dhat, xhat
-
-
 @lru_cache(maxsize=10)
 def fdm_setup_ipdg(fdm_element, eta):
     """
     Setup for the fast diagonalization method for the IP-DG formulation.
-    Compute the FDM eigenvector basis, its normal derivative and the
-    sparsified interval stiffness and mass matrices.
+    Compute sparsified interval stiffness and mass matrices
+    and tabulate the normal derivative of the shape functions.
 
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
@@ -655,7 +631,12 @@ def fdm_setup_ipdg(fdm_element, eta):
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-    Ahat, Bhat, _, _, _ = semhat(fdm_element, rule)
+    
+    phi = fdm_element.tabulate(1, rule.get_points())
+    Jhat = phi[(0, )]
+    Dhat = phi[(1, )]
+    Ahat = numpy.dot(numpy.multiply(Dhat, rule.get_weights()), Dhat.T)
+    Bhat = numpy.dot(numpy.multiply(Jhat, rule.get_weights()), Jhat.T)
 
     # Facet normal derivatives
     basis = fdm_element.tabulate(1, ref_el.get_vertices())
