@@ -1,4 +1,3 @@
-import functools
 import numbers
 
 import numpy as np
@@ -41,8 +40,8 @@ class HybridizationPC(SCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, assemble)
-        from firedrake.assemble import allocate_matrix
+                               DirichletBC)
+        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -206,11 +205,8 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = functools.partial(assemble,
-                                                schur_rhs,
-                                                tensor=self.schur_rhs,
-                                                form_compiler_parameters=self.ctx.fc_params,
-                                                assembly_type="residual")
+        self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
+                                               form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
@@ -218,13 +214,8 @@ class HybridizationPC(SCBase):
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
-        self._assemble_S = functools.partial(assemble,
-                                             schur_comp,
-                                             tensor=self.S,
-                                             bcs=trace_bcs,
-                                             form_compiler_parameters=self.ctx.fc_params,
-                                             mat_type=mat_type,
-                                             assembly_type="residual")
+        self._assemble_S = TwoFormAssembler(schur_comp, tensor=self.S, bcs=trace_bcs,
+                                            form_compiler_parameters=self.ctx.fc_params).assemble
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
@@ -277,7 +268,7 @@ class HybridizationPC(SCBase):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake import assemble
+        from firedrake.assemble import OneFormAssembler
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -312,19 +303,13 @@ class HybridizationPC(SCBase):
                 rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
-        self._sub_unknown = functools.partial(assemble,
-                                              u_rec,
-                                              tensor=u,
-                                              form_compiler_parameters=self.ctx.fc_params,
-                                              assembly_type="residual")
+        self._sub_unknown = OneFormAssembler(u_rec, tensor=u,
+                                             form_compiler_parameters=self.ctx.fc_params).assemble
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = functools.partial(assemble,
-                                               sigma_rec,
-                                               tensor=sigma,
-                                               form_compiler_parameters=self.ctx.fc_params,
-                                               assembly_type="residual")
+        self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
+                                              form_compiler_parameters=self.ctx.fc_params).assemble
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
