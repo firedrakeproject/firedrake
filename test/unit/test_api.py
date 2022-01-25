@@ -202,61 +202,6 @@ class TestClassAPI:
         assert not issubclass(type(dat), op2.Set)
 
 
-class TestArgAPI:
-
-    """
-    Arg API unit tests
-    """
-
-    def test_arg_split_dat(self, dat, m_iterset_toset):
-        arg = dat(op2.READ, m_iterset_toset)
-        for a in arg.split:
-            assert a == arg
-
-    def test_arg_split_mdat(self, mdat, mmap):
-        arg = mdat(op2.READ, mmap)
-        for a, d in zip(arg.split, mdat):
-            assert a.data == d
-
-    def test_arg_split_mat(self, mat, m_iterset_toset):
-        arg = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
-        for a in arg.split:
-            assert a == arg
-
-    def test_arg_split_global(self, g):
-        arg = g(op2.READ)
-        for a in arg.split:
-            assert a == arg
-
-    def test_arg_eq_dat(self, dat, m_iterset_toset):
-        assert dat(op2.READ, m_iterset_toset) == dat(op2.READ, m_iterset_toset)
-        assert not dat(op2.READ, m_iterset_toset) != dat(op2.READ, m_iterset_toset)
-
-    def test_arg_ne_dat_mode(self, dat, m_iterset_toset):
-        a1 = dat(op2.READ, m_iterset_toset)
-        a2 = dat(op2.WRITE, m_iterset_toset)
-        assert a1 != a2
-        assert not a1 == a2
-
-    def test_arg_ne_dat_map(self, dat, m_iterset_toset):
-        m2 = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset, 1,
-                     np.ones(m_iterset_toset.iterset.size))
-        assert dat(op2.READ, m_iterset_toset) != dat(op2.READ, m2)
-        assert not dat(op2.READ, m_iterset_toset) == dat(op2.READ, m2)
-
-    def test_arg_eq_mat(self, mat, m_iterset_toset):
-        a1 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
-        a2 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
-        assert a1 == a2
-        assert not a1 != a2
-
-    def test_arg_ne_mat_mode(self, mat, m_iterset_toset):
-        a1 = mat(op2.INC, (m_iterset_toset, m_iterset_toset))
-        a2 = mat(op2.WRITE, (m_iterset_toset, m_iterset_toset))
-        assert a1 != a2
-        assert not a1 == a2
-
-
 class TestSetAPI:
 
     """
@@ -761,7 +706,7 @@ class TestDatAPI:
 
     def test_dat_arg_default_map(self, dat):
         """Dat __call__ should default the Arg map to None if not given."""
-        assert dat(op2.READ).map is None
+        assert dat(op2.READ).map_ is None
 
     def test_dat_arg_illegal_map(self, dset):
         """Dat __call__ should not allow a map with a toset other than this
@@ -906,7 +851,7 @@ class TestMixedDatAPI:
     def test_mixed_dat_illegal_dtype(self, set):
         """Constructing a MixedDat from Dats of different dtype should fail."""
         with pytest.raises(exceptions.DataValueError):
-            op2.MixedDat((op2.Dat(set, dtype=np.int32), op2.Dat(set, dtype=np.float64)))
+            op2.MixedDat((op2.Dat(set, dtype=np.int32), op2.Dat(set)))
 
     def test_mixed_dat_dats(self, dats):
         """Constructing a MixedDat from an iterable of Dats should leave them
@@ -1378,10 +1323,6 @@ class TestGlobalAPI:
         with pytest.raises(exceptions.ModeValueError):
             g(mode)
 
-    def test_global_arg_ignore_map(self, g, m_iterset_toset):
-        """Global __call__ should ignore the optional second argument."""
-        assert g(op2.READ, m_iterset_toset).map is None
-
 
 class TestMapAPI:
 
@@ -1619,8 +1560,8 @@ class TestKernelAPI:
 
     def test_kernel_properties(self):
         "Kernel constructor should correctly set attributes."
-        k = op2.Kernel("", 'foo')
-        assert k.name == 'foo'
+        k = op2.CStringLocalKernel("", "foo", accesses=(), dtypes=())
+        assert k.name == "foo"
 
     def test_kernel_repr(self, set):
         "Kernel should have the expected repr."

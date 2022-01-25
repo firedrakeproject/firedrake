@@ -5,6 +5,8 @@ from functools import reduce
 
 import numpy
 from loopy.types import OpaqueType
+from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
+                                 MatKernelArg, MixedMatKernelArg, PermutedMapKernelArg)
 from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
                                           DummyInstruction, Extent, FixedIndex,
                                           FunctionCall, Index, Indexed,
@@ -16,7 +18,7 @@ from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
                                           When, Zero)
 from pyop2.datatypes import IntType
 from pyop2.op2 import (ALL, INC, MAX, MIN, ON_BOTTOM, ON_INTERIOR_FACETS,
-                       ON_TOP, READ, RW, WRITE, Subset, PermutedMap)
+                       ON_TOP, READ, RW, WRITE)
 from pyop2.utils import cached_property
 
 
@@ -32,18 +34,22 @@ class Map(object):
                  "variable", "unroll", "layer_bounds",
                  "prefetch", "_pmap_count")
 
-    def __init__(self, map_, interior_horizontal, layer_bounds,
-                 offset=None, unroll=False):
-        self.variable = map_.iterset._extruded and not map_.iterset.constant_layers
+    def __init__(self, interior_horizontal, layer_bounds,
+                 arity, dtype,
+                 offset=None, unroll=False,
+                 extruded=False, constant_layers=False):
+        self.variable = extruded and not constant_layers
         self.unroll = unroll
         self.layer_bounds = layer_bounds
         self.interior_horizontal = interior_horizontal
         self.prefetch = {}
-        offset = map_.offset
-        shape = (None, ) + map_.shape[1:]
-        values = Argument(shape, dtype=map_.dtype, pfx="map")
+
+        shape = (None, arity)
+        values = Argument(shape, dtype=dtype, pfx="map")
         if offset is not None:
-            if len(set(map_.offset)) == 1:
+            assert type(offset) == tuple
+            offset = numpy.array(offset, dtype=numpy.int32)
+            if len(set(offset)) == 1:
                 offset = Literal(offset[0], casting=True)
             else:
                 offset = NamedLiteral(offset, parent=values, suffix="offset")
@@ -616,15 +622,18 @@ class MixedMatPack(Pack):
 
 class WrapperBuilder(object):
 
-    def __init__(self, *, kernel, iterset, iteration_region=None, single_cell=False,
+    def __init__(self, *, kernel, subset, extruded, constant_layers, iteration_region=None, single_cell=False,
                  pass_layer_to_kernel=False, forward_arg_types=()):
         self.kernel = kernel
+        self.local_knl_args = iter(kernel.arguments)
         self.arguments = []
         self.argument_accesses = []
         self.packed_args = []
         self.indices = []
         self.maps = OrderedDict()
-        self.iterset = iterset
+        self.subset = subset
+        self.extruded = extruded
+        self.constant_layers = constant_layers
         if iteration_region is None:
             self.iteration_region = ALL
         else:
@@ -636,18 +645,6 @@ class WrapperBuilder(object):
     @property
     def requires_zeroed_output_arguments(self):
         return self.kernel.requires_zeroed_output_arguments
-
-    @property
-    def subset(self):
-        return isinstance(self.iterset, Subset)
-
-    @property
-    def extruded(self):
-        return self.iterset._extruded
-
-    @property
-    def constant_layers(self):
-        return self.extruded and self.iterset.constant_layers
 
     @cached_property
     def loop_extents(self):
@@ -753,80 +750,81 @@ class WrapperBuilder(object):
             return (self.loop_index, None, self._loop_index)
 
     def add_argument(self, arg):
+        local_arg = next(self.local_knl_args)
+        access = local_arg.access
+        dtype = local_arg.dtype
         interior_horizontal = self.iteration_region == ON_INTERIOR_FACETS
-        if arg._is_dat:
-            if arg._is_mixed:
-                packs = []
-                for a in arg:
-                    shape = a.data.shape[1:]
-                    if shape == ():
-                        shape = (1,)
-                    shape = (None, *shape)
-                    argument = Argument(shape, a.data.dtype, pfx="mdat")
-                    packs.append(a.data.pack(argument, arg.access, self.map_(a.map, unroll=a.unroll_map),
-                                             interior_horizontal=interior_horizontal,
-                                             init_with_zero=self.requires_zeroed_output_arguments))
-                    self.arguments.append(argument)
-                pack = MixedDatPack(packs, arg.access, arg.dtype, interior_horizontal=interior_horizontal)
-                self.packed_args.append(pack)
-                self.argument_accesses.append(arg.access)
-            else:
-                if arg._is_dat_view:
-                    view_index = arg.data.index
-                    data = arg.data._parent
-                else:
-                    view_index = None
-                    data = arg.data
-                shape = data.shape[1:]
-                if shape == ():
-                    shape = (1,)
-                shape = (None, *shape)
-                argument = Argument(shape,
-                                    arg.data.dtype,
-                                    pfx="dat")
-                pack = arg.data.pack(argument, arg.access, self.map_(arg.map, unroll=arg.unroll_map),
-                                     interior_horizontal=interior_horizontal,
-                                     view_index=view_index,
-                                     init_with_zero=self.requires_zeroed_output_arguments)
-                self.arguments.append(argument)
-                self.packed_args.append(pack)
-                self.argument_accesses.append(arg.access)
-        elif arg._is_global:
-            argument = Argument(arg.data.dim,
-                                arg.data.dtype,
-                                pfx="glob")
-            pack = GlobalPack(argument, arg.access,
+
+        if isinstance(arg, GlobalKernelArg):
+            argument = Argument(arg.dim, dtype, pfx="glob")
+
+            pack = GlobalPack(argument, access,
                               init_with_zero=self.requires_zeroed_output_arguments)
             self.arguments.append(argument)
-            self.packed_args.append(pack)
-            self.argument_accesses.append(arg.access)
-        elif arg._is_mat:
-            if arg._is_mixed:
-                packs = []
-                for a in arg:
-                    argument = Argument((), PetscMat(), pfx="mat")
-                    map_ = tuple(self.map_(m, unroll=arg.unroll_map) for m in a.map)
-                    packs.append(arg.data.pack(argument, a.access, map_,
-                                               a.data.dims, a.data.dtype,
-                                               interior_horizontal=interior_horizontal))
-                    self.arguments.append(argument)
-                pack = MixedMatPack(packs, arg.access, arg.dtype,
-                                    arg.data.sparsity.shape)
-                self.packed_args.append(pack)
-                self.argument_accesses.append(arg.access)
+        elif isinstance(arg, DatKernelArg):
+            if arg.dim == ():
+                shape = (None, 1)
             else:
-                argument = Argument((), PetscMat(), pfx="mat")
-                map_ = tuple(self.map_(m, unroll=arg.unroll_map) for m in arg.map)
-                pack = arg.data.pack(argument, arg.access, map_,
-                                     arg.data.dims, arg.data.dtype,
-                                     interior_horizontal=interior_horizontal)
+                shape = (None, *arg.dim)
+            argument = Argument(shape, dtype, pfx="dat")
+
+            if arg.is_indirect:
+                map_ = self._add_map(arg.map_)
+            else:
+                map_ = None
+            pack = arg.pack(argument, access, map_=map_,
+                            interior_horizontal=interior_horizontal,
+                            view_index=arg.index,
+                            init_with_zero=self.requires_zeroed_output_arguments)
+            self.arguments.append(argument)
+        elif isinstance(arg, MixedDatKernelArg):
+            packs = []
+            for a in arg:
+                if a.dim == ():
+                    shape = (None, 1)
+                else:
+                    shape = (None, *a.dim)
+                argument = Argument(shape, dtype, pfx="mdat")
+
+                if a.is_indirect:
+                    map_ = self._add_map(a.map_)
+                else:
+                    map_ = None
+
+                packs.append(arg.pack(argument, access, map_,
+                                      interior_horizontal=interior_horizontal,
+                                      init_with_zero=self.requires_zeroed_output_arguments))
                 self.arguments.append(argument)
-                self.packed_args.append(pack)
-                self.argument_accesses.append(arg.access)
+            pack = MixedDatPack(packs, access, dtype,
+                                interior_horizontal=interior_horizontal)
+        elif isinstance(arg, MatKernelArg):
+            argument = Argument((), PetscMat(), pfx="mat")
+            maps = tuple(self._add_map(m, arg.unroll)
+                         for m in arg.maps)
+            pack = arg.pack(argument, access, maps,
+                            arg.dims, dtype,
+                            interior_horizontal=interior_horizontal)
+            self.arguments.append(argument)
+        elif isinstance(arg, MixedMatKernelArg):
+            packs = []
+            for a in arg:
+                argument = Argument((), PetscMat(), pfx="mat")
+                maps = tuple(self._add_map(m, a.unroll)
+                             for m in a.maps)
+
+                packs.append(arg.pack(argument, access, maps,
+                                      a.dims, dtype,
+                                      interior_horizontal=interior_horizontal))
+                self.arguments.append(argument)
+            pack = MixedMatPack(packs, access, dtype,
+                                arg.shape)
         else:
             raise ValueError("Unhandled argument type")
 
-    def map_(self, map_, unroll=False):
+        self.packed_args.append(pack)
+        self.argument_accesses.append(access)
+
+    def _add_map(self, map_, unroll=False):
         if map_ is None:
             return None
         interior_horizontal = self.iteration_region == ON_INTERIOR_FACETS
@@ -834,13 +832,16 @@ class WrapperBuilder(object):
         try:
             return self.maps[key]
         except KeyError:
-            if isinstance(map_, PermutedMap):
-                imap = self.map_(map_.map_, unroll=unroll)
-                map_ = PMap(imap, map_.permutation)
+            if isinstance(map_, PermutedMapKernelArg):
+                imap = self._add_map(map_.base_map, unroll)
+                map_ = PMap(imap, numpy.asarray(map_.permutation, dtype=IntType))
             else:
-                map_ = Map(map_, interior_horizontal,
+                map_ = Map(interior_horizontal,
                            (self.bottom_layer, self.top_layer),
-                           unroll=unroll)
+                           arity=map_.arity, offset=map_.offset, dtype=IntType,
+                           unroll=unroll,
+                           extruded=self.extruded,
+                           constant_layers=self.constant_layers)
             self.maps[key] = map_
             return map_
 

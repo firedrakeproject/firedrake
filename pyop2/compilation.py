@@ -237,7 +237,7 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(str(jitmodule.cache_key[1:]).encode())
+        hsh = md5(str(jitmodule.cache_key).encode())
         hsh.update(self._cc.encode())
         if self._ld:
             hsh.update(self._ld.encode())
@@ -465,7 +465,8 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
-    from pyop2.parloop import JITModule
+    from pyop2.global_kernel import GlobalKernel
+
     if isinstance(jitmodule, str):
         class StrCode(object):
             def __init__(self, code, argtypes):
@@ -475,7 +476,7 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
                 # cache key
                 self.argtypes = argtypes
         code = StrCode(jitmodule, argtypes)
-    elif isinstance(jitmodule, JITModule):
+    elif isinstance(jitmodule, GlobalKernel):
         code = jitmodule
     else:
         raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
