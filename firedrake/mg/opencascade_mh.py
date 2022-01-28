@@ -36,10 +36,11 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
     mh = mh_constructor(coarse, levels, distribution_parameters=distribution_parameters, callbacks=callbacks, reorder=reorder)
     project_to_cad = project_mesh_to_cad_2d if dim == 2 else project_mesh_to_cad_3d
 
-    if project_refinements_to_cad:
-        for mesh in mh:
-            project_to_cad(mesh, cad)
-        mh.nested = False
+    if order == 1:
+        if project_refinements_to_cad:
+            for mesh in mh:
+                project_to_cad(mesh, cad)
+            mh.nested = False
 
     if order > 1:
         VFS = VectorFunctionSpace
@@ -55,6 +56,7 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
         if project_refinements_to_cad:
             for mesh in mh:
                 project_to_cad(mesh, cad)
+                mh.nested = False
         else:
             project_to_cad(mh[0], cad)
             for i in range(1, len(mh)):
@@ -136,6 +138,7 @@ def project_mesh_to_cad_3d(mesh, cad):
     from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf, GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
+    boundary_displacements = Function(mesh.coordinates)
     ids = mesh.exterior_facets.unique_markers
 
     filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
@@ -203,6 +206,9 @@ def project_mesh_to_cad_3d(mesh, cad):
                 (projpt, sqdist) = min(projections, key=lambda x: x[1])
                 coorddata[node, :] = projpt.Coord()
 
+    boundary_displacements.assign(mesh.coordinates-boundary_displacements)
+    mesh.boundary_displacements = boundary_displacements
+
 
 def project_mesh_to_cad_2d(mesh, cad):
 
@@ -211,6 +217,7 @@ def project_mesh_to_cad_2d(mesh, cad):
     from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
+    boundary_displacements = Function(mesh.coordinates)
     ids = mesh.exterior_facets.unique_markers
 
     filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
@@ -233,3 +240,6 @@ def project_mesh_to_cad_2d(mesh, cad):
                 coorddata[node, :] = projpt.Coord()[0:2]
             else:
                 warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])
+
+    boundary_displacements.assign(mesh.coordinates-boundary_displacements)
+    mesh.boundary_displacements = boundary_displacements
