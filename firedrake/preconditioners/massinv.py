@@ -1,6 +1,5 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from functools import partial
 
 __all__ = ("MassInvPC", )
 
@@ -51,10 +50,6 @@ class MassInvPC(PCBase):
         A = assemble(a, form_compiler_parameters=context.fc_params,
                      mat_type=mat_type, options_prefix=options_prefix)
 
-        self._assemble_A = partial(assemble, a, tensor=A,
-                                   form_compiler_parameters=context.fc_params,
-                                   mat_type=mat_type, options_prefix=options_prefix)
-
         Pmat = A.petscmat
         Pmat.setNullSpace(P.getNullSpace())
         tnullsp = P.getTransposeNullSpace()
@@ -70,7 +65,7 @@ class MassInvPC(PCBase):
         self.ksp = ksp
 
     def update(self, pc):
-        self._assemble_A()
+        pass
 
     def apply(self, pc, X, Y):
         self.ksp.solve(X, Y)
