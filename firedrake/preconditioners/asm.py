@@ -284,15 +284,13 @@ class ASMLinesmoothPC(ASMPatchPC):
         return ises
 
 
-def nested_dissection(mesh_dm, pt_array):
-    num_pt = len(pt_array)
-    subgraph = [numpy.intersect1d(pt_array, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in pt_array]
+def nested_dissection(mesh_dm, points):
+    subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
     cols = numpy.concatenate(subgraph).astype(PETSc.IntType)
     rows = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
-    G = PETSc.Mat().createAIJ((num_pt, num_pt), csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
-    rperm, _ = G.getOrdering(PETSc.Mat.OrderingType.ND)
-    idx = rperm.getIndices()
-    return pt_array[idx]
+    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
+    rperm, _ = A.getOrdering(PETSc.Mat.OrderingType.ND)
+    return points[rperm.getIndices()]
 
 
 def get_basemesh_nodes(W):
@@ -418,7 +416,6 @@ class ASMExtrudedStarPC(ASMStarPC):
                             # indices.extend(iset[zlice])
 
                     perm = numpy.argsort(numpy.array(sdof), kind='mergesort')
-                    # print(list(reversed(perm)))
                     for k in reversed(perm):
                         indices.extend(iset[slices[k]])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)

@@ -44,6 +44,7 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
 
+    @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
         from firedrake.preconditioners.pmg import prolongation_matrix_matfree
@@ -123,6 +124,7 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
         # self.diagonal_scaling()
 
+    @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
         if hasattr(self, "A"):
             self._assemble_A()
