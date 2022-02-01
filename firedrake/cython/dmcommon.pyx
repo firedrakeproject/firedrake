@@ -894,7 +894,7 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False):
+def create_section(mesh, nodes_per_entity, on_base=False, add_field=False):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
@@ -902,7 +902,8 @@ def create_section(mesh, nodes_per_entity, on_base=False):
         type of topological entity of the mesh.  Or, if the mesh is
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
-    :arg on_base: If True, assume extruded space is actually Foo x Real.
+    :kwarg on_base: If True, assume extruded space is actually Foo x Real.
+    :kwarg add_field: Create and add a field for the coordinates, too.
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
@@ -938,6 +939,8 @@ def create_section(mesh, nodes_per_entity, on_base=False):
 
     section = PETSc.Section().create(comm=mesh.comm)
 
+    if add_field:
+        section.setNumFields(1)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
     if type(dm) is PETSc.DMPlex:
@@ -960,6 +963,8 @@ def create_section(mesh, nodes_per_entity, on_base=False):
                     layers = layer_extents[p, 1] - layer_extents[p, 0]
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, ndof))
+            if add_field:
+                CHKERR(PetscSectionSetFieldDof(section.sec, p, 0, ndof))
     section.setUp()
     return section
 
