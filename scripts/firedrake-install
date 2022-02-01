@@ -887,7 +887,7 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     elif package == "petsc4py/":
-        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
+        build_and_install_petsc4py()
     elif package == "slepc4py/":
         # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", get_slepc4py_dir()])
@@ -1028,6 +1028,21 @@ def build_and_install_petsc():
             test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
             for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
                 check_call(["rm", "-f", deletefile])
+
+
+def build_and_install_petsc4py():
+    with environment(**blas):
+        pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
+        try:
+            check_output(pipinstall + pipargs)
+        except subprocess.CalledProcessError:
+            # This assumes the CalledProcessError is a result of readonly petsc4py source
+            log.info("Could not perform in-place install of petsc4py in current location")
+            log.info("Copying petsc4py to virtualenv and trying again...")
+            petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
+            shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
+            pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
+            check_output(pipinstall + pipargs)
 
 
 def build_and_install_h5py():
