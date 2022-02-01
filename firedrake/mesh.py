@@ -497,13 +497,15 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def create_section(self, nodes_per_entity, real_tensorproduct=False):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False, add_field=False):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
+        :kwarg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
+        :kwarg add_field: Create and add a field for the coordinates, too.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, add_field=add_field)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
