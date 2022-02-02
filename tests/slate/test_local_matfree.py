@@ -348,6 +348,7 @@ def test_preconditioning_like():
                                         'localsolve': {'ksp_type': 'preonly',
                                                         'pc_type': 'fieldsplit',
                                                         'pc_fieldsplit_type': 'schur',
+                                                        'mat_type': 'matfree',
                                                         'fieldsplit_1': {'ksp_type': 'default',
                                                                         'pc_type': 'python',
                                                                         'pc_python_type': __name__ + '.DGLaplacian'}}}}
