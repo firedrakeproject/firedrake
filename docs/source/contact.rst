@@ -8,20 +8,14 @@ Should you wish to get in touch with the Firedrake development team,
 for help, feature requests, bugs, or just to say hello, you can do so
 in a number of different ways.
 
-Mailing list
-------------
+GitHub discussions
+------------------
 
-You can contact the entire development team on the Firedrake mailing
-list: firedrake@imperial.ac.uk.  Note that you must be subscribed to
-this list to post to it.  To do so, visit `this page
-<mailing_list_>`_.
-
-Issues and feature requests
----------------------------
-
-The best place to submit bug reports or feature requests is on the
-`github project page <github_>`_.  We're happy to accept third-party
-contributions to Firedrake.
+The go to place for asking for help is `GitHub discussions
+<https://github.com/firedrakeproject/firedrake/discussions>`__. For support,
+please ask a question under the `Firedrake support category
+<https://github.com/firedrakeproject/firedrake/discussions/categories/firedrake-support>`__.
+We're also always very happy to accept third-party contributions to Firedrake.
 
 Slack |slack-badge|
 -------------------
@@ -36,13 +30,19 @@ This is open to all, but you must request an invite to join the
 channel, which you can do by `visiting this page
 <https://firedrakeproject.herokuapp.com/>`__ (or clicking the slack
 badge above).  Should this not work for whatever reason, please get in
-touch via the mailing list.
+touch via GitHub discussions.
 
 The `slack IRC gateway
 <https://get.slack.help/hc/en-us/articles/201727913-Connecting-to-Slack-over-IRC-and-XMPP>`__
 is enabled for this channel, so you can connect via IRC if you wish
 after signing up.
 
+Mailing list
+------------
 
-.. _github: https://github.com/firedrakeproject/firedrake
+Please join the Firedrake mailing list: firedrake@imperial.ac.uk.  This is a
+very low traffic list but it does carry important announcements, for example
+when we change a user-facing interface. Join the list on `this page
+<mailing_list_>`_.
+
 .. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake
