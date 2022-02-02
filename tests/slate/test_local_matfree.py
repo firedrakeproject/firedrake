@@ -349,9 +349,8 @@ def test_preconditioning_like():
                                                         'pc_type': 'fieldsplit',
                                                         'pc_fieldsplit_type': 'schur',
                                                         'mat_type': 'matfree',
-                                                        'fieldsplit_1': {'ksp_type': 'default',
-                                                                        'pc_type': 'python',
-                                                                        'pc_python_type': __name__ + '.DGLaplacian'}}}}
+                                                        'fieldsplit_0': {'ksp_type': 'default',
+                                                                        'pc_type': 'jacobi'}}}}
 
     w = Function(W)
     eq = a == l
