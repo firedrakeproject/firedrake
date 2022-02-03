@@ -293,3 +293,87 @@ class RiemannianMetric(ffunc.Function):
         metric = RiemannianMetric(func)
         metric.set_parameters(mp)
         return metric
+
+
+class AdaptorBase(abc.ABC):
+    """
+    Abstract base class that defines the API for all mesh adaptors.
+    """
+    def __init__(self, mesh):
+        """
+        :param mesh: mesh to be adapted
+        """
+        self.mesh = mesh
+
+    @abc.abstractmethod
+    def adapted_mesh(self):
+        pass
+
+    @abc.abstractmethod
+    def interpolate(self, f):
+        """
+        Interpolate a field from the initial mesh to the adapted mesh.
+
+        :param f: the field to be interpolated
+        """
+        pass
+
+
+class MetricBasedAdaptor(AdaptorBase):
+    """
+    Class for driving metric-based mesh adaptation.
+    """
+
+    @PETSc.Log.EventDecorator("MetricBasedAdaptor.__init__")
+    def __init__(self, mesh, metric):
+        """
+        :param mesh: :class:`MeshGeometry` to be adapted.
+        :param metric: Riemannian metric :class:`Function`.
+        """
+        if metric._mesh is not mesh:
+            raise ValueError("The mesh associated with the metric is inconsistent")
+        if isinstance(mesh.topology, fmesh.ExtrudedMeshTopology):
+            raise NotImplementedError("Cannot adapt extruded meshes")
+        coord_fe = mesh.coordinates.ufl_element()
+        if (coord_fe.family(), coord_fe.degree()) != ("Lagrange", 1):
+            raise NotImplementedError(f"Mesh coordinates must be P1, not {coord_fe}")
+        assert isinstance(metric, RiemannianMetric)
+        super().__init__(mesh)
+        self.metric = metric
+
+    @futils.cached_property
+    @PETSc.Log.EventDecorator("MetricBasedAdaptor.adapted_mesh")
+    def adapted_mesh(self):
+        """
+        Adapt the mesh with respect to the provided metric.
+
+        :return: a new :class:`MeshGeometry`.
+        """
+        self.metric.enforce_spd(restrict_sizes=True, restrict_anisotropy=True)
+        metric = self.metric._reordered
+        newplex = self.mesh.topology_dm.adaptMetric(metric, "Face Sets", "Cell Sets")
+        return fmesh.Mesh(newplex, distribution_parameters={"partition": False})
+
+    @PETSc.Log.EventDecorator("MetricBasedAdaptor.interpolate")
+    def interpolate(self, f):
+        raise NotImplementedError  # TODO: Implement consistent interpolation in parallel
+
+
+def adapt(mesh, *metrics, **kwargs):
+    r"""
+    Adapt a mesh with respect to a metric and some adaptor parameters.
+
+    If multiple metrics are provided, then they are intersected.
+
+    :param mesh: :class:`MeshGeometry` to be adapted.
+    :param metrics: Riemannian metric :class:`Function`\s.
+    :param adaptor_parameters: parameters used to drive
+        the metric-based mesh adaptation
+    :return: a new :class:`MeshGeometry`.
+    """
+    num_metrics = len(metrics)
+    metric = metrics[0]
+    if num_metrics > 1:
+        metric.intersect(*metrics[1:])
+    adaptor = MetricBasedAdaptor(mesh, metric)
+    return adaptor.adapted_mesh
