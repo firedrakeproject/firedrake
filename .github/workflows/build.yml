@@ -55,6 +55,7 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+          export PETSC_CONFIGURE_OPTIONS="--download-cmake --download-metis --download-parmetis --download-mmg --download-parmmg"
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
             --honour-petsc-dir \
@@ -70,6 +71,7 @@ jobs:
             --torch \
             --netgen \
             --slepc \
+            --package-branch petsc jwallwork23/parmmg-rebased \
             --install thetis \
             --install gusto \
             --install icepack \
