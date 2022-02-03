@@ -35,8 +35,6 @@
 import pytest
 import numpy
 from pyop2 import op2
-import pyop2.kernel
-import pyop2.parloop
 
 from coffee.base import *
 
@@ -282,7 +280,7 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    cache = pyop2.parloop.JITModule._cache
+    cache = op2.GlobalKernel._cache
 
     @pytest.fixture
     def a(cls, diterset):
@@ -464,48 +462,6 @@ static void swap(unsigned int* x)
         op2.par_loop(k, iterset, g(op2.INC))
 
         assert len(self.cache) == 2
-
-
-class TestKernelCache:
-
-    """
-    Kernel caching tests.
-    """
-
-    cache = pyop2.kernel.Kernel._cache
-
-    def test_kernels_same_code_same_name(self):
-        """Kernels with same code and name should be retrieved from cache."""
-        code = "static void k(void *x) {}"
-        self.cache.clear()
-        k1 = op2.Kernel(code, 'k')
-        k2 = op2.Kernel(code, 'k')
-        assert k1 is k2 and len(self.cache) == 1
-
-    def test_kernels_same_code_differing_name(self):
-        """Kernels with same code and different name should not be retrieved
-        from cache."""
-        self.cache.clear()
-        code = "static void k(void *x) {}"
-        k1 = op2.Kernel(code, 'k')
-        k2 = op2.Kernel(code, 'l')
-        assert k1 is not k2 and len(self.cache) == 2
-
-    def test_kernels_differing_code_same_name(self):
-        """Kernels with different code and same name should not be retrieved
-        from cache."""
-        self.cache.clear()
-        k1 = op2.Kernel("static void k(void *x) {}", 'k')
-        k2 = op2.Kernel("static void l(void *x) {}", 'k')
-        assert k1 is not k2 and len(self.cache) == 2
-
-    def test_kernels_differing_code_differing_name(self):
-        """Kernels with different code and different name should not be
-        retrieved from cache."""
-        self.cache.clear()
-        k1 = op2.Kernel("static void k(void *x) {}", 'k')
-        k2 = op2.Kernel("static void l(void *x) {}", 'l')
-        assert k1 is not k2 and len(self.cache) == 2
 
 
 class TestSparsityCache:

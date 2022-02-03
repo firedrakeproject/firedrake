@@ -1,4 +1,3 @@
-import ctypes
 import itertools
 import functools
 import numbers
@@ -54,10 +53,6 @@ class Map:
         return (self._values.ctypes.data, )
 
     @utils.cached_property
-    def _argtypes_(self):
-        return (ctypes.c_voidp, )
-
-    @utils.cached_property
     def _wrapper_cache_key_(self):
         return (type(self), self.arity, utils.tuplify(self.offset))
 
@@ -71,6 +66,16 @@ class Map:
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
+
+    # Here we enforce that every map stores a single, unique MapKernelArg.
+    # This is required because we use object identity to determined whether
+    # maps are referenced more than once in a parloop.
+    @utils.cached_property
+    def _global_kernel_arg(self):
+        from pyop2.global_kernel import MapKernelArg
+
+        offset = tuple(self.offset) if self.offset is not None else None
+        return MapKernelArg(self.arity, offset)
 
     @utils.cached_property
     def split(self):
@@ -175,6 +180,13 @@ class PermutedMap(Map):
     @utils.cached_property
     def _wrapper_cache_key_(self):
         return super()._wrapper_cache_key_ + (tuple(self.permutation),)
+
+    # See Map._global_kernel_arg above for more information.
+    @utils.cached_property
+    def _global_kernel_arg(self):
+        from pyop2.global_kernel import PermutedMapKernelArg
+
+        return PermutedMapKernelArg(self.map_._global_kernel_arg, tuple(self.permutation))
 
     def __getattr__(self, name):
         return getattr(self.map_, name)

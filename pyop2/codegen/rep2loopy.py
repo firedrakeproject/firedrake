@@ -541,15 +541,15 @@ def generate(builder, wrapper_name=None):
 
     # register kernel
     kernel = builder.kernel
-    headers = set(kernel._headers)
+    headers = set(kernel.headers)
     headers = headers | set(["#include <math.h>", "#include <complex.h>", "#include <petsc.h>"])
     preamble = "\n".join(sorted(headers))
 
     from coffee.base import Node
     from loopy.kernel.function_interface import CallableKernel
 
-    if isinstance(kernel._code, loopy.TranslationUnit):
-        knl = kernel._code
+    if isinstance(kernel.code, loopy.TranslationUnit):
+        knl = kernel.code
         wrapper = loopy.merge([wrapper, knl])
         names = knl.callables_table
         for name in names:
@@ -557,10 +557,10 @@ def generate(builder, wrapper_name=None):
                 wrapper = _match_caller_callee_argument_dimension_(wrapper, name)
     else:
         # kernel is a string, add it to preamble
-        if isinstance(kernel._code, Node):
-            code = kernel._code.gencode()
+        if isinstance(kernel.code, Node):
+            code = kernel.code.gencode()
         else:
-            code = kernel._code
+            code = kernel.code
         wrapper = loopy.register_callable(
             wrapper,
             kernel.name,
