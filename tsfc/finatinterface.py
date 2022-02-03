@@ -68,7 +68,7 @@ supported_elements = {
     "RTCF": None,
     "NCE": None,
     "NCF": None,
-    "Real": finat.DiscontinuousLagrange,
+    "Real": finat.Real,
     "DPC": finat.DPC,
     "S": finat.Serendipity,
     "DPC L2": finat.DPC,
