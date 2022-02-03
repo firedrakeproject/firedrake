@@ -162,7 +162,7 @@ class ASMStarPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype=IntType)
+                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
             ises.append(iset)
@@ -228,7 +228,7 @@ class ASMVankaPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype=IntType)
+                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
             ises.append(iset)
@@ -409,8 +409,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                             else:
                                 begin = off + min(k, k+plane) * blayer_offset + dof
                                 end = off + max(k, k+plane) * blayer_offset
-                            zlice = slice(W.value_size * begin,
-                                          W.value_size * end)
+                            zlice = slice(W.value_size * begin, W.value_size * end)
                             slices.append(zlice)
                             sdof.append(end-begin)
                             # indices.extend(iset[zlice])
