@@ -82,8 +82,7 @@ class FDMPC(PCBase):
             self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
                                      options_prefix=options_prefix)
             self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                       form_compiler_parameters=fcp, mat_type=mat_type,
-                                       assembly_type="residual")
+                                       form_compiler_parameters=fcp, mat_type=mat_type)
             self._assemble_A()
             Amat = self.A.petscmat
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
