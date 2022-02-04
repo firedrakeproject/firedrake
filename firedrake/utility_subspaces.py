@@ -67,7 +67,7 @@ def _BoundarySubspace(V, subdomain, constructor, extra_tuple=None):
         if len(indices) == 0:
             W = V
         else:
-            W = functionspaceimpl.WithGeometry(tV, V.mesh())
+            W = functionspaceimpl.WithGeometry.create(tV, V.mesh())
         Wsub_tuple = (V, )
         indices_tuple = (indices, )
     if extra_tuple == None:

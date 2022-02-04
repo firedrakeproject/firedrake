@@ -723,6 +723,7 @@ class _GlobalKernelBuilder:
         self._unroll = unroll
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._active_subspaces = _FormHandler.iter_active_subspaces(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -902,6 +903,24 @@ def _as_global_kernel_arg_coordinates(_, self):
 def _as_global_kernel_arg_coefficient(_, self):
     coeff = next(self._active_coefficients)
     V = coeff.ufl_function_space()
+    if hasattr(V, "component") and V.component is not None:
+        index = V.component,
+        V = V.parent
+    else:
+        index = None
+
+    ufl_element = V.ufl_element()
+    if ufl_element.family() == "Real":
+        return op2.GlobalKernelArg((ufl_element.value_size(),))
+    else:
+        finat_element = create_element(ufl_element)
+        return self._make_dat_global_kernel_arg(finat_element, index)
+
+
+@_as_global_kernel_arg.register(kernel_args.ExternalDataKernelArg)
+def _as_global_kernel_arg_external_data(_, self):
+    s = next(self._active_subspaces)
+    V = s.ufl_function_space()
     if hasattr(V, "component") and V.component is not None:
         index = V.component,
         V = V.parent
