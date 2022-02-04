@@ -31,8 +31,8 @@ from tsfc.logging import logger
 
 import gem
 
+from pyop2 import op2
 from pyop2.caching import Cached
-from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form, split_form_projected
@@ -58,7 +58,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "subspace_parts",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
-                                     "needs_cell_sizes"])
+                                     "needs_cell_sizes",
+                                     "arguments"])
 
 
 class TSFCKernel(Cached):
@@ -100,7 +101,7 @@ class TSFCKernel(Cached):
             val = comm.bcast(None, root=0)
 
         if val is None:
-            raise KeyError("Object with key %s not found" % key)
+            raise KeyError(f"Object with key {key} not found")
         return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
 
     @classmethod
@@ -153,15 +154,16 @@ class TSFCKernel(Cached):
         kernels = []
         for kernel in tree:
             # Set optimization options
-            opts = default_parameters["coffee"]
-            ast = kernel.ast
+            opts = default_parameters["coffee"].copy()
             # Unwind function/subspace numbering
             function_numbers = tuple(function_number_map[c] for c in kernel.coefficient_numbers)
             subspace_numbers = tuple(subspace_number_map[c] for c in kernel.external_data_numbers)
             subspace_parts = kernel.external_data_parts
-            kernels.append(KernelInfo(kernel=Kernel(ast, kernel.name, opts=opts,
-                                                    requires_zeroed_output_arguments=True,
-                                                    flop_count=kernel.flop_count),
+            pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
+                                                 len(kernel.arguments),
+                                                 flop_count=kernel.flop_count,
+                                                 opts=opts)
+            kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -171,7 +173,8 @@ class TSFCKernel(Cached):
                                       subspace_parts=subspace_parts,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
-                                      needs_cell_sizes=kernel.needs_cell_sizes))
+                                      needs_cell_sizes=kernel.needs_cell_sizes,
+                                      arguments=kernel.arguments))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -351,10 +354,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     # if we assemble the same form again with the same optimisations
     cache = form._cache.setdefault("firedrake_kernels", {})
 
-    def tuplify(params):
-        return tuple((k, params[k]) for k in sorted(params))
-
-    key = (tuplify(default_parameters["coffee"]), name, tuplify(parameters), split, diagonal)
+    key = (utils.tuplify(default_parameters["coffee"]), name, utils.tuplify(parameters), split, diagonal)
     try:
         return cache[key]
     except KeyError:
@@ -423,3 +423,34 @@ def _ensure_cachedir(comm=None):
     comm = comm or COMM_WORLD
     if comm.rank == 0:
         makedirs(TSFCKernel._cachedir, exist_ok=True)
+
+
+def gather_integer_subdomain_ids(knls):
+    """Gather a dict of all integer subdomain IDs per integral type.
+
+    This is needed to correctly interpret the ``"otherwise"`` subdomain ID.
+
+    :arg knls: Iterable of :class:`SplitKernel` objects.
+    """
+    all_integer_subdomain_ids = collections.defaultdict(list)
+    for _, kinfo in knls:
+        if kinfo.subdomain_id != "otherwise":
+            all_integer_subdomain_ids[kinfo.integral_type].append(kinfo.subdomain_id)
+
+    for k, v in all_integer_subdomain_ids.items():
+        all_integer_subdomain_ids[k] = tuple(sorted(v))
+    return all_integer_subdomain_ids
+
+
+def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
+    """Convert a loopy kernel to a PyOP2 :class:`pyop2.LocalKernel`.
+
+    :arg ast: The kernel code. This could be, for example, a loopy kernel.
+    :arg name: The kernel name.
+    :arg nargs: The number of arguments expected by the kernel.
+    :arg access: Access descriptor for the first kernel argument.
+    """
+    # all but the first argument to the kernel are read-only
+    accesses = tuple([access] + [op2.READ]*(nargs-1))
+    return op2.Kernel(ast, name, accesses=accesses,
+                      requires_zeroed_output_arguments=True, **kwargs)

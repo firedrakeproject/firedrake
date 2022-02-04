@@ -11,7 +11,7 @@ from gem.impero_utils import compile_gem, preprocess_gem
 from gem.node import MemoizerArg
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
-from pyop2.parloop import Arg
+from pyop2.parloop import GlobalLegacyArg, DatLegacyArg
 from tsfc import ufl2gem
 from tsfc.loopy import generate
 from tsfc.ufl_utils import ufl_reuse_if_untouched
@@ -288,13 +288,13 @@ class Assign(object):
         """Tuple of par_loop arguments for the expression."""
         args = []
         if isinstance(self, AugmentedAssign) or self.lvalue in self.rcoefficients:
-            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
+            args.append(self._as_weakreffed_arg(self.lvalue.dat, op2.RW))
         else:
-            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
+            args.append(self._as_weakreffed_arg(self.lvalue.dat, op2.WRITE))
         for c in self.rcoefficients:
             if c.dat == self.lvalue.dat:
                 continue
-            args.append(Arg(weakref.ref(c.dat), access=op2.READ))
+            args.append(self._as_weakreffed_arg(c.dat, op2.READ))
         return tuple(args)
 
     @cached_property
@@ -329,6 +329,15 @@ class Assign(object):
             k, args = pointwise_expression_kernel(exprs, ScalarType)
             result.append((k, iterset, tuple(args)))
         return tuple(result)
+
+    @staticmethod
+    def _as_weakreffed_arg(dat, access):
+        if isinstance(dat, op2.Global):
+            return GlobalLegacyArg(weakref.ref(dat), access)
+        elif isinstance(dat, (op2.Dat, op2.DatView)):
+            return DatLegacyArg(weakref.ref(dat), None, access)
+        else:
+            raise AssertionError
 
 
 class AugmentedAssign(Assign):
@@ -438,7 +447,7 @@ def pointwise_expression_kernel(exprs, scalar_type):
     return firedrake.op2.Kernel(knl, name), plargs
 
 
-class dereffed(object):
+class dereffed:
     def __init__(self, args):
         self.args = args
 

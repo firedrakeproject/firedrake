@@ -1253,6 +1253,7 @@ def install_documentation_dependencies():
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
     run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
