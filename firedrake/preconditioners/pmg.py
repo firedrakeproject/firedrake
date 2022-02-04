@@ -725,7 +725,7 @@ def cache_generate_code(kernel, comm):
                                os.path.join(tempfile.gettempdir(),
                                             'pyop2-cache-uid%d' % os.getuid()))
 
-    key = kernel.cache_key
+    key = kernel.cache_key[0]
     shard, disk_key = key[:2], key[2:]
     filepath = os.path.join(_cachedir, shard, disk_key)
     if os.path.exists(filepath):

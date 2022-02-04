@@ -133,7 +133,8 @@ class ASMStarPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering",
+                                             default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -150,7 +151,7 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = nested_dissection(mesh_dm, pt_array)
+            pt_array = order_points(mesh_dm, pt_array, ordering)
 
             # Get DoF indices for patch
             indices = []
@@ -264,6 +265,7 @@ class ASMLinesmoothPC(ASMPatchPC):
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
+
         codim_list = [int(ii) for ii in codim_list.split(",")]
 
         # Build index sets for the patches
@@ -284,12 +286,15 @@ class ASMLinesmoothPC(ASMPatchPC):
         return ises
 
 
-def nested_dissection(mesh_dm, points):
+def order_points(mesh_dm, points, ordering_type):
+    if ordering_type == "natural":
+        return points
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
     cols = numpy.concatenate(subgraph).astype(PETSc.IntType)
     rows = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(rows, cols, numpy.ones(cols.shape)), comm=COMM_SELF)
-    rperm, _ = A.getOrdering(PETSc.Mat.OrderingType.ND)
+    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(rows, cols, numpy.ones(cols.shape, PETSc.RealType)), comm=COMM_SELF)
+    rperm, _ = A.getOrdering(ordering_type)
+    A.destroy()
     return points[rperm.getIndices()]
 
 
@@ -347,6 +352,8 @@ class ASMExtrudedStarPC(ASMStarPC):
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim",
                                        default=0)
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering",
+                                             default="natural")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -371,7 +378,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
             # Create point list from mesh DM
             points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            points = nested_dissection(mesh_dm, points)
+            points = order_points(mesh_dm, points, ordering)
             points -= pstart  # offset by chart start
             for k in range(nlayers):
                 if k == 0:
@@ -385,8 +392,6 @@ class ASMExtrudedStarPC(ASMStarPC):
                 # Get DoF indices for patch
                 for i, W in enumerate(V):
                     iset = V_ises[i]
-                    sdof = []
-                    slices = []
                     for plane in planes:
                         for p in points:
                             # How to walk up one layer
@@ -410,13 +415,8 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 begin = off + min(k, k+plane) * blayer_offset + dof
                                 end = off + max(k, k+plane) * blayer_offset
                             zlice = slice(W.value_size * begin, W.value_size * end)
-                            slices.append(zlice)
-                            sdof.append(end-begin)
-                            # indices.extend(iset[zlice])
+                            indices.extend(iset[zlice])
 
-                    perm = numpy.argsort(numpy.array(sdof), kind='mergesort')
-                    for k in reversed(perm):
-                        indices.extend(iset[slices[k]])
                 iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
                 ises.append(iset)
         return ises
