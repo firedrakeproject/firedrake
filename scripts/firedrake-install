@@ -1835,7 +1835,8 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         # Ensure pytest is at the latest version
-        run_pip(["install", "-U", "pytest"])
+        print('We use pytest==6.2.5 until the issue with pytest==7.0.0 is resolved.')
+        run_pip(["install", "-U", "pytest==6.2.5"])
 
 with environment(**compiler_env):
     with pipargs("--no-deps"):
