@@ -39,7 +39,7 @@ class HypreAMS(PCBase):
         G2.setType(PETSc.Mat.Type.AIJ)
         G2.setSizes(G.sizes)
         G2.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-        G2.setPreallocationCSR((ai,aj,a))
+        G2.setPreallocationCSR((ai, aj, a))
         G2.assemble()
 
         pc = PETSc.PC().create(comm=obj.comm)
