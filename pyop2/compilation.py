@@ -49,6 +49,7 @@ from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
+from petsc4py import PETSc
 
 
 def _check_hashes(x, y, datatype):
