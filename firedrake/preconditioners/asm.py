@@ -133,7 +133,7 @@ class ASMStarPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering",
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
                                              default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -352,7 +352,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim",
                                        default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering",
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
                                              default="natural")
 
         # Accessing .indices causes the allocation of a global array,
