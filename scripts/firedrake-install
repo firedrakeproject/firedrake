@@ -17,6 +17,7 @@ from itertools import chain
 import re
 import importlib
 from pkg_resources import parse_version
+import yaml
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -49,6 +50,7 @@ class InstallError(Exception):
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
     configuration information."""
+
     def __init__(self, args=None):
         super(FiredrakeConfiguration, self).__init__()
 
@@ -458,6 +460,7 @@ def print_log_location():
 
 class directory(object):
     """Context manager that executes body in a given directory"""
+
     def __init__(self, dir):
         self.dir = os.path.abspath(dir)
 
@@ -1366,34 +1369,39 @@ if mode == "install" or not args.update_script:
     # Check operating system.
     required_packages = None
     package_manager = None
-    if osname == "Darwin":
-        package_manager = "brew"
-        required_packages = ["gcc",
+
+    required_packages_linux = ["build-essential",
+                               "autoconf",
+                               "automake",
+                               "bison",  # for ptscotch
+                               "flex",   # for ptscotch
+                               "cmake",
+                               "gfortran",
+                               "git",
+                               "libtool",
+                               "python3-dev",
+                               "python3-pip",
+                               "python3-tk",
+                               "python3-venv",
+                               "zlib1g-dev",
+                               "libboost-dev"]  # For ROL in pyadjoint]
+
+    required_packages_mac = ["gcc",
                              "autoconf",
                              "make",
                              "automake",
                              "cmake",
                              "libtool",
                              "boost"]
+
+    if osname == "Darwin":
+        package_manager = "brew"
+        required_packages = required_packages_mac
         if args.with_blas is None and mode == "install":
             required_packages.append("openblas")
     elif osname == "Linux":
         package_manager = "apt-get"
-        required_packages = ["build-essential",
-                             "autoconf",
-                             "automake",
-                             "bison",  # for ptscotch
-                             "flex",   # for ptscotch
-                             "cmake",
-                             "gfortran",
-                             "git",
-                             "libtool",
-                             "python3-dev",
-                             "python3-pip",
-                             "python3-tk",
-                             "python3-venv",
-                             "zlib1g-dev",
-                             "libboost-dev"]  # For ROL in pyadjoint
+        required_packages = required_packages_linux
         if args.opencascade:
             required_packages.append("liboce-ocaf-dev")
             required_packages.append("swig")
@@ -1430,6 +1438,20 @@ if mode == "install" or not args.update_script:
             log.info("\nThey will be installed by %s unless --no-package-manager is used." % (package_manager))
             if osname == "Darwin":
                 log.info("\nIn addition, the command line tools will be installed using xcode")
+
+        # getting the needed information for the documnetation
+        dependencies_logs = {}
+        dependencies_logs['system_requirements_mac'] = required_packages_mac
+        dependencies_logs['system_requirements_linux'] = required_packages_linux
+
+        dependencies_logs['wheel_blacklist'] = wheel_blacklist
+
+        dependencies_logs['parallel_packages'] = parallel_packages
+
+        with open('install_configuration.yaml', 'w') as out_file:
+            yaml.safe_dump(dependencies_logs, out_file)
+
+        # exiting the system in order to not run all the installation
         sys.exit(0)
 
     blas_location = args.with_blas

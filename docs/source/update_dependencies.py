@@ -2,10 +2,15 @@ import yaml
 import os
 import shutil
 import os
+import subprocess
 
+print(os.getcwd())
+
+# run the script in order to get the yaml file
+subprocess.check_call(['python3', '../scripts/firedrake-install', '--show-dependencies'])
 
 # reading the install configuration file
-with open('../scripts/install_configuration.yaml', 'r') as stream:
+with open('install_configuration.yaml', 'r') as stream:
     data = yaml.safe_load(stream)
 
 # creating new folder containing the .rst files with the dependencies
@@ -37,3 +42,6 @@ with open('../requirements-git.txt') as requirements_file:
             # the petsc doesn't need to appear
             if (library != 'petsc'):
                 out_file.write(f"* `{library} <{link}>`_ \n")
+
+# remove the created .yaml file
+os.remove('install_configuration.yaml')
