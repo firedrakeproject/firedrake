@@ -674,6 +674,10 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
     nscal = Vf.ufl_element().reference_value_size()
     felems = get_line_elements(Vf)
     celems = get_line_elements(Vc)
+    if len(felems) != len(celems):
+        raise ValueError("Fine and coarse elements do not have the same number of factors")
+    if len(felems) not in [2, 3]:
+        raise ValueError("BLAS kernels only support 2D and 3D tensor product elements")
 
     # Declare array shapes to be used as literals inside the kernels
     fshape = [e.space_dimension() for e in felems]
