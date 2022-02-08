@@ -13,7 +13,7 @@ from pyop2.configuration import configuration
 from pyop2.exceptions import KernelTypeError, MapValueError, SetTypeError
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
                                  MatKernelArg, MixedMatKernelArg, GlobalKernel)
-from pyop2.local_kernel import LocalKernel, CStringLocalKernel
+from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel
 from pyop2.types import (Access, Global, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, MixedMap)
 from pyop2.utils import cached_property
@@ -592,7 +592,7 @@ def LegacyParloop(local_knl, iterset, *args, **kwargs):
 
     # finish building the local kernel
     local_knl.accesses = tuple(a.access for a in args)
-    if isinstance(local_knl, CStringLocalKernel):
+    if isinstance(local_knl, (CStringLocalKernel, CoffeeLocalKernel)):
         local_knl.dtypes = tuple(a.data.dtype for a in args)
 
     global_knl_args = tuple(a.global_kernel_arg for a in args)
