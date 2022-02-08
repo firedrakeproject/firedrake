@@ -211,25 +211,22 @@ class CStringLocalKernel(LocalKernel):
     def dtypes(self, dtypes):
         self._dtypes = dtypes
 
-    @cached_property
-    def arguments(self):
-        assert self.dtypes is not None
-
-        return tuple(LocalKernelArg(acc, dtype)
-                     for acc, dtype in zip(self.accesses, self.dtypes))
-
 
 class CoffeeLocalKernel(LocalKernel):
     """:class:`LocalKernel` class where `code` has type :class:`coffee.base.Node`."""
 
     @validate_type(("code", coffee.base.Node, TypeError))
-    def __init__(self, code, *args, **kwargs):
-        super().__init__(code, *args, **kwargs)
+    def __init__(self, code, name, accesses=None, dtypes=None, **kwargs):
+        super().__init__(code, name, accesses, **kwargs)
+        self._dtypes = dtypes
 
     @property
     def dtypes(self):
-        _, fundecl = self.code.children
-        return tuple(a.typ for a in fundecl.args)
+        return self._dtypes
+
+    @dtypes.setter
+    def dtypes(self, dtypes):
+        self._dtypes = dtypes
 
 
 class LoopyLocalKernel(LocalKernel):
