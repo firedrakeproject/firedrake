@@ -1,0 +1,41 @@
+system_requirements_mac:
+  - gcc
+  - autoconf
+  - make
+  - automake
+  - cmake
+  - libtool
+  - boost
+
+system_requirements_linux:
+  - build-essential
+  - autoconf
+  - automake
+  - bison
+  - flex
+  - cmake
+  - gfortran
+  - git
+  - libtool
+  - python3-dev
+  - python3-pip
+  - python3-tk
+  - python3-venv
+  - zlib1g-dev
+  - libboost-dev
+
+wheel_blacklist:
+  - mpi4py
+  - randomegen
+  - islpy
+  - numpy
+
+parallel_packages:
+  - mpi4py
+  - h5py
+  - petsc4py
+  - slepc
+  - slepc4py
+  - PyOP2
+  - libsupermesh
+  - firedrake

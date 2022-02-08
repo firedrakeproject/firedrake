@@ -89,7 +89,11 @@ clean:
 buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
-html: apidoc buildhtml
+update_dependencies:
+	@echo "Updating dependencies for install script"
+	python source/update_dependencies.py
+
+html: update_dependencies apidoc buildhtml 
 	cp source/demos/*.py source/demos/*.geo source/demos/*.msh $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
