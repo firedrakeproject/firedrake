@@ -57,7 +57,7 @@ class ASMPatchPC(PCBase):
             # Set default solver parameters
             asmpc.setASMType(PETSc.PC.ASMType.BASIC)
 
-            dosort = PETSc.Options().getBool(self.prefix + "sort", default=True)
+            dosort = PETSc.Options().getBool(self.prefix + "sort_indices", default=True)
             asmpc.setASMSortIndices(dosort)
             opts = PETSc.Options(asmpc.getOptionsPrefix())
             if "sub_pc_type" not in opts:
@@ -151,7 +151,7 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = order_points(mesh_dm, pt_array, ordering)
+            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
 
             # Get DoF indices for patch
             indices = []
@@ -194,6 +194,7 @@ class ASMVankaPC(ASMPatchPC):
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -219,6 +220,7 @@ class ASMVankaPC(ASMPatchPC):
                 closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
                 pt_array.update(closure.tolist())
 
+            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
@@ -286,13 +288,14 @@ class ASMLinesmoothPC(ASMPatchPC):
         return ises
 
 
-def order_points(mesh_dm, points, ordering_type):
+def order_points(mesh_dm, points, ordering_type, prefix):
     if ordering_type == "natural":
         return points
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
-    cols = numpy.concatenate(subgraph).astype(PETSc.IntType)
-    rows = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(rows, cols, numpy.ones(cols.shape, PETSc.RealType)), comm=COMM_SELF)
+    ia = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
+    ja = numpy.concatenate(subgraph).astype(PETSc.IntType)
+    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(ia, ja, numpy.ones(ja.shape, PETSc.RealType)), comm=COMM_SELF)
+    A.setOptionsPrefix(prefix)
     rperm, _ = A.getOrdering(ordering_type)
     A.destroy()
     return points[rperm.getIndices()]
@@ -378,7 +381,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
             # Create point list from mesh DM
             points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            points = order_points(mesh_dm, points, ordering)
+            points = order_points(mesh_dm, points, ordering, self.prefix)
             points -= pstart  # offset by chart start
             for k in range(nlayers):
                 if k == 0:

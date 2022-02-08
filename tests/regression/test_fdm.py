@@ -2,6 +2,44 @@ import pytest
 from firedrake import *
 
 
+fdmstar = {
+    "mat_type": "matfree",
+    "ksp_type": "cg",
+    "ksp_atol": 0.0E0,
+    "ksp_rtol": 1.0E-8,
+    "ksp_norm_type": "unpreconditioned",
+    "ksp_monitor_true_residual": None,
+    "ksp_converged_reason": None,
+    "pc_type": "python",
+    "pc_python_type": "firedrake.P1PC",
+    "pmg_coarse_mat_type": "aij",
+    "pmg_mg_coarse": {
+        "ksp_type": "preonly",
+        "pc_type": "cholesky",
+    },
+    "pmg_mg_levels": {
+        "ksp_type": "chebyshev",
+        "esteig_ksp_type": "cg",
+        "esteig_ksp_norm_type": "unpreconditioned",
+        "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+        "ksp_chebyshev_esteig_noisy": True,
+        "ksp_chebyshev_esteig_steps": 8,
+        "ksp_norm_type": "unpreconditioned",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.FDMPC",
+        "fdm": {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_star_sort_indices": False,
+            "pc_star_mat_ordering_type": "nd",
+            "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
+            "pc_star_sub_sub_pc_mat_ordering_type": "natural",
+        }
+    }
+}
+
+
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def mesh(request):
@@ -49,48 +87,14 @@ def test_p_independence(mesh, expected, variant):
         a = inner(grad(v), grad(u))*dx
         L = inner(v, B)*dx
 
-        asm = "firedrake.ASMStarPC"
         subs = ("on_boundary",)
-        if mesh.topological_dimension() == 3:
-            asm = "firedrake.ASMExtrudedStarPC"
+        if mesh.cell_set._extruded:
             subs += ("top", "bottom")
         bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
 
         uh = Function(V)
         problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-        solver = LinearVariationalSolver(problem, solver_parameters={
-            "mat_type": "matfree",
-            "ksp_type": "cg",
-            "ksp_atol": 0.0E0,
-            "ksp_rtol": 1.0E-8,
-            "ksp_norm_type": "unpreconditioned",
-            "ksp_monitor_true_residual": None,
-            "ksp_converged_reason": None,
-            "pc_type": "python",
-            "pc_python_type": "firedrake.P1PC",
-            "pmg_coarse_mat_type": "aij",
-            "pmg_mg_coarse": {
-                "ksp_type": "preonly",
-                "pc_type": "cholesky",
-            },
-            "pmg_mg_levels": {
-                "ksp_type": "chebyshev",
-                "esteig_ksp_type": "cg",
-                "esteig_ksp_norm_type": "unpreconditioned",
-                "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
-                "ksp_chebyshev_esteig_noisy": True,
-                "ksp_chebyshev_esteig_steps": 8,
-                "ksp_norm_type": "unpreconditioned",
-                "pc_type": "python",
-                "pc_python_type": "firedrake.FDMPC",
-                "fdm": {
-                    "pc_type": "python",
-                    "pc_python_type": asm,
-                    "pc_star_backend": "petscasm",
-                    "pc_star_sub_sub_pc_type": "cholesky",
-                    "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
-                }
-            }})
+        solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
     assert norm(u_exact-uh, "H1") < 1.0E-7
@@ -116,48 +120,14 @@ def test_variable_coefficient(mesh):
     a = (inner(grad(v), dot(alpha, grad(u))) + inner(v, beta*u))*dx(degree=3*k+2)
     L = inner(v, Constant(1))*dx
 
-    asm = "firedrake.ASMStarPC"
     subs = ("on_boundary",)
-    if mesh.topological_dimension() == 3:
-        asm = "firedrake.ASMExtrudedStarPC"
+    if mesh.cell_set._extruded:
         subs += ("top", "bottom")
     bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
 
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters={
-        "mat_type": "matfree",
-        "ksp_type": "cg",
-        "ksp_atol": 0.0E0,
-        "ksp_rtol": 1.0E-8,
-        "ksp_norm_type": "unpreconditioned",
-        "ksp_monitor_true_residual": None,
-        "ksp_converged_reason": None,
-        "pc_type": "python",
-        "pc_python_type": "firedrake.P1PC",
-        "pmg_coarse_mat_type": "aij",
-        "pmg_mg_coarse": {
-            "ksp_type": "preonly",
-            "pc_type": "cholesky",
-        },
-        "pmg_mg_levels": {
-            "ksp_type": "chebyshev",
-            "esteig_ksp_type": "cg",
-            "esteig_ksp_norm_type": "unpreconditioned",
-            "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
-            "ksp_chebyshev_esteig_noisy": True,
-            "ksp_chebyshev_esteig_steps": 8,
-            "ksp_norm_type": "unpreconditioned",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.FDMPC",
-            "fdm": {
-                "pc_type": "python",
-                "pc_python_type": asm,
-                "pc_star_backend": "petscasm",
-                "pc_star_sub_sub_pc_type": "cholesky",
-                "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
-            }
-        }})
+    solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() <= 14
 

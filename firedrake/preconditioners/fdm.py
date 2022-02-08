@@ -785,7 +785,9 @@ def get_weak_bc_flags(J):
     args_J = J.arguments()
     V = args_J[0].function_space()
     rvs = V.ufl_element().reference_value_shape()
-    Qe = ufl.TensorElement(ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0), shape=rvs)
+    Qe = ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0)
+    if rvs:
+        Qe = ufl.TensorElement(Qe, shape=rvs)
     Q = firedrake.FunctionSpace(mesh, Qe)
     q = firedrake.TestFunction(Q)
 
@@ -798,7 +800,9 @@ def get_weak_bc_flags(J):
         itype = it.integral_type()
         if itype.startswith("exterior_facet"):
             beta = ufl.diff(ufl.diff(ufl.replace(it.integrand(), replace_args), ref_args[0]), ref_args[1])
-            beta = ufl.diag_vector(expand_derivatives(beta))
+            beta = expand_derivatives(beta)
+            if rvs:
+                beta = ufl.diag_vector(beta)
             ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
             forms.append(ufl.inner(q, beta)*ds_ext)
 
