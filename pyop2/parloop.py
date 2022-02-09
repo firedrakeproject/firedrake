@@ -286,11 +286,14 @@ class Parloop:
 
     @cached_property
     def _g2l_idxs(self):
-        return tuple(i for i, wknl_arg
-                     in enumerate(self.global_kernel.arguments)
-                     if isinstance(wknl_arg, DatKernelArg)
-                     and wknl_arg.is_indirect
-                     and self.accesses[i] is not Access.WRITE)
+        seen = set()
+        indices = []
+        for i, (lknl_arg, gknl_arg, pl_arg) in enumerate(self.zipped_arguments):
+            if (isinstance(gknl_arg, DatKernelArg) and pl_arg.data not in seen
+                    and gknl_arg.is_indirect and lknl_arg.access is not Access.WRITE):
+                indices.append(i)
+                seen.add(pl_arg.data)
+        return tuple(indices)
 
     @mpi.collective
     def local_to_global_begin(self):
@@ -324,11 +327,15 @@ class Parloop:
 
     @cached_property
     def _l2g_idxs(self):
-        return tuple(i for i, arg
-                     in enumerate(self.global_kernel.arguments)
-                     if isinstance(arg, DatKernelArg)
-                     and arg.is_indirect
-                     and self.accesses[i] in {Access.INC, Access.MIN, Access.MAX})
+        seen = set()
+        indices = []
+        for i, (lknl_arg, gknl_arg, pl_arg) in enumerate(self.zipped_arguments):
+            if (isinstance(gknl_arg, DatKernelArg) and pl_arg.data not in seen
+                    and gknl_arg.is_indirect
+                    and lknl_arg.access in {Access.INC, Access.MIN, Access.MAX}):
+                indices.append(i)
+                seen.add(pl_arg.data)
+        return tuple(indices)
 
     @PETSc.Log.EventDecorator("ParLoopRednBegin")
     @mpi.collective
