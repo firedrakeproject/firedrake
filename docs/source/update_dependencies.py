@@ -4,14 +4,17 @@ import shutil
 import os
 import subprocess
 
-print(os.getcwd())
+log_stream = subprocess.check_output(
+    ['python3', '../scripts/firedrake-install', '--show-dependencies'], stderr=subprocess.STDOUT, env=os.environ).decode()
 
-# run the script in order to get the yaml file
-subprocess.check_call(['python3', '../scripts/firedrake-install', '--show-dependencies'])
+rows = log_stream.split('\n')
+start_index = rows.index('START LOG DATA DOCUMENTATION') + 1
+end_index = rows.index('END LOG DATA DOCUMENTATION')
 
-# reading the install configuration file
-with open('install_configuration.yaml', 'r') as stream:
-    data = yaml.safe_load(stream)
+log_yaml = "\n".join(rows[start_index:end_index])
+
+data = yaml.safe_load(log_yaml)
+print(type(data))
 
 # creating new folder containing the .rst files with the dependencies
 try:
@@ -42,6 +45,3 @@ with open('../requirements-git.txt') as requirements_file:
             # the petsc doesn't need to appear
             if (library != 'petsc'):
                 out_file.write(f"* `{library} <{link}>`_ \n")
-
-# remove the created .yaml file
-os.remove('install_configuration.yaml')

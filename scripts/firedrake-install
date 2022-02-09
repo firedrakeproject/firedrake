@@ -1448,9 +1448,15 @@ if mode == "install" or not args.update_script:
 
         dependencies_logs['parallel_packages'] = parallel_packages
 
-        with open('install_configuration.yaml', 'w') as out_file:
-            yaml.safe_dump(dependencies_logs, out_file)
+        # writing the logs in order to be parsed as yaml file
+        log.info("START LOG DATA DOCUMENTATION")
 
+        for key, val in dependencies_logs.items():
+            log.info(f"{key}:")
+            for dep in val:
+                log.info(f"- {dep}")
+
+        log.info("END LOG DATA DOCUMENTATION")
         # exiting the system in order to not run all the installation
         sys.exit(0)
 
