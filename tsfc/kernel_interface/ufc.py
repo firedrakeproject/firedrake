@@ -11,7 +11,7 @@ from finat import TensorFiniteElement
 
 import ufl
 
-from tsfc.kernel_interface.common import KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase, KernelBuilderMixin, get_index_names
 from tsfc.finatinterface import create_element as _create_element
 
 
@@ -19,14 +19,16 @@ from tsfc.finatinterface import create_element as _create_element
 create_element = functools.partial(_create_element, shape_innermost=False)
 
 
-class KernelBuilder(KernelBuilderBase):
+class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type=None, diagonal=False):
+    def __init__(self, integral_data_info, scalar_type, diagonal=False):
         """Initialise a kernel builder."""
+        integral_type = integral_data_info.integral_type
         if diagonal:
             raise NotImplementedError("Assembly of diagonal not implemented yet, sorry")
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        self.fem_scalar_type = scalar_type
         self.integral_type = integral_type
 
         self.local_tensor = None
@@ -50,17 +52,32 @@ class KernelBuilder(KernelBuilderBase):
         elif integral_type == "vertex":
             self._entity_number = {None: gem.VariableIndex(gem.Variable("vertex", ()))}
 
-    def set_arguments(self, arguments, multiindices):
+        self.set_arguments(integral_data_info.arguments)
+        self.integral_data_info = integral_data_info
+
+    def set_arguments(self, arguments):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
         :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, prepare, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet)
+        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                      for arg in arguments)
+        if self.diagonal:
+            # Error checking occurs in the builder constructor.
+            # Diagonal assembly is obtained by using the test indices for
+            # the trial space as well.
+            a, _ = argument_multiindices
+            argument_multiindices = (a, a)
+        local_tensor, prepare, return_variables = prepare_arguments(arguments,
+                                                                    argument_multiindices,
+                                                                    self.scalar_type,
+                                                                    interior_facet=self.interior_facet)
         self.apply_glue(prepare)
-        return expressions
+        self.local_tensor = local_tensor
+        self.return_variables = return_variables
+        self.argument_multiindices = argument_multiindices
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -104,23 +121,32 @@ class KernelBuilder(KernelBuilderBase):
             expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
             self.coefficient_map[coefficient] = expression
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule=None):
+    def register_requirements(self, ir):
+        """Inspect what is referenced by the IR that needs to be
+        provided by the kernel interface."""
+        return None, None, None
+
+    def construct_kernel(self, name, ctx):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
         list for assembly kernels.
 
-        :arg name: function name
-        :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg index_names: pre-assigned index names
+        :arg name: kernel name
+        :arg ctx: kernel builder context to get impero_c from
         :arg quadrature rule: quadrature rule (not used, stubbed out for Themis integration)
         :returns: a COFFEE function definition object
         """
         from tsfc.coffee import generate as generate_coffee
+
+        impero_c, _, _, _ = self.compile_gem(ctx)
+        if impero_c is None:
+            return self.construct_empty_kernel(name)
+        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
         body = generate_coffee(impero_c, index_names, scalar_type=self.scalar_type)
         return self._construct_kernel_from_body(name, body)
 
-    def _construct_kernel_from_body(self, name, body, quadrature_rule):
+    def _construct_kernel_from_body(self, name, body):
         """Construct a fully built kernel function.
 
         This function contains the logic for building the argument

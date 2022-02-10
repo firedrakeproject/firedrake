@@ -1,37 +1,49 @@
 import collections
-import operator
-import string
 import time
 import sys
-from functools import reduce
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
-
-from numpy import asarray
 
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
 from ufl.log import GREEN
-from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
 
-from FIAT.reference_element import TensorProductCell
-
 import finat
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
-from tsfc.finatinterface import as_fiat_cell
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
+
+
+TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
+                                              ["domain", "integral_type", "subdomain_id", "domain_number",
+                                               "arguments",
+                                               "coefficients", "coefficient_numbers"])
+TSFCIntegralDataInfo.__doc__ = """
+    Minimal set of objects for kernel builders.
+
+    domain - The mesh.
+    integral_type - The type of integral.
+    subdomain_id - What is the subdomain id for this kernel.
+    domain_number - Which domain number in the original form
+        does this kernel correspond to (can be used to index into
+        original_form.ufl_domains() to get the correct domain).
+    coefficients - A list of coefficients.
+    coefficient_numbers - A list of which coefficients from the
+        form the kernel needs.
+
+    This is a minimal set of objects that kernel builders need to
+    construct a kernel from :attr:`integrals` of :class:`~ufl.IntegralData`.
+    """
 
 
 def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True, diagonal=False):
@@ -76,12 +88,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
+    parameters = preprocess_parameters(parameters)
     if interface is None:
         if coffee:
             import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
@@ -90,180 +97,61 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
             # Delayed import, loopy is a runtime dependency
             import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
             interface = firedrake_interface_loopy.KernelBuilder
-    if coffee:
-        scalar_type = parameters["scalar_type_c"]
-    else:
-        scalar_type = parameters["scalar_type"]
-
-    # Remove these here, they're handled below.
-    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
-        del parameters["quadrature_degree"]
-    if parameters.get("quadrature_rule") in ["auto", "default", None]:
-        del parameters["quadrature_rule"]
-
+    scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
-    cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     # Handle negative subdomain_id
     kernel_name = kernel_name.replace("-", "_")
-
-    fiat_cell = as_fiat_cell(cell)
-    integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
-
-    quadrature_indices = []
-
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = interface(integral_type, integral_data.subdomain_id,
-                        domain_numbering[integral_data.domain],
+    domain_number = domain_numbering[integral_data.domain]
+    coefficients = [form_data.function_replace_map[c] for c in integral_data.integral_coefficients]
+    # This is which coefficient in the original form the
+    # current coefficient is.
+    # Consider f*v*dx + g*v*ds, the full form contains two
+    # coefficients, but each integral only requires one.
+    coefficient_numbers = tuple(form_data.original_coefficient_positions[i]
+                                for i, (_, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients))
+                                if enabled)
+    integral_data_info = TSFCIntegralDataInfo(domain=integral_data.domain,
+                                              integral_type=integral_data.integral_type,
+                                              subdomain_id=integral_data.subdomain_id,
+                                              domain_number=domain_number,
+                                              arguments=arguments,
+                                              coefficients=coefficients,
+                                              coefficient_numbers=coefficient_numbers)
+    builder = interface(integral_data_info,
                         scalar_type,
                         diagonal=diagonal)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
-    if diagonal:
-        # Error checking occurs in the builder constructor.
-        # Diagonal assembly is obtained by using the test indices for
-        # the trial space as well.
-        a, _ = argument_multiindices
-        argument_multiindices = (a, a)
-
-    return_variables = builder.set_arguments(arguments, argument_multiindices)
-
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
-
     builder.set_coefficients(integral_data, form_data)
-
-    # Map from UFL FiniteElement objects to multiindices.  This is
-    # so we reuse Index instances when evaluating the same coefficient
-    # multiple times with the same table.
-    #
-    # We also use the same dict for the unconcatenate index cache,
-    # which maps index objects to tuples of multiindices.  These two
-    # caches shall never conflict as their keys have different types
-    # (UFL finite elements vs. GEM index objects).
-    index_cache = {}
-
-    kernel_cfg = dict(interface=builder,
-                      ufl_cell=cell,
-                      integral_type=integral_type,
-                      integration_dim=integration_dim,
-                      entity_ids=entity_ids,
-                      argument_multiindices=argument_multiindices,
-                      index_cache=index_cache,
-                      scalar_type=parameters["scalar_type"])
-
-    mode_irs = collections.OrderedDict()
+    ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-        if params.get("quadrature_rule") == "default":
-            del params["quadrature_rule"]
-
-        mode = pick_mode(params["mode"])
-        mode_irs.setdefault(mode, collections.OrderedDict())
-
         integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
+        integrand_exprs = builder.compile_integrand(integrand, params, ctx)
+        integral_exprs = builder.construct_integrals(integrand_exprs, params)
+        builder.stash_integrals(integral_exprs, params, ctx)
+    return builder.construct_kernel(kernel_name, ctx)
 
-        # Check if the integral has a quad degree attached, otherwise use
-        # the estimated polynomial degree attached by compute_form_data
-        quadrature_degree = params.get("quadrature_degree",
-                                       params["estimated_polynomial_degree"])
-        try:
-            quadrature_degree = params["quadrature_degree"]
-        except KeyError:
-            quadrature_degree = params["estimated_polynomial_degree"]
-            functions = list(arguments) + [builder.coordinate(mesh)] + list(integral_data.integral_coefficients)
-            function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
-            if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
-                   for degree in function_degrees):
-                logger.warning("Estimated quadrature degree %s more "
-                               "than tenfold greater than any "
-                               "argument/coefficient degree (max %s)",
-                               quadrature_degree, max_degree(function_degrees))
 
-        try:
-            quad_rule = params["quadrature_rule"]
-        except KeyError:
-            integration_cell = fiat_cell.construct_subelement(integration_dim)
-            quad_rule = make_quadrature(integration_cell, quadrature_degree)
-
-        if not isinstance(quad_rule, AbstractQuadratureRule):
-            raise ValueError("Expected to find a QuadratureRule object, not a %s" %
-                             type(quad_rule))
-
-        quadrature_multiindex = quad_rule.point_set.indices
-        quadrature_indices.extend(quadrature_multiindex)
-
-        config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule)
-        expressions = fem.compile_ufl(integrand,
-                                      fem.PointSetContext(**config),
-                                      interior_facet=interior_facet)
-        reps = mode.Integrals(expressions, quadrature_multiindex,
-                              argument_multiindices, params)
-        for var, rep in zip(return_variables, reps):
-            mode_irs[mode].setdefault(var, []).append(rep)
-
-    # Finalise mode representations into a set of assignments
-    assignments = []
-    for mode, var_reps in mode_irs.items():
-        assignments.extend(mode.flatten(var_reps.items(), index_cache))
-
-    if assignments:
-        return_variables, expressions = zip(*assignments)
+def preprocess_parameters(parameters):
+    if parameters is None:
+        parameters = default_parameters()
     else:
-        return_variables = []
-        expressions = []
-
-    # Need optimised roots
-    options = dict(reduce(operator.and_,
-                          [mode.finalise_options.items()
-                           for mode in mode_irs.keys()]))
-    expressions = impero_utils.preprocess_gem(expressions, **options)
-    assignments = list(zip(return_variables, expressions))
-
-    # Let the kernel interface inspect the optimised IR to register
-    # what kind of external data is required (e.g., cell orientations,
-    # cell sizes, etc.).
-    builder.register_requirements(expressions)
-
-    # Construct ImperoC
-    split_argument_indices = tuple(chain(*[var.index_ordering()
-                                           for var in return_variables]))
-    index_ordering = tuple(quadrature_indices) + split_argument_indices
-    try:
-        impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-    except impero_utils.NoopError:
-        # No operations, construct empty kernel
-        return builder.construct_empty_kernel(kernel_name)
-
-    # Generate COFFEE
-    index_names = []
-
-    def name_index(index, name):
-        index_names.append((index, name))
-        if index in index_cache:
-            for multiindex, suffix in zip(index_cache[index],
-                                          string.ascii_lowercase):
-                name_multiindex(multiindex, name + suffix)
-
-    def name_multiindex(multiindex, name):
-        if len(multiindex) == 1:
-            name_index(multiindex[0], name)
-        else:
-            for i, index in enumerate(multiindex):
-                name_index(index, name + str(i))
-
-    name_multiindex(quadrature_indices, 'ip')
-    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
-        name_multiindex(multiindex, name)
-
-    return builder.construct_kernel(kernel_name, impero_c, index_names, quad_rule)
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+    # Remove these here, they're handled later on.
+    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
+        del parameters["quadrature_degree"]
+    if parameters.get("quadrature_rule") in ["auto", "default", None]:
+        del parameters["quadrature_rule"]
+    return parameters
 
 
 def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
@@ -429,71 +317,3 @@ class DualEvaluationCallable(object):
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
-
-
-def lower_integral_type(fiat_cell, integral_type):
-    """Lower integral type into the dimension of the integration
-    subentity and a list of entity numbers for that dimension.
-
-    :arg fiat_cell: FIAT reference cell
-    :arg integral_type: integral type (string)
-    """
-    vert_facet_types = ['exterior_facet_vert', 'interior_facet_vert']
-    horiz_facet_types = ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']
-
-    dim = fiat_cell.get_dimension()
-    if integral_type == 'cell':
-        integration_dim = dim
-    elif integral_type in ['exterior_facet', 'interior_facet']:
-        if isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral cannot be used with a TensorProductCell; need to distinguish between vertical and horizontal contributions.".format(integral_type))
-        integration_dim = dim - 1
-    elif integral_type == 'vertex':
-        integration_dim = 0
-    elif integral_type in vert_facet_types + horiz_facet_types:
-        # Extrusion case
-        if not isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral requires a TensorProductCell.".format(integral_type))
-        basedim, extrdim = dim
-        assert extrdim == 1
-
-        if integral_type in vert_facet_types:
-            integration_dim = (basedim - 1, 1)
-        elif integral_type in horiz_facet_types:
-            integration_dim = (basedim, 0)
-    else:
-        raise NotImplementedError("integral type %s not supported" % integral_type)
-
-    if integral_type == 'exterior_facet_bottom':
-        entity_ids = [0]
-    elif integral_type == 'exterior_facet_top':
-        entity_ids = [1]
-    else:
-        entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
-
-    return integration_dim, entity_ids
-
-
-def pick_mode(mode):
-    "Return one of the specialized optimisation modules from a mode string."
-    try:
-        from firedrake_citations import Citations
-        cites = {"vanilla": ("Homolya2017", ),
-                 "coffee": ("Luporini2016", "Homolya2017", ),
-                 "spectral": ("Luporini2016", "Homolya2017", "Homolya2017a"),
-                 "tensor": ("Kirby2006", "Homolya2017", )}
-        for c in cites[mode]:
-            Citations().register(c)
-    except ImportError:
-        pass
-    if mode == "vanilla":
-        import tsfc.vanilla as m
-    elif mode == "coffee":
-        import tsfc.coffee_mode as m
-    elif mode == "spectral":
-        import tsfc.spectral as m
-    elif mode == "tensor":
-        import tsfc.tensor as m
-    else:
-        raise ValueError("Unknown mode: {}".format(mode))
-    return m
