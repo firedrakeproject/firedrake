@@ -14,6 +14,24 @@ np.import_array()
 include "petschdr.pxi"
 
 
+def build_section_migration_sf(PETSc.SF pointSF not None,
+                               PETSc.Section rootSection not None,
+                               PETSc.Section leafSection not None):
+    """Build an SF that migrates data from a rootSection to a leafSection.
+
+    :arg pointSF: the SF that migrates plex points.
+    :arg rootSection: The section describing data layout on the source plex.
+    :arg leafSection: The section describing data layout on the target plex.
+
+    :returns: A new SF that migrates from source to target."""
+    cdef PetscInt *remoteOffsets = NULL
+    cdef PETSc.SF sf = PETSc.SF()
+    CHKERR( PetscSFCreateRemoteOffsets(pointSF.sf, rootSection.sec, leafSection.sec, &remoteOffsets) )
+    CHKERR( PetscSFCreateSectionSF(pointSF.sf, rootSection.sec, remoteOffsets, leafSection.sec, &sf.sf) )
+    CHKERR( PetscFree(remoteOffsets) )
+    return sf
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
