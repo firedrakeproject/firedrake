@@ -1,7 +1,6 @@
 import abc
 from collections import OrderedDict
 import functools
-from functools import cached_property
 import itertools
 from itertools import product
 import operator
@@ -24,6 +23,7 @@ from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKe
 from firedrake.utils import ScalarType, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from pyop2.utils import cached_property
 
 
 __all__ = "assemble",

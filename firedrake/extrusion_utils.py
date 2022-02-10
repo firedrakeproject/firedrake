@@ -318,7 +318,7 @@ def entity_closures(cell):
     return closure
 
 
-@functools.lru_cache
+@functools.lru_cache()
 def calculate_dof_offset(finat_element):
     """Return the offset between the neighbouring cells of a
     column for each DoF.
