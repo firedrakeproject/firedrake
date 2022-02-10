@@ -17,7 +17,6 @@ from itertools import chain
 import re
 import importlib
 from pkg_resources import parse_version
-import stat
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -1033,26 +1032,24 @@ def build_and_install_petsc():
 
 def build_and_install_petsc4py():
     with environment(**blas):
-        if os.access(get_petsc4py_dir(), os.W_OK):
-            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
-            check_output(pipinstall + pipargs)
-        else:
-            log.info("Could not perform in-place install of petsc4py in current location")
-            log.info("Copying petsc4py to virtualenv and trying again...")
+        if args.honour_petsc_dir:
+            log.info("Copying petsc4py to virtualenv to install")
             petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
-            if os.path.exists(petsc4py_copy):
-                petsc4py_backup = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py.backup')
-                if os.path.exists(petsc4py_backup):
-                    raise OSError('`{}` exists remove or rename this file/directory and try running this command again'.format(petsc4py_backup))
-                shutil.move(petsc4py_copy, petsc4py_backup)
-            shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
-            S_644 = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
-            S_755 = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
-            for dirpath, dirnames, filenames in os.walk(petsc4py_copy):
-                os.chmod(dirpath, S_755)
-                for filename in filenames:
-                    os.chmod(os.path.join(dirpath, filename), S_644)
+            if not os.path.exists(petsc4py_copy):
+                shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
             pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
+            try:
+                check_output(pipinstall + pipargs)
+            except subprocess.CalledProcessError:
+                with open(os.path.join(petsc4py_copy, "README.md")) as fh:
+                    fh.write("# Unable to install petsc4py\n")
+                    fh.write("This is just a copy of the petsc4py source for debugging\n")
+                    fh.write("See `firedrake-install.log` for the error")
+                raise
+            else:
+                shutil.rmtree(petsc4py_copy)
+        else:
+            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
             check_output(pipinstall + pipargs)
 
 
