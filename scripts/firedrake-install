@@ -1352,6 +1352,15 @@ def create_compiler_env(cc, cxx, f90):
     return env
 
 
+if mode == "install" and args.show_petsc_configure_options:
+    log.info("*********************************************")
+    log.info("Would build PETSc with the following options:")
+    log.info("*********************************************\n")
+    petsc_options = get_petsc_options()
+    log.info("\n".join(petsc_options))
+    log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
+    sys.exit(0)
+
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1378,39 +1387,27 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
 
-if mode == "install" and (args.show_petsc_configure_options or args.honour_petsc_dir):
-    if args.show_petsc_configure_options:
-        log.info("*********************************************")
-        log.info("Would build PETSc with the following options:")
-        log.info("*********************************************\n")
-    else:
-        log.info("*********************************************************************")
-        log.info("You must ensure that PETSc has been built with the following options:")
-        log.info("*********************************************************************\n")
-    petsc_options = get_petsc_options()
-    log.info("\n".join(sorted(petsc_options)))
-    if args.show_petsc_configure_options:
-        log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
-        sys.exit(0)
-    else:
-        log.info("\n")
-        log.info("*****************************************************")
-        log.info("Specified PETSc was built with the following options:")
-        log.info("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
-        log.info("*****************************************************\n")
-        petsc_config = get_petsc_config()
-        log.info("\n".join(sorted(petsc_config)))
-        log.info("\nThe following external packages were detected and are used by PETSc:")
-        petsc_packages = get_petsc_packages()
-        log.info(", ".join(sorted(petsc_packages)))
-        log.info("\n")
-
 log.debug("Installer running with: %s" % sys.executable)
 log.debug("Python version: %s" % sys.version)
 
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
+
+if mode == "install" and args.honour_petsc_dir:
+    log.info("*********************************************************************")
+    log.info("You must ensure that PETSc has been built with the following options:")
+    log.info("*********************************************************************\n")
+    log.info("\n".join(sorted(get_petsc_options())))
+    log.info("\n")
+    log.info("*****************************************************")
+    log.info("Specified PETSc was built with the following options:")
+    log.info("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
+    log.info("*****************************************************\n")
+    log.info("\n".join(sorted(get_petsc_config())))
+    log.info("\nThe following external packages were detected and are used by PETSc:")
+    log.info(", ".join(sorted(get_petsc_packages())))
+    log.info("\n")
 
 if mode == "install" or not args.update_script:
     # Check operating system.
