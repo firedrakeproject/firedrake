@@ -23,7 +23,8 @@ import tsfc.kernel_interface.firedrake as firedrake_interface
 
 from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
-from tsfc.driver import lower_integral_type
+from tsfc.driver import TSFCIntegralDataInfo
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
@@ -548,11 +549,19 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
+    info = TSFCIntegralDataInfo(domain=Vc.mesh(),
+                                integral_type="cell",
+                                subdomain_id="otherwise",
+                                domain_number=0,
+                                arguments=(ufl.TestFunction(Vc), ),
+                                coefficients=(),
+                                coefficient_numbers=())
+
+    coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
     coarse_builder.set_coordinates(Vc.mesh())
-    argument_multiindices = (Vce.get_indices(), )
+    argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
-    return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
+    return_variable, = coarse_builder.return_variables
 
     integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
