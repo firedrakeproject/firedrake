@@ -1351,6 +1351,7 @@ def create_compiler_env(cc, cxx, f90):
 
     return env
 
+
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
