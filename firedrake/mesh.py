@@ -1151,26 +1151,6 @@ class ExtrudedMeshTopology(MeshTopology):
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    @PETSc.Log.EventDecorator()
-    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
-        """Returns the offset between the neighbouring cells of a
-        column for each DoF.
-
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg ndofs: number of DoFs in the FInAT element
-        """
-        entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in entity_dofs.items():
-            entity_offset[b] += len(entities[0])
-
-        dof_offset = np.zeros(ndofs, dtype=IntType)
-        if not real_tensorproduct:
-            for (b, v), entities in entity_dofs.items():
-                for dof_indices in entities.values():
-                    for i in dof_indices:
-                        dof_offset[i] = entity_offset[b]
-        return dof_offset
-
     @utils.cached_property
     def layers(self):
         """Return the number of layers of the extruded mesh
@@ -1380,6 +1360,30 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                        self.cell_parent_cell_list, "cell_parent_cell")
 
 
+class MeshGeometryCargo:
+    """Helper class carrying data for a :class:`MeshGeometry`.
+
+    It is required because it permits Firedrake to have stripped forms
+    that still know that they are on an extruded mesh (for example).
+    """
+
+    def __init__(self, ufl_id):
+        self._ufl_id = ufl_id
+
+    def ufl_id(self):
+        return self._ufl_id
+
+    def init(self, coordinates):
+        """Initialise the cargo.
+
+        This function is separate to __init__ because of the two-step process we have
+        for initialising a :class:`MeshGeometry`.
+        """
+        self.topology = coordinates.function_space().mesh()
+        self.coordinates = coordinates
+        self.geometric_shared_data_cache = defaultdict(dict)
+
+
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
@@ -1387,9 +1391,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        mesh.uid = utils._new_uid()
+        uid = utils._new_uid()
+        mesh.uid = uid
+        cargo = MeshGeometryCargo(uid)
         assert isinstance(element, ufl.FiniteElementBase)
-        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
+        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
         return mesh
 
     @MeshGeometryMixin._ad_annotate_init
@@ -1398,14 +1404,21 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         :arg coordinates: a coordinateless function containing the coordinates
         """
-        # Direct link to topology
-        self._topology = coordinates.function_space().mesh()
+        topology = coordinates.function_space().mesh()
+
+        # this is codegen information so we attach it to the MeshGeometry rather than its cargo
+        self.extruded = isinstance(topology, ExtrudedMeshTopology)
+        self.variable_layers = self.extruded and topology.variable_layers
+
+        # initialise the mesh cargo
+        self.ufl_cargo().init(coordinates)
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
 
-        self._coordinates = coordinates
-        self._geometric_shared_data_cache = defaultdict(dict)
+    def _ufl_signature_data_(self, *args, **kwargs):
+        return (type(self), self.extruded, self.variable_layers,
+                super()._ufl_signature_data_(*args, **kwargs))
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -1418,7 +1431,35 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     @property
     def topology(self):
         """The underlying mesh topology object."""
-        return self._topology
+        return self.ufl_cargo().topology
+
+    @topology.setter
+    def topology(self, val):
+        self.ufl_cargo().topology = val
+
+    @property
+    def _topology(self):
+        return self.topology
+
+    @_topology.setter
+    def _topology(self, val):
+        self.topology = val
+
+    @property
+    def _parent_mesh(self):
+        return self.ufl_cargo()._parent_mesh
+
+    @_parent_mesh.setter
+    def _parent_mesh(self, val):
+        self.ufl_cargo()._parent_mesh = val
+
+    @property
+    def _coordinates(self):
+        return self.ufl_cargo().coordinates
+
+    @property
+    def _geometric_shared_data_cache(self):
+        return self.ufl_cargo().geometric_shared_data_cache
 
     @property
     def topological(self):
@@ -1434,18 +1475,22 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
         return self.topology_dm
 
-    @utils.cached_property
+    @property
     @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
         import firedrake.functionspaceimpl as functionspaceimpl
         import firedrake.function as function
-        self.init()
 
-        coordinates_fs = self._coordinates.function_space()
-        V = functionspaceimpl.WithGeometry(coordinates_fs, self)
-        f = function.Function(V, val=self._coordinates)
-        return f
+        if hasattr(self.ufl_cargo(), "_coordinates_function"):
+            return self.ufl_cargo()._coordinates_function
+        else:
+            self.init()
+            coordinates_fs = self._coordinates.function_space()
+            V = functionspaceimpl.WithGeometry.create(coordinates_fs, self)
+            f = function.Function(V, val=self._coordinates)
+            self.ufl_cargo()._coordinates_function = f
+            return f
 
     @property
     def coordinates(self):

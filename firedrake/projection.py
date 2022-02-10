@@ -1,5 +1,4 @@
 import abc
-import functools
 import ufl
 
 import firedrake
@@ -168,12 +167,9 @@ class BasicProjector(ProjectorBase):
 
     @cached_property
     def assembler(self):
-        from firedrake.assemble import assemble
-        return functools.partial(assemble,
-                                 self.rhs_form,
-                                 tensor=self.residual,
-                                 form_compiler_parameters=self.form_compiler_parameters,
-                                 assembly_type="residual")
+        from firedrake.assemble import OneFormAssembler
+        return OneFormAssembler(self.rhs_form, tensor=self.residual,
+                                form_compiler_parameters=self.form_compiler_parameters).assemble
 
     @property
     def rhs(self):

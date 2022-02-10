@@ -22,7 +22,7 @@ osname = platform.uname().system
 arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy", "scipy"]
+wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
 parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
@@ -416,9 +416,13 @@ else:
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
-    if config["options"].get("with_blas") is not None and \
-       config["options"].get("with_blas") != args.with_blas:
-        args.rebuild = True
+    if config["options"].get("with_blas") is not None:
+        if config["options"].get("with_blas") != args.with_blas:
+            # Rebuild if BLAS library explicitly changed at command line
+            args.rebuild = True
+        else:
+            # Prevent deep_update overwriting BLAS options if they exist in the config, but are unspecified at the command line
+            args.with_blas = config["options"].get("with_blas")
 
     petsc_complex_type_changed = False
     previously_complex = config["options"].get("complex", False)
@@ -1249,6 +1253,7 @@ def install_documentation_dependencies():
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
     run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
@@ -1469,8 +1474,8 @@ if mode == "install" or not args.update_script:
 
         # Unconditionally require openblas ("brew" is required above)
         if args.with_blas is None and mode == "install":
-            config["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
-            blas_location = config["with_blas"]
+            config["options"]["with_blas"] = check_output(["brew", "--prefix", "openblas"])[:-1]
+            blas_location = config["options"]["with_blas"]
             if not os.path.exists(blas_location):
                 raise InstallError("Automatic determination of BLAS looked for openblas in %s but didn't find it\n"
                                    "Please provide location of a BLAS library with --with-blas (or use --with-blas=download)" % blas_location)
@@ -1489,7 +1494,6 @@ if mode == "install" or not args.update_script:
             log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
             log.info("Please use the --show-dependencies for more information.")
 else:
-    # Only actually relevant on MacOS
     blas_location = config["options"].get("with_blas")
 
 if mode == "install":
@@ -1519,7 +1523,7 @@ if mode == "install":
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
     # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "setuptools==59.8"])  # Unpin this when numpy will build with latest setuptools
     run_pip(["install", "-U", "pip"])
     run_pip(["install", "-U", "wheel"])
 
@@ -1831,7 +1835,8 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         # Ensure pytest is at the latest version
-        run_pip(["install", "-U", "pytest"])
+        print('We use pytest==6.2.5 until the issue with pytest==7.0.0 is resolved.')
+        run_pip(["install", "-U", "pytest==6.2.5"])
 
 with environment(**compiler_env):
     with pipargs("--no-deps"):

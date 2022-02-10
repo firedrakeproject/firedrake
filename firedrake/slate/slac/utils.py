@@ -329,8 +329,10 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
         tsfc_calls = ()
         tsfc_kernels = ()
 
-    # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp)
+    args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
+    kernel_args = [output_arg] + args
+    loopy_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
@@ -340,8 +342,9 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name=name,
-                                     seq_dependencies=True, target=lp.CTarget())
+    slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
+                                     seq_dependencies=True, target=lp.CTarget(),
+                                     lang_version=(2018, 2))
 
     # Generate program from kernel, so that one can register kernels
     from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
@@ -359,4 +362,4 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
         if isinstance(slate_wrapper.callables_table[name], CallableKernel):
             slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
 
-    return slate_wrapper
+    return slate_wrapper, tuple(kernel_args)
