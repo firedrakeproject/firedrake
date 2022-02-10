@@ -41,6 +41,8 @@ class ASMPatchPC(PCBase):
 
         # Obtain patches from user defined funtion
         ises = self.get_patches(V)
+        if len(ises) == 0:
+            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=COMM_SELF)]
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
