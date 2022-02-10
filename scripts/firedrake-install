@@ -673,9 +673,19 @@ def get_petsc_packages():
     with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
         for line in fh.readlines():
             if line.startswith("#define PETSC_HAVE_PACKAGES"):
-                packages = set(line.split()[2].strip().strip('"').split(':'))
+                packages = set(line.split()[2].strip().strip(':"').split(':'))
                 break
     return packages
+
+
+def get_petsc_config():
+    petsc_dir, petsc_arch = get_petsc_dir()
+    with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconfiginfo.h")) as fh:
+        for line in fh.readlines():
+            if line.startswith("static const char *petscconfigureoptions"):
+                info = line.split("=", maxsplit=1)[1].strip(' ";\n').split('--')[1:]
+                break
+    return ["--" + arg for arg in info]
 
 
 if mode == "update" and petsc_int_type_changed:
@@ -1341,48 +1351,6 @@ def create_compiler_env(cc, cxx, f90):
 
     return env
 
-
-if mode == "install" and args.show_petsc_configure_options:
-    if args.honour_petsc_dir:
-        log.info("******************************************************")
-        log.info("Specified PETSc was built with the following packages:")
-        log.info("******************************************************\n")
-        petsc_packages = get_petsc_packages()
-        log.info("\n".join(petsc_packages))
-        minimal = set(["blaslapack", "eigen3", "hdf5", "mpi", "ptscotch", "superlu_dist"])
-        reqd_packages = minimal
-        if not args.minimal_petsc:
-            full = set(["hwloc", "metis", "netcdf", "pastix", "pnetcdf", "suitesparse", "zlib"])
-            reqd_packages.update(full)
-        if args.with_parmetis:
-            reqd_packages.add("parmetis")
-        if args.petsc_int_type == "int32":
-            int32_m = set(["chaco", "mumps", "scalapack"])
-            reqd_packages.update(int32_m)
-        if not args.complex:
-            reqd_packages.add("hypre")
-        if (not args.complex) and (args.petsc_int_type == "int32") and (not args.minimal_petsc):
-            reqd_packages.add("ml")
-        print()
-        print("REQUIRED:")
-        print(*reqd_packages)
-
-        if reqd_packages < petsc_packages:
-            log.info("PETSc installed at {},{} is suitable".format(*get_petsc_dir()))
-        else:
-            log.info("PETSc installed at {},{} is unsuitable".format(*get_petsc_dir()))
-            log.info("Packages missing are:")
-            log.info("\n".join(reqd_packages - petsc_packages))
-    else:
-        log.info("*********************************************")
-        log.info("Would build PETSc with the following options:")
-        log.info("*********************************************\n")
-        petsc_options = get_petsc_options()
-        log.info("\n".join(petsc_options))
-        log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
-    sys.exit(0)
-
-
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1408,6 +1376,33 @@ if platform.uname()[0] == "Darwin" and args.opencascade:
     quit("""Sorry, automatically installing opencascade on OSX hasn't been
 implemented yet. (It's not a supported package in brew.)
 Please contact us to get this working.""")
+
+if mode == "install" and (args.show_petsc_configure_options or args.honour_petsc_dir):
+    if args.show_petsc_configure_options:
+        log.info("*********************************************")
+        log.info("Would build PETSc with the following options:")
+        log.info("*********************************************\n")
+    else:
+        log.info("*********************************************************************")
+        log.info("You must ensure that PETSc has been built with the following options:")
+        log.info("*********************************************************************\n")
+    petsc_options = get_petsc_options()
+    log.info("\n".join(sorted(petsc_options)))
+    if args.show_petsc_configure_options:
+        log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
+        sys.exit(0)
+    else:
+        log.info("\n")
+        log.info("*****************************************************")
+        log.info("Specified PETSc was built with the following options:")
+        log.info("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
+        log.info("*****************************************************\n")
+        petsc_config = get_petsc_config()
+        log.info("\n".join(sorted(petsc_config)))
+        log.info("\nThe following external packages were detected and are used by PETSc:")
+        petsc_packages = get_petsc_packages()
+        log.info(", ".join(sorted(petsc_packages)))
+        log.info("\n")
 
 log.debug("Installer running with: %s" % sys.executable)
 log.debug("Python version: %s" % sys.version)
