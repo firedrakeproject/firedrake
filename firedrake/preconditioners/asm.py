@@ -269,7 +269,6 @@ class ASMLinesmoothPC(ASMPatchPC):
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
-
         codim_list = [int(ii) for ii in codim_list.split(",")]
 
         # Build index sets for the patches
