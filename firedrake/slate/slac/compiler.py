@@ -61,23 +61,22 @@ except ValueError:
 EIGEN_INCLUDE_DIR = None
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
-if not complex_mode:
-    if COMM_WORLD.rank == 0:
-        petsc_variables = get_petsc_variables()
-        EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
-        if EIGEN_INCLUDE_DIR is None:
-            raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-        EIGEN_INCLUDE_DIR = EIGEN_INCLUDE_DIR.lstrip('-I')
-        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+if COMM_WORLD.rank == 0:
+    petsc_variables = get_petsc_variables()
+    EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
+    if EIGEN_INCLUDE_DIR is None:
+        raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+    EIGEN_INCLUDE_DIR = EIGEN_INCLUDE_DIR.lstrip('-I')
+    EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
 
-        BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-        BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
-        BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
-    else:
-        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
-        BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
-        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
+    BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+    BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
+    BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
+    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
+else:
+    EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
+    BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
+    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
