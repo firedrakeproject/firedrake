@@ -219,6 +219,7 @@ class FDMPC(PCBase):
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
+        Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
                              coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()

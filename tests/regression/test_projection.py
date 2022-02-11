@@ -294,3 +294,56 @@ def test_projector_bcs(tensor, same_fspace):
                                                    "pc_type": "lu"})
 
     assert errornorm(ret, ref) < 1.0e-10
+
+
+@pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
+    (0, 'DGT', 0.8),
+    (1, 'DGT', 1.8),
+    (2, 'DGT', 2.8)])
+def test_DGT_convergence(degree, family, expected_convergence):
+    l2_diff = np.array([run_trace_projection(x, degree, family) for x in range(2, 5)])
+    conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    assert (conv > expected_convergence).all()
+
+    # I decreased the mesh param x here because it is a 3D problem and x=5 was running quite long
+    l2_diff = np.array([run_extr_trace_projection(x, degree, family) for x in range(1, 4)])
+    conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    assert (conv > expected_convergence).all()
+
+
+def run_trace_projection(x, degree=1, family='DGT'):
+    m = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=False)
+    x = SpatialCoordinate(m)
+    f = x[0]*(2-x[0])*x[1]*(2-x[1])
+
+    V_ho = FunctionSpace(m, 'CG', 6)
+    ref = Function(V_ho).interpolate(f)
+
+    T = FunctionSpace(m, family, degree)
+    w = Function(T)
+    w.project(f, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    area = FacetArea(m)
+    return sqrt(assemble(area * inner((w - ref), (w - ref)) * ds
+                         + area * inner((w('+') - ref('+')), (w('+') - ref('+'))) * dS))
+
+
+def run_extr_trace_projection(x, degree=1, family='DGT'):
+    base = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=False)
+    m = ExtrudedMesh(base, 2 ** x)
+    x = SpatialCoordinate(m)
+    f = x[0]*(2-x[0])*x[1]*(2-x[1])*x[2]*(2-x[2])
+
+    V_ho = FunctionSpace(m, 'CG', 6)
+    ref = Function(V_ho).interpolate(f)
+
+    T = FunctionSpace(m, family, degree=degree)
+    w = Function(T)
+    w.project(f, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    area = FacetArea(m)
+    return sqrt(assemble(area * (w - ref) * (w - ref) * ds_v
+                         + area * (w - ref) * (w - ref) * ds_t
+                         + area * (w - ref) * (w - ref) * ds_b
+                         + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_h
+                         + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_v))

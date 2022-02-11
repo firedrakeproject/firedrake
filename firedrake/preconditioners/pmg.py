@@ -6,7 +6,7 @@ from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import ScalarType_c, IntType_c, complex_mode
+from firedrake.utils import ScalarType_c, IntType_c
 from firedrake.petsc import PETSc
 import firedrake
 import ufl
@@ -674,8 +674,6 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
     nscal = Vf.ufl_element().reference_value_size()
     felems = get_line_elements(Vf)
     celems = get_line_elements(Vc)
-    if complex_mode:
-        raise ValueError("Complex mode is not supported")
     if len(felems) != len(celems):
         raise ValueError("Fine and coarse elements do not have the same number of factors")
     if len(felems) > 3:
@@ -769,6 +767,7 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
+    restrict_map_code = restrict_map_code.replace("#include <complex.h>", "")
     coefficients.remove(u)
 
     coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
