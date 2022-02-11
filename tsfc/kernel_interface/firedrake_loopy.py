@@ -172,13 +172,14 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
         self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
 
-    def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
+    def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords, log=False):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg impero_c: gem.ImperoC object that represents the kernel
         :arg index_names: pre-assigned index names
         :arg first_coefficient_fake_coords: If true, the kernel's first
             coefficient is a constructed UFL coordinate field
+        :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`ExpressionKernel` object
         """
         args = [self.output_arg]
@@ -195,7 +196,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         name = "expression_kernel"
         loopy_kernel = generate_loopy(impero_c, loopy_args, self.scalar_type,
-                                      name, index_names)
+                                      name, index_names, log=log)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
                                 self.coefficients, first_coefficient_fake_coords,
                                 self.tabulations, name, args, count_flops(impero_c))
@@ -301,7 +302,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx):
+    def construct_kernel(self, name, ctx, log=False):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -309,6 +310,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
+        :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`Kernel` object
         """
         impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
@@ -332,7 +334,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
         ast = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
-                             self.scalar_type, name, index_names)
+                             self.scalar_type, name, index_names, log=log)
         flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
         return Kernel(ast=ast,
                       arguments=tuple(args),

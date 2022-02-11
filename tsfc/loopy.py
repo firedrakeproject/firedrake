@@ -15,12 +15,42 @@ import loopy as lp
 import pymbolic.primitives as p
 from loopy.symbolic import SubArrayRef
 
-from pytools import UniqueNameGenerator
+from pytools import UniqueNameGenerator, ImmutableRecord
 
 from tsfc.parameters import is_complex
 
 from contextlib import contextmanager
 from tsfc.parameters import target
+
+
+
+def profile_insns(kernel_name, instructions, log=False):
+    if log:
+        # Petsc functions
+        start_event = "PetscLogEventBegin"
+        end_event = "PetscLogEventEnd"
+        register_event = "PetscLogEventRegister"
+        # The variables
+        event_id_var_name = "event_id_" + kernel_name
+        event_name = "Log_Event_" + kernel_name
+        # Logging registration # TODO offport this so we don't register every single time
+        prepend = [lp.CInstruction("", "PetscLogEvent "+event_id_var_name+";"),
+                   lp.CInstruction("", register_event+"(\""+event_name+"\", PETSC_OBJECT_CLASSID, &"+event_id_var_name+");")]
+        # Profiling
+        prepend += [lp.CInstruction("", start_event+"("+event_id_var_name+",0,0,0,0);")]
+        append = [lp.CInstruction("", end_event+"("+event_id_var_name+",0,0,0,0);")]
+        instructions = prepend + instructions + append
+    return instructions
+
+
+class _PreambleGen(ImmutableRecord):
+    fields = set(("preamble", ))
+
+    def __init__(self, preamble):
+        self.preamble = preamble
+
+    def __call__(self, preamble_info):
+        yield ("0_tsfc", self.preamble)
 
 
 @singledispatch
@@ -183,7 +213,7 @@ def active_indices(mapping, ctx):
 
 
 def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_names=[],
-             return_increments=True):
+             return_increments=True, log=False):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -192,6 +222,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg kernel_name: function name of the kernel
     :arg index_names: pre-assigned index names
     :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
+    :arg log: bool if the Kernel should be profiled with Log events
     :returns: loopy kernel
     """
     ctx = LoopyContext(target=target)
@@ -215,6 +246,9 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create instructions
     instructions = statement(impero_c.tree, ctx)
 
+    # Profile the instructions
+    instructions = profile_insns(kernel_name, instructions, log)
+
     # Create domains
     domains = create_domains(ctx.index_extent.items())
 
@@ -222,6 +256,9 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     knl = lp.make_function(domains, instructions, data, name=kernel_name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
                            lang_version=(2018, 2))
+
+    if PETSc.Log.isActive():
+        knl = lp.register_preamble_generators(knl, [_PreambleGen("#include <petsclog.h>")])
 
     # Prevent loopy interchange by loopy
     knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
