@@ -40,6 +40,10 @@ firedrake_apps = {
                 "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
 }
 
+# The range of Python versions currently supported
+max_python_version = 3, 10
+min_python_version = 3, 7
+
 
 class InstallError(Exception):
     # Exception for generic install problems.
@@ -82,6 +86,16 @@ def deep_update(this, that):
     return this
 
 
+def pyver2str(version):
+    """Convert a Python version tuple into a dot-separated string.
+
+    Examples:
+        pyver2str((3, 8)) -> "3.8"
+        pyver2str((3, 9, 2)) -> "3.9.2"
+    """
+    return ".".join(map(str, version))
+
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
     logfile_directory = os.path.abspath(os.getcwd())
@@ -121,15 +135,17 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 11):
-    print("""\nCan not install Firedrake with Python 3.11 at the moment:
-Some wheels are not yet available for Python 3.11 for some required package(s).
-Please install with Python 3.10 (or an earlier version >= 3.6).""")
+if sys.version_info > max_python_version:
+    print("""\nCan not install Firedrake with Python {current_version} at the moment.
+Please install with Python {max_version} (or an earlier version >= {min_version}).
+""".format(current_version=pyver2str(sys.version_info[:2]),
+           max_version=pyver2str(max_python_version),
+           min_version=pyver2str(min_python_version)))
     sys.exit(1)
-elif sys.version_info < (3, 6):
+elif sys.version_info < min_python_version:
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
-You should run firedrake-install with python3.""")
+        print("""\nInstalling Firedrake requires Python 3, at least version {}.
+You should run firedrake-install with python3.""".format(pyver2str(min_python_version)))
     if mode == "update":
         if hasattr(sys, "real_prefix"):
             # sys.real_prefix exists iff we are in an active virtualenv.
