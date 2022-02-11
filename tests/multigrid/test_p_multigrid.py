@@ -26,7 +26,6 @@ def test_reconstruct_degree():
             assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
-@pytest.mark.skipcomplex
 def test_prolongation_matrix_matfree():
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
@@ -75,7 +74,6 @@ def mat_type(request):
     return request.param
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -123,7 +121,6 @@ def test_p_multigrid_scalar(mesh, mat_type):
     assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -168,7 +165,6 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     assert solver.snes.its <= 3
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_vector():
     mesh = UnitSquareMesh(2, 2)
 
@@ -221,7 +217,6 @@ def test_p_multigrid_vector():
     assert solver.snes.ksp.pc.getPythonContext().ppc.getMGLevels() == 3
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_mixed(mat_type):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)
@@ -287,7 +282,6 @@ def test_p_multigrid_mixed(mat_type):
     assert ctx_levels == 3
 
 
-@pytest.mark.skipcomplex
 def test_p_fas_scalar():
     mat_type = "matfree"
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
@@ -364,7 +358,6 @@ def test_p_fas_scalar():
     assert ppc.getFASSmoother(levels-1).getLinearSolveIterations() == 0
 
 
-@pytest.mark.skipcomplex
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
     N = 4
