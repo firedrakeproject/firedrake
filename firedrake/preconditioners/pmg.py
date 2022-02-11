@@ -767,6 +767,7 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
+    restrict_map_code = restrict_map_code.replace("#include <complex.h>", "")
     coefficients.remove(u)
 
     coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
