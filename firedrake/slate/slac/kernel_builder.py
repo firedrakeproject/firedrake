@@ -25,6 +25,7 @@ from tsfc.loopy import create_domains, assign_dtypes
 from pyop2 import configuration
 
 from pytools import UniqueNameGenerator
+from tsfc.kernel_args import OutputKernelArg
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -765,7 +766,7 @@ class LocalLoopyKernelBuilder(object):
         dtype = self.tsfc_parameters["scalar_type"]
 
         # Generate the arguments for the kernel from the loopy expression
-        args, reads, output_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
+        args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
 
         # Map from local kernel arg name to global arg name
         A = args[0].name
@@ -834,9 +835,9 @@ class LocalLoopyKernelBuilder(object):
              """],
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
-             loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
-             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+             loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+             loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
+             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget())],
             target=loopy.CTarget(),
             name=name,
             lang_version=(2018, 2),
@@ -855,6 +856,7 @@ class LocalLoopyKernelBuilder(object):
         call = insn.copy(expression=pym.Call(pym.Variable(name), reads))
 
         self.matfree_solve_knls.append(knl)
+        output_arg = OutputKernelArg(output_loopy_arg)
         return call, (name, knl), output_arg, ctx, coeff_arg
 
     def generate_code_for_converged_pre_iteration(self, dep, id):
@@ -909,7 +911,8 @@ class LocalLoopyKernelBuilder(object):
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
                                      target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
 
-        args = self.generate_wrapper_kernel_args()
+        not_loopy_args, tmp_args = self.generate_wrapper_kernel_args()
+        args = [arg.loopy_arg for arg in not_loopy_args] + tmp_args
         args.append(arg2)
         args.insert(0, output_arg)
         args.insert(0, arg1)
@@ -936,7 +939,7 @@ class LocalLoopyKernelBuilder(object):
         coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
                                            dtype=self.tsfc_parameters["scalar_type"],
                                            dim_tags=None, strides=loopy.auto, order="C",
-                                           target=loopy.CTarget(), is_input=True, is_output=False))
+                                           target=loopy.CTarget(), is_input=True, is_output=False)
         args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
 
         if self.bag.needs_cell_orientations:
@@ -946,13 +949,14 @@ class LocalLoopyKernelBuilder(object):
                                             dtype=self.tsfc_parameters["scalar_type"],
                                             target=loopy.CTarget(),
                                             is_input=True, is_output=False,
-                                            dim_tags=None, strides=loopy.auto, order="C"))
+                                            dim_tags=None, strides=loopy.auto, order="C")
             args.append(kernel_args.CellOrientationsKernelArg(ori_loopy_arg))
 
         if self.bag.needs_cell_sizes:
             siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
             siz_loopy_arg = loopy.GlobalArg(self.cell_sizes_arg_name, shape=siz_extent,
                                             dtype=self.tsfc_parameters["scalar_type"],
+                                            target=loopy.CTarget(),
                                             is_input=True, is_output=False,
                                             dim_tags=None, strides=loopy.auto, order="C")
             args.append(kernel_args.CellSizesKernelArg(siz_loopy_arg))
@@ -978,10 +982,10 @@ class LocalLoopyKernelBuilder(object):
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
             facet_loopy_arg = loopy.GlobalArg(self.cell_facets_arg_name,
-                                              shape=(self.num_facets, 2),
+                                              shape=(self.bag.num_facets, 2),
                                               dtype=np.int8, is_input=True, is_output=False,
                                               target=loopy.CTarget(),
-                                              dim_tags=None, strides=loopy.auto, order="C"))
+                                              dim_tags=None, strides=loopy.auto, order="C")
             args.append(CellFacetKernelArg(facet_loopy_arg))
 
             tmp_args.append(loopy.TemporaryVariable(self.local_facet_array_arg_name,
@@ -1003,7 +1007,7 @@ class LocalLoopyKernelBuilder(object):
             tmp_args.append(loopy.ValueArg(self.layer_arg_name, dtype=np.int32))
 
         for tensor_temp in temporaries:
-            args.append(tensor_temp)
+            tmp_args.append(tensor_temp)
 
         return args, tmp_args
 

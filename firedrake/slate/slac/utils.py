@@ -357,7 +357,7 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
         slate_loopy = slate_loopy[builder.slate_loopy_name]
         tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, gem2slate, slate_loopy)
         # Construct args
-        args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
+        args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp.values())
         kernel_args = [output_arg] + args
         args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
         for a in slate_loopy.args:
@@ -403,7 +403,7 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
                                                                  slate_loopy, slate_expr,
                                                                  ctx_g2l, tsfc_parameters,
                                                                  slate_parameters, True, {}, output_arg)
-        return slate_loopy
+        return slate_loopy, tuple(kernel_args)
 
 
 def assemble_terminals_first(builder, gem2slate, slate_loopy):
@@ -693,9 +693,10 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
 
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
     # which contain the calls to the action, solve and tensorshell kernels
-    args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temps)
-    kernel_args = [output_arg] + args
-    new_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+    not_loopy_args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temps.values())
+    kernel_args = [output_arg] + not_loopy_args
+    args = [a.loopy_arg for a in not_loopy_args]
+    new_args = [output_arg.loopy_arg] + args + tmp_args
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:

@@ -676,7 +676,13 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
+    output_loopy_arg = loopy.GlobalArg(out_name, shape=shape,
+                                       dtype=scalar_type,
+                                       target=loopy.CTarget(),
+                                       is_input=True,
+                                       is_output=True,
+                                       dim_tags=None, strides=loopy.auto, order="C")
+    args = [output_loopy_arg]
     for var, terminal in gem2slate.items():
         # From the gem2slate dict we only want to append vector-shaped args
         # which are coming from AssembledVectors to the global args of the Slate kernel,
