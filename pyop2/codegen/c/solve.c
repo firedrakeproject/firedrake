@@ -10,55 +10,33 @@ static PetscScalar work_buffer[BUF_SIZE*BUF_SIZE];
 
 #ifndef PYOP2_SOLVE_LOG_EVENTS
 #define PYOP2_SOLVE_LOG_EVENTS
-static PetscLogEvent USER_EVENT_solve_memcpy;
-static PetscLogEvent USER_EVENT_solve_getrf;
-static PetscLogEvent USER_EVENT_solve_getrs;
+PetscLogEvent ID_solve_memcpy = -1;
+PetscLogEvent ID_solve_getrf = -1;
+PetscLogEvent ID_solve_getrs = -1;
+static PetscBool log_active_solve = 0;
 #endif
 
-#ifndef BEGIN_LOG
-#define BEGIN_LOG
-static void beginLog(PetscLogEvent eventId){
-    #ifdef PYOP2_PROFILING_ENABLED
-    PetscLogEventBegin(eventId,0,0,0,0);
-    #endif
-}
-#endif
-
-#ifndef END_LOG
-#define END_LOG
-static void endLog(PetscLogEvent eventId){
-    #ifdef PYOP2_PROFILING_ENABLED
-    PetscLogEventEnd(eventId,0,0,0,0);
-    #endif
-}
-#endif
-
-static void solve(PetscScalar* __restrict__ out, const PetscScalar* __restrict__ A, const PetscScalar* __restrict__ B, PetscBLASInt N)
+void solve(PetscScalar* __restrict__ out, const PetscScalar* __restrict__ A, const PetscScalar* __restrict__ B, PetscBLASInt N)
 {
-    #ifdef PYOP2_PROFILING_ENABLED
-    PetscLogEventRegister("PyOP2SolveCallable_memcpy",PETSC_OBJECT_CLASSID,&USER_EVENT_solve_memcpy);
-    PetscLogEventRegister("PyOP2SolveCallable_getrf",PETSC_OBJECT_CLASSID,&USER_EVENT_solve_getrf);
-    PetscLogEventRegister("PyOP2SolveCallable_getrs",PETSC_OBJECT_CLASSID,&USER_EVENT_solve_getrs);
-    #endif
-
-    beginLog(USER_EVENT_solve_memcpy);
+    PetscLogIsActive(&log_active_solve);
+    if (log_active_solve){PetscLogEventBegin(ID_solve_memcpy,0,0,0,0);}
     PetscBLASInt info;
     PetscBLASInt *ipiv = N <= BUF_SIZE ? ipiv_buffer : malloc(N*sizeof(*ipiv));
     memcpy(out,B,N*sizeof(PetscScalar));
     PetscScalar *Awork = N <= BUF_SIZE ? work_buffer : malloc(N*N*sizeof(*Awork));
     memcpy(Awork,A,N*N*sizeof(PetscScalar));
-    endLog(USER_EVENT_solve_memcpy);
+    if (log_active_solve){PetscLogEventEnd(ID_solve_memcpy,0,0,0,0);}
 
     PetscBLASInt NRHS = 1;
     const char T = 'T';
-    beginLog(USER_EVENT_solve_getrf);
+    if (log_active_solve){PetscLogEventBegin(ID_solve_getrf,0,0,0,0);}
     LAPACKgetrf_(&N, &N, Awork, &N, ipiv, &info);
-    endLog(USER_EVENT_solve_getrf);
+    if (log_active_solve){PetscLogEventEnd(ID_solve_getrf,0,0,0,0);}
 
     if(info == 0){
-        beginLog(USER_EVENT_solve_getrs);
+        if (log_active_solve){PetscLogEventBegin(ID_solve_getrs,0,0,0,0);}
         LAPACKgetrs_(&T, &N, &NRHS, Awork, &N, ipiv, out, &N, &info);
-        endLog(USER_EVENT_solve_getrs);
+        if (log_active_solve){PetscLogEventEnd(ID_solve_getrs,0,0,0,0);}
     }
 
     if(info != 0){

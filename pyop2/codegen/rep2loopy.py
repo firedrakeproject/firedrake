@@ -37,6 +37,8 @@ from pytools import ImmutableRecord
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 from pyop2.configuration import target
 
+from petsc4py import PETSc
+
 
 # Read c files  for linear algebra callables in on import
 import os
@@ -545,6 +547,8 @@ def generate(builder, wrapper_name=None):
     kernel = builder.kernel
     headers = set(kernel.headers)
     headers = headers | set(["#include <math.h>", "#include <complex.h>", "#include <petsc.h>"])
+    if PETSc.Log.isActive():
+        headers = headers | set(["#include <petsclog.h>"])
     preamble = "\n".join(sorted(headers))
 
     from coffee.base import Node

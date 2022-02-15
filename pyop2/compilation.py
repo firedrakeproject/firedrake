@@ -627,10 +627,31 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
             exe = configuration["cc"] or "gcc"
         compiler = sniff_compiler(exe)
     dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
+    if isinstance(jitmodule, GlobalKernel):
+        _add_profiling_events(dll, code.local_kernel.events)
+
     fn = getattr(dll, fn_name)
     fn.argtypes = code.argtypes
     fn.restype = restype
     return fn
+
+
+def _add_profiling_events(dll, events):
+    """
+        If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
+        The event is generated here in python and then set in the shared library,
+        so that memory is not allocated over and over again in the C kernel. The naming
+        convention is that the event ids are named by the event name prefixed by "ID_".
+    """
+    if PETSc.Log.isActive():
+        # also link the events from the linear algebra callables
+        if hasattr(dll, "solve"):
+            events += ('solve_memcpy', 'solve_getrf', 'solve_getrs')
+        if hasattr(dll, "inverse"):
+            events += ('inv_memcpy', 'inv_getrf', 'inv_getri')
+        # link all ids in DLL to the events generated here in python
+        for e in list(filter(lambda e: e is not None, events)):
+            ctypes.c_int.in_dll(dll, 'ID_'+e).value = PETSc.Log.Event(e).id
 
 
 def clear_cache(prompt=False):
