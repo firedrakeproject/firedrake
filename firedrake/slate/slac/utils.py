@@ -17,6 +17,7 @@ import loopy as lp
 from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
+from tsfc.loopy import profile_insns
 
 
 class RemoveRestrictions(MultiFunction):
@@ -333,11 +334,17 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
     kernel_args = [output_arg] + args
     loopy_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+    
+    # Add profiling for inits
+    inits = profile_insns("inits_"+name, inits)
 
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
+
+    # Add profiling for the whole kernel
+    insns = profile_insns(name, insns)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains
