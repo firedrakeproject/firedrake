@@ -399,7 +399,7 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
         return slate_wrapper, tuple(kernel_args)
 
     elif strategy == _AssemblyStrategy.WHEN_NEEDED:
-        tensor2temp, builder, slate_loopy = assemble_when_needed(builder, gem2slate,
+        tensor2temp, builder, slate_loopy, kernel_args = assemble_when_needed(builder, gem2slate,
                                                                  slate_loopy, slate_expr,
                                                                  ctx_g2l, tsfc_parameters,
                                                                  slate_parameters, True, {}, output_arg)
@@ -572,7 +572,7 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                     # the kernel builder generates the matfree solve kernel as A = ...
 
                 # Repeat for the actions which might be in the action wrapper kernel
-                _, modified_action_builder, action_wrapper_knl = assemble_when_needed(action_builder,
+                _, modified_action_builder, action_wrapper_knl, kernel_args = assemble_when_needed(action_builder,
                                                                                       gem2slate_actions,
                                                                                       action_wrapper_knl,
                                                                                       slate_node,
@@ -605,8 +605,8 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
         for i in inits:
             insns.insert(0, i)
 
-    slate_loopy = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
-    return tensor2temps, builder, slate_loopy
+    slate_loopy, kernel_args = update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, slate_loopy)
+    return tensor2temps, builder, slate_loopy, kernel_args
 
 
 def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn):
@@ -693,7 +693,9 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
 
     # 2) Prepare the wrapper kernel: in particular args and tvs so that they match the new instructions,
     # which contain the calls to the action, solve and tensorshell kernels
-    new_args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temps)
+    args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temps)
+    kernel_args = [output_arg] + args
+    new_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
     global_args = []
     local_args = slate_loopy[builder.slate_loopy_name].temporary_variables
     for n in new_args:
@@ -716,7 +718,7 @@ def update_wrapper_kernel(builder, insns, output_arg, tensor2temps, knl_list, sl
     for name, knl in knl_list.items():
         slate_loopy = lp.merge([slate_loopy, knl])
         slate_loopy = _match_caller_callee_argument_dimension_(slate_loopy, name)
-    return slate_loopy
+    return slate_loopy, tuple(kernel_args)
 
 
 def update_kernel_call_and_knl(insn, action_wrapper_knl, action_wrapper_knl_name, builder):
