@@ -289,7 +289,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
     kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
-                                domain=source_mesh, parameters=parameters)
+                                domain=source_mesh, parameters=parameters,
+                                log=PETSc.Log.isActive())
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
@@ -297,7 +298,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                        flop_count=kernel.flop_count)
+                        flop_count=kernel.flop_count, events=(kernel.event,))
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
