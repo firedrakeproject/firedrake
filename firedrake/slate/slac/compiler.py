@@ -185,9 +185,9 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
         name = "wrap_" + ctx.kernel_name
         assembly_strategy = _AssemblyStrategy.TERMINALS_FIRST
 
-    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
-                               name, ctx, assembly_strategy, slate_expr,
-                               compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
+    loopy_merged, arguments = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
+                                          name, ctx, assembly_strategy, slate_expr,
+                                          compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
@@ -671,7 +671,13 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    args = ([loopy.GlobalArg(out_name, shape=shape, dtype=scalar_type, target=loopy.CTarget(), is_input=True, is_output=True, dim_tags=None, strides=loopy.auto, order="C")])
+    output_loopy_arg = loopy.GlobalArg(out_name, shape=shape,
+                                       dtype=scalar_type,
+                                       target=loopy.CTarget(),
+                                       is_input=True,
+                                       is_output=True,
+                                       dim_tags=None, strides=loopy.auto, order="C")
+    args = [output_loopy_arg]
     for var, terminal in gem2slate.items():
         # From the gem2slate dict we only want to append vector-shaped args
         # which are coming from AssembledVectors to the global args of the Slate kernel,
@@ -694,8 +700,11 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
 
     # Part B: impero_c to loopy
     knl_name = knl_prefix + "_knl_%d" % knl_counter()  # auto generate a unique name
+    
+    # Part B: impero_c to loopy
+    output_arg = OutputKernelArg(output_loopy_arg)
     return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True),
-            args[0].copy())
+            output_arg)
 
 
 def slate_to_cpp(expr, temps, prec=None):

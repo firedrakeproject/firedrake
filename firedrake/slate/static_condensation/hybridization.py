@@ -215,11 +215,6 @@ class HybridizationPC(SCBase):
         self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
                                                form_compiler_parameters=self.ctx.fc_params).assemble
 
-        self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = functools.partial(assemble,
-                                                schur_rhs,
-                                                tensor=self.schur_rhs,
-                                                form_compiler_parameters=self.ctx.fc_params)
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
