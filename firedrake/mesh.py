@@ -720,7 +720,7 @@ class MeshTopology(AbstractMeshTopology):
             distribute = True
         partitioner_type = distribution_parameters.get("partitioner_type")
         overlap_type, depth = distribution_parameters.get("overlap_type",
-                                                            (DistributedMeshOverlapType.FACET, 1))
+                                                          (DistributedMeshOverlapType.FACET, 1))
 
         dmcommon.validate_mesh(plex)
         plex.setFromOptions()
@@ -1836,7 +1836,7 @@ def Mesh(meshfile, **kwargs):
         plex = meshfile
         plex_gdim = plex.getCoordinateDim()
         if geometric_dim is not None and geometric_dim != plex_gdim:
-            raise ValueError(f"DMPlex object has geometric dimension of {plex_gdim} which doesn't match {geometric_dimension}")
+            raise ValueError(f"DMPlex object has geometric dimension of {plex_gdim} which doesn't match {geometric_dim}")
     else:
         comm = kwargs.get("comm", COMM_WORLD)
         name = meshfile

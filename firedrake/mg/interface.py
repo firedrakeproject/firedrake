@@ -4,7 +4,6 @@ import firedrake
 from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
-from .mesh import RedistMesh
 
 
 __all__ = ["prolong", "restrict", "inject"]

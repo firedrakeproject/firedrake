@@ -9,8 +9,7 @@ from firedrake.halo import _get_mtype as get_mpi_type
 from firedrake.halo import MPI
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
-from firedrake.cython.mgimpl import (build_section_migration_sf, create_lgmap,
-                                     fine_to_coarse_nodes,
+from firedrake.cython.mgimpl import (build_section_migration_sf,
                                      get_entity_renumbering)
 
 
@@ -330,11 +329,20 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         if base_layer != -1:
             raise ValueError("Can't specify both layers and base_layer")
 
-    meshes = [firedrake.ExtrudedMesh(m, layer, kernel=kernel,
+    meshes = []
+    for m, layer in zip(base_hierarchy._meshes, layers):
+        ext = firedrake.ExtrudedMesh(m, layer, kernel=kernel,
                                      layer_height=height/layer,
                                      extrusion_type=extrusion_type,
                                      gdim=gdim)
-              for (m, layer) in zip(base_hierarchy._meshes, layers)]
+        meshes.append(ext)
+        if hasattr(m, "redist"):
+            ext_orig = firedrake.ExtrudedMesh(m.redist.orig, layer, kernel=kernel,
+                                              layer_height=height/layer,
+                                              extrusion_type=extrusion_type,
+                                              gdim=gdim)
+            pointmigrationsf = m.redist.pointmigrationsf
+            ext.redist = RedistMesh(ext_orig, pointmigrationsf)
 
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
