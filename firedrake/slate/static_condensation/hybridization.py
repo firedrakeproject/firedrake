@@ -242,6 +242,12 @@ class HybridizationPC(SCBase):
                                           self.ctx.fc_params,
                                           options_prefix=prefix)
 
+        # FIXME why do I need to do this by hand this should be done automatically in the snes context generation?
+        if self._ctx_ref.appctx["form_compiler_parameters"]:
+            self._ctx_ref.appctx["form_compiler_parameters"].update({"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}})
+        else:
+            self._ctx_ref.appctx["form_compiler_parameters"] = {"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}}
+
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm
 
