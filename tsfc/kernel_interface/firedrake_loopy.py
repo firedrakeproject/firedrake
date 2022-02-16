@@ -19,8 +19,11 @@ from tsfc.loopy import generate as generate_loopy
 
 
 # Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients',
-                                                   'first_coefficient_fake_coords', 'tabulations', 'name', 'arguments', 'flop_count'])
+ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',
+                                                   'coefficient_numbers',
+                                                   'first_coefficient_fake_coords',
+                                                   'tabulations', 'name', 'arguments',
+                                                   'flop_count'])
 
 
 def make_builder(*args, **kwargs):
@@ -144,23 +147,28 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         :arg coefficients: UFL coefficients from Firedrake
         """
-        self.coefficients = []  # Firedrake coefficients for calling the kernel
         self.coefficient_split = {}
         self.kernel_args = []
 
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == ufl_MixedElement:
                 subcoeffs = coefficient.split()  # Firedrake-specific
-                self.coefficients.extend(subcoeffs)
                 self.coefficient_split[coefficient] = subcoeffs
                 coeff_loopy_args = [self._coefficient(subcoeff, f"w_{i}_{j}")
                                     for j, subcoeff in enumerate(subcoeffs)]
                 self.kernel_args += [kernel_args.CoefficientKernelArg(a)
                                      for a in coeff_loopy_args]
             else:
-                self.coefficients.append(coefficient)
                 coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
                 self.kernel_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
+
+    def set_coefficient_numbers(self, coefficient_numbers):
+        """Store the coefficient indices of the original form.
+
+        :arg coefficient_numbers: Iterable of indices describing which coefficients
+            from the input expression need to be passed in to the kernel.
+        """
+        self.coefficient_numbers = coefficient_numbers
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -197,7 +205,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_kernel = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                       name, index_names)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficients, first_coefficient_fake_coords,
+                                self.coefficient_numbers, first_coefficient_fake_coords,
                                 self.tabulations, name, args, count_flops(impero_c))
 
 
