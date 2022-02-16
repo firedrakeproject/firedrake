@@ -3,7 +3,7 @@ from functools import partial, singledispatch
 
 import FIAT
 import ufl
-from ufl.algorithms import extract_arguments
+from ufl.algorithms import extract_arguments, extract_coefficients
 
 from pyop2 import op2
 
@@ -14,7 +14,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import utils
+from firedrake import tsfc_interface, utils
 from firedrake.adjoint import annotate_interpolate
 from firedrake.petsc import PETSc
 
@@ -286,7 +286,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
-    coefficients = kernel.coefficients
+    coefficient_numbers = kernel.coefficient_numbers
     first_coeff_fake_coords = kernel.first_coefficient_fake_coords
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
@@ -297,9 +297,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         cell_set = subset
     parloop_args = [kernel, cell_set]
 
+    coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
     if first_coeff_fake_coords:
         # Replace with real source mesh coordinates
-        coefficients[0] = source_mesh.coordinates
+        coefficients = [source_mesh.coordinates] + coefficients
 
     if target_mesh is not source_mesh:
         # NOTE: TSFC will sometimes drop run-time arguments in generated
