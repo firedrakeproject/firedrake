@@ -26,6 +26,7 @@ from pyop2 import configuration
 
 from pytools import UniqueNameGenerator
 from tsfc.kernel_args import OutputKernelArg
+from tsfc.loopy import profile_insns
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -802,11 +803,7 @@ class LocalLoopyKernelBuilder(object):
 
         # NOTE The last line in the loop to convergence is another WORKAROUND
         # bc the initialisation of A_on_p in the action call does not get inlined properly either
-        knl = loopy.make_function(
-            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
-                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
-                 and 0<=i_6<=n}""",
-            [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
+        insns = [f"""{x}[i_0] = -{b}[i_0] {{id=x0}}
                 {A_on_x}[:] = action_A({A}[:,:], {x}[:]) {{dep=x0, id=Aonx}}
                 <> r[i_3] = {A_on_x}[i_3]-{b}[i_3] {{dep=Aonx, id=residual0}}
                 {p}[i_4] = -r[i_4] {{dep=residual0, id=projector0}}
@@ -832,7 +829,14 @@ class LocalLoopyKernelBuilder(object):
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
                 end
                 {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
-             """],
+             """]
+        insns = profile_insns(name, insns)
+
+        knl = loopy.make_function(
+            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
+                 0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12<n
+                 and 0<=i_6<=n}""",
+            insns,
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
              loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
