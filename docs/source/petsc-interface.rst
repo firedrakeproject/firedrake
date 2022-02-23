@@ -354,17 +354,17 @@ DMPlex then we must first establish a mapping between
 `its numbering`_ and the coordinates in the Firedrake mesh. This is done
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
-For a $d$-dimensional mesh, we seek to establish offsets to recover
-$d$-tuple coordinates for the degrees of freedom.
+For a :math:`d`-dimensional mesh, we seek to establish offsets to recover
+:math:`d`-tuple coordinates for the degrees of freedom.
 
-For a linear mesh, we seek $d$ values at each vertex and no values for
+For a linear mesh, we seek :math:`d` values at each vertex and no values for
 entities of higher dimension. In 2D, for example, this corresponds to the array
 
 .. math::
 
    (d, 0, 0).
 
-For an order $p$ Lagrange mesh, it is a little more complicated. In
+For an order :math:`p` Lagrange mesh, it is a little more complicated. In
 the 2D triangular case, we require the following entities:
 
 .. math::
@@ -387,9 +387,7 @@ section to establish the mapping:
 
 .. code-block:: python3
 
-    from firedrake.cython.dmcommon import create_section
-
-    coord_section = create_section(mesh, entity_dofs)
+    coord_section = mesh.create_section(entity_dofs)
     plex = mesh.topology_dm
     plex_coords = plex.getCoordinateDM()
     plex_coords.setDefaultSection(coord_section)
