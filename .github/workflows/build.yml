@@ -6,6 +6,8 @@ on:
     branches:
       - master
   pull_request:
+  schedule:
+    - cron: '0 0 * * 0'
 
 jobs:
   build:
@@ -69,7 +71,7 @@ jobs:
           cd ..
           rm -rf build
   docker_env:
-    name: "Build Docker environment container"  
+    name: "Build Docker environment container"
     # The type of runner that the job will run on
     needs: build
     if: ${{ github.ref == 'refs/heads/master' }}
