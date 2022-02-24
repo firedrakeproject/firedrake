@@ -4,6 +4,7 @@ import ufl
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
+import numbers
 
 from pyop2 import op2
 
@@ -386,6 +387,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
+        # Avoid generating code when assigning scalar values to the Real space
+        if (isinstance(expr, numbers.Number)
+                and self.function_space().ufl_element().family() == "Real"):
+            self.dat.data[...] = expr
+            return self
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
