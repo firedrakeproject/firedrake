@@ -715,6 +715,9 @@ class MeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
         dmcommon.validate_mesh(plex)
+        # Currently, we do the distribution manually, so
+        # disable auto distribution.
+        plex.distributeSetDefault(False)
         plex.setFromOptions()
 
         self.topology_dm = plex
