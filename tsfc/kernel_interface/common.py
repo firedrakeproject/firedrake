@@ -2,7 +2,7 @@ import collections
 import string
 import operator
 from functools import reduce
-from itertools import chain
+from itertools import chain, product
 
 import numpy
 from numpy import asarray
@@ -17,12 +17,14 @@ from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 import gem
 
+from gem.node import traversal
 from gem.utils import cached_property
 import gem.impero_utils as impero_utils
+from gem.optimise import remove_componenttensors as prune
 
 from tsfc import fem, ufl_utils
 from tsfc.kernel_interface import KernelInterface
-from tsfc.finatinterface import as_fiat_cell
+from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.logging import logger
 
 
@@ -45,7 +47,7 @@ class KernelBuilderBase(KernelInterface):
         self.domain_coordinate = {}
 
         # Coefficients
-        self.coefficient_map = {}
+        self.coefficient_map = collections.OrderedDict()
 
     @cached_property
     def unsummed_coefficient_indices(self):
@@ -423,3 +425,108 @@ def pick_mode(mode):
     else:
         raise ValueError("Unknown mode: {}".format(mode))
     return m
+
+
+def check_requirements(ir):
+    """Look for cell orientations, cell sizes, and collect tabulations
+    in one pass."""
+    cell_orientations = False
+    cell_sizes = False
+    rt_tabs = {}
+    for node in traversal(ir):
+        if isinstance(node, gem.Variable):
+            if node.name == "cell_orientations":
+                cell_orientations = True
+            elif node.name == "cell_sizes":
+                cell_sizes = True
+            elif node.name.startswith("rt_"):
+                rt_tabs[node.name] = node.shape
+    return cell_orientations, cell_sizes, tuple(sorted(rt_tabs.items()))
+
+
+def prepare_coefficient(coefficient, name, interior_facet=False):
+    """Bridges the kernel interface and the GEM abstraction for
+    Coefficients.
+
+    :arg coefficient: UFL Coefficient
+    :arg name: unique name to refer to the Coefficient in the kernel
+    :arg interior_facet: interior facet integral?
+    :returns: (funarg, expression)
+         expression - GEM expression referring to the Coefficient
+                      values
+    """
+    assert isinstance(interior_facet, bool)
+
+    if coefficient.ufl_element().family() == 'Real':
+        # Constant
+        value_size = coefficient.ufl_element().value_size()
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
+                                 coefficient.ufl_shape)
+        return expression
+
+    finat_element = create_element(coefficient.ufl_element())
+    shape = finat_element.index_shape
+    size = numpy.prod(shape, dtype=int)
+
+    if not interior_facet:
+        expression = gem.reshape(gem.Variable(name, (size,)), shape)
+    else:
+        varexp = gem.Variable(name, (2 * size,))
+        plus = gem.view(varexp, slice(size))
+        minus = gem.view(varexp, slice(size, 2 * size))
+        expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
+    return expression
+
+
+def prepare_arguments(arguments, multiindices, interior_facet=False, diagonal=False):
+    """Bridges the kernel interface and the GEM abstraction for
+    Arguments.  Vector Arguments are rearranged here for interior
+    facet integrals.
+
+    :arg arguments: UFL Arguments
+    :arg multiindices: Argument multiindices
+    :arg interior_facet: interior facet integral?
+    :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
+    :returns: (funarg, expression)
+         expressions - GEM expressions referring to the argument
+                       tensor
+    """
+    assert isinstance(interior_facet, bool)
+
+    if len(arguments) == 0:
+        # No arguments
+        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
+        return (expression, )
+
+    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    shapes = tuple(element.index_shape for element in elements)
+
+    if diagonal:
+        if len(arguments) != 2:
+            raise ValueError("Diagonal only for 2-forms")
+        try:
+            element, = set(elements)
+        except ValueError:
+            raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
+
+        elements = (element, )
+        shapes = tuple(element.index_shape for element in elements)
+        multiindices = multiindices[:1]
+
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *shapes),
+                           tuple(chain(*multiindices)))
+
+    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
+    if interior_facet:
+        c_shape = tuple(2 * u_shape)
+        slicez = [[slice(r * s, (r + 1) * s)
+                   for r, s in zip(restrictions, u_shape)]
+                  for restrictions in product((0, 1), repeat=len(arguments))]
+    else:
+        c_shape = tuple(u_shape)
+        slicez = [[slice(s) for s in u_shape]]
+
+    varexp = gem.Variable("A", c_shape)
+    expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
+    return tuple(prune(expressions))
