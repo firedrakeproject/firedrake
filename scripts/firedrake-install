@@ -582,6 +582,9 @@ def get_petsc_options():
 
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+    elif osname == "Linux":
+        # PETSc requires cmake version 3.18.1 or higher.
+        petsc_options.add("--download-cmake")
 
     if not options["minimal_petsc"]:
         petsc_options.add("--with-zlib")
@@ -1018,8 +1021,18 @@ def build_and_install_petsc():
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         petsc_options = get_petsc_options()
-        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
-        check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
+        # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
+        # to workaround issues configuring PETSc on macos.
+        try:
+            MACOSX_DEPLOYMENT_TARGET = check_output(["sw_vers", "-productVersion"])
+            # Convert to MAJOR.MINOR format.
+            MACOSX_DEPLOYMENT_TARGET = ".".join(MACOSX_DEPLOYMENT_TARGET.split(".")[:2])
+            log.info("MACOSX_DEPLOYMENT_TARGET set to {}".format(MACOSX_DEPLOYMENT_TARGET))
+        except FileNotFoundError:
+            MACOSX_DEPLOYMENT_TARGET = ""
+        with environment(MACOSX_DEPLOYMENT_TARGET=MACOSX_DEPLOYMENT_TARGET):
+            check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
+            check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
             check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch, "externalpackages")])
