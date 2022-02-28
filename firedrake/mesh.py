@@ -723,6 +723,9 @@ class MeshTopology(AbstractMeshTopology):
                                                           (DistributedMeshOverlapType.FACET, 1))
 
         dmcommon.validate_mesh(plex)
+        # Currently, we do the distribution manually, so
+        # disable auto distribution.
+        plex.distributeSetDefault(False)
         plex.setFromOptions()
 
         self.topology_dm = plex
