@@ -8,6 +8,7 @@ from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
 from ufl import grad
+import numpy as np
 
 __all__ = ("HypreAMS",)
 
@@ -31,6 +32,16 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G = Interpolator(grad(TestFunction(P1)), V).callable().handle
 
+        # remove (near) zeros from sparsity pattern
+        ai, aj, a = G.getValuesCSR()
+        a[np.abs(a) < 1e-10] = 0
+        G2 = PETSc.Mat().create()
+        G2.setType(PETSc.Mat.Type.AIJ)
+        G2.setSizes(G.sizes)
+        G2.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+        G2.setPreallocationCSR((ai, aj, a))
+        G2.assemble()
+
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
         pc.setOptionsPrefix(prefix + "hypre_ams_")
@@ -38,7 +49,8 @@ class HypreAMS(PCBase):
 
         pc.setType('hypre')
         pc.setHYPREType('ams')
-        pc.setHYPREDiscreteGradient(G)
+        pc.setHYPREDiscreteGradient(G2)
+
         zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
@@ -56,7 +68,7 @@ class HypreAMS(PCBase):
         self.pc.applyTranspose(x, y)
 
     def view(self, pc, viewer=None):
-        super(HypreAMS, self).view(pc, viewer)
+        super().view(pc, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)

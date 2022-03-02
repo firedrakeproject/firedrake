@@ -1,6 +1,6 @@
 sympy
 cachetools
-pytest
+pytest==6.2.5
 pytest-xdist
 ipython
 matplotlib
@@ -10,3 +10,4 @@ pkgconfig
 cached_property
 requests
 nbval
+packaging

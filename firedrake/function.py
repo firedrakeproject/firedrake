@@ -4,6 +4,7 @@ import ufl
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
+import numbers
 
 from pyop2 import op2
 
@@ -336,8 +337,8 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
-        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
-        :class:`.Expression`.
+        r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
+        UFL expression.
 
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
@@ -360,7 +361,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :param expression: a UFL expression to interpolate
         :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
@@ -386,6 +387,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
+        # Avoid generating code when assigning scalar values to the Real space
+        if (isinstance(expr, numbers.Number)
+                and self.function_space().ufl_element().family() == "Real"):
+            self.dat.data[...] = expr
+            return self
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
@@ -481,6 +488,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self
 
     __itruediv__ = __idiv__
+
+    def __float__(self):
+
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            return float(self.dat.data_ro[0])
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
     @utils.cached_property
     def _constant_ctypes(self):
@@ -668,7 +685,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
-    from pyop2.sequential import generate_single_cell_wrapper
+    from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
     mesh = function.ufl_domain()
@@ -678,11 +695,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     args = []
 
     arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    arg.position = 0
     args.append(arg)
 
     arg = function.dat(op2.READ, function.cell_node_map())
-    arg.position = 1
     args.append(arg)
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"

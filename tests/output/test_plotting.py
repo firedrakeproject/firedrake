@@ -128,6 +128,29 @@ def test_tricontour_quad_mesh():
     assert colorbar is not None
 
 
+def test_tricontour_extruded_mesh():
+    nx = 12
+    Lx = Constant(3.0)
+    interval = IntervalMesh(nx, float(Lx))
+    rectangle = ExtrudedMesh(interval, 1)
+    Vc = rectangle.coordinates.function_space()
+    x = SpatialCoordinate(rectangle)
+    expr = as_vector((x[0], (1 - 0.5 * x[0] / Lx) * x[1] + 0.25 * x[0] / Lx))
+    f = interpolate(expr, Vc)
+    mesh = Mesh(f)
+
+    V = FunctionSpace(mesh, "CG", 1, vfamily="CG", vdegree=1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0] + x[1])
+
+    fig, axes = plt.subplots()
+    contours = tricontourf(f, axes=axes)
+    colorbar = fig.colorbar(contours)
+    assert contours is not None
+    assert colorbar is not None
+
+
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)

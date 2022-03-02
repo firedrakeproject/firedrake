@@ -29,35 +29,45 @@ Former team members
 Other contributors
 ------------------
 
-Nicholas Barton
+`Nicolas Barral <https://nicolasbarral.fr>`_
 
-Nicolas Loriant
+Nicholas Barton
 
 George Boutsioukis
 
 Romain Brault
 
+Pablo Brubeck
+
 Joshua Coutinho
-
-`Oliver Meister <https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>`_
-
-Kaho Sato
-
-`Stephan Kramer <https://www.imperial.ac.uk/people/s.kramer>`_
-
-`Florian Wechsung <https://florianwechsung.github.io>`_
-
-`Alberto Paganini <https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>`_
-
-`Tuomas Kärnä <https://www.tuomaskarna.com/>`_
-
-`Nicolas Barral <https://nicolasbarral.fr>`_
-
-Darko Janeković
 
 `Patrick E. Farrell <https://www.maths.ox.ac.uk/people/patrick.farrell>`_
 
+Melina Giagiozis
+
+Darko Janeković
+
+`Tuomas Kärnä <https://www.tuomaskarna.com/>`_
+
+`Stephan Kramer <https://www.imperial.ac.uk/people/s.kramer>`_
+
+Nicolas Loriant
+
+`Scott MacLachlan <https://www.math.mun.ca/~smaclachlan/>`__
+
+India Marsden
+
+`Oliver Meister <https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>`_
+
+`Alberto Paganini <https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>`_
+
+Kaho Sato
+
+`Ben Sepanski <https://bensepanski.github.io>`__
+
 `Joe Wallwork <https://www.imperial.ac.uk/people/j.wallwork16>`_
+
+`Florian Wechsung <https://florianwechsung.github.io>`_
 
 And more! Please contact us if you believe your name has been left off
 this list in error.

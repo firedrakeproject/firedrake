@@ -19,8 +19,8 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2 import base as pyop2
-from pyop2 import sequential as seq
+import pyop2.types
+import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -56,12 +56,27 @@ class LocalMatPack(LocalPack, MatPack):
                        True: "MatSetValues"}
 
 
-class LocalMat(pyop2.Mat):
+class LocalMatKernelArg(op2.MatKernelArg):
+
     pack = LocalMatPack
+
+
+class LocalMatLegacyArg(op2.MatLegacyArg):
+
+    @property
+    def global_kernel_arg(self):
+        map_args = [m._global_kernel_arg for m in self.maps]
+        return LocalMatKernelArg(self.data.dims, map_args)
+
+
+class LocalMat(pyop2.types.AbstractMat):
 
     def __init__(self, dset):
         self._sparsity = DenseSparsity(dset, dset)
         self.dtype = numpy.dtype(PETSc.ScalarType)
+
+    def __call__(self, access, maps):
+        return LocalMatLegacyArg(self, maps, access)
 
 
 class LocalDatPack(LocalPack, DatPack):
@@ -76,7 +91,27 @@ class LocalDatPack(LocalPack, DatPack):
             return None
 
 
-class LocalDat(pyop2.Dat):
+class LocalDatKernelArg(op2.DatKernelArg):
+
+    def __init__(self, *args, needs_mask, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.needs_mask = needs_mask
+
+    @property
+    def pack(self):
+        return partial(LocalDatPack, self.needs_mask)
+
+
+class LocalDatLegacyArg(op2.DatLegacyArg):
+
+    @property
+    def global_kernel_arg(self):
+        map_arg = self.map_._global_kernel_arg if self.map_ is not None else None
+        return LocalDatKernelArg(self.data.dataset.dim, map_arg,
+                                 needs_mask=self.data.needs_mask)
+
+
+class LocalDat(pyop2.types.AbstractDat):
     def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
@@ -87,9 +122,8 @@ class LocalDat(pyop2.Dat):
     def _wrapper_cache_key_(self):
         return super()._wrapper_cache_key_ + (self.needs_mask, )
 
-    @property
-    def pack(self):
-        return partial(LocalDatPack, self.needs_mask)
+    def __call__(self, access, map_=None):
+        return LocalDatLegacyArg(self, map_, access)
 
 
 register_petsc_function("MatSetValues")
@@ -145,7 +179,6 @@ def matrix_funptr(form, state):
         mat = LocalMat(dofset)
 
         arg = mat(op2.INC, (entity_node_map, entity_node_map))
-        arg.position = 0
         args.append(arg)
         statedat = LocalDat(dofset)
         state_entity_node_map = op2.Map(iterset,
@@ -155,37 +188,33 @@ def matrix_funptr(form, state):
 
         mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        arg.position = 1
         args.append(arg)
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         if kinfo.needs_cell_sizes:
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         for n, _ in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
-                statearg.position = len(args)
                 args.append(statearg)
                 continue
             for (i, c_) in enumerate(c.split()):
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
-                arg.position = len(args)
                 args.append(arg)
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
-            arg.position = len(args)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
-        kernels.append(CompiledKernel(mod._fun, kinfo))
+
+        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
+        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -241,43 +270,38 @@ def residual_funptr(form, state):
         statearg = statedat(op2.READ, state_entity_node_map)
 
         arg = dat(op2.INC, entity_node_map)
-        arg.position = 0
         args.append(arg)
 
         mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        arg.position = 1
         args.append(arg)
 
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         if kinfo.needs_cell_sizes:
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         for n, _ in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
-                statearg.position = len(args)
                 args.append(statearg)
                 continue
             for (i, c_) in enumerate(c.split()):
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
-                arg.position = len(args)
                 args.append(arg)
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
-            arg.position = len(args)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
-        kernels.append(CompiledKernel(mod._fun, kinfo))
+
+        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
+        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 

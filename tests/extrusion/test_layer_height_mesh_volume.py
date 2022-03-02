@@ -25,7 +25,7 @@ def test_extrude_radial_mesh_volume():
     mesh = IcosahedralSphereMesh(radius=radius, refinement_level=4)
 
     # layer heights sum to 1.5 / radius
-    layer_heights = np.array([0.2] * 5 + [0.1] * 5) / radius
+    layer_heights = numpy.array([0.2] * 5 + [0.1] * 5) / radius
     extmesh = ExtrudedMesh(mesh, 10, layer_height=layer_heights, extrusion_type="radial")
 
     exact = 4 * pi * ((radius + 1.5/radius)**3 - radius**3) / 3

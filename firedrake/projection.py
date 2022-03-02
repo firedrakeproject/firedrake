@@ -1,42 +1,20 @@
 import abc
-import functools
 import ufl
 
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
-from firedrake import expression
-from firedrake import functionspace
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint import annotate_project
-from pyop2.utils import as_tuple
+from finat import HDivTrace
 
 
 __all__ = ['project', 'Projector']
 
 
 def sanitise_input(v, V):
-    if isinstance(v, expression.Expression):
-        shape = v.value_shape()
-        # Build a function space that supports PointEvaluation so that
-        # we can interpolate into it.
-        deg = max(as_tuple(V.ufl_element().degree()))
-
-        if v.rank() == 0:
-            fs = functionspace.FunctionSpace(V.mesh(), 'DG', deg+1)
-        elif v.rank() == 1:
-            fs = functionspace.VectorFunctionSpace(V.mesh(), 'DG',
-                                                   deg+1,
-                                                   dim=shape[0])
-        else:
-            fs = functionspace.TensorFunctionSpace(V.mesh(), 'DG',
-                                                   deg+1,
-                                                   shape=shape)
-        f = function.Function(fs)
-        f.interpolate(v)
-        return f
-    elif isinstance(v, function.Function):
+    if isinstance(v, function.Function):
         return v
     elif isinstance(v, ufl.classes.Expr):
         return v
@@ -74,10 +52,11 @@ def project(v, V, bcs=None,
             use_slate_for_inverse=True,
             name=None,
             ad_block_tag=None):
-    """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
+    """Project a UFL expression into a :class:`.FunctionSpace`
+    It is possible to project onto the trace space 'DGT', but not onto
+    other trace spaces e.g. into the restriction of CG onto the facets.
 
-    :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
-         :class:`.Function` to project
+    :arg v: the :class:`ufl.Expr` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :kwarg bcs: boundary conditions to apply in the projection
     :kwarg solver_parameters: parameters to pass to the solver used when
@@ -143,7 +122,20 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     def A(self):
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
-        a = firedrake.inner(u, v)*firedrake.dx
+        F = self.target.function_space()
+        mixed = isinstance(F.ufl_element(), ufl.MixedElement)
+        if not mixed and isinstance(F.finat_element, HDivTrace):
+            if F.extruded:
+                a = (firedrake.inner(u, v)*firedrake.ds_t
+                     + firedrake.inner(u, v)*firedrake.ds_v
+                     + firedrake.inner(u, v)*firedrake.ds_b
+                     + firedrake.inner(u('+'), v('+'))*firedrake.dS_h
+                     + firedrake.inner(u('+'), v('+'))*firedrake.dS_v)
+            else:
+                a = (firedrake.inner(u, v)*firedrake.ds
+                     + firedrake.inner(u('+'), v('+'))*firedrake.dS)
+        else:
+            a = firedrake.inner(u, v)*firedrake.dx
         if self.use_slate_for_inverse:
             a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
@@ -182,21 +174,43 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
 
 
 class BasicProjector(ProjectorBase):
+    """
+    A basic projector projects a UFL expression into a function space
+    and places the result in a function from that function space,
+    allowing the solver to be reused. The difference to the
+    :class:`.SupermeshProjector` is that both function spaces are
+    defined on the same mesh.
+    """
 
     @cached_property
     def rhs_form(self):
         v = firedrake.TestFunction(self.target.function_space())
-        form = firedrake.inner(self.source, v)*firedrake.dx
+        F = self.target.function_space()
+        mixed = isinstance(F.ufl_element(), ufl.MixedElement)
+        if not mixed and isinstance(F.finat_element, HDivTrace):
+            # Project onto a trace space by supplying the respective form on the facets.
+            # The measures on the facets differ between extruded and non-extruded mesh.
+            # FIXME The restrictions of cg onto the facets is also a trace space,
+            # but we only cover DGT.
+            if F.extruded:
+                form = (firedrake.inner(self.source, v)*firedrake.ds_t
+                        + firedrake.inner(self.source, v)*firedrake.ds_v
+                        + firedrake.inner(self.source, v)*firedrake.ds_b
+                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_h
+                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_v)
+            else:
+                form = (firedrake.inner(self.source, v)*firedrake.ds
+                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS)
+
+        else:
+            form = firedrake.inner(self.source, v)*firedrake.dx
         return form
 
     @cached_property
     def assembler(self):
-        from firedrake.assemble import assemble
-        return functools.partial(assemble,
-                                 self.rhs_form,
-                                 tensor=self.residual,
-                                 form_compiler_parameters=self.form_compiler_parameters,
-                                 assembly_type="residual")
+        from firedrake.assemble import OneFormAssembler
+        return OneFormAssembler(self.rhs_form, tensor=self.residual,
+                                form_compiler_parameters=self.form_compiler_parameters).assemble
 
     @property
     def rhs(self):
@@ -228,6 +242,8 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     allowing the solver to be reused. Projection reverts to an assign
     operation if ``v`` is a :class:`.Function` and belongs to the same
     function space as ``v_out``.
+    It is possible to project onto the trace space 'DGT', but not onto
+    other trace spaces e.g. into the restriction of CG onto the facets.
 
     :arg v: the :class:`ufl.Expr` or
          :class:`.Function` to project

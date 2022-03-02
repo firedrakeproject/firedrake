@@ -10,8 +10,6 @@ if outfile == "teamgrid.rst":
         ("Paul Kelly", "http://www.imperial.ac.uk/people/p.kelly"),
         ("Lawrence Mitchell",
          "https://www.dur.ac.uk/computer.science/staff/profile/?id=17243"),
-        ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
-        ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
         ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),
         ("Rob Kirby", "http://www.baylor.edu/math/index.php?id=90540"),
         ("Koki Sagiyama", "http://www.imperial.ac.uk/people/k.sagiyama"),
@@ -21,9 +19,12 @@ if outfile == "teamgrid.rst":
         ("Jack Betteridge", "https://www.imperial.ac.uk/people/j.betteridge"),
         ("Daniel Shapero", "http://psc.apl.uw.edu/people/investigators/daniel-shapero/"),
         ("Reuben Hill", "https://www.imperial.ac.uk/people/reuben.hill10"),
+        ("Connor Ward", "https://www.imperial.ac.uk/people/c.ward20")
     ])
 elif outfile == "teaminactive.rst":
     team = OrderedDict([
+        ("Thomas Gibson", "http://www.imperial.ac.uk/people/t.gibson15"),
+        ("Miklós Homolya", "http://www.imperial.ac.uk/people/m.homolya14"),
         ("Tianjiao (TJ) Sun", "https://www.doc.ic.ac.uk/~ts2914/"),
         ("Andrew McRae", "https://www2.physics.ox.ac.uk/contacts/people/mcraea"),
         ("Fabio Luporini", "http://www.imperial.ac.uk/people/f.luporini12"),

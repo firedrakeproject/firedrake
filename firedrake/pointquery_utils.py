@@ -3,7 +3,7 @@ import numpy
 import sympy
 
 from pyop2 import op2
-from pyop2.sequential import generate_single_cell_wrapper
+from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
@@ -23,7 +23,6 @@ from coffee.base import ArrayInit
 
 def make_args(function):
     arg = function.dat(op2.READ, function.cell_node_map())
-    arg.position = 0
     return (arg,)
 
 

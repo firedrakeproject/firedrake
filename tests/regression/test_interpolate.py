@@ -462,3 +462,43 @@ def test_quadrature():
     w = QuadratureWeight(mesh)
     wq = interpolate(w, Qs)
     assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
+
+
+def test_interpolation_tensor_convergence():
+    errors = []
+    for n in range(2, 9):
+        mesh = UnitSquareMesh(2**n, 2**n)
+        # ||expr - I(expr)||_L2 = c h^k for degree k
+        V = TensorFunctionSpace(mesh, "RT", 1)
+        x, y = SpatialCoordinate(mesh)
+
+        vs = V.ufl_element().value_shape()
+        expr = as_tensor(np.asarray([
+            sin(2*pi*x*(i+1))*cos(4*pi*y*i)
+            for i in range(np.prod(vs, dtype=int))
+        ], dtype=object).reshape(vs))
+
+        f = interpolate(expr, V)
+
+        errors.append(norm(expr - f))
+
+    errors = np.asarray(errors)
+
+    rate = np.log2(errors[:-1] / errors[1:])
+    assert (rate[-2:] > 0.98).all()
+
+
+def test_interpolation_tensor_symmetric():
+    mesh = UnitSquareMesh(8, 7)
+    # Interpolation of a symmetric tensor should be the same whether
+    # we have symmetry or not.
+    V = TensorFunctionSpace(mesh, "RT", 1, symmetry=True)
+    Vexp = TensorFunctionSpace(mesh, "RT", 1)
+    J = Jacobian(mesh)
+    K = JacobianInverse(mesh)
+    # Make a symmetric tensor-valued expression
+    expr = as_tensor([J*J.T, K*K.T])
+    expr = as_tensor(expr[i, j, k], (j, k, i))
+    f = interpolate(expr, V)
+    fexp = interpolate(expr, Vexp)
+    assert np.isclose(norm(fexp - f), 0)

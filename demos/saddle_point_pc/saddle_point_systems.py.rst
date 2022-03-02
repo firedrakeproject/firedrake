@@ -559,9 +559,8 @@ inverted exactly using a single application of zero-fill ILU. ::
         "fieldsplit_1_ksp_type": "preonly",
         "fieldsplit_1_pc_type": "ilu",
 
-The :math:`H(\text{div})` inner product is the tricky part.  In fact,
-we currently do not have a good way of inverting this in Firedrake.
-For now we will invert it with a direct solver.  This is a reasonable
+The :math:`H(\text{div})` inner product is the tricky part. For a
+first attempt, we will invert it with a direct solver.  This is a reasonable
 option up to a few tens of thousands of degrees of freedom. ::
 
     #
@@ -599,16 +598,15 @@ Let's see what the iteration count looks like now. ::
    32768              5
 ============== ==================
 
-Providing access to scalable preconditioners for these kinds of
-problems is currently a wishlist item for Firedrake.  There are two
-options, either geometric multigrid with strong,
-Schwarz-based, smoothers :cite:`Arnold:2000`.  Or else algebraic
-multigrid approaches using the auxiliary-space preconditioning method
-of :cite:`Hiptmair:2007`.  Support for the algebraic approach is
-available in hypre_ (the AMS and AMR preconditioners), and an
-interface exists in PETSc_.  If you're interested in adding the
-missing pieces to support this in Firedrake, we would :doc:`love to
-hear from you </contact>`.
+
+Firedrake provides some facility to solve the :math:`H(\mathrm{div})`
+Riesz map in a scalable way. In particular either by employing a
+geometric multigrid method with overlapping Schwarz smoothers (using
+:class:`.PatchPC`), or using the algebraic approach of
+:cite:`Hiptmair:2007` provided by `Hypre's
+<https://hypre.readthedocs.io/en/latest/>`__ "auxiliary space"
+preconditioners ``AMS`` and ``ADS``. See the separate manual page on
+:doc:`../preconditioning`.
 
 A runnable python script version of this demo is available `here
 <saddle_point_systems.py>`__.
@@ -618,8 +616,8 @@ A runnable python script version of this demo is available `here
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
 
-.. _PETSc: http://www.mcs.anl.gov/petsc/
-.. _hypre: http://computation.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods/software
+.. _PETSc: https://petsc.org/
+.. _hypre: https://hypre.readthedocs.io/en/latest/
 .. _PyOP2: http://github.com/OP2/PyOP2/
 .. _numpy: http://www.numpy.org
 .. _MUMPS: http://mumps.enseeiht.fr

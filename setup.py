@@ -78,9 +78,10 @@ if 'CC' not in env:
 setup(name='firedrake',
       version=versioneer.get_version(),
       cmdclass=cmdclass,
-      description="""Firedrake is an automated system for the portable solution
-          of partial differential equations using the finite element method
-          (FEM)""",
+      description="An automated finite element system.",
+      long_description="""Firedrake is an automated system for the portable
+          solution of partial differential equations using the finite element
+          method (FEM)""",
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",

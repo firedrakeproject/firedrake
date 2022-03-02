@@ -23,7 +23,8 @@ import tsfc.kernel_interface.firedrake as firedrake_interface
 
 from tsfc.coffee import generate as generate_coffee
 from tsfc import fem, ufl_utils, spectral
-from tsfc.driver import lower_integral_type
+from tsfc.driver import TSFCIntegralDataInfo
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
@@ -548,11 +549,19 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     Vce = create_element(Vc.ufl_element())
 
-    coarse_builder = firedrake_interface.KernelBuilder("cell", "otherwise", 0, ScalarType_c)
+    info = TSFCIntegralDataInfo(domain=Vc.mesh(),
+                                integral_type="cell",
+                                subdomain_id="otherwise",
+                                domain_number=0,
+                                arguments=(ufl.TestFunction(Vc), ),
+                                coefficients=(),
+                                coefficient_numbers=())
+
+    coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
     coarse_builder.set_coordinates(Vc.mesh())
-    argument_multiindices = (Vce.get_indices(), )
+    argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
-    return_variable, = coarse_builder.set_arguments((ufl.TestFunction(Vc), ), argument_multiindices)
+    return_variable, = coarse_builder.return_variables
 
     integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
@@ -635,11 +644,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     body = generate_coffee(impero_c, index_names, ScalarType)
 
     retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
-    local_tensor = coarse_builder.local_tensor
+    local_tensor = coarse_builder.output_arg.coffee_arg
     local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
     body.children.insert(0, local_tensor)
     args = [retarg] + macro_builder.kernel_args + [macro_builder.coordinates_arg,
-                                                   coarse_builder.coordinates_arg]
+                                                   coarse_builder.coordinates_arg.coffee_arg]
 
     # Now we have the kernel that computes <f, phi_c>dx_c
     # So now we need to hit it with the inverse mass matrix on dx_c
@@ -651,13 +660,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
     Ainv = Ainv.kinfo.kernel
     A = ast.Symbol(local_tensor.sym.symbol)
     R = ast.Symbol("R")
-    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.sym, A))
+    body.children.append(ast.FunCall(Ainv.name, R, coarse_builder.coordinates_arg.coffee_arg.sym, A))
     from coffee.base import Node
-    assert isinstance(Ainv._code, Node)
-    return op2.Kernel(ast.Node([Ainv._code,
+    assert isinstance(Ainv.code, Node)
+    return op2.Kernel(ast.Node([Ainv.code,
                                 ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
                                             pred=["static", "inline"])]),
                       name="pyop2_kernel_injection_dg",
                       cpp=True,
-                      include_dirs=Ainv._include_dirs,
-                      headers=Ainv._headers)
+                      include_dirs=Ainv.include_dirs,
+                      headers=Ainv.headers)

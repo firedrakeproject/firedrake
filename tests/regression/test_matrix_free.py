@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 import pytest
 import numpy as np
