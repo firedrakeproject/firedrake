@@ -16,6 +16,7 @@ import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from firedrake.parameters import target
 
 
 class RemoveRestrictions(MultiFunction):
@@ -343,7 +344,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     # Generates the loopy wrapper kernel
     slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
-                                     seq_dependencies=True, target=lp.CTarget(),
+                                     seq_dependencies=True, target=target,
                                      lang_version=(2018, 2))
 
     # Generate program from kernel, so that one can register kernels
