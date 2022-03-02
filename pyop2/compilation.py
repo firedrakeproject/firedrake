@@ -381,7 +381,7 @@ class MacCompiler(Compiler):
             opt_flags = ["-O0", "-g"]
 
         cc = "mpicc"
-        stdargs = ["-std=c99"]
+        stdargs = ["-std=gnu11"]
         if cpp:
             cc = "mpicxx"
             stdargs = []
@@ -409,7 +409,7 @@ class LinuxCompiler(Compiler):
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
-        stdargs = ["-std=c99"]
+        stdargs = ["-std=gnu11"]
         if cpp:
             cc = "mpicxx"
             stdargs = []
@@ -435,7 +435,7 @@ class LinuxIntelCompiler(Compiler):
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
-        stdargs = ["-std=c99"]
+        stdargs = ["-std=gnu11"]
         if cpp:
             cc = "mpicxx"
             stdargs = []

@@ -35,6 +35,7 @@
 
 import os
 from tempfile import gettempdir
+from loopy.target.c import CWithGNULibcTarget
 
 from pyop2.exceptions import ConfigurationError
 
@@ -96,7 +97,7 @@ class Configuration(dict):
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
         "matnest": ("PYOP2_MATNEST", bool, True),
-        "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True),
+        "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True)
     }
     """Default values for PyOP2 configuration parameters"""
 
@@ -146,3 +147,5 @@ class Configuration(dict):
 
 
 configuration = Configuration()
+
+target = CWithGNULibcTarget()

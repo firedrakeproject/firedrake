@@ -35,6 +35,8 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+from pyop2.configuration import configuration, target
+
 
 # Read c files  for linear algebra callables in on import
 import os
@@ -86,7 +88,7 @@ class PetscCallable(loopy.ScalarCallable):
                 callables_table)
 
     def generate_preambles(self, target):
-        assert isinstance(target, loopy.CTarget)
+        assert isinstance(target, type(target))
         yield("00_petsc", "#include <petsc.h>")
         return
 
@@ -174,7 +176,7 @@ class INVCallable(LACallable):
     name = "inverse"
 
     def generate_preambles(self, target):
-        assert isinstance(target, loopy.CTarget)
+        assert isinstance(target, type(target))
         yield ("inverse", inverse_preamble)
 
 
@@ -186,7 +188,7 @@ class SolveCallable(LACallable):
     name = "solve"
 
     def generate_preambles(self, target):
-        assert isinstance(target, loopy.CTarget)
+        assert isinstance(target, type(target))
         yield ("solve", solve_preamble)
 
 
@@ -524,10 +526,11 @@ def generate(builder, wrapper_name=None):
         assumptions = assumptions & pwaffd[parameters.layer_start].le_set(pwaffd[parameters.layer_end])
     assumptions = reduce(operator.and_, assumptions.get_basic_sets())
 
+    print(configuration)
     wrapper = loopy.make_kernel(domains,
                                 statements,
                                 kernel_data=parameters.kernel_data,
-                                target=loopy.CTarget(),
+                                target=target,
                                 temporary_variables=parameters.temporaries,
                                 symbol_manglers=[symbol_mangler],
                                 options=options,
