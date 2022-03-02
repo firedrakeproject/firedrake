@@ -225,6 +225,8 @@ class KernelBuilderMixin(object):
         # cell sizes, etc.).
         oriented, needs_cell_sizes, tabulations = self.register_requirements(expressions)
 
+        # Extract Variables that are actually used
+        active_variables = gem.extract_type(expressions, gem.Variable)
         # Construct ImperoC
         assignments = list(zip(return_variables, expressions))
         index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
@@ -232,7 +234,7 @@ class KernelBuilderMixin(object):
             impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
         except impero_utils.NoopError:
             impero_c = None
-        return impero_c, oriented, needs_cell_sizes, tabulations
+        return impero_c, oriented, needs_cell_sizes, tabulations, active_variables
 
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.
