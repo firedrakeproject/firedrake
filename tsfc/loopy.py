@@ -20,6 +20,7 @@ from pytools import UniqueNameGenerator
 from tsfc.parameters import is_complex
 
 from contextlib import contextmanager
+from tsfc.parameters import target
 
 
 @singledispatch
@@ -193,7 +194,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
     :returns: loopy kernel
     """
-    ctx = LoopyContext(target=lp.CTarget())
+    ctx = LoopyContext(target=target)
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
     ctx.epsilon = numpy.finfo(scalar_type).resolution
@@ -218,7 +219,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     domains = create_domains(ctx.index_extent.items())
 
     # Create loopy kernel
-    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=lp.CTarget(),
+    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
                            lang_version=(2018, 2))
 
@@ -399,7 +400,7 @@ def _expression_mathfunction(expr, ctx):
         nu, arg = expr.children
         nu_ = expression(nu, ctx)
         arg_ = expression(arg, ctx)
-        if ctx.target == lp.ExecutableCTarget():
+        if isinstance(ctx.target, lp.target.c.CWithGNULibcTarget):
             # Generate right functions calls to gnulibc bessel functions
             # cyl_bessel_{jy} -> bessel_{jy}
             name = expr.name[4:]
