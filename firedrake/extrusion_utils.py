@@ -1,8 +1,10 @@
 import collections
+import functools
 import itertools
 import numpy
 import islpy as isl
 
+import finat
 from pyop2 import op2
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
@@ -69,8 +71,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                     ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
                     base_coords.dat(op2.READ, base_coords.cell_node_map()),
                     layer_height(op2.READ),
-                    pass_layer_arg=True,
-                    is_loopy_kernel=True).compute()
+                    pass_layer_arg=True).compute()
         return
     ext_fe = create_element(ext_coords.ufl_element())
     ext_shape = ext_fe.index_shape
@@ -224,8 +225,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
                 layer_height(op2.READ),
-                pass_layer_arg=True,
-                is_loopy_kernel=True).compute()
+                pass_layer_arg=True).compute()
 
 
 def flat_entity_dofs(entity_dofs):
@@ -316,3 +316,45 @@ def entity_closures(cell):
             idx = indices[(e, ent)]
             closure[idx] = list(map(indices.get, vals))
     return closure
+
+
+@functools.lru_cache()
+def calculate_dof_offset(finat_element):
+    """Return the offset between the neighbouring cells of a
+    column for each DoF.
+
+    :arg finat_element: A FInAT element.
+    :returns: A numpy array containing the offset for each DoF.
+    """
+    # scalar-valued elements only
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+
+    dof_offset = numpy.zeros(finat_element.space_dimension(), dtype=IntType)
+
+    if is_real_tensor_product_element(finat_element):
+        return dof_offset
+
+    entity_offset = [0] * (1 + finat_element.cell.get_dimension()[0])
+    for (b, v), entities in finat_element.entity_dofs().items():
+        entity_offset[b] += len(entities[0])
+
+    for (b, v), entities in finat_element.entity_dofs().items():
+        for dof_indices in entities.values():
+            for i in dof_indices:
+                dof_offset[i] = entity_offset[b]
+    return dof_offset
+
+
+def is_real_tensor_product_element(element):
+    """Is the provided FInAT element a tensor product involving the real space?
+
+    :arg element: A scalar FInAT element.
+    """
+    assert not isinstance(element, finat.TensorFiniteElement)
+
+    if isinstance(element, finat.TensorProductElement):
+        _, factor = element.factors
+        return isinstance(factor, finat.Real)
+    else:
+        return False
