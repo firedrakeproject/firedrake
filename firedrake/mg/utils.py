@@ -139,6 +139,10 @@ def physical_node_locations(V):
         assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
         element = element.sub_elements()[0]
     mesh = V.mesh()
+    Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+    # FIXME: This is unsafe for DG coordinates and CG target spaces.
+    return firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
     cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
