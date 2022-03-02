@@ -10,6 +10,7 @@ from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 import coffee.base as ast
+from firedrake.parameters import target
 
 from firedrake.logging import warning
 from firedrake import constant
@@ -127,7 +128,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             raise KeyError("No cache")
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=loopy.CTarget(),
+        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
                                   seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
         knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
         if kernel_cache is not None:

@@ -11,6 +11,7 @@ from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from firedrake.parameters import target
 
 
 @PETSc.Log.EventDecorator()
@@ -217,7 +218,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    ast = lp.make_function(domains, instructions, data, name=name, target=lp.CTarget(),
+    ast = lp.make_function(domains, instructions, data, name=name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
