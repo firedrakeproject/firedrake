@@ -1,6 +1,6 @@
 """The parameters dictionary contains global parameter settings."""
 from coffee import coffee_reconfigure
-from pyop2.configuration import configuration
+from pyop2.configuration import configuration, target as pyop2_target
 from tsfc import default_parameters
 import sys
 from firedrake.utils import ScalarType, ScalarType_c
@@ -71,6 +71,8 @@ pyop2_opts["type_check"] = True
 
 # PyOP2 must know about the COFFEE optimization level chosen by Firedrake
 pyop2_opts["opt_level"] = coffee_default_optlevel
+
+target = pyop2_target
 
 parameters.add(pyop2_opts)
 
