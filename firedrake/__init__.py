@@ -158,3 +158,6 @@ if _is_logging:
     _init_event.end()
     del _init_event
 del _is_logging
+
+from . import _version
+__version__ = _version.get_versions()['version']

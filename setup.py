@@ -1,4 +1,4 @@
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, find_packages
 from glob import glob
 from os import environ as env, path
 from Cython.Distutils import build_ext
