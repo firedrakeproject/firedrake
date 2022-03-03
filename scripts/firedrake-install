@@ -563,7 +563,7 @@ If you really want to use your own Python packages, please run again with the
 """)
 
 
-def get_petsc_options():
+def get_petsc_options(minimal=False):
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -586,7 +586,7 @@ def get_petsc_options():
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
 
-    if not options["minimal_petsc"]:
+    if (not options["minimal_petsc"]) and (not minimal):
         petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
@@ -655,11 +655,12 @@ def get_petsc_options():
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
         petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
 
-    for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
-        if option.startswith("--with-hdf5-dir"):
-            petsc_options.discard("--download-hdf5")
-            os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
-        petsc_options.add(option)
+    if not minimal:
+        for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+            if option.startswith("--with-hdf5-dir"):
+                petsc_options.discard("--download-hdf5")
+                os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+            petsc_options.add(option)
     if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
         del os.environ["HDF5_DIR"]
         log.info("\nWarning: HDF5_DIR environment variable set, but ignored; "
@@ -668,13 +669,19 @@ def get_petsc_options():
     return list(petsc_options)
 
 
-def get_petsc_packages():
-    petsc_dir, petsc_arch = get_petsc_dir()
-    with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
-        for line in fh.readlines():
-            if line.startswith("#define PETSC_HAVE_PACKAGES"):
-                packages = set(line.split()[2].strip().strip(':"').split(':'))
-                break
+def get_petsc_packages(minimal=False):
+    if minimal:
+        packages = set([
+            "blaslapack", "chaco", "eigen3", "hdf5", "hypre", "mathlib",
+            "mpi", "mumps", "ptscotch", "scalapack", "superlu_dist"
+        ])
+    else:
+        petsc_dir, petsc_arch = get_petsc_dir()
+        with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
+            for line in fh.readlines():
+                if line.startswith("#define PETSC_HAVE_PACKAGES"):
+                    packages = set(line.split()[2].strip().strip(':"').split(':'))
+                    break
     return packages
 
 
@@ -1395,19 +1402,28 @@ log.debug(check_output(["env"]))
 log.debug("\n\n")
 
 if mode == "install" and args.honour_petsc_dir:
-    log.info("*********************************************************************")
-    log.info("You must ensure that PETSc has been built with the following options:")
-    log.info("*********************************************************************\n")
-    log.info("\n".join(sorted(get_petsc_options())))
-    log.info("\n")
-    log.info("*****************************************************")
-    log.info("Specified PETSc was built with the following options:")
-    log.info("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
-    log.info("*****************************************************\n")
-    log.info("\n".join(sorted(get_petsc_config())))
-    log.info("\nThe following external packages were detected and are used by PETSc:")
-    log.info(", ".join(sorted(get_petsc_packages())))
-    log.info("\n")
+    minimal_packages = get_petsc_packages(minimal=True)
+    current_packages = get_petsc_packages()
+    if not minimal_packages < current_packages:
+        log.warning("*********************************************************************")
+        log.warning("Specified PETSc is missing the following packages:")
+        log.warning(", ".join(sorted(minimal_packages - current_packages)) + '\n')
+        log.warning("You must ensure that PETSc has been built with these minimal options:")
+        log.warning("*********************************************************************\n")
+        log.warning("\n".join(sorted(get_petsc_options(minimal=True))))
+        log.warning('')
+        log.warning("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
+        log.warning('Use --show-petsc-configure-options as an argument to the firedrake-install script if additional functionality is required.\n ')
+        log.warning("Install will proceed, but Firedrake may be missing key functionality and may not work at all!")
+
+    log.debug("*****************************************************")
+    log.debug("Specified PETSc was built with the following options:")
+    log.debug("*****************************************************\n")
+    log.debug("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
+    log.debug("\n".join(sorted(get_petsc_config())) + '\n')
+    log.debug("The following external packages were detected and are used by PETSc:")
+    log.debug(", ".join(sorted(current_packages)))
+    log.debug("\n")
 
 if mode == "install" or not args.update_script:
     # Check operating system.
