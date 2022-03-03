@@ -1,5 +1,4 @@
-from distutils.core import setup
-from setuptools import find_packages
+from setuptools import setup, Extension, find_packages
 from glob import glob
 from os import environ as env, path
 from Cython.Distutils import build_ext
@@ -17,7 +16,7 @@ try:
     complex_mode = config['options'].get('complex', False)
 except ImportError:
     # No Cython Extension means no complex mode!
-    from distutils.extension import Extension
+    from setuptools import Extension
     complex_mode = False
 
 
