@@ -197,12 +197,15 @@ def matrix_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, _ in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
+                if indices != (0, ):
+                    raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
                 args.append(statearg)
                 continue
-            for (i, c_) in enumerate(c.split()):
+            for ind in indices:
+                c_ = c.split()[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -284,12 +287,15 @@ def residual_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, _ in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
+                if indices != (0, ):
+                    raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
                 args.append(statearg)
                 continue
-            for (i, c_) in enumerate(c.split()):
+            for ind in indices:
+                c_ = c.split()[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -503,8 +509,14 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(form.ufl_domain().cell_sizes)
-    for n, _ in kernel.kinfo.coefficient_map:
-        coeffs.append(form.coefficients()[n])
+    for n, indices in kernel.kinfo.coefficient_map:
+        c = form.coefficients()[n]
+        if c is state:
+            if indices != (0, ):
+                raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
+            coeffs.append(c)
+        else:
+            coeffs.extend([c.split()[ind] for ind in indices])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
     data_args = []
