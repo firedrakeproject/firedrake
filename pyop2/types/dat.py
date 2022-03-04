@@ -23,7 +23,7 @@ from pyop2.types.set import ExtrudedSet, GlobalSet, Set
 
 class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     """OP2 vector data. A :class:`Dat` holds values on every element of a
-    :class:`DataSet`.
+    :class:`DataSet`.o
 
     If a :class:`Set` is passed as the ``dataset`` argument, rather
     than a :class:`DataSet`, the :class:`Dat` is created with a default
@@ -334,7 +334,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=rshape),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return self._op_kernel_cache.setdefault(key, Kernel(knl, name))
 
     def _op(self, other, op):
@@ -383,7 +383,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         if not other_is_self:
             data.append(lp.GlobalArg("other", dtype=dtype, shape=rshape))
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return self._iop_kernel_cache.setdefault(key, Kernel(knl, name))
 
     def _iop(self, other, op):
@@ -424,7 +424,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=(self.cdim,)),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(1,))]
-        knl = lp.make_function([domain], [insn], data, name="inner", target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name="inner", target=conf.target, lang_version=(2018, 2))
         k = Kernel(knl, "inner")
         return self._inner_kernel_cache.setdefault(dtype, k)
 
@@ -483,7 +483,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         insn = lp.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return Kernel(knl, name)
 
     def __neg__(self):
