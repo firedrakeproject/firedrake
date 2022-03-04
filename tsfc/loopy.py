@@ -20,6 +20,7 @@ from pytools import UniqueNameGenerator
 from tsfc.parameters import is_complex
 
 from contextlib import contextmanager
+from tsfc.parameters import target
 
 
 @singledispatch
@@ -96,12 +97,13 @@ def assign_dtypes(expressions, scalar_type):
 
 
 class LoopyContext(object):
-    def __init__(self):
+    def __init__(self, target=None):
         self.indices = {}  # indices for declarations and referencing values, from ImperoC
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
+        self.target = target
 
     def fetch_multiindex(self, multiindex):
         indices = []
@@ -192,7 +194,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
     :returns: loopy kernel
     """
-    ctx = LoopyContext()
+    ctx = LoopyContext(target=target)
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
     ctx.epsilon = numpy.finfo(scalar_type).resolution
@@ -217,7 +219,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     domains = create_domains(ctx.index_extent.items())
 
     # Create loopy kernel
-    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=lp.CTarget(),
+    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
                            lang_version=(2018, 2))
 
@@ -398,22 +400,28 @@ def _expression_mathfunction(expr, ctx):
         nu, arg = expr.children
         nu_ = expression(nu, ctx)
         arg_ = expression(arg, ctx)
-        # Modified Bessel functions (C++ only)
-        #
-        # These mappings work for FEniCS only, and fail with Firedrake
-        # since no Boost available.
-        if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
-            name = 'boost::math::' + expr.name
-            return p.Variable(name)(nu_, arg_)
+        if isinstance(ctx.target, lp.target.c.CWithGNULibcTarget):
+            # Generate right functions calls to gnulibc bessel functions
+            # cyl_bessel_{jy} -> bessel_{jy}
+            name = expr.name[4:]
+            return p.Variable(f"{name}n")(int(nu_), arg_)
         else:
-            # cyl_bessel_{jy} -> {jy}
-            name = expr.name[-1:]
-            if nu == gem.Zero():
-                return p.Variable(f"{name}0")(arg_)
-            elif nu == gem.one:
-                return p.Variable(f"{name}1")(arg_)
+            # Modified Bessel functions (C++ only)
+            # These mappings work for FEniCS only, and fail with Firedrake
+            # since no Boost available.
+            # Is this actually still supported/has ever been used by anyone?
+            if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
+                name = 'boost::math::' + expr.name
+                return p.Variable(name)(nu_, arg_)
             else:
-                return p.Variable(f"{name}n")(nu_, arg_)
+                # cyl_bessel_{jy} -> {jy}
+                name = expr.name[-1:]
+                if nu == gem.Zero():
+                    return p.Variable(f"{name}0")(arg_)
+                elif nu == gem.one:
+                    return p.Variable(f"{name}1")(arg_)
+                else:
+                    return p.Variable(f"{name}n")(nu_, arg_)
     else:
         if expr.name == "ln":
             name = "log"

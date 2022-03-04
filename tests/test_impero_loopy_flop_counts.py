@@ -9,6 +9,7 @@ from ufl import (FiniteElement, FunctionSpace, Mesh, TestFunction,
                  TrialFunction, VectorElement, dx, grad, inner,
                  interval, triangle, quadrilateral,
                  TensorProductCell)
+from tsfc.parameters import target
 
 
 def count_loopy_flops(kernel):
@@ -16,7 +17,7 @@ def count_loopy_flops(kernel):
     program = kernel.ast
     program = program.with_kernel(
         program[name].copy(
-            target=loopy.CTarget(),
+            target=target,
             silenced_warnings=["insn_count_subgroups_upper_bound",
                                "get_x_map_guessing_subgroup_size"])
     )
