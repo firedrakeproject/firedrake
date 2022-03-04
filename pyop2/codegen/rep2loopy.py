@@ -35,7 +35,7 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-from pyop2.configuration import configuration, target
+from pyop2.configuration import target
 
 
 # Read c files  for linear algebra callables in on import
@@ -526,7 +526,6 @@ def generate(builder, wrapper_name=None):
         assumptions = assumptions & pwaffd[parameters.layer_start].le_set(pwaffd[parameters.layer_end])
     assumptions = reduce(operator.and_, assumptions.get_basic_sets())
 
-    print(configuration)
     wrapper = loopy.make_kernel(domains,
                                 statements,
                                 kernel_data=parameters.kernel_data,
