@@ -1404,18 +1404,6 @@ log.debug("\n\n")
 if mode == "install" and args.honour_petsc_dir:
     minimal_packages = get_petsc_packages(minimal=True)
     current_packages = get_petsc_packages()
-    if not minimal_packages < current_packages:
-        log.warning("*********************************************************************")
-        log.warning("Specified PETSc is missing the following packages:")
-        log.warning(", ".join(sorted(minimal_packages - current_packages)) + '\n')
-        log.warning("You must ensure that PETSc has been built with these minimal options:")
-        log.warning("*********************************************************************\n")
-        log.warning("\n".join(sorted(get_petsc_options(minimal=True))))
-        log.warning('')
-        log.warning("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
-        log.warning('Use --show-petsc-configure-options as an argument to the firedrake-install script if additional functionality is required.\n ')
-        log.warning("Install will proceed, but Firedrake may be missing key functionality and may not work at all!")
-
     log.debug("*****************************************************")
     log.debug("Specified PETSc was built with the following options:")
     log.debug("*****************************************************\n")
@@ -1424,6 +1412,18 @@ if mode == "install" and args.honour_petsc_dir:
     log.debug("The following external packages were detected and are used by PETSc:")
     log.debug(", ".join(sorted(current_packages)))
     log.debug("\n")
+    if not minimal_packages < current_packages:
+        log.error("*********************************************************************")
+        log.error("Specified PETSc is missing the following packages:")
+        log.error(", ".join(sorted(minimal_packages - current_packages)) + '\n')
+        log.error("You must ensure that PETSc has been built with these minimal options:")
+        log.error("*********************************************************************\n")
+        log.error("\n".join(sorted(get_petsc_options(minimal=True))))
+        log.error("")
+        log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
+        log.error('Use --show-petsc-configure-options as an argument to the firedrake-install script to display options if additional functionality is required.\n ')
+        log.error("FATAL: Unable to install with specified PETSc")
+        exit(1)
 
 if mode == "install" or not args.update_script:
     # Check operating system.
