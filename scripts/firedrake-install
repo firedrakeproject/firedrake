@@ -1030,6 +1030,7 @@ def build_and_install_petsc():
             log.info("MACOSX_DEPLOYMENT_TARGET set to {}".format(MACOSX_DEPLOYMENT_TARGET))
         except FileNotFoundError:
             MACOSX_DEPLOYMENT_TARGET = ""
+        MACOSX_DEPLOYMENT_TARGET = ""
         with environment(MACOSX_DEPLOYMENT_TARGET=MACOSX_DEPLOYMENT_TARGET):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
