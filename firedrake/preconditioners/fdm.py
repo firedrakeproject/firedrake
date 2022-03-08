@@ -69,6 +69,16 @@ class FDMPC(PCBase):
         element = V.ufl_element()
         e_fdm = element.reconstruct(variant="fdm")
 
+        def interp_nullspace(I, nsp):
+            if (I is None) or (nsp is None):
+                return nsp
+            vectors = []
+            for x in nsp.getVecs():
+                y = I.createVecLeft()
+                I.mult(x, y)
+                vectors.append(y)
+            return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vectors, comm=nsp.getComm())
+
         # Matrix-free assembly of the transformed Jacobian and its diagonal
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
@@ -85,6 +95,13 @@ class FDMPC(PCBase):
                                        form_compiler_parameters=fcp, mat_type=mat_type)
             self._assemble_A()
             Amat = self.A.petscmat
+
+            omat, _ = pc.getOperators()
+            inject = prolongation_matrix_matfree(V_fdm, V, [], [])
+            Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
+            Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
+            Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
+
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                               fcp=fcp, options_prefix=options_prefix)
 
@@ -101,6 +118,9 @@ class FDMPC(PCBase):
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx)
         self._assemble_P()
+        Pmat.setNullSpace(Amat.getNullSpace())
+        Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
+        Pmat.setNearNullSpace(Amat.getNearNullSpace())
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify

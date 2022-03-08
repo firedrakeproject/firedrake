@@ -41,6 +41,7 @@ class ASMPatchPC(PCBase):
 
         # Obtain patches from user defined funtion
         ises = self.get_patches(V)
+        # PCASM demands at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
             ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=COMM_SELF)]
 
