@@ -70,14 +70,21 @@ class FDMPC(PCBase):
         e_fdm = element.reconstruct(variant="fdm")
 
         def interp_nullspace(I, nsp):
-            if (I is None) or (nsp is None):
+            if not nsp:
                 return nsp
             vectors = []
             for x in nsp.getVecs():
                 y = I.createVecLeft()
                 I.mult(x, y)
                 vectors.append(y)
-            return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vectors, comm=nsp.getComm())
+            if nsp.hasConstant():
+                y = I.createVecLeft()
+                x = I.createVecRight()
+                x.set(1.0E0)
+                I.mult(x, y)
+                vectors.append(y)
+                x.destroy()
+            return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
 
         # Matrix-free assembly of the transformed Jacobian and its diagonal
         if element == e_fdm:
