@@ -41,7 +41,7 @@ class ASMPatchPC(PCBase):
 
         # Obtain patches from user defined funtion
         ises = self.get_patches(V)
-        # PCASM demands at least one patch, so we define an empty one on idle processes
+        # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
             ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=COMM_SELF)]
 
@@ -59,14 +59,17 @@ class ASMPatchPC(PCBase):
             asmpc.setType(asmpc.Type.ASM)
             # Set default solver parameters
             asmpc.setASMType(PETSc.PC.ASMType.BASIC)
-
-            dosort = PETSc.Options().getBool(self.prefix + "sort_indices", default=True)
-            asmpc.setASMSortIndices(dosort)
             opts = PETSc.Options(asmpc.getOptionsPrefix())
             if "sub_pc_type" not in opts:
                 opts["sub_pc_type"] = "lu"
             if "sub_pc_factor_shift_type" not in opts:
                 opts["sub_pc_factor_shift_type"] = "NONE"
+
+            # Do not sort indices if we want to order the topological entities in the patch
+            ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default="NONE")
+            dosort = ordering == "NONE"
+            asmpc.setASMSortIndices(dosort)
+
             lgmap = V.dof_dset.lgmap
             # Translate to global numbers
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
