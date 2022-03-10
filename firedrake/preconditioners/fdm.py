@@ -791,7 +791,7 @@ def glonum(node_map):
 
     :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
     """
-    if node_map.offset is None:
+    if (node_map.offset is None) or (node_map.values_with_halo.size == 0):
         return node_map.values_with_halo
     else:
         layers = node_map.iterset.layers_array

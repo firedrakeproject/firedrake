@@ -253,7 +253,7 @@ class PMGBase(PCSNESBase):
         injection = self.create_injection(cdm, fdm)
         add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
 
-        # restrict the nullspace basis
+        # coarsen the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
                 if mat.type == 'python':
@@ -271,10 +271,10 @@ class PMGBase(PCSNESBase):
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(coarse_V)
                     with wc.dat.vec_wo as xc:
-                        if mat.getSize()[0] == xf.getSize():
-                            mat.multTranspose(xf, xc)
-                        else:
+                        if mat.getSize()[1] == xf.getSize():
                             mat.mult(xf, xc)
+                        else:
+                            mat.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
                 vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
                 vsb.orthonormalize()
