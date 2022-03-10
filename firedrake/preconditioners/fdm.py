@@ -813,7 +813,10 @@ def get_weak_bc_flags(J):
     args_J = J.arguments()
     V = args_J[0].function_space()
     rvs = V.ufl_element().reference_value_shape()
-    Qe = ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0)
+    cell = mesh.ufl_cell()
+    family = "CG" if cell.topological_dimension() == 1 else "DGT"
+    degree = 1 if cell.topological_dimension() == 1 else 0
+    Qe = ufl.FiniteElement(family, cell=cell, degree=degree)
     if rvs:
         Qe = ufl.TensorElement(Qe, shape=rvs)
     Q = firedrake.FunctionSpace(mesh, Qe)
