@@ -844,3 +844,41 @@ def get_weak_bc_flags(J):
         return (abs(fbc) > tol).astype(PETSc.IntType)
     else:
         return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
+
+
+def condense_element_mat(A, i0, i1):
+    adiag = A.getDiagonal()
+    adiag0 = adiag.getSubVector(i0)
+    adiag0.recirpocal()
+    adiag0.sqrtabs()
+
+    A01 = A.getLocalSubMatrix(i0, i1)
+    A10 = A.getLocalSubMatrix(i1, i0)
+    A11 = A.getLocalSubMatrix(i1, i1)
+
+    A01.diagonalScale(L=adiag0)
+    A10.diagonalScale(R=adiag0)
+    A11 -= A01.MatMult(A01)
+    return A11
+
+
+def interior_facet_decomposition(pshape):
+    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
+    dom = [slice(1, -1), [0, -1]]
+    i0 = []
+    i1 = []
+    for k in range(2**ndim):
+        if ndim == 1:
+            p = idx[dom[k | 1]]
+        elif ndim == 2:
+            p = idx[dom[k | 1], dom[k | 2]]
+        elif ndim == 3:
+            p = idx[dom[k | 1], dom[k | 2], dom[k | 4]]
+        if k == 0:
+            i0.extend(p.flat)
+        else
+            i1.extend(p.flat)
+
+    i0 = PETSc.IS().createGeneral(i0, comm=COMM_SELF)
+    i1 = PETSc.IS().createGeneral(i1, comm=COMM_SELF)
+    return i0, i1
