@@ -1,4 +1,5 @@
 from functools import lru_cache, partial
+from pyop2.mpi import COMM_SELF
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -210,12 +211,17 @@ class FDMPC(PCBase):
         from pyop2.sparsity import get_preallocation
         from firedrake.preconditioners.pmg import get_line_elements
         try:
-            line_elements = get_line_elements(V)
+            e = V.ufl_element()
+            if isinstance(e, ufl.RestrictedElement):
+                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
+                line_elements = get_line_elements(Ve)
+            else:
+                line_elements = get_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
         degree = max(e.degree() for e in line_elements)
-        eta = float(appctx.get("eta", (degree+1)**2))
+        eta = float(appctx.get("eta", degree*(degree+1)))
         quad_degree = 2*degree+1
         element = V.finat_element
         is_dg = element.entity_dofs() == element.entity_closure_dofs()
@@ -286,6 +292,14 @@ class FDMPC(PCBase):
 
         # pshape is the shape of the DOFs in the tensor product
         pshape = tuple(Ak[0].size[0] for Ak in Afdm)
+        static_condensation = False
+        if sdim != numpy.prod(pshape):
+            iset_interior, iset_facet = interior_facet_decomposition(pshape)
+            if sdim == iset_facet.getSize():
+                static_condensation = True
+            else:
+                raise ValueError("Cannot apply static condensation")
+
         if shift:
             assert ncomp == ndim
             pshape = [tuple(numpy.roll(pshape, -shift*k)) for k in range(ncomp)]
@@ -363,6 +377,9 @@ class FDMPC(PCBase):
                         Be = Be.kron(Afdm[axes[1]][0])
                         Ae = Ae.kron(Afdm[axes[2]][0])
                         Ae.axpy(muk[2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+
+                if static_condensation:
+                    Ae = condense_element_mat(Ae, iset_interior, iset_facet)
 
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
                 set_submat_csr(A, Ae, rows, imode)
@@ -849,35 +866,43 @@ def get_weak_bc_flags(J):
 def condense_element_mat(A, i0, i1):
     adiag = A.getDiagonal()
     adiag0 = adiag.getSubVector(i0)
-    adiag0.recirpocal()
+    adiag0.reciprocal()
     adiag0.sqrtabs()
 
-    A01 = A.getLocalSubMatrix(i0, i1)
-    A10 = A.getLocalSubMatrix(i1, i0)
-    A11 = A.getLocalSubMatrix(i1, i1)
+    A01 = A.createSubMatrix(i0, i1)
+    A10 = A.createSubMatrix(i1, i0)
+    A11 = A.createSubMatrix(i1, i1)
 
     A01.diagonalScale(L=adiag0)
     A10.diagonalScale(R=adiag0)
-    A11 -= A01.MatMult(A01)
+    A11 -= A10.matMult(A01)
+
+    adiag.destroy()
+    adiag0.destroy()
+    A01.destroy()
+    A10.destroy()
     return A11
 
 
 def interior_facet_decomposition(pshape):
-    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
-    dom = [slice(1, -1), [0, -1]]
-    i0 = []
+    nscal = 1
+    ndim = len(pshape)
+    p = numpy.reshape(numpy.arange(nscal*numpy.prod(pshape), dtype=PETSc.IntType), (-1,)+pshape)
+    interior = slice(1, -1)
+    zlice = (Ellipsis,) + (interior, )*ndim
+    i0 = list(p[zlice].flat)
+
+    def hamming_weight(n):
+        t1 = n - ((n>>1) & 0x55555555)
+        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
+        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24,n)
+
+    order = [x[1] for x in sorted(map(hamming_weight, range(1, 1<<ndim)))]
+
     i1 = []
-    for k in range(2**ndim):
-        if ndim == 1:
-            p = idx[dom[k | 1]]
-        elif ndim == 2:
-            p = idx[dom[k | 1], dom[k | 2]]
-        elif ndim == 3:
-            p = idx[dom[k | 1], dom[k | 2], dom[k | 4]]
-        if k == 0:
-            i0.extend(p.flat)
-        else
-            i1.extend(p.flat)
+    for k in order:
+        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1<<j else interior for j, N in enumerate(pshape))
+        i1.extend(p[zlice].flat)
 
     i0 = PETSc.IS().createGeneral(i0, comm=COMM_SELF)
     i1 = PETSc.IS().createGeneral(i1, comm=COMM_SELF)
