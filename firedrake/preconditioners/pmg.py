@@ -750,7 +750,7 @@ def cache_generate_code(kernel, comm):
 
 def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     if fmapping == cmapping:
-        return "", "", "", "", []
+        return None
     domain = Q.ufl_domain()
     A = get_piola_tensor(cmapping, domain, inverse=False)
     B = get_piola_tensor(fmapping, domain, inverse=True)
@@ -984,14 +984,15 @@ class StandaloneInterpolationMatrix(object):
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space, permute to FInAT ordering, and apply the mapping
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Qc, "t0", "t1", "J0")
-            decl[1], restrict[1], prolong[1] = make_permutation_code(Qc, qshape, shapes[0], "t0", "t1", "perm0")
-            coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
 
-            if not in_place_mapping:
-                # permute to Kronecker-friendly ordering and interpolate to fine space
-                decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1")
-                shapes.extend(_shapes)
+            if mapping_output is not None:
+                decl[1], restrict[1], prolong[1] = make_permutation_code(Qc, qshape, shapes[0], "t0", "t1", "perm0")
+                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
+                if not in_place_mapping:
+                    # permute to Kronecker-friendly ordering and interpolate to fine space
+                    decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
+                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1")
+                    shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
             prolong_code = "".join(prolong)
