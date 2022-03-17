@@ -128,6 +128,8 @@ class FDMPC(PCBase):
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
+        if isinstance(e_fdm, ufl.RestrictedElement):
+            Amat = Pmat
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -294,8 +296,8 @@ class FDMPC(PCBase):
         static_condensation = False
         if sdim != numpy.prod(pshape):
             isplit = interior_facet_decomposition((1,) + tuple(pshape))
-            iset_interior = PETSc.IS().createGeneral(isplit[0], comm=Afdm[0][0].comm)
-            iset_facet = PETSc.IS().createGeneral(isplit[1], comm=Afdm[0][0].comm)
+            iset_interior = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
+            iset_facet = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
             if sdim == iset_facet.getSize():
                 static_condensation = True
             else:
@@ -317,7 +319,7 @@ class FDMPC(PCBase):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
-        use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2
+        use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
         if not use_diag_Bq:
             bshape = Bq.ufl_shape
             # Be = Bhat kron ... kron Bhat
@@ -389,6 +391,8 @@ class FDMPC(PCBase):
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         if any(Dk is not None for Dk in Dfdm):
+            if static_condensation:
+                raise NotImplementedError("Static condensation for SIPG not implemented")
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
