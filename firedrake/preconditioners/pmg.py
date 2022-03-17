@@ -749,6 +749,8 @@ def cache_generate_code(kernel, comm):
 
 
 def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
+    if fmapping == cmapping:
+        return "", "", "", "", []
     domain = Q.ufl_domain()
     A = get_piola_tensor(cmapping, domain, inverse=False)
     B = get_piola_tensor(fmapping, domain, inverse=True)
@@ -865,6 +867,27 @@ def get_permuted_map(V):
     return PermutedMap(V.cell_node_map(), permutation)
 
 
+def interior_facet_decomposition(pshape):
+    """
+    Split DOFs into interior and facet
+    :arg pshape: tuple with value size and space dimension along each axis
+
+    :returns: a tuple with the interior and facet indices
+    """
+    def hamming_weight(n):
+        t1 = n - ((n >> 1) & 0x55555555)
+        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
+        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24, n)
+
+    isplit = ([], [])
+    order = [x[1] for x in sorted(map(hamming_weight, range(1 << len(pshape[1:]))))]
+    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
+    for k in order:
+        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1 << j else slice(1, -1) for j, N in enumerate(pshape[1:]))
+        isplit[k != 0].extend(p[zlice].flat)
+    return isplit
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
@@ -926,12 +949,14 @@ class StandaloneInterpolationMatrix(object):
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
         cmapping = celem.mapping().lower()
+        frestrict = isinstance(felem, ufl.RestrictedElement)
+        crestrict = isinstance(celem, ufl.RestrictedElement)
 
         in_place_mapping = False
         coefficients = []
         mapping_code = ""
         coef_decl = ""
-        if fmapping == cmapping:
+        if fmapping == cmapping and not (frestrict or crestrict):
             # interpolate on each direction via Kroncker product
             operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
         else:
@@ -940,27 +965,32 @@ class StandaloneInterpolationMatrix(object):
             restrict = [""]*5
             # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(),
-                                                                              felem.reconstruct(mapping="identity"))
-                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
+                qelem = felem
+                if frestrict:
+                    qelem = qelem._element
+                if qelem.mapping() != "identity":
+                    qelem = qelem.reconstruct(mapping="identity")
+                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
-                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
+                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
+                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 
-            qshape = (Q.value_size, Q.finat_element.space_dimension())
+            Qc = firedrake.FunctionSpace(Vc.ufl_domain(), celem._element) if crestrict else Vc
+            qshape = (Qf.value_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space, permute to FInAT ordering, and apply the mapping
-            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-            decl[1], restrict[1], prolong[1] = make_permutation_code(Vc, qshape, shapes[0], "t0", "t1", "perm0")
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Qc, "t0", "t1", "J0")
+            decl[1], restrict[1], prolong[1] = make_permutation_code(Qc, qshape, shapes[0], "t0", "t1", "perm0")
             coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
 
             if not in_place_mapping:
                 # permute to Kronecker-friendly ordering and interpolate to fine space
                 decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
+                decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1")
                 shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
@@ -977,7 +1007,14 @@ class StandaloneInterpolationMatrix(object):
 
         fshape = (Vf.value_size, Vf.finat_element.space_dimension())
         cshape = (Vc.value_size, Vc.finat_element.space_dimension())
-        if cshape[0] == 1:
+        if crestrict:
+            cdofs = ", ".join(map(str, interior_facet_decomposition(shapes[1])[celem._restriction_domain == "facet"]))
+            operator_decl += f"""
+            PetscInt crestrict[{numpy.prod(cshape)}] = {{ {cdofs} }};
+            """
+            coarse_read = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) t0[crestrict[i]] = x[i];"""
+            coarse_write = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) x[i] += t0[crestrict[i]];"""
+        elif cshape[0] == 1:
             coarse_read = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) t0[i] = x[i];"""
             coarse_write = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) x[i] += t0[i];"""
         else:
@@ -991,7 +1028,14 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{cshape[0]}; i++)
                     x[i + {cshape[0]}*j] += t0[j + {cshape[1]}*i];
             """
-        if (fshape[0] == 1) or in_place_mapping:
+        if frestrict:
+            fdofs = ", ".join(map(str, interior_facet_decomposition(shapes[0])[felem._restriction_domain == "facet"]))
+            operator_decl += f"""
+            PetscInt frestrict[{numpy.prod(fshape)}] = {{ {fdofs} }};
+            """
+            fine_read = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) t1[frestrict[i]] = y[i] * w[i];"""
+            fine_write = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) y[i] += t1[frestrict[i]] * w[i];"""
+        elif (fshape[0] == 1) or in_place_mapping:
             fine_read = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) t1[i] = y[i] * w[i];"""
             fine_write = f"""for({IntType_c} i=0; i<{numpy.prod(fshape)}; i++) y[i] += t1[i] * w[i];"""
         else:
@@ -1012,7 +1056,7 @@ class StandaloneInterpolationMatrix(object):
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
                           const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}];
+            PetscScalar work[2][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
             {operator_decl}
@@ -1024,7 +1068,7 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}];
+            PetscScalar work[2][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
             {operator_decl}

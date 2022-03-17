@@ -1,5 +1,4 @@
 from functools import lru_cache, partial
-from pyop2.mpi import COMM_SELF
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -271,7 +270,7 @@ class FDMPC(PCBase):
         :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
-        from firedrake.preconditioners.pmg import get_axes_shift
+        from firedrake.preconditioners.pmg import get_axes_shift, interior_facet_decomposition
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -294,7 +293,9 @@ class FDMPC(PCBase):
         pshape = tuple(Ak[0].size[0] for Ak in Afdm)
         static_condensation = False
         if sdim != numpy.prod(pshape):
-            iset_interior, iset_facet = interior_facet_decomposition(pshape)
+            isplit = interior_facet_decomposition((1,) + tuple(pshape))
+            iset_interior = PETSc.IS().createGeneral(isplit[0], comm=Afdm[0][0].comm)
+            iset_facet = PETSc.IS().createGeneral(isplit[1], comm=Afdm[0][0].comm)
             if sdim == iset_facet.getSize():
                 static_condensation = True
             else:
@@ -882,28 +883,3 @@ def condense_element_mat(A, i0, i1):
     A01.destroy()
     A10.destroy()
     return A11
-
-
-def interior_facet_decomposition(pshape):
-    nscal = 1
-    ndim = len(pshape)
-    p = numpy.reshape(numpy.arange(nscal*numpy.prod(pshape), dtype=PETSc.IntType), (-1,)+pshape)
-    interior = slice(1, -1)
-    zlice = (Ellipsis,) + (interior, )*ndim
-    i0 = list(p[zlice].flat)
-
-    def hamming_weight(n):
-        t1 = n - ((n>>1) & 0x55555555)
-        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
-        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24,n)
-
-    order = [x[1] for x in sorted(map(hamming_weight, range(1, 1<<ndim)))]
-
-    i1 = []
-    for k in order:
-        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1<<j else interior for j, N in enumerate(pshape))
-        i1.extend(p[zlice].flat)
-
-    i0 = PETSc.IS().createGeneral(i0, comm=COMM_SELF)
-    i1 = PETSc.IS().createGeneral(i1, comm=COMM_SELF)
-    return i0, i1
