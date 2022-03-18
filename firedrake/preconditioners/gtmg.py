@@ -71,7 +71,7 @@ class GTMGPC(PCBase):
             fine_petscmat.setTransposeNullSpace(fine_transpose_nullspace)
 
         # Handle the coarse operator
-        coarse_options_prefix = options_prefix + "mg_coarse"
+        coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
 

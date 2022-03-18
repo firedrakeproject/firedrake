@@ -870,6 +870,7 @@ def get_permuted_map(V):
 def interior_facet_decomposition(pshape):
     """
     Split DOFs into interior and facet
+
     :arg pshape: tuple with value size and space dimension along each axis
 
     :returns: a tuple with the interior and facet indices
@@ -970,22 +971,23 @@ class StandaloneInterpolationMatrix(object):
                     qelem = qelem._element
                 if qelem.mapping() != "identity":
                     qelem = qelem.reconstruct(mapping="identity")
-                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
-                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
+                qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
-                    Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
-                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
+                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 
-            Qc = firedrake.FunctionSpace(Vc.ufl_domain(), celem._element) if crestrict else Vc
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
-            # interpolate to embedding fine space, permute to FInAT ordering, and apply the mapping
+            Qc = firedrake.FunctionSpace(Vc.ufl_domain(), celem._element) if crestrict else Vc
+            # interpolate to embedding fine space
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Qc, "t0", "t1", "J0")
 
             if mapping_output is not None:
+                # permute to FInAT ordering, and apply the mapping
                 decl[1], restrict[1], prolong[1] = make_permutation_code(Qc, qshape, shapes[0], "t0", "t1", "perm0")
                 coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
                 if not in_place_mapping:
