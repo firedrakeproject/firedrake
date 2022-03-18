@@ -714,13 +714,21 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
 
 
 @PETSc.Log.EventDecorator()
-def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def UnitDiskMesh(refinement_level=0, degree=1, reorder=None,
+                 distribution_parameters=None, comm=COMM_WORLD):
     """Generate a mesh of the unit disk in 2D
 
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD)."""
+    if refinement_level < 0 or refinement_level % 1:
+        raise RuntimeError("Number of refinements must be a non-negative integer")
+
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
     vertices = np.array([[0, 0],
                          [1, 0],
                          [1, 1],
@@ -762,6 +770,18 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             x[:] *= t
 
     m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
+
+    # if degree > 1, create parametric mesh
+    if degree > 1:
+        V = functionspace.VectorFunctionSpace(m, "CG", degree)
+        p_map = function.Function(V)
+        p_map.interpolate(ufl.SpatialCoordinate(m))
+        x, y = ufl.SpatialCoordinate(m)
+        bdry_map = ufl.as_vector([x / (x**2 + y**2)**0.5, y / (x**2 + y**2)**0.5])
+        from firedrake.bcs import DirichletBC
+        DirichletBC(V, bdry_map, "on_boundary").apply(p_map)
+        m = mesh.Mesh(p_map)
+        #m._radius = radius
     return m
 
 
