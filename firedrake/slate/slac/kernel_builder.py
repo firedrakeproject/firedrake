@@ -28,6 +28,8 @@ from pytools import UniqueNameGenerator
 from tsfc.kernel_args import OutputKernelArg
 from tsfc.loopy import profile_insns
 
+from firedrake.parameters import target
+
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
                               "offset_index",
@@ -704,8 +706,7 @@ class LocalLoopyKernelBuilder(object):
             loopy_tensor = loopy.TemporaryVariable(gem_tensor.name,
                                                    dtype=dtype,
                                                    shape=gem_tensor.shape,
-                                                   address_space=loopy.AddressSpace.LOCAL,
-                                                   target=loopy.CTarget())
+                                                   address_space=loopy.AddressSpace.LOCAL)
             tensor2temp[slate_tensor] = loopy_tensor
 
             if not slate_tensor.assembled:
@@ -838,11 +839,11 @@ class LocalLoopyKernelBuilder(object):
                  and 0<=i_6<=n}""",
             insns,
             [*args,
-             loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
-             loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
-             loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()),
-             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget())],
-            target=loopy.CTarget(),
+             loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(A_on_x_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(A_on_p_name, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
+             loopy.TemporaryVariable(p, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL)],
+            target=target,
             name=name,
             lang_version=(2018, 2),
             silenced_warnings=["single_writer_after_creation", "unused_inames"])
@@ -909,11 +910,11 @@ class LocalLoopyKernelBuilder(object):
 
         # Generate kernel args
         arg1 = loopy.GlobalArg(reads1.subscript.aggregate.name, dtype, shape=child1.shape, is_output=False, is_input=True,
-                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+                               dim_tags=None, strides=loopy.auto, order='C')
         arg2 = loopy.GlobalArg(reads2.subscript.aggregate.name, dtype, shape=child2.shape, is_output=False, is_input=True,
-                               target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+                               dim_tags=None, strides=loopy.auto, order='C')
         output_arg = loopy.GlobalArg(insn.assignee_name, dtype, shape=expr.shape, is_output=True, is_input=True,
-                                     target=loopy.CTarget(), dim_tags=None, strides=loopy.auto, order='C')
+                                     dim_tags=None, strides=loopy.auto, order='C')
 
         not_loopy_args, tmp_args = self.generate_wrapper_kernel_args()
         args = [arg.loopy_arg for arg in not_loopy_args] + tmp_args
@@ -943,7 +944,7 @@ class LocalLoopyKernelBuilder(object):
         coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
                                            dtype=self.tsfc_parameters["scalar_type"],
                                            dim_tags=None, strides=loopy.auto, order="C",
-                                           target=loopy.CTarget(), is_input=True, is_output=False)
+                                           is_input=True, is_output=False)
         args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
 
         if self.bag.needs_cell_orientations:
@@ -951,7 +952,6 @@ class LocalLoopyKernelBuilder(object):
             ori_loopy_arg = loopy.GlobalArg(self.cell_orientations_arg_name,
                                             shape=ori_extent,
                                             dtype=self.tsfc_parameters["scalar_type"],
-                                            target=loopy.CTarget(),
                                             is_input=True, is_output=False,
                                             dim_tags=None, strides=loopy.auto, order="C")
             args.append(kernel_args.CellOrientationsKernelArg(ori_loopy_arg))
@@ -960,7 +960,6 @@ class LocalLoopyKernelBuilder(object):
             siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
             siz_loopy_arg = loopy.GlobalArg(self.cell_sizes_arg_name, shape=siz_extent,
                                             dtype=self.tsfc_parameters["scalar_type"],
-                                            target=loopy.CTarget(),
                                             is_input=True, is_output=False,
                                             dim_tags=None, strides=loopy.auto, order="C")
             args.append(kernel_args.CellSizesKernelArg(siz_loopy_arg))
@@ -969,8 +968,7 @@ class LocalLoopyKernelBuilder(object):
             if isinstance(coeff, OrderedDict):
                 for name, extent in coeff.values():
                     coeff_loopy_arg = loopy.GlobalArg(name, shape=extent,
-                                                      dtype=self.tsfc_parameters["scalar_type"],   
-                                                      target=loopy.CTarget(),
+                                                      dtype=self.tsfc_parameters["scalar_type"],
                                                       is_input=True, is_output=False,
                                                       dim_tags=None, strides=loopy.auto, order="C")
                     args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
@@ -978,7 +976,6 @@ class LocalLoopyKernelBuilder(object):
                 name, extent = coeff
                 coeff_loopy_arg = loopy.GlobalArg(name, shape=extent,
                                                   dtype=self.tsfc_parameters["scalar_type"],
-                                                  target=loopy.CTarget(),
                                                   is_input=True, is_output=False,
                                                   dim_tags=None, strides=loopy.auto, order="C")
                 args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
@@ -988,7 +985,6 @@ class LocalLoopyKernelBuilder(object):
             facet_loopy_arg = loopy.GlobalArg(self.cell_facets_arg_name,
                                               shape=(self.bag.num_facets, 2),
                                               dtype=np.int8, is_input=True, is_output=False,
-                                              target=loopy.CTarget(),
                                               dim_tags=None, strides=loopy.auto, order="C")
             args.append(CellFacetKernelArg(facet_loopy_arg))
 
@@ -998,13 +994,11 @@ class LocalLoopyKernelBuilder(object):
                                                     address_space=loopy.AddressSpace.LOCAL,
                                                     read_only=True,
                                                     initializer=np.arange(self.bag.num_facets, dtype=np.uint32),
-                                                    target=loopy.CTarget(),
                                                     dim_tags=None, strides=loopy.auto, order="C"))
 
         if self.bag.needs_mesh_layers:
             layer_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(1,),
                                               dtype=np.int32, is_input=True, is_output=False,
-                                              target=loopy.CTarget(),
                                               dim_tags=None, strides=loopy.auto, order="C")
             args.append(LayerCountKernelArg(layer_loopy_arg))
 

@@ -50,6 +50,7 @@ from tsfc.loopy import generate as generate_loopy
 from firedrake.slate.slac.kernel_settings import knl_counter
 import copy
 from firedrake.petsc import PETSc
+from firedrake.parameters import target
 
 __all__ = ['compile_expression']
 
@@ -673,7 +674,6 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
     output_loopy_arg = loopy.GlobalArg(out_name, shape=shape,
                                        dtype=scalar_type,
-                                       target=loopy.CTarget(),
                                        is_input=True,
                                        is_output=True,
                                        dim_tags=None, strides=loopy.auto, order="C")
@@ -685,9 +685,9 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
         if hasattr(var, "name"):
             if not terminal.terminal or (terminal.rank > 1 and matfree):
                 t_shape = var.shape if var.shape else (1,)
-                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL, target=loopy.CTarget()))
+                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
             else:
-                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type, target=loopy.CTarget(),
+                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type,
                                             is_input=True, is_output=False, dim_tags=None, strides=loopy.auto, order="C"))
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
