@@ -66,7 +66,7 @@ class FiredrakeConfiguration(dict):
 
     _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
-                           "honour_petsc_dir", "with_parmetis",
+                           "honour_mpi_dir", "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
@@ -271,6 +271,8 @@ honoured.""",
     parser.add_argument("--package-branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
+    parser.add_argument("--honour-mpi-dir", action="store_true",
+                       help="Usually it is best to let Firedrake build its own MPI. If you wish to use another MPI, set MPI_DIR and pass this option.")
     parser.add_argument("--mpicc", type=str,
                         action="store", default=None,
                         help="C compiler to use when building with MPI. If not set, MPICH will be downloaded and used.")
@@ -315,6 +317,11 @@ honoured.""",
         if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
             log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
             sys.exit(1)
+        # if the user has set honour_mpi-dir, then they must not set mpicc, mpif90 etc        
+        if args.honour_mpi_dir:
+            log.error("If you set mpi-dir, you must not set any of {mpicc, mpicxx, mpif90, mpiexec}.")
+            sys.exit(1)
+
 
     if args.package_branch:
         branches = {package.lower(): branch for package, branch in args.package_branch}
@@ -563,7 +570,7 @@ If you really want to use your own Python packages, please run again with the
 """)
 
 
-def get_petsc_options(minimal=False):
+def get_petsc_options():
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -586,7 +593,7 @@ def get_petsc_options(minimal=False):
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
 
-    if (not options["minimal_petsc"]) and (not minimal):
+    if not options["minimal_petsc"]:
         petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
@@ -595,9 +602,10 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-suitesparse")
         petsc_options.add("--download-pastix")
         # Required by pastix
-        petsc_options.add("--download-hwloc")
         if osname == "Darwin":
-            petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
+            petsc_options.add("--with-hwloc-dir={}".format(os.environ["HOMEBREW_PREFIX"]))
+        else:
+            petsc_options.add("--download-hwloc")
         # Serial mesh partitioner
         petsc_options.add("--download-metis")
         if options.get("with_parmetis", None):
@@ -627,10 +635,17 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--with-cxx={}".format(options["mpicxx"]))
         petsc_options.add("--with-fc={}".format(options["mpif90"]))
     else:
-        # Download mpich if the user does not tell us about an MPI.
-        petsc_options.add("--download-mpich")
-        if osname == "Darwin":
-            petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
+        if options.get("honour_mpi_dir"):
+            try:
+                petsc_options.add("--with-mpi-dir={}".format(os.environ["MPI_DIR"]))    
+            except KeyError:
+                log.error("Failed to clone %s branch %s." % (name, branch))
+                raise
+        else:
+            # Download mpich if the user does not tell us about an MPI.
+            petsc_options.add("--download-mpich")
+            if osname == "Darwin":
+                petsc_options.add("--download-mpich-configure-arguments=--disable-opencl")
 
     if options.get("with_blas") == "download":
         # Download openblas if the user specifies.
@@ -655,44 +670,17 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
         petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
 
-    if not minimal:
-        for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
-            if option.startswith("--with-hdf5-dir"):
-                petsc_options.discard("--download-hdf5")
-                os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
-            petsc_options.add(option)
+    for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+        if option.startswith("--with-hdf5-dir"):
+            petsc_options.discard("--download-hdf5")
+            os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+        petsc_options.add(option)
     if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
         del os.environ["HDF5_DIR"]
         log.info("\nWarning: HDF5_DIR environment variable set, but ignored; "
                  "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
                  "to have PETSc built against $HDF5_DIR.")
     return list(petsc_options)
-
-
-def get_petsc_packages(minimal=False):
-    if minimal:
-        packages = set([
-            "blaslapack", "chaco", "eigen3", "hdf5", "hypre", "mathlib",
-            "mpi", "mumps", "ptscotch", "scalapack", "superlu_dist"
-        ])
-    else:
-        petsc_dir, petsc_arch = get_petsc_dir()
-        with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
-            for line in fh.readlines():
-                if line.startswith("#define PETSC_HAVE_PACKAGES"):
-                    packages = set(line.split()[2].strip().strip(':"').split(':'))
-                    break
-    return packages
-
-
-def get_petsc_config():
-    petsc_dir, petsc_arch = get_petsc_dir()
-    with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconfiginfo.h")) as fh:
-        for line in fh.readlines():
-            if line.startswith("static const char *petscconfigureoptions"):
-                info = line.split("=", maxsplit=1)[1].strip(' ";\n').split('--')[1:]
-                break
-    return ["--" + arg for arg in info]
 
 
 if mode == "update" and petsc_int_type_changed:
@@ -917,7 +905,7 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     elif package == "petsc4py/":
-        build_and_install_petsc4py()
+        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
     elif package == "slepc4py/":
         # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", get_slepc4py_dir()])
@@ -1048,15 +1036,17 @@ def build_and_install_petsc():
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         petsc_options = get_petsc_options()
+        # As of 2022-03-17, it looks like setting MACOSX_DEPLOYMENT_TARGET on macOS 12.3 system actually breaks petsc configuration
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        try:
-            MACOSX_DEPLOYMENT_TARGET = check_output(["sw_vers", "-productVersion"])
-            # Convert to MAJOR.MINOR format.
-            MACOSX_DEPLOYMENT_TARGET = ".".join(MACOSX_DEPLOYMENT_TARGET.split(".")[:2])
-            log.info("MACOSX_DEPLOYMENT_TARGET set to {}".format(MACOSX_DEPLOYMENT_TARGET))
-        except FileNotFoundError:
-            MACOSX_DEPLOYMENT_TARGET = ""
+        # try:
+        #     MACOSX_DEPLOYMENT_TARGET = check_output(["sw_vers", "-productVersion"])
+
+        #     # Convert to MAJOR.MINOR format.
+        #     MACOSX_DEPLOYMENT_TARGET = ".".join(MACOSX_DEPLOYMENT_TARGET.split(".")[:2])
+        #     log.info("MACOSX_DEPLOYMENT_TARGET set to {}".format(MACOSX_DEPLOYMENT_TARGET))
+        # except FileNotFoundError:
+        MACOSX_DEPLOYMENT_TARGET = ""
         with environment(MACOSX_DEPLOYMENT_TARGET=MACOSX_DEPLOYMENT_TARGET):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1068,29 +1058,6 @@ def build_and_install_petsc():
             test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
             for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
                 check_call(["rm", "-f", deletefile])
-
-
-def build_and_install_petsc4py():
-    with environment(**blas):
-        if args.honour_petsc_dir:
-            log.info("Copying petsc4py to virtualenv to install")
-            petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
-            if not os.path.exists(petsc4py_copy):
-                shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
-            pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
-            try:
-                check_output(pipinstall + pipargs)
-            except subprocess.CalledProcessError:
-                with open(os.path.join(petsc4py_copy, "README.md")) as fh:
-                    fh.write("# Unable to install petsc4py\n")
-                    fh.write("This is just a copy of the petsc4py source for debugging\n")
-                    fh.write("See `firedrake-install.log` for the error")
-                raise
-            else:
-                shutil.rmtree(petsc4py_copy)
-        else:
-            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
-            check_output(pipinstall + pipargs)
 
 
 def build_and_install_h5py():
@@ -1391,6 +1358,7 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
     sys.exit(0)
 
+
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1424,30 +1392,6 @@ log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
 
-if mode == "install" and args.honour_petsc_dir:
-    minimal_packages = get_petsc_packages(minimal=True)
-    current_packages = get_petsc_packages()
-    log.debug("*****************************************************")
-    log.debug("Specified PETSc was built with the following options:")
-    log.debug("*****************************************************\n")
-    log.debug("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
-    log.debug("\n".join(sorted(get_petsc_config())) + '\n')
-    log.debug("The following external packages were detected and are used by PETSc:")
-    log.debug(", ".join(sorted(current_packages)))
-    log.debug("\n")
-    if not minimal_packages < current_packages:
-        log.error("*********************************************************************")
-        log.error("Specified PETSc is missing the following packages:")
-        log.error(", ".join(sorted(minimal_packages - current_packages)) + '\n')
-        log.error("You must ensure that PETSc has been built with these minimal options:")
-        log.error("*********************************************************************\n")
-        log.error("\n".join(sorted(get_petsc_options(minimal=True))))
-        log.error("")
-        log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
-        log.error('Use --show-petsc-configure-options as an argument to the firedrake-install script to display options if additional functionality is required.\n ')
-        log.error("FATAL: Unable to install with specified PETSc")
-        exit(1)
-
 if mode == "install" or not args.update_script:
     # Check operating system.
     required_packages = None
@@ -1460,7 +1404,8 @@ if mode == "install" or not args.update_script:
                              "automake",
                              "cmake",
                              "libtool",
-                             "boost"]
+                             "boost",
+                             "hwloc"]
         if args.with_blas is None and mode == "install":
             required_packages.append("openblas")
     elif osname == "Linux":
@@ -1628,6 +1573,8 @@ if mode == "install":
         if options.get(opt):
             name = options[opt]
             src = shutil.which(name)
+        elif options["honour_mpi_dir"]:
+            src = os.path.join(os.environ["MPI_DIR"], "bin", opt)
         else:
             src = os.path.join(petsc_dir, petsc_arch, "bin", opt)
         dest = os.path.join(firedrake_env, "bin", opt)
@@ -1747,7 +1694,10 @@ if mode == "install":
 
     # If petsc built mpich then we now need to set the compiler environment variables.
     if not compiler_env:
-        compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+        if not args.honour_mpi_dir:
+            compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+        else:
+            compilerbin = os.path.join(os.environ["MPI_DIR"], "bin")
         cc = os.path.join(compilerbin, "mpicc")
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
