@@ -27,6 +27,7 @@ class GTMGPC(PCBase):
             raise ValueError("Expecting PC type python")
 
         ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fc_params
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
