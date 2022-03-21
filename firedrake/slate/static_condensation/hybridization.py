@@ -242,12 +242,6 @@ class HybridizationPC(SCBase):
                                           self.ctx.fc_params,
                                           options_prefix=prefix)
 
-        # FIXME why do I need to do this by hand this should be done automatically in the snes context generation?
-        if self._ctx_ref.appctx["form_compiler_parameters"]:
-            self._ctx_ref.appctx["form_compiler_parameters"].update({"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}})
-        else:
-            self._ctx_ref.appctx["form_compiler_parameters"] = {"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}}
-
         # dm associated with the trace problem
         trace_dm = TraceSpace.dm
 
@@ -262,6 +256,9 @@ class HybridizationPC(SCBase):
         trace_ksp.setOperators(Smat, Smat)
 
         # Option to add custom monitor
+        # FIXME Something is odd with the handling of the form compiler parameters, so use fc_params now
+        self._ctx_ref.fc_params = {"slate_compiler": {"replace_mul": self.schur_builder.local_matfree}}
+
         monitor = self.ctx.appctx.get('custom_monitor', None)
         if monitor:
             monitor.add_reconstructor(self.backward_substitution)
