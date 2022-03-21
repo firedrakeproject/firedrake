@@ -900,8 +900,8 @@ def pip_requirements(package, parallel_compiler_env):
                         log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
                     else:
                         raise e
-        elif package == "loopy":
-            # loopy dependencies are installed in setup.py
+        elif package in {"loopy", "icepack"}:
+            # dependencies are installed in setup.py
             return
         else:
             reqs = get_requirements("%s/requirements.txt" % package)
