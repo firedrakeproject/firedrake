@@ -793,8 +793,8 @@ class LocalLoopyKernelBuilder(object):
         # setup the stop criterions
         stop_criterion_id = "cond"
         stop_criterion_dep = "rkp1_normk"
-        stop_criterion = self.generate_code_for_stop_criterion("rkp1_norm",
-                                                               1.e-16,
+        stop_criterion = self.generate_code_for_stop_criterion("fabs(sqrt(rkp1_norm))",
+                                                               1.e-50,
                                                                stop_criterion_dep,
                                                                stop_criterion_id)
         preconverged_criterion_id = "projis0"
@@ -814,7 +814,7 @@ class LocalLoopyKernelBuilder(object):
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
-                    <> projector_is_zero = abs(p_on_Ap) < 1.e-16 {{id={preconverged_criterion_dep}, dep=ponAp}}
+                    <> projector_is_zero = abs(p_on_Ap) < 1.e-50 {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
              corner_case,
              f"""    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
