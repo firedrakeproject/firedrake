@@ -355,7 +355,7 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
     if strategy == _AssemblyStrategy.TERMINALS_FIRST:
         slate_loopy_prg = slate_loopy
         slate_loopy = slate_loopy[builder.slate_loopy_name]
-        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, gem2slate, slate_loopy)
+        tensor2temp, tsfc_kernels, insns, builder = assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name)
         # Construct args
         args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp.values())
         kernel_args = [output_arg] + args
@@ -406,10 +406,10 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
         return slate_loopy, tuple(kernel_args)
 
 
-def assemble_terminals_first(builder, gem2slate, slate_loopy):
+def assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name):
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs, _ = builder.collect_coefficients(artificial=False)
-    builder.bag = SlateWrapperBag(coeffs, name=slate_loopy.name)
+    builder.bag = SlateWrapperBag(coeffs, name=wrapper_name)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
