@@ -781,7 +781,6 @@ def UnitDiskMesh(refinement_level=0, degree=1, reorder=None,
         from firedrake.bcs import DirichletBC
         DirichletBC(V, bdry_map, "on_boundary").apply(p_map)
         m = mesh.Mesh(p_map)
-        #m._radius = radius
     return m
 
 
