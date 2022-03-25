@@ -282,15 +282,17 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     kernel = compile_expression_dual_evaluation(expr, to_element,
                                                 V.ufl_element(),
                                                 domain=source_mesh,
-                                                parameters=parameters)
+                                                parameters=parameters,
+                                                log=PETSc.Log.isActive())
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
     coefficients = kernel.coefficients
     first_coeff_fake_coords = kernel.first_coefficient_fake_coords
     name = kernel.name
+    events = (kernel.event,) if kernel.event else ()
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                        flop_count=kernel.flop_count)
+                        flop_count=kernel.flop_count, events=events)
     cell_set = target_mesh.cell_set
     if subset is not None:
         assert subset.superset == cell_set

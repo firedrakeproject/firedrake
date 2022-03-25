@@ -52,6 +52,8 @@ import copy
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 
+from petsc4py import PETSc
+
 __all__ = ['compile_expression']
 
 
@@ -172,8 +174,8 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     gem_expr, gem2slate = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    (slate_loopy, ctx), output_arg = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
-                                                  matfree=compiler_parameters["slate_compiler"]["replace_mul"])
+    ((slate_loopy, ctx, slate_loopy_event), output_arg) = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
+                                                                       matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=ctx.kernel_name)
@@ -186,15 +188,17 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
         name = "wrap_" + ctx.kernel_name
         assembly_strategy = _AssemblyStrategy.TERMINALS_FIRST
 
-    loopy_merged, arguments = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
-                                          name, ctx, assembly_strategy, slate_expr,
-                                          compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
+    loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
+                                                  name, ctx, assembly_strategy, slate_expr,
+                                                  compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
+    events = events+(slate_loopy_event,) if PETSc.Log.isActive() else ()
     loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
                                                        include_dirs=BLASLAPACK_INCLUDE.split(),
-                                                       ldargs=BLASLAPACK_LIB.split())
+                                                       ldargs=BLASLAPACK_LIB.split(),
+                                                       events=events)
 
     # map the coefficients in the order that PyOP2 needs
     new_coeffs = slate_expr.coefficients()
@@ -211,7 +215,8 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
                        needs_cell_sizes=builder.bag.needs_cell_sizes,
-                       arguments=arguments)
+                       arguments=arguments,
+                       events=events)
 
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.
@@ -703,7 +708,7 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
     
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True),
+    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True, log=PETSc.Log.isActive()),
             output_arg)
 
 
