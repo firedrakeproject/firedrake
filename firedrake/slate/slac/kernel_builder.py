@@ -29,6 +29,7 @@ from tsfc.kernel_args import OutputKernelArg
 from tsfc.loopy import profile_insns
 
 from firedrake.parameters import target
+from petsc4py import PETSc
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",
@@ -831,7 +832,7 @@ class LocalLoopyKernelBuilder(object):
                 end
                 {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
              """]
-        insns = profile_insns(name, insns)
+        insns, event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
 
         knl = loopy.make_function(
             """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12]:
@@ -846,7 +847,8 @@ class LocalLoopyKernelBuilder(object):
             target=target,
             name=name,
             lang_version=(2018, 2),
-            silenced_warnings=["single_writer_after_creation", "unused_inames"])
+            silenced_warnings=["single_writer_after_creation", "unused_inames"],
+            preambles=preamble)
 
         # set the length of the indices to the size of the temporaries
         knl = loopy.fix_parameters(knl, n=shape[0])
@@ -862,7 +864,7 @@ class LocalLoopyKernelBuilder(object):
 
         self.matfree_solve_knls.append(knl)
         output_arg = OutputKernelArg(output_loopy_arg)
-        return call, (name, knl), output_arg, ctx, coeff_arg
+        return call, (name, knl), output_arg, ctx, coeff_arg, event
 
     def generate_code_for_converged_pre_iteration(self, dep, id):
         if configuration["simd_width"]:
@@ -1060,7 +1062,7 @@ class LocalLoopyKernelBuilder(object):
 
         # tsfc yields no kernels if they'd reduce to T0 = 0
         if not cxt_kernels:
-            yield (None, None)
+            yield (None, None, None)
 
 
 class SlateWrapperBag(object):

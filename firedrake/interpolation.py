@@ -297,6 +297,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     coefficient_numbers = kernel.coefficient_numbers
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
+    events = (kernel.event,) if kernel.event else ()
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count, events=(kernel.event,))
     parloop_args = [kernel, cell_set]
