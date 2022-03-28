@@ -86,7 +86,7 @@ class FDMPC(PCBase):
                 x.destroy()
             return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
 
-        # Matrix-free assembly of the transformed Jacobian and its diagonal
+        # Matrix-free assembly of the transformed Jacobian
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
             Amat, _ = pc.getOperators()
@@ -108,14 +108,11 @@ class FDMPC(PCBase):
             Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
             Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
             Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
+            self.work_vec_x = Amat.createVecLeft()
+            self.work_vec_y = Amat.createVecRight()
 
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                               fcp=fcp, options_prefix=options_prefix)
-
-        self.work = firedrake.Function(V_fdm)
-        self.diag = firedrake.Function(V_fdm)
-        self._assemble_diag = partial(assemble, J_fdm, tensor=self.diag, bcs=bcs_fdm,
-                                      diagonal=True, form_compiler_parameters=fcp, mat_type=mat_type)
 
         if len(bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -148,23 +145,20 @@ class FDMPC(PCBase):
 
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
-        # self.diagonal_scaling()
 
     @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
         if hasattr(self, "A"):
             self._assemble_A()
         self._assemble_P()
-        # self.diagonal_scaling()
 
     def apply(self, pc, x, y):
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             if hasattr(self, "fdm_interp"):
-                with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
-                    self.fdm_interp.multTranspose(x, x_fdm)
-                    self.pc.apply(x_fdm, y_fdm)
-                    self.fdm_interp.mult(y_fdm, y)
+                self.fdm_interp.multTranspose(x, self.work_vec_x)
+                self.pc.apply(self.work_vec_x, self.work_vec_y)
+                self.fdm_interp.mult(self.work_vec_y, y)
                 y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
             else:
                 self.pc.apply(x, y)
@@ -173,10 +167,9 @@ class FDMPC(PCBase):
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             if hasattr(self, "fdm_interp"):
-                with self.work.dat.vec as x_fdm, self.diag.dat.vec as y_fdm:
-                    self.fdm_interp.multTranspose(x, x_fdm)
-                    self.pc.applyTranspose(x_fdm, y_fdm)
-                    self.fdm_interp.mult(y_fdm, y)
+                self.fdm_interp.multTranspose(x, self.work_vec_y)
+                self.pc.applyTranspose(self.work_vec_y, self.work_vec_x)
+                self.fdm_interp.mult(self.work_vec_x, y)
                 y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
             else:
                 self.pc.applyTranspose(x, y)
@@ -186,15 +179,6 @@ class FDMPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
-
-    def diagonal_scaling(self):
-        _, P = self.pc.getOperators()
-        self._assemble_diag()
-        with self.diag.dat.vec as x_, self.work.dat.vec as y_:
-            P.getDiagonal(y_)
-            x_.pointwiseDivide(x_, y_)
-            x_.sqrtabs()
-            P.diagonalScale(L=x_, R=x_)
 
     def assemble_fdm_op(self, V, J, bcs, appctx):
         """
@@ -586,9 +570,9 @@ def get_piola_tensor(mapping, domain):
     if mapping == 'identity':
         return None
     elif mapping == 'covariant piola':
-        return ufl.JacobianInverse(domain).T * firedrake.Constant(numpy.flipud(numpy.identity(tdim)), domain=domain)
+        return ufl.JacobianInverse(domain).T * ufl.as_tensor(numpy.flipud(numpy.identity(tdim)))
     elif mapping == 'contravariant piola':
-        sign = ufl.diag(firedrake.Constant([-1]+[1]*(tdim-1), domain=domain))
+        sign = ufl.diag(ufl.as_tensor([-1]+[1]*(tdim-1)))
         return ufl.Jacobian(domain)*sign/ufl.JacobianDeterminant(domain)
     else:
         raise NotImplementedError("Unsupported element mapping %s" % mapping)
