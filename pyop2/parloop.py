@@ -10,10 +10,11 @@ from petsc4py import PETSc
 
 from pyop2 import mpi, profiling
 from pyop2.configuration import configuration
+from pyop2.datatypes import as_numpy_dtype
 from pyop2.exceptions import KernelTypeError, MapValueError, SetTypeError
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
                                  MatKernelArg, MixedMatKernelArg, GlobalKernel)
-from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel
+from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, MixedMap)
 from pyop2.utils import cached_property
@@ -133,6 +134,13 @@ class Parloop:
         if len(global_knl.arguments) != len(arguments):
             raise ValueError("You are trying to pass in a different number of "
                              "arguments than the kernel is expecting")
+
+        # Performing checks on dtypes is difficult for C-string kernels because PyOP2
+        # will happily pass any type into a kernel with void* arguments.
+        if (isinstance(global_knl.local_kernel, LoopyLocalKernel)
+                and not all(as_numpy_dtype(a.dtype) == as_numpy_dtype(b.data.dtype)
+                            for a, b in zip(global_knl.local_kernel.arguments, arguments))):
+            raise ValueError("The argument dtypes do not match those for the local kernel")
 
         self.check_iterset(iterset, global_knl, arguments)
 
