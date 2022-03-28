@@ -327,14 +327,19 @@ class FunctionSpace(object):
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
-        if type(element) in {ufl.TensorElement, ufl.VectorElement}:
+        if type(element) in {ufl.TensorElement, ufl.VectorElement} \
+           or (isinstance(element, ufl.WithMapping)
+               and type(element.wrapee) in {ufl.TensorElement, ufl.VectorElement}):
             # The number of "free" dofs is given by reference_value_shape,
             # not value_shape due to symmetry specifications
             rvs = element.reference_value_shape()
             # This requires that the sub element is not itself a
             # tensor element (which is checked by the top level
             # constructor of function spaces)
-            sub = element.sub_elements()[0].value_shape()
+            shape_element = element
+            if isinstance(element, ufl.WithMapping):
+                shape_element = element.wrapee
+            sub = shape_element.sub_elements()[0].value_shape()
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
