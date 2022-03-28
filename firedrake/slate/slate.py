@@ -122,6 +122,7 @@ class TensorBase(object, metaclass=ABCMeta):
     terminal = False
     assembled = False
     diagonal = False
+    inv = lambda : self.inv()
 
     _id = count()
 
@@ -246,9 +247,15 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return any(len(fs) > 1 for fs in self.arg_function_spaces)
 
+
+    def inverse(self, rtol=None, atol=None):
+        return Inverse(self, rtol, atol)
+
+
     @property
     def inv(self):
-        return Inverse(self)
+        return self.inverse("1e-8", "1e-50")
+
 
     @property
     def T(self):
@@ -955,7 +962,7 @@ class Reciprocal(UnaryOp):
     """
 
     def __init__(self, A):
-        """Constructor for the Inverse class."""
+        """Constructor for the Reciprocal class."""
         assert A.rank == 1, "The tensor must be rank 1."
 
         super(Reciprocal, self).__init__(A)
@@ -976,7 +983,7 @@ class Reciprocal(UnaryOp):
         return tensor.arguments()
 
     def _output_string(self, prec=None):
-        """Creates a string representation of the inverse of a tensor."""
+        """Creates a string representation of the reciprocal of a tensor."""
         tensor, = self.operands
         return "(%s).reciprocal" % tensor
 
@@ -989,13 +996,15 @@ class Inverse(UnaryOp):
        This class will raise an error if the tensor is not square.
     """
 
-    def __init__(self, A):
+    def __init__(self, A, rtol=None, atol=None):
         """Constructor for the Inverse class."""
         assert A.rank == 2, "The tensor must be rank 2."
         assert A.shape[0] == A.shape[1], (
             "The inverse can only be computed on square tensors."
         )
         self.diagonal = A.diagonal
+        self.rtol = rtol
+        self.atol = atol
 
         if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
             A = Factorization(A, decomposition="PartialPivLU")
@@ -1390,7 +1399,9 @@ class Solve(BinaryOp):
         self.Aonx = None
         self.Aonp = None
         self.decomposition = "PartialPivLU"
-        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition"]
+        self.rtol = "1.e-8"
+        self.atol = "1.e-50"
+        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition", "rtol", "atol"]
         for key, value in kwargs.items():
             if key in valid_kwargs:
                 setattr(self, key, value)
@@ -1444,7 +1455,7 @@ class Solve(BinaryOp):
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
-        from applying the inverse of A onto B.
+        from applying the solve on A and B.
         """
         return self._args
 
@@ -1458,11 +1469,11 @@ class Solve(BinaryOp):
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        return ((type(self), *self.operands, self.matfree, self.Aonx, self.Aonp)
+        return ((type(self), *self.operands, self.matfree, self.Aonx, self.Aonp, self.rtol, self.atol)
                 if self.matfree else (type(self), *self.operands, self.matfree))
 
     def _output_string(self, prec=None):
-        """Creates a string representation of the inverse of a tensor."""
+        """Creates a string representation of the solve of a tensor."""
         return ("(%s).matf_solve(%s)" % self.operands
                 if self.matfree else "(%s).solve(%s)" % self.operands)
 

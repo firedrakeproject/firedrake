@@ -95,7 +95,6 @@ def _push_block_shell(expr, self, indices):
 
 
 @_push_block.register(Factorization)
-@_push_block.register(Inverse)
 @_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
@@ -103,10 +102,17 @@ def _push_block_stop(expr, self, indices):
     return Block(expr, indices) if indices else expr
 
 
+@_push_block.register(Inverse)
+def _push_block_inverse(expr, self, indices):
+    """Blocks cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())), rtol=expr.rtol, atol=expr.atol)
+    return Block(expr, indices) if indices else expr
+
+
 @_push_block.register(Solve)
 def _push_block_solve(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
-    expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp)
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp, rtol=expr.rtol, atol=expr.atol)
     return Block(expr, indices) if indices else expr
 
 
@@ -171,13 +177,19 @@ def _push_diag_distributive(expr, self, diag):
 
 
 @_push_diag.register(Factorization)
-@_push_diag.register(Inverse)
 @_push_diag.register(Mul)
 @_push_diag.register(Tensor)
 @_push_diag.register(TensorShell)
 def _push_diag_stop(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(False))) if not expr.terminal else expr
+    return DiagonalTensor(expr) if diag else expr
+
+
+@_push_diag.register(Inverse)
+def _push_diag_inverse(expr, self, diag):
+    """Diagonal Tensors cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(False)), rtol=expr.rtol, atol=expr.atol) if not expr.terminal else expr
     return DiagonalTensor(expr) if diag else expr
 
 
@@ -275,12 +287,17 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Negative)
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
-@_drop_double_transpose.register(Inverse)
 @_drop_double_transpose.register(DiagonalTensor)
 @_drop_double_transpose.register(Reciprocal)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(Inverse)
+def _drop_double_transpose_inverse(expr, self):
+    """Distribute into the children of the expression. """
+    return type(expr)(*map(self, expr.children), atol=expr.atol, rtol=expr.rtol)
 
 
 @_drop_double_transpose.register(Action)
@@ -290,7 +307,7 @@ def _drop_double_transpose_action(expr, self):
 
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_solve(expr, self):
-    return type(expr)(*map(self, expr.children), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp)
+    return type(expr)(*map(self, expr.children), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp, rtol=expr.rtol, atol=expr.atol)
 
 
 @singledispatch
@@ -346,8 +363,8 @@ def _push_mul_inverse(expr, self, state):
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
         return expr * state.coeff if state.pick_op else state.coeff * expr
     else:
-        expr = (Solve(child, state.coeff) if state.pick_op
-                else Transpose(Solve(Transpose(child), Transpose(state.coeff))))
+        expr = (Solve(child, state.coeff, rtol=expr.rtol, atol=expr.atol) if state.pick_op
+                else Transpose(Solve(Transpose(child), Transpose(state.coeff), rtol=expr.rtol, atol=expr.atol)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
@@ -417,7 +434,7 @@ def _push_mul_solve(expr, self, state):
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
-        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp),
+        pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp, rtol=expr.rtol, atol=expr.atol),
                             ActionBag(None, flip(state.pick_op)))
         return Transpose(self(swapped_op, ActionBag(pushed_child, flip(state.pick_op))))
     else:
@@ -431,7 +448,7 @@ def _push_mul_solve(expr, self, state):
         mat, rhs = expr.children
         Aonx = make_action(mat, state.pick_op, self.action)
         Aonp = make_action(mat, state.pick_op, self.action)
-        return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp)
+        return Solve(mat, self(self(rhs, state), state), matfree=self.action, Aonx=Aonx, Aonp=Aonp, rtol=expr.rtol, atol=expr.atol)
 
 
 @_push_mul.register(Mul)

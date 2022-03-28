@@ -790,12 +790,16 @@ class LocalLoopyKernelBuilder(object):
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
+        rtol = expr.rtol
+        atol = expr.atol
 
         # setup the stop criterions
         stop_criterion_id = "cond"
         stop_criterion_dep = "rkp1_normk"
-        stop_criterion = self.generate_code_for_stop_criterion("fabs(sqrt(rkp1_norm))",
-                                                               1.e-50,
+        stop_criterion = self.generate_code_for_stop_criterion("fabs(sqrt(rkp1_norm))/fabs(sqrt(rk_norm))",
+                                                               "fabs(sqrt(rkp1_norm))",
+                                                               rtol,
+                                                               atol,
                                                                stop_criterion_dep,
                                                                stop_criterion_id)
         preconverged_criterion_id = "projis0"
@@ -815,18 +819,17 @@ class LocalLoopyKernelBuilder(object):
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=Aonp0, id=Aonp, inames=i_6}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
-                    <> projector_is_zero = abs(p_on_Ap) < 1.e-50 {{id={preconverged_criterion_dep}, dep=ponAp}}
+                    <> projector_is_zero = abs(p_on_Ap) < {atol} {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
              corner_case,
              f"""    <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
                     <> rkp1_norm = 0. {{dep=rk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
-             """,
+                    rkp1_norm = rkp1_norm + r[i_9]*r[i_9] {{dep=rkp1_norm0, id=rkp1norm}}
+                    <> beta = rkp1_norm / rk_norm {{dep=rkp1norm, id={stop_criterion_dep}}}""",
              stop_criterion,
-             f"""    <> beta = rkp1_norm / rk_norm {{dep={stop_criterion_id}, id=beta}}
-                    rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
+             f"""   rk_norm = rkp1_norm {{dep={stop_criterion_id}, id=rk_normk}}
                     {p}[i_10] = beta * {p}[i_10] - r[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_6}}
                 end
@@ -874,7 +877,7 @@ class LocalLoopyKernelBuilder(object):
                                   depends_on=dep,
                                   id=id)
 
-    def generate_code_for_stop_criterion(self, var_name, stop_value, dep, id):
+    def generate_code_for_stop_criterion(self, rtol_var_name, atol_var_name, rtol, atol, dep, id):
         """ This method is workaround need since Loo.py does not support while loops yet.
             FIXME whenever while loops become available
 
@@ -890,17 +893,18 @@ class LocalLoopyKernelBuilder(object):
 
             Inlining and vectorisation are made available through this ugly bit of code.
         """
-        condition = " < " + str(stop_value)
+        rtol_cond = " < " + str(rtol)
+        atol_cond = " < " + str(atol)
         if configuration["simd_width"]:
             # vectorisation of the stop criterion
-            variable = var_name + "[" + str(0) + "]" + condition
+            variable = "(" + rtol_var_name + "[" + str(0) + "]" + rtol_cond + "||" + atol_var_name + "[" + str(0) + "]" + atol_cond + ")"
             for i in range(int(configuration["simd_width"])-1):
-                variable += "&& " + var_name + "["+str(i+1)+"]" + condition
+                variable += "&& (" + rtol_var_name + "["+str(i+1)+"]" + rtol_cond + "||" + atol_var_name + "["+str(i+1)+"]" + atol_cond + ")"
         else:
-            variable = var_name + condition
+            variable = rtol_var_name + rtol_cond + "||" + atol_var_name  + atol_cond
         return loopy.CInstruction("",
                                   "if (" + variable + ") break;",
-                                  read_variables=[var_name],
+                                  read_variables=[rtol_var_name, atol_var_name],
                                   depends_on=dep,
                                   id=id)
 

@@ -248,7 +248,7 @@ def _slate2gem_action(expr, self):
 def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
-        var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp))
+        var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp), rtol=expr.rtol, atol=expr.atol)
         self.gem2slate[var.name] = expr
         return var
     else:
@@ -440,7 +440,7 @@ def assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name):
     inits, slate_wrapper_event, preamble = profile_insns(wrapper_name, inits, PETSc.Log.isActive())
     
     events = tsfc_events + (slate_wrapper_event, slate_init_event) if PETSc.Log.isActive() else ()
-    preamble = preamble+preamble_init if PETSc.Log.isActive() else ""
+    preamble = preamble+preamble_init if PETSc.Log.isActive() else None
     return tensor2temp, tsfc_kernels, insns, builder, events, preamble
 
 def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, tsfc_parameters, slate_parameters, init_temporaries=True, tensor2temp={}, output_arg=None, matshell=False):
