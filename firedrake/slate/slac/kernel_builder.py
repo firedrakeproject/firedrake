@@ -767,6 +767,8 @@ class LocalLoopyKernelBuilder(object):
         name = "mtf_solve_%d" % knl_no
         shape = expr.shape
         dtype = self.tsfc_parameters["scalar_type"]
+        rtol = getattr(expr.ctx, "rtol")
+        atol = getattr(expr.ctx, "atol")
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -786,12 +788,12 @@ class LocalLoopyKernelBuilder(object):
 
         # name of the lhs to the action call inside the matfree solve kernel
         child1, _ = expr.children
-        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(expr.Aonx, "name") else expr.Aonx.name
-        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(expr.Aonp, "name") else expr.Aonp.name
+        Aonx = getattr(expr.ctx, "Aonx")
+        Aonp = getattr(expr.ctx, "Aonp")
+        A_on_x_name = ctx.gem_to_pymbolic[child1].name+"_x" if not hasattr(Aonx, "name") else Aonx.name
+        A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(Aonp, "name") else Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
-        rtol = expr.rtol
-        atol = expr.atol
 
         # setup the stop criterions
         stop_criterion_id = "cond"
@@ -859,8 +861,8 @@ class LocalLoopyKernelBuilder(object):
         # update gem to pym mapping
         # by linking the actions of the matrix-free solve kernel
         # to the their pymbolic variables
-        ctx.gem_to_pymbolic[expr.Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
-        ctx.gem_to_pymbolic[expr.Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
+        ctx.gem_to_pymbolic[Aonx] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonx"].assignees[0].subscript.aggregate.name)
+        ctx.gem_to_pymbolic[Aonp] = pym.Variable(knl.callables_table[name].subkernel.id_to_insn["Aonp"].assignees[0].subscript.aggregate.name)
 
         # the expression which call the knl for the matfree solve kernel
         call = insn.copy(expression=pym.Call(pym.Variable(name), reads))

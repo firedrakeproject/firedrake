@@ -444,7 +444,7 @@ def pointwise_expression_kernel(exprs, scalar_type):
     name = "expression_kernel"
     knl, event = generate(impero_c, args, scalar_type, kernel_name=name,
                           return_increments=False, log=PETSc.Log.isActive())
-    return firedrake.op2.Kernel(knl, name, event=event), plargs
+    return firedrake.op2.Kernel(knl, name, events=(event,)), plargs
 
 
 class dereffed:

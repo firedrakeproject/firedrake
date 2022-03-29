@@ -8,7 +8,7 @@ from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  Solve, Inverse, Variable, view, Delta, Index, Division,
-                 Action)
+                 Action, MatfreeSolveContext)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -248,7 +248,10 @@ def _slate2gem_action(expr, self):
 def _slate2gem_solve(expr, self):
     if expr.matfree:
         assert expr not in self.gem2slate.values()
-        var = Solve(*map(self, expr.children), expr.matfree, self(expr.Aonx), self(expr.Aonp), rtol=expr.rtol, atol=expr.atol)
+        children = list(map(self, expr.children))
+        ctx = {'matfree': expr.matfree, 'Aonx': self(expr.Aonx),'Aonp': self(expr.Aonp),
+               'rtol': expr.rtol, 'atol': expr.atol}
+        var = Solve(*children, ctx=MatfreeSolveContext(**ctx))
         self.gem2slate[var.name] = expr
         return var
     else:
