@@ -1445,6 +1445,11 @@ class Solve(BinaryOp):
 
         # TODO maybe we want to safe the assembled diagonal on the Slate node when matfree?
 
+    @property
+    def ctx(self):
+        return {"matfree": self.matfree, "Aonx": self.Aonx, "Aonp": self.Aonp,
+                "rtol": self.rtol, "atol": self.atol}
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor

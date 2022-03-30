@@ -112,7 +112,7 @@ def _push_block_inverse(expr, self, indices):
 @_push_block.register(Solve)
 def _push_block_solve(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
-    expr = type(expr)(*map(self, expr.children, repeat(tuple())), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp, rtol=expr.rtol, atol=expr.atol)
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())), **expr.ctx)
     return Block(expr, indices) if indices else expr
 
 
@@ -307,7 +307,7 @@ def _drop_double_transpose_action(expr, self):
 
 @_drop_double_transpose.register(Solve)
 def _drop_double_transpose_solve(expr, self):
-    return type(expr)(*map(self, expr.children), matfree=expr.matfree, Aonx=expr.Aonx, Aonp=expr.Aonp, rtol=expr.rtol, atol=expr.atol)
+    return type(expr)(*map(self, expr.children), **expr.ctx)
 
 
 @singledispatch
