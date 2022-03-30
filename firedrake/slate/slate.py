@@ -1032,6 +1032,10 @@ class Inverse(UnaryOp):
         tensor, = self.operands
         return "(%s).inv" % tensor
 
+    @property
+    def ctx(self):
+        return {"rtol": self.rtol, "atol":self.atol}
+
 
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
