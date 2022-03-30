@@ -103,14 +103,8 @@ def _push_block_stop(expr, self, indices):
 
 
 @_push_block.register(Inverse)
-def _push_block_inverse(expr, self, indices):
-    """Blocks cannot be pushed further into this set of nodes."""
-    expr = type(expr)(*map(self, expr.children, repeat(tuple())), rtol=expr.rtol, atol=expr.atol)
-    return Block(expr, indices) if indices else expr
-
-
 @_push_block.register(Solve)
-def _push_block_solve(expr, self, indices):
+def _push_block_calls(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())), **expr.ctx)
     return Block(expr, indices) if indices else expr
@@ -189,7 +183,7 @@ def _push_diag_stop(expr, self, diag):
 @_push_diag.register(Inverse)
 def _push_diag_inverse(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
-    expr = type(expr)(*map(self, expr.children, repeat(False)), rtol=expr.rtol, atol=expr.atol) if not expr.terminal else expr
+    expr = type(expr)(*map(self, expr.children, repeat(False)), **expr.ctx) if not expr.terminal else expr
     return DiagonalTensor(expr) if diag else expr
 
 
@@ -295,19 +289,15 @@ def _drop_double_transpose_distributive(expr, self):
 
 
 @_drop_double_transpose.register(Inverse)
-def _drop_double_transpose_inverse(expr, self):
+@_drop_double_transpose.register(Solve)
+def _drop_double_transpose_calls(expr, self):
     """Distribute into the children of the expression. """
-    return type(expr)(*map(self, expr.children), atol=expr.atol, rtol=expr.rtol)
+    return type(expr)(*map(self, expr.children), **expr.ctx)
 
 
 @_drop_double_transpose.register(Action)
 def _drop_double_transpose_action(expr, self):
     return type(expr)(*map(self, expr.children), expr.pick_op)
-
-
-@_drop_double_transpose.register(Solve)
-def _drop_double_transpose_solve(expr, self):
-    return type(expr)(*map(self, expr.children), **expr.ctx)
 
 
 @singledispatch
@@ -363,8 +353,8 @@ def _push_mul_inverse(expr, self, state):
         # Don't optimise further so that the translation to gem at a later can just spill ]1/a_ii[
         return expr * state.coeff if state.pick_op else state.coeff * expr
     else:
-        expr = (Solve(child, state.coeff, rtol=expr.rtol, atol=expr.atol) if state.pick_op
-                else Transpose(Solve(Transpose(child), Transpose(state.coeff), rtol=expr.rtol, atol=expr.atol)))
+        expr = (Solve(child, state.coeff, **expr.ctx) if state.pick_op
+                else Transpose(Solve(Transpose(child), Transpose(state.coeff), **expr.ctx)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
