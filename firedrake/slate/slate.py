@@ -35,6 +35,7 @@ from ufl.form import Form
 import hashlib
 
 from firedrake.formmanipulation import ExtractSubBlock
+from gem.gem import DEFAULT_MSC
 
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
@@ -1395,15 +1396,13 @@ class Solve(BinaryOp):
         """Constructor for the Solve class."""
 
         # Get matrix-free specific and decomposition information from kwargs
-        self.matfree = False
-        self.Aonx = None
-        self.Aonp = None
-        self.decomposition = "PartialPivLU"
-        self.rtol = "1.e-8"
-        self.atol = "1.e-50"
-        valid_kwargs = ["matfree", "Aonx", "Aonp", "decomposition", "rtol", "atol"]
-        for key, value in kwargs.items():
-            if key in valid_kwargs:
+        # It's not save to make defaults a nested dict
+        defaults = DEFAULT_MSC._asdict()
+        updated_kwargs = defaults.copy()
+        updated_kwargs.update({"decomposition": "PartialPivLU"})
+        updated_kwargs.update(kwargs)
+        for key, value in updated_kwargs.items():
+            if key in defaults or key == "decomposition":
                 setattr(self, key, value)
             else:
                 error = (f"The key {key} in the optional argument dict kwargs is not valid."
