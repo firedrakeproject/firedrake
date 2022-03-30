@@ -872,7 +872,7 @@ def _as_global_kernel_arg_output(_, self):
     if rank == 0:
         return op2.GlobalKernelArg((1,))
     elif rank == 1 or rank == 2 and self._diagonal:
-        V, = Vs
+        V = Vs[0]
         if V.ufl_element().family() == "Real":
             return op2.GlobalKernelArg((1,))
         else:
@@ -1068,7 +1068,7 @@ def _as_parloop_arg_output(_, self):
     if rank == 0:
         return op2.GlobalParloopArg(tensor)
     elif rank == 1 or rank == 2 and self._diagonal:
-        V, = Vs
+        V = Vs[0]
         if V.ufl_element().family() == "Real":
             return op2.GlobalParloopArg(tensor)
         else:
