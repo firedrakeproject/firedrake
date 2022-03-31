@@ -383,8 +383,8 @@ def _push_mul_inverse(expr, self, state):
             preconditioner_l = None
             mat = child
             coeff = state.coeff
-        expr = (Solve(mat, coeff, preconditioner=preconditioner_l, diag_prec=expr.diag_prec, rtol=expr.rtol, atol=expr.rtol) if state.pick_op
-                else Transpose(Solve(Transpose(mat), Transpose(coeff), preconditioner=preconditioner_l, diag_prec=expr.diag_prec, rtol=expr.rtol, atol=expr.rtol)))
+        expr = (Solve(mat, coeff, preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.rtol) if state.pick_op
+                else Transpose(Solve(Transpose(mat), Transpose(coeff), preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.rtol)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
@@ -479,7 +479,7 @@ def _push_mul_solve(expr, self, state):
             Ponr = None
         return Solve(mat, self(self(rhs, state), state), matfree=self.action,
                      Aonx=Aonx, Aonp=Aonp,
-                     preconditioner=expr.preconditioner, Ponr=Ponr, diag_prec=expr.diag_prec
+                     preconditioner=expr.preconditioner, Ponr=Ponr, diag_prec=expr.diag_prec,
                      rtol=expr.rtol, atol=expr.atol)
 
 
