@@ -433,7 +433,7 @@ class FormAssembler(abc.ABC):
             return tsfc_interface.compile_form(self._form, "form", diagonal=self.diagonal,
                                                parameters=self._form_compiler_params)
         elif isinstance(self._form, slate.TensorBase):
-            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params, self.diagonal)
+            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params, diagonal=self.diagonal)
         else:
             raise AssertionError
 

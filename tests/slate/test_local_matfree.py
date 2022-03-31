@@ -322,16 +322,17 @@ class DGLaplacian(AuxiliaryOperatorPC):
 
 def test_preconditioning_like():
     mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
-    U = FunctionSpace(mymesh, "RTCF", 2)
-    V = FunctionSpace(mymesh, "DQ", 1)
+    U = FunctionSpace(mymesh, "RTCF", 1)
+    V = FunctionSpace(mymesh, "DQ", 0)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
     # Define the source function
-    x, y = SpatialCoordinate(mymesh)
-    f = Function(V)
-    f.interpolate(10000*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    x = SpatialCoordinate(mymesh)
+    L=1
+    exact = 100*x[0]*(L-x[0])*x[1]*(L-x[1])
+    f = -div(grad(exact))
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
@@ -348,9 +349,7 @@ def test_preconditioning_like():
                                         'localsolve': {'ksp_type': 'preonly',
                                                        'pc_type': 'fieldsplit',
                                                        'pc_fieldsplit_type': 'schur',
-                                                       'fieldsplit_1': {'ksp_type': 'default',
-                                                                        'pc_type': 'python',
-                                                                        'pc_python_type': __name__ + '.DGLaplacian'}}}}
+                                                       'mat_type': 'matfree'}}}
 
     w = Function(W)
     eq = a == l

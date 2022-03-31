@@ -238,6 +238,7 @@ def _slate2gem_inverse(expr, self):
             return ComponentTensor(Product(Division(Literal(1.), Indexed(A, (i, i))),
                                            Delta(i, j)), (i, j))
     else:
+        # FIXME self(tensor) gives a vector valued thing
         return Inverse(self(tensor))
 
 
@@ -273,7 +274,7 @@ def _slate2gem_solve(expr, self):
             prec = None
             Ponr = None
         ctx = {'matfree': expr.matfree, 'Aonx': self(expr.Aonx),'Aonp': self(expr.Aonp),
-                'preconditioner': prec, 'Ponr': Ponr, 'prec_diag': expr.prec_diag
+                'preconditioner': prec, 'Ponr': Ponr, "diag_prec": expr.diag_prec,
                'rtol': expr.rtol, 'atol': expr.atol}
         var = Solve(*children, ctx=MatfreeSolveContext(**ctx))
         self.gem2slate[var.name] = expr
@@ -621,7 +622,7 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                         tensor = (terminal.children[0]
                                   if isinstance(terminal, sl.Inverse)
                                   else terminal)
-                        terminal = sl.Tensor(tensor.children[0].form, diagonal=tensor.diagonal)
+                        terminal = sl.Tensor(tensor.children[0].form, diagonal=tensor.children[0].diagonal)
 
                         if terminal not in tensor2temps.keys():
                             diagT_arg = action_wrapper_knl[action_wrapper_knl_name].args[1]
@@ -653,10 +654,11 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                             # replaces call with tsfc call, which gets linked to tsfc kernel later
                             ac_temp = builder.bag.action_coefficients
                             builder.bag.action_coefficients = None
-                            tsfc_insns, tsfc_knls, modified_action_builder = generate_tsfc_knls_and_calls(builder, terminal,
+                            tsfc_insns, tsfc_knls, modified_action_builder, events = generate_tsfc_knls_and_calls(builder, terminal,
                                                                                                           action_tensor2temp,
                                                                                                           insn,
                                                                                                           pym.Variable(gem_inlined_node.name))
+                            all_events += events
 
                             builder.bag.action_coefficients = ac_temp
                             insns += tsfc_insns
@@ -803,7 +805,7 @@ def initialise_temps(builder, gem2slate, tensor2temps):
                     inits.append(init)
 
             # replaces call with tsfc call, which gets linked to tsfc kernel later
-            tsfc_insns, tsfc_knls = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+            tsfc_insns, tsfc_knls, events = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
             tsfc_inits += tsfc_insns
             for tk in tsfc_knls:
                 knl_list.update(tk)

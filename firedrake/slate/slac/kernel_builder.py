@@ -794,7 +794,7 @@ class LocalLoopyKernelBuilder(object):
         A_on_p_name = ctx.gem_to_pymbolic[child1].name+"_p" if not hasattr(Aonp, "name") else Aonp.name
         A_on_x = A_on_x_name
         A_on_p = A_on_p_name
-        diagonal = expr.diag_prec
+        diagonal = getattr(expr.ctx, "diag_prec")
         z = (ctx.gem_to_pymbolic[prec].name+"_r" if preconditioned and not hasattr(Ponr, "name")
              else Ponr.name if preconditioned else "z")
 

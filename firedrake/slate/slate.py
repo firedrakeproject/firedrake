@@ -1507,7 +1507,7 @@ class Solve(BinaryOp):
     @property
     def ctx(self):
         return {"matfree": self.matfree, "Aonx": self.Aonx, "Aonp": self.Aonp,
-                "preconditioner": self.preconditioner, "Ponr": self.Ponr, "diag_prec": self.diag_prec
+                "preconditioner": self.preconditioner, "Ponr": self.Ponr, "diag_prec": self.diag_prec,
                 "rtol": self.rtol, "atol": self.atol}
 
     @cached_property
