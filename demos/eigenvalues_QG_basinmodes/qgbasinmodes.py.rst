@@ -166,7 +166,8 @@ submatrices that omit these rows and the correspoing columns. ::
 
    bcnodes = Vcg.dof_dset.lgmap.apply(bc.nodes).astype(pyop2.datatypes.IntTpye)
    ISbd = PETSc.IS().createGeneral(bcnodes, comm=petsc_a.comm)
-   ISin= ISbd.complement(0, Vcg.dim())
+   (s, e), _ = petsc_a.getSizes()
+   ISin= ISbd.complement(s, e)
    A = petsc_a.createSubMatrix(ISin, ISin)
    M = petsc_m.createSubMatrix(ISin, ISin)
 
