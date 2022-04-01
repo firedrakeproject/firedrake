@@ -2,7 +2,7 @@
     "version": 1,
     "project": "firedrake",
     "project_url": "https://firedrakeproject.org/index.html",
-    "repo": "https://github.com/firedrakeproject/firedrake",
+    "repo": ".",
     "environment_type": "virtualenv",
     "env_dir": ".asv/env",
     "results_dir": ".asv/results",
