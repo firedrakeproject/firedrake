@@ -155,9 +155,9 @@ To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
 :math:`A\psi = \lambda M\psi`. We impose the boundary conditions on the
 mass matrix :math:`M`, since that is where we used integration by parts.
-For a more stable computation of the eigenvalues, we also create
-submatrices by removing rows and columns associated with the boundary
-conditions. ::
+To avoid spurious eigenvalues associated with the rows of :math:`M`
+that are modified by the Dirichlet boundary conditions, we create
+submatrices that omit these rows and the correspoing columns. ::
 
    a =  beta*phi*psi.dx(0)*dx
    m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
