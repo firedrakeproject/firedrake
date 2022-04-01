@@ -154,12 +154,21 @@ We define the Test Function :math:`\phi` and the Trial Function
 To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
 :math:`A\psi = \lambda M\psi`. We impose the boundary conditions on the
-mass matrix :math:`M`, since that is where we used integration by parts. ::
+mass matrix :math:`M`, since that is where we used integration by parts.
+For a more stable computation of the eigenvalues, we also create
+submatrices by removing rows and columns associated with the boundary
+conditions. ::
 
    a =  beta*phi*psi.dx(0)*dx
    m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
    petsc_a = assemble(a).M.handle
    petsc_m = assemble(m, bcs=bc).M.handle
+
+   bcnodes = Vcg.dof_dset.lgmap.apply(bc.nodes).astype(np.int32)
+   ISbd = PETSc.IS().createGeneral(bcnodes, comm=PETSc.COMM_SELF)
+   ISin= ISbd.complement(0, Vcg.dim())
+   A = petsc_a.createSubMatrix(ISin, ISin)
+   M = petsc_m.createSubMatrix(ISin, ISin)
 
 We can declare how many eigenpairs, eigenfunctions and eigenvalues, we
 want to find ::
@@ -187,7 +196,7 @@ the PETSc parameters we previously declared. ::
 
    es = SLEPc.EPS().create(comm=COMM_WORLD)
    es.setDimensions(num_eigenvalues)
-   es.setOperators(petsc_a, petsc_m)
+   es.setOperators(A, M)
    es.setFromOptions()
    es.solve()
 
@@ -214,7 +223,7 @@ solver::
 
 and we gather the final eigenfunctions ::
 
-   eigenmodes_real.vector()[:], eigenmodes_imag.vector()[:] = vr, vi
+   eigenmodes_real.vector()[ISin.array], eigenmodes_imag.vector()[ISin.array] = vr, vi
 
 We can now list and show plots for the eigenvalues and eigenfunctions
 that were found. ::
