@@ -231,14 +231,15 @@ def _slate2gem_inverse(expr, self):
         # matrix which contains the reciprocal values of the diagonal tensor
         if self.matfree:
             tensor, = tensor.children
-            return self(sl.Reciprocal(sl.Tensor(tensor.form, diagonal=True)))
+            var = self(sl.Reciprocal(sl.Tensor(tensor.form, diagonal=True)))
+            i, j = (Index(extent=s) for s in expr.shape)
+            return ComponentTensor(Product(Indexed(var, (i,)), Delta(i, j)), (i, j))
         else:
             A, = map(self, expr.children)
             i, j = (Index(extent=s) for s in A.shape)
             return ComponentTensor(Product(Division(Literal(1.), Indexed(A, (i, i))),
                                            Delta(i, j)), (i, j))
     else:
-        # FIXME self(tensor) gives a vector valued thing
         return Inverse(self(tensor))
 
 
@@ -267,7 +268,7 @@ def _slate2gem_solve(expr, self):
         children = list(map(self, expr.children))
         if expr.preconditioner:
             # assert isinstance(expr.preconditioner, sl.Inverse), "Preconditioner has to be an inverse"
-            assert expr.preconditioner not in self.gem2slate.values()
+            # assert expr.preconditioner not in self.gem2slate.values()
             prec = self(expr.preconditioner)
             Ponr = self(expr.Ponr)
         else:
@@ -887,13 +888,16 @@ def update_kernel_call_and_knl(insn, action_wrapper_knl, action_wrapper_knl_name
     # Generate args for the kernel and reads for the call instruction
     # FIXME something similar is reappearing in lot of places
     # so maybe this function should go in the kernel builder
-    def make_reads(shape, name):
-        var_reads = pym.Variable(name)
-        idx_reads = builder.bag.index_creator(shape)
-        return SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+    def make_reads(a):
+        if not isinstance(a, ValueArg):
+            var_reads = pym.Variable(a.name)
+            idx_reads = builder.bag.index_creator(a.shape)
+            return SubArrayRef(idx_reads, pym.Subscript(var_reads, idx_reads))
+        else:
+            return pym.Variable(a.name)
 
     # Generate reads form kernel args
-    reads = [make_reads(a.shape, a.name) for a in knl.args]
+    reads = [make_reads(a) for a in knl.args]
 
     action_insn = insn.copy(expression=pym.Call(pym.Variable(action_wrapper_knl_name), tuple(reads)))
     return action_insn, action_wrapper_knl, builder
