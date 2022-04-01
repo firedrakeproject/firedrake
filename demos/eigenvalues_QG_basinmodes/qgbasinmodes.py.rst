@@ -109,6 +109,7 @@ Firedrake. We import the Firedrake, PETSc, and SLEPc libraries. ::
 
    from firedrake import *
    from firedrake.petsc import PETSc
+   import pyop2
    try:
        from slepc4py import SLEPc
    except ImportError:
