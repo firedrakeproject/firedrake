@@ -12,7 +12,7 @@ def test_ufl_only_simple():
     W = V
     to_element = create_element(W.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, W.ufl_element())
-    assert kernel.first_coefficient_fake_coords is False
+    assert kernel.needs_external_coords is False
 
 
 def test_ufl_only_spatialcoordinate():
@@ -23,7 +23,7 @@ def test_ufl_only_spatialcoordinate():
     W = V
     to_element = create_element(W.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, W.ufl_element())
-    assert kernel.first_coefficient_fake_coords is True
+    assert kernel.needs_external_coords is True
 
 
 def test_ufl_only_from_contravariant_piola():
@@ -34,7 +34,7 @@ def test_ufl_only_from_contravariant_piola():
     W = ufl.FunctionSpace(mesh, ufl.FiniteElement("P", ufl.triangle, 2))
     to_element = create_element(W.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, W.ufl_element())
-    assert kernel.first_coefficient_fake_coords is True
+    assert kernel.needs_external_coords is True
 
 
 def test_ufl_only_to_contravariant_piola():
@@ -45,7 +45,7 @@ def test_ufl_only_to_contravariant_piola():
     W = ufl.FunctionSpace(mesh, ufl.FiniteElement("RT", ufl.triangle, 1))
     to_element = create_element(W.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, W.ufl_element())
-    assert kernel.first_coefficient_fake_coords is True
+    assert kernel.needs_external_coords is True
 
 
 def test_ufl_only_shape_mismatch():

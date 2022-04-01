@@ -21,7 +21,7 @@ from tsfc.loopy import generate as generate_loopy
 # Expression kernel description type
 ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',
                                                    'coefficient_numbers',
-                                                   'first_coefficient_fake_coords',
+                                                   'needs_external_coords',
                                                    'tabulations', 'name', 'arguments',
                                                    'flop_count'])
 
@@ -180,13 +180,13 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
         self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
 
-    def construct_kernel(self, impero_c, index_names, first_coefficient_fake_coords):
+    def construct_kernel(self, impero_c, index_names, needs_external_coords):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg impero_c: gem.ImperoC object that represents the kernel
         :arg index_names: pre-assigned index names
-        :arg first_coefficient_fake_coords: If true, the kernel's first
-            coefficient is a constructed UFL coordinate field
+        :arg needs_external_coords: If ``True``, the first argument to
+            the kernel is an externally provided coordinate field.
         :returns: :class:`ExpressionKernel` object
         """
         args = [self.output_arg]
@@ -205,7 +205,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_kernel = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                       name, index_names)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficient_numbers, first_coefficient_fake_coords,
+                                self.coefficient_numbers, needs_external_coords,
                                 self.tabulations, name, args, count_flops(impero_c))
 
 
