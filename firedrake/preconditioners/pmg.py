@@ -502,7 +502,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
     to_element = create_element(Vf.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
-    if kernel.first_coefficient_fake_coords:
+    if kernel.needs_external_coords:
         coefficients = [Vf.ufl_domain().coordinates] + coefficients
 
     return op2.Kernel(kernel.ast, kernel.name,

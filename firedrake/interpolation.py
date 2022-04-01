@@ -287,7 +287,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
     coefficient_numbers = kernel.coefficient_numbers
-    first_coeff_fake_coords = kernel.first_coefficient_fake_coords
+    needs_external_coords = kernel.needs_external_coords
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count)
@@ -298,8 +298,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
-    if first_coeff_fake_coords:
-        # Replace with real source mesh coordinates
+    if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
     if target_mesh is not source_mesh:
