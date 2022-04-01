@@ -32,21 +32,22 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+from abc import ABC
 import os
 import platform
 import shutil
 import subprocess
 import sys
 import ctypes
-import collections
+import shlex
 from hashlib import md5
-from distutils import version
+from packaging.version import Version, InvalidVersion
 
 
 from pyop2.mpi import MPI, collective, COMM_WORLD
 from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
 from pyop2.configuration import configuration
-from pyop2.logger import debug, progress, INFO
+from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
 
 
@@ -58,53 +59,90 @@ def _check_hashes(x, y, datatype):
 
 
 _check_op = MPI.Op.Create(_check_hashes, commute=True)
+_compiler = None
 
 
-CompilerInfo = collections.namedtuple("CompilerInfo", ["compiler",
-                                                       "version"])
+def set_default_compiler(compiler):
+    """Set the PyOP2 default compiler, globally.
 
-
-def sniff_compiler_version(cc):
-    try:
-        ver = subprocess.check_output([cc, "--version"]).decode("utf-8")
-    except (subprocess.CalledProcessError, UnicodeDecodeError):
-        return CompilerInfo("unknown", version.LooseVersion("unknown"))
-
-    if ver.startswith("gcc"):
-        compiler = "gcc"
-    elif ver.startswith("clang"):
-        compiler = "clang"
-    elif ver.startswith("Apple LLVM"):
-        compiler = "clang"
-    elif ver.startswith("icc"):
-        compiler = "icc"
+    :arg compiler: String with name or path to compiler executable
+        OR a subclass of the Compiler class
+    """
+    global _compiler
+    if _compiler:
+        warning(
+            "`set_default_compiler` should only ever be called once, calling"
+            " multiple times is untested and may produce unexpected results"
+        )
+    if isinstance(compiler, str):
+        _compiler = sniff_compiler(compiler)
+    elif isinstance(compiler, type) and issubclass(compiler, Compiler):
+        _compiler = compiler
     else:
-        compiler = "unknown"
+        raise TypeError(
+            "compiler must be a path to a compiler (a string) or a subclass"
+            " of the pyop2.compilation.Compiler class"
+        )
 
-    ver = version.LooseVersion("unknown")
-    if compiler == "gcc":
-        try:
-            ver = subprocess.check_output([cc, "-dumpversion"],
-                                          stderr=subprocess.DEVNULL).decode("utf-8")
-            try:
-                ver = version.StrictVersion(ver.strip())
-            except ValueError:
-                # A sole digit, e.g. 7, results in a ValueError, so
-                # append a "do-nothing, but make it work" string.
-                ver = version.StrictVersion(ver.strip() + ".0")
-            if compiler == "gcc" and ver >= version.StrictVersion("7.0"):
-                try:
-                    # gcc-7 series only spits out patch level on dumpfullversion.
-                    fullver = subprocess.check_output([cc, "-dumpfullversion"],
-                                                      stderr=subprocess.DEVNULL).decode("utf-8")
-                    fullver = version.StrictVersion(fullver.strip())
-                    ver = fullver
-                except (subprocess.CalledProcessError, UnicodeDecodeError):
-                    pass
-        except (subprocess.CalledProcessError, UnicodeDecodeError):
-            pass
 
-    return CompilerInfo(compiler, ver)
+def sniff_compiler(exe):
+    """Obtain the correct compiler class by calling the compiler executable.
+
+    :arg exe: String with name or path to compiler executable
+    :returns: A compiler class
+    """
+    try:
+        output = subprocess.run(
+            [exe, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+    except (subprocess.CalledProcessError, UnicodeDecodeError):
+        output = ""
+
+    # Find the name of the compiler family
+    if output.startswith("gcc") or output.startswith("g++"):
+        name = "GNU"
+    elif output.startswith("clang"):
+        name = "clang"
+    elif output.startswith("Apple LLVM"):
+        name = "clang"
+    elif output.startswith("icc"):
+        name = "Intel"
+    elif "Cray" in output.split("\n")[0]:
+        # Cray is more awkward eg:
+        # Cray clang version 11.0.4  (<some_hash>)
+        # gcc (GCC) 9.3.0 20200312 (Cray Inc.)
+        name = "Cray"
+    else:
+        name = "unknown"
+
+    # Set the compiler instance based on the platform (and architecture)
+    if sys.platform.find("linux") == 0:
+        if name == "Intel":
+            compiler = LinuxIntelCompiler
+        elif name == "GNU":
+            compiler = LinuxGnuCompiler
+        elif name == "clang":
+            compiler = LinuxClangCompiler
+        elif name == "Cray":
+            compiler = LinuxCrayCompiler
+        else:
+            compiler = AnonymousCompiler
+    elif sys.platform.find("darwin") == 0:
+        if name == "clang":
+            machine = platform.uname().machine
+            if machine == "arm64":
+                compiler = MacClangARMCompiler
+            elif machine == "x86_64":
+                compiler = MacClangCompiler
+        else:
+            compiler = AnonymousCompiler
+    else:
+        compiler = AnonymousCompiler
+    return compiler
 
 
 @collective
@@ -154,77 +192,123 @@ def compilation_comm(comm):
     return retcomm
 
 
-class Compiler(object):
-
-    compiler_versions = {}
-
+class Compiler(ABC):
     """A compiler for shared libraries.
 
-    :arg cc: C compiler executable (can be overriden by exporting the
-        environment variable ``CC``).
-    :arg ld: Linker executable (optional, if ``None``, we assume the compiler
-        can build object files and link in a single invocation, can be
-        overridden by exporting the environment variable ``LDSHARED``).
-    :arg cppargs: A list of arguments to the C compiler (optional, prepended to
-        any flags specified as the cflags configuration option)
-    :arg ldargs: A list of arguments to the linker (optional, prepended to any
-        flags specified as the ldflags configuration option).
+    :arg extra_compiler_flags: A list of arguments to the C compiler (CFLAGS)
+        or the C++ compiler (CXXFLAGS)
+        (optional, prepended to any flags specified as the cflags configuration option).
+        The environment variables ``PYOP2_CFLAGS`` and ``PYOP2_CXXFLAGS``
+        can also be used to extend these options.
+    :arg extra_linker_flags: A list of arguments to the linker (LDFLAGS)
+    (optional, prepended to any flags specified as the ldflags configuration option).
+        The environment variable ``PYOP2_LDFLAGS`` can also be used to
+        extend these options.
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
     :kwarg comm: Optional communicator to compile the code on
         (defaults to COMM_WORLD).
     """
-    def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
-                 cpp=False, comm=None):
-        ccenv = 'CXX' if cpp else 'CC'
+    _name = "unknown"
+
+    _cc = "mpicc"
+    _cxx = "mpicxx"
+    _ld = None
+
+    _cflags = ()
+    _cxxflags = ()
+    _ldflags = ()
+
+    _optflags = ()
+    _debugflags = ()
+
+    def __init__(self, extra_compiler_flags=None, extra_linker_flags=None, cpp=False, comm=None):
+        self._extra_compiler_flags = tuple(extra_compiler_flags) or ()
+        self._extra_linker_flags = tuple(extra_linker_flags) or ()
+
+        self._cpp = cpp
+        self._debug = configuration["debug"]
+
         # Ensure that this is an internal communicator.
         comm = dup_comm(comm or COMM_WORLD)
         self.comm = compilation_comm(comm)
-        self._cc = os.environ.get(ccenv, cc)
-        self._ld = os.environ.get('LDSHARED', ld)
-        self._cppargs = cppargs + configuration['cflags'].split()
-        if configuration["use_safe_cflags"]:
-            self._cppargs += self.workaround_cflags
-        self._ldargs = ldargs + configuration['ldflags'].split()
+        self.sniff_compiler_version()
+
+    def __repr__(self):
+        return f"<{self._name} compiler, version {self.version or 'unknown'}>"
 
     @property
-    def compiler_version(self):
-        key = (id(self.comm), self._cc)
+    def cc(self):
+        return configuration["cc"] or self._cc
+
+    @property
+    def cxx(self):
+        return configuration["cxx"] or self._cxx
+
+    @property
+    def ld(self):
+        return configuration["ld"] or self._ld
+
+    @property
+    def cflags(self):
+        cflags = self._cflags + self._extra_compiler_flags + self.bugfix_cflags
+        if self._debug:
+            cflags += self._debugflags
+        else:
+            cflags += self._optflags
+        cflags += tuple(shlex.split(configuration["cflags"]))
+        return cflags
+
+    @property
+    def cxxflags(self):
+        cxxflags = self._cxxflags + self._extra_compiler_flags + self.bugfix_cflags
+        if self._debug:
+            cxxflags += self._debugflags
+        else:
+            cxxflags += self._optflags
+        cxxflags += tuple(shlex.split(configuration["cxxflags"]))
+        return cxxflags
+
+    @property
+    def ldflags(self):
+        ldflags = self._ldflags + self._extra_linker_flags
+        ldflags += tuple(shlex.split(configuration["ldflags"]))
+        return ldflags
+
+    def sniff_compiler_version(self, cpp=False):
+        """Attempt to determine the compiler version number.
+
+        :arg cpp: If set to True will use the C++ compiler rather than
+            the C compiler to determine the version number.
+        """
         try:
-            return Compiler.compiler_versions[key]
-        except KeyError:
-            if self.comm.rank == 0:
-                ver = sniff_compiler_version(self._cc)
-            else:
-                ver = None
-            ver = self.comm.bcast(ver, root=0)
-            return Compiler.compiler_versions.setdefault(key, ver)
+            exe = self.cxx if cpp else self.cc
+            output = subprocess.run(
+                [exe, "-dumpversion"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                encoding="utf-8"
+            ).stdout
+            self.version = Version(output)
+        except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+            self.version = None
 
     @property
-    def workaround_cflags(self):
-        """Flags to work around bugs in compilers."""
-        compiler, ver = self.compiler_version
-        if compiler == "gcc":
-            if version.StrictVersion("4.8.0") <= ver < version.StrictVersion("4.9.0"):
-                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
-                return ["-fno-ivopts"]
-            if version.StrictVersion("5.0") <= ver <= version.StrictVersion("5.4.0"):
-                return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("6.0.0") <= ver < version.StrictVersion("6.5.0"):
-                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
-                return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("7.1.0") <= ver < version.StrictVersion("7.1.2"):
-                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
-                return ["-fno-tree-loop-vectorize"]
-            if version.StrictVersion("7.3") <= ver <= version.StrictVersion("7.5"):
-                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
-                # See also https://github.com/firedrakeproject/firedrake/issues/1442
-                # And https://github.com/firedrakeproject/firedrake/issues/1717
-                # Bug also on skylake with the vectoriser in this
-                # combination (disappears without
-                # -fno-tree-loop-vectorize!)
-                return ["-fno-tree-loop-vectorize", "-mno-avx512f"]
-        return []
+    def bugfix_cflags(self):
+        return ()
+
+    @staticmethod
+    def expandWl(ldflags):
+        """Generator to expand the `-Wl` compiler flags for use as linker flags
+        :arg ldflags: linker flags for a compiler command
+        """
+        for flag in ldflags:
+            if flag.startswith('-Wl'):
+                for f in flag.lstrip('-Wl')[1:].split(','):
+                    yield f
+            else:
+                yield flag
 
     @collective
     def get_so(self, jitmodule, extension):
@@ -232,17 +316,24 @@ class Compiler(object):
 
         :arg jitmodule: The JIT Module which can generate the code to compile.
         :arg extension: extension of the source file (c, cpp).
-
         Returns a :class:`ctypes.CDLL` object of the resulting shared
         library."""
 
+        # C or C++
+        if self._cpp:
+            compiler = self.cxx
+            compiler_flags = self.cxxflags
+        else:
+            compiler = self.cc
+            compiler_flags = self.cflags
+
         # Determine cache key
         hsh = md5(str(jitmodule.cache_key).encode())
-        hsh.update(self._cc.encode())
-        if self._ld:
-            hsh.update(self._ld.encode())
-        hsh.update("".join(self._cppargs).encode())
-        hsh.update("".join(self._ldargs).encode())
+        hsh.update(compiler.encode())
+        if self.ld:
+            hsh.update(self.ld.encode())
+        hsh.update("".join(compiler_flags).encode())
+        hsh.update("".join(self.ldflags).encode())
 
         basename = hsh.hexdigest()
 
@@ -285,65 +376,66 @@ class Compiler(object):
                     with open(cname, "w") as f:
                         f.write(jitmodule.code_to_compile)
                     # Compiler also links
-                    if self._ld is None:
-                        cc = [self._cc] + self._cppargs + \
-                             ['-o', tmpname, cname] + self._ldargs
+                    if not self.ld:
+                        cc = (compiler,) \
+                            + compiler_flags \
+                            + ('-o', tmpname, cname) \
+                            + self.ldflags
                         debug('Compilation command: %s', ' '.join(cc))
-                        with open(logfile, "w") as log:
-                            with open(errfile, "w") as err:
-                                log.write("Compilation command:\n")
-                                log.write(" ".join(cc))
-                                log.write("\n\n")
-                                try:
-                                    if configuration['no_fork_available']:
-                                        cc += ["2>", errfile, ">", logfile]
-                                        cmd = " ".join(cc)
-                                        status = os.system(cmd)
-                                        if status != 0:
-                                            raise subprocess.CalledProcessError(status, cmd)
-                                    else:
-                                        subprocess.check_call(cc, stderr=err,
-                                                              stdout=log)
-                                except subprocess.CalledProcessError as e:
-                                    raise CompilationError(
-                                        """Command "%s" return error status %d.
+                        with open(logfile, "w") as log, open(errfile, "w") as err:
+                            log.write("Compilation command:\n")
+                            log.write(" ".join(cc))
+                            log.write("\n\n")
+                            try:
+                                if configuration['no_fork_available']:
+                                    cc += ["2>", errfile, ">", logfile]
+                                    cmd = " ".join(cc)
+                                    status = os.system(cmd)
+                                    if status != 0:
+                                        raise subprocess.CalledProcessError(status, cmd)
+                                else:
+                                    subprocess.check_call(cc, stderr=err, stdout=log)
+                            except subprocess.CalledProcessError as e:
+                                raise CompilationError(
+                                    """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
 Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     else:
-                        cc = [self._cc] + self._cppargs + \
-                             ['-c', '-o', oname, cname]
-                        ld = self._ld.split() + ['-o', tmpname, oname] + self._ldargs
+                        cc = (compiler,) \
+                            + compiler_flags \
+                            + ('-c', '-o', oname, cname)
+                        # Extract linker specific "cflags" from ldflags
+                        ld = tuple(shlex.split(self.ld)) \
+                            + ('-o', tmpname, oname) \
+                            + tuple(self.expandWl(self.ldflags))
                         debug('Compilation command: %s', ' '.join(cc))
                         debug('Link command: %s', ' '.join(ld))
-                        with open(logfile, "w") as log:
-                            with open(errfile, "w") as err:
-                                log.write("Compilation command:\n")
-                                log.write(" ".join(cc))
-                                log.write("\n\n")
-                                log.write("Link command:\n")
-                                log.write(" ".join(ld))
-                                log.write("\n\n")
-                                try:
-                                    if configuration['no_fork_available']:
-                                        cc += ["2>", errfile, ">", logfile]
-                                        ld += ["2>", errfile, ">", logfile]
-                                        cccmd = " ".join(cc)
-                                        ldcmd = " ".join(ld)
-                                        status = os.system(cccmd)
-                                        if status != 0:
-                                            raise subprocess.CalledProcessError(status, cccmd)
-                                        status = os.system(ldcmd)
-                                        if status != 0:
-                                            raise subprocess.CalledProcessError(status, ldcmd)
-                                    else:
-                                        subprocess.check_call(cc, stderr=err,
-                                                              stdout=log)
-                                        subprocess.check_call(ld, stderr=err,
-                                                              stdout=log)
-                                except subprocess.CalledProcessError as e:
-                                    raise CompilationError(
-                                        """Command "%s" return error status %d.
+                        with open(logfile, "a") as log, open(errfile, "a") as err:
+                            log.write("Compilation command:\n")
+                            log.write(" ".join(cc))
+                            log.write("\n\n")
+                            log.write("Link command:\n")
+                            log.write(" ".join(ld))
+                            log.write("\n\n")
+                            try:
+                                if configuration['no_fork_available']:
+                                    cc += ["2>", errfile, ">", logfile]
+                                    ld += ["2>>", errfile, ">>", logfile]
+                                    cccmd = " ".join(cc)
+                                    ldcmd = " ".join(ld)
+                                    status = os.system(cccmd)
+                                    if status != 0:
+                                        raise subprocess.CalledProcessError(status, cccmd)
+                                    status = os.system(ldcmd)
+                                    if status != 0:
+                                        raise subprocess.CalledProcessError(status, ldcmd)
+                                else:
+                                    subprocess.check_call(cc, stderr=err, stdout=log)
+                                    subprocess.check_call(ld, stderr=err, stdout=log)
+                            except subprocess.CalledProcessError as e:
+                                raise CompilationError(
+                                    """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
 Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
@@ -355,113 +447,153 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
             return ctypes.CDLL(soname)
 
 
-class MacCompiler(Compiler):
-    """A compiler for building a shared library on mac systems.
+class MacClangCompiler(Compiler):
+    """A compiler for building a shared library on Mac systems."""
+    _name = "Mac Clang"
 
-    :arg cppargs: A list of arguments to pass to the C compiler
-         (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional).
+    _cflags = ("-fPIC", "-Wall", "-framework", "Accelerate", "-std=gnu11")
+    _cxxflags = ("-fPIC", "-Wall", "-framework", "Accelerate")
+    _ldflags = ("-dynamiclib",)
 
-    :arg cpp: Are we actually using the C++ compiler?
-
-    :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to COMM_WORLD).
-    """
-
-    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        machine = platform.uname().machine
-        opt_flags = ["-O3", "-ffast-math"]
-        if machine == "arm64":
-            # See https://stackoverflow.com/q/65966969
-            opt_flags.append("-mcpu=apple-a14")
-        elif machine == "x86_64":
-            opt_flags.append("-march=native")
-
-        if configuration["debug"]:
-            opt_flags = ["-O0", "-g"]
-
-        cc = "mpicc"
-        stdargs = ["-std=gnu11"]
-        if cpp:
-            cc = "mpicxx"
-            stdargs = []
-        cppargs = stdargs + ['-fPIC', '-Wall', '-framework', 'Accelerate'] + \
-            opt_flags + cppargs
-        ldargs = ['-dynamiclib'] + ldargs
-        super(MacCompiler, self).__init__(cc,
-                                          cppargs=cppargs,
-                                          ldargs=ldargs,
-                                          cpp=cpp,
-                                          comm=comm)
+    _optflags = ("-O3", "-ffast-math", "-march=native")
+    _debugflags = ("-O0", "-g")
 
 
-class LinuxCompiler(Compiler):
-    """A compiler for building a shared library on linux systems.
+class MacClangARMCompiler(MacClangCompiler):
+    """A compiler for building a shared library on ARM based Mac systems."""
+    # See https://stackoverflow.com/q/65966969
+    _opt_flags = ("-O3", "-ffast-math", "-mcpu=apple-a14")
 
-    :arg cppargs: A list of arguments to pass to the C compiler
-         (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional).
-    :arg cpp: Are we actually using the C++ compiler?
-    :kwarg comm: Optional communicator to compile the code on (only
-    rank 0 compiles code) (defaults to COMM_WORLD)."""
-    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-march=native', '-O3', '-ffast-math']
-        if configuration['debug']:
-            opt_flags = ['-O0', '-g']
-        cc = "mpicc"
-        stdargs = ["-std=gnu11"]
-        if cpp:
-            cc = "mpicxx"
-            stdargs = []
-        cppargs = stdargs + ['-fPIC', '-Wall'] + opt_flags + cppargs
-        ldargs = ['-shared'] + ldargs
 
-        super(LinuxCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
-                                            cpp=cpp, comm=comm)
+class LinuxGnuCompiler(Compiler):
+    """The GNU compiler for building a shared library on Linux systems."""
+    _name = "GNU"
+
+    _cflags = ("-fPIC", "-Wall", "-std=gnu11")
+    _cxxflags = ("-fPIC", "-Wall")
+    _ldflags = ("-shared",)
+
+    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _debugflags = ("-O0", "-g")
+
+    def sniff_compiler_version(self, cpp=False):
+        super(LinuxGnuCompiler, self).sniff_compiler_version()
+        if self.version >= Version("7.0"):
+            try:
+                # gcc-7 series only spits out patch level on dumpfullversion.
+                exe = self.cxx if cpp else self.cc
+                output = subprocess.run(
+                    [exe, "-dumpfullversion"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    encoding="utf-8"
+                ).stdout
+                self.version = Version(output)
+            except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+                pass
+
+    @property
+    def bugfix_cflags(self):
+        """Flags to work around bugs in compilers."""
+        ver = self.version
+        cflags = ()
+        if Version("4.8.0") <= ver < Version("4.9.0"):
+            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
+            cflags = ("-fno-ivopts",)
+        if Version("5.0") <= ver <= Version("5.4.0"):
+            cflags = ("-fno-tree-loop-vectorize",)
+        if Version("6.0.0") <= ver < Version("6.5.0"):
+            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
+            cflags = ("-fno-tree-loop-vectorize",)
+        if Version("7.1.0") <= ver < Version("7.1.2"):
+            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
+            cflags = ("-fno-tree-loop-vectorize",)
+        if Version("7.3") <= ver <= Version("7.5"):
+            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
+            # See also https://github.com/firedrakeproject/firedrake/issues/1442
+            # And https://github.com/firedrakeproject/firedrake/issues/1717
+            # Bug also on skylake with the vectoriser in this
+            # combination (disappears without
+            # -fno-tree-loop-vectorize!)
+            cflags = ("-fno-tree-loop-vectorize", "-mno-avx512f")
+        return cflags
+
+
+class LinuxClangCompiler(Compiler):
+    """The clang for building a shared library on Linux systems."""
+    _name = "Clang"
+
+    _ld = "ld.lld"
+
+    _cflags = ("-fPIC", "-Wall", "-std=gnu11")
+    _cxxflags = ("-fPIC", "-Wall")
+    _ldflags = ("-shared", "-L/usr/lib")
+
+    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _debugflags = ("-O0", "-g")
 
 
 class LinuxIntelCompiler(Compiler):
-    """The intel compiler for building a shared library on linux systems.
+    """The Intel compiler for building a shared library on Linux systems."""
+    _name = "Intel"
 
-    :arg cppargs: A list of arguments to pass to the C compiler
-         (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional).
-    :arg cpp: Are we actually using the C++ compiler?
-    :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to COMM_WORLD).
-    """
-    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
-        opt_flags = ['-Ofast', '-xHost']
-        if configuration['debug']:
-            opt_flags = ['-O0', '-g']
-        cc = "mpicc"
-        stdargs = ["-std=gnu11"]
-        if cpp:
-            cc = "mpicxx"
-            stdargs = []
-        cppargs = stdargs + ['-fPIC', '-no-multibyte-chars'] + opt_flags + cppargs
-        ldargs = ['-shared'] + ldargs
-        super(LinuxIntelCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
-                                                 cpp=cpp, comm=comm)
+    _cc = "mpiicc"
+    _cxx = "mpiicpc"
+
+    _cflags = ("-fPIC", "-no-multibyte-chars", "-std=gnu11")
+    _cxxflags = ("-fPIC", "-no-multibyte-chars")
+    _ldflags = ("-shared",)
+
+    _optflags = ("-Ofast", "-xHost")
+    _debugflags = ("-O0", "-g")
+
+
+class LinuxCrayCompiler(Compiler):
+    """The Cray compiler for building a shared library on Linux systems."""
+    _name = "Cray"
+
+    _cc = "cc"
+    _cxx = "CC"
+
+    _cflags = ("-fPIC", "-Wall", "-std=gnu11")
+    _cxxflags = ("-fPIC", "-Wall")
+    _ldflags = ("-shared",)
+
+    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _debugflags = ("-O0", "-g")
+
+    @property
+    def ldflags(self):
+        ldflags = super(LinuxCrayCompiler).ldflags
+        if '-llapack' in ldflags:
+            ldflags = tuple(flag for flag in ldflags if flag != '-llapack')
+        return ldflags
+
+
+class AnonymousCompiler(Compiler):
+    """Compiler for building a shared library on systems with unknown compiler.
+    The properties of this compiler are entirely controlled through environment
+    variables"""
+    _name = "Unknown"
 
 
 @collective
-def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
-         argtypes=None, restype=None, compiler=None, comm=None):
+def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
+         argtypes=None, restype=None, comm=None):
     """Build a shared library and return a function pointer from it.
 
     :arg jitmodule: The JIT Module which can generate the code to compile, or
         the string representing the source code.
     :arg extension: extension of the source file (c, cpp)
     :arg fn_name: The name of the function to return from the resulting library
-    :arg cppargs: A list of arguments to the C compiler (optional)
-    :arg ldargs: A list of arguments to the linker (optional)
+    :arg cppargs: A tuple of arguments to the C compiler (optional)
+    :arg ldargs: A tuple of arguments to the linker (optional)
     :arg argtypes: A list of ctypes argument types matching the arguments of
          the returned function (optional, pass ``None`` for ``void``). This is
          only used when string is passed in instead of JITModule.
     :arg restype: The return type of the function (optional, pass
          ``None`` for ``void``).
-    :arg compiler: The name of the C compiler (intel, ``None`` for default).
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to COMM_WORLD).
     """
@@ -481,24 +613,19 @@ def load(jitmodule, extension, fn_name, cppargs=[], ldargs=[],
     else:
         raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
 
-    platform = sys.platform
-    cpp = extension == "cpp"
-    if not compiler:
-        compiler = configuration["compiler"]
-    if platform.find('linux') == 0:
-        if compiler == 'icc':
-            compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
-        elif compiler == 'gcc':
-            compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
-        else:
-            raise CompilationError("Unrecognized compiler name '%s'" % compiler)
-    elif platform.find('darwin') == 0:
-        compiler = MacCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
+    cpp = (extension == "cpp")
+    global _compiler
+    if _compiler:
+        # Use the global compiler if it has been set
+        compiler = _compiler
     else:
-        raise CompilationError("Don't know what compiler to use for platform '%s'" %
-                               platform)
-    dll = compiler.get_so(code, extension)
-
+        # Sniff compiler from executable
+        if cpp:
+            exe = configuration["cxx"] or "g++"
+        else:
+            exe = configuration["cc"] or "gcc"
+        compiler = sniff_compiler(exe)
+    dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
     fn = getattr(dll, fn_name)
     fn.argtypes = code.argtypes
     fn.restype = restype

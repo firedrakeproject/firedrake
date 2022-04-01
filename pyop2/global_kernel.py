@@ -227,10 +227,6 @@ class GlobalKernel(Cached):
         kernel (as an `int`). Only makes sense for indirect extruded iteration.
     """
 
-    _cppargs = []
-    _libraries = []
-    _system_headers = []
-
     _cache = {}
 
     @classmethod
@@ -348,22 +344,23 @@ class GlobalKernel(Cached):
         :arg comm: The communicator the compilation is collective over.
         :returns: A ctypes function pointer for the compiled function.
         """
-        compiler = configuration["compiler"]
         extension = "cpp" if self.local_kernel.cpp else "c"
-        cppargs = (self._cppargs
-                   + ["-I%s/include" % d for d in get_petsc_dir()]
-                   + ["-I%s" % d for d in self.local_kernel.include_dirs]
-                   + ["-I%s" % os.path.abspath(os.path.dirname(__file__))])
-        ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
-                 ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
-                 ["-lpetsc", "-lm"] + self._libraries
-        ldargs += self.local_kernel.ldargs
+        cppargs = (
+            tuple("-I%s/include" % d for d in get_petsc_dir())
+            + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
+            + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
+        )
+        ldargs = (
+            tuple("-L%s/lib" % d for d in get_petsc_dir())
+            + tuple("-Wl,-rpath,%s/lib" % d for d in get_petsc_dir())
+            + ("-lpetsc", "-lm")
+            + tuple(self.local_kernel.ldargs)
+        )
 
         return compilation.load(self, extension, self.name,
                                 cppargs=cppargs,
                                 ldargs=ldargs,
                                 restype=ctypes.c_int,
-                                compiler=compiler,
                                 comm=comm)
 
     @cached_property

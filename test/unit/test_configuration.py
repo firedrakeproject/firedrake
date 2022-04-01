@@ -49,8 +49,7 @@ class TestConfigurationAPI:
         assert c['foo'] == 'bar'
 
     @pytest.mark.parametrize(('key', 'val'), [('debug', 'illegal'),
-                                              ('log_level', 1.5),
-                                              ('dump_gencode', 'illegal')])
+                                              ('log_level', 1.5)])
     def test_configuration_illegal_types(self, key, val):
         """Illegal types for configuration values should raise
         ConfigurationError."""
