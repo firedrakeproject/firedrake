@@ -47,8 +47,7 @@ def setup_poisson(p, quad):
     return a, L, W
 
 
-def setup_poisson_3D():
-    p = 3
+def setup_poisson_3D(p):
     n = 2
     mesh = SquareMesh(n, n, 1, quadrilateral=True)
     mesh = ExtrudedMesh(mesh, n)
