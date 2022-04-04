@@ -320,18 +320,22 @@ def test_mixed_poisson_approximated_schur(local_matfree):
     assert u_err < 1e-8
 
 
-def test_slate_hybridization_jacobi_prec_A00():
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_slate_hybridization_jacobi_prec_A00(local_matfree):
     """A test, which compares a solution to a 3D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with the same solver but which has a nested schur complement
     in the trace solve operator and a jacobi preconditioner on the A00 block.
 
-    NOTE: With the setup in this test, using jacobi as a preconditioner to the
-    schur complement matrix, the condition number of the matrix of the local solve
+    NOTE: With the setup of this test on RTCF4-DQ3,
+    using jacobi as a preconditioner to the
+    A00 block, the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 36.59 to 3.06.
     """
-    # setup FEM
-    a, L, W = setup_poisson_3D()
+    # Take lower order for local matrix-free solve
+    # so that the test does not run too long
+    p = 0 if local_matfree else 3
+    a, L, W = setup_poisson_3D(p)
 
     # setup first solver
     w = Function(W)
@@ -341,13 +345,15 @@ def test_slate_hybridization_jacobi_prec_A00():
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-12,
+                                'ksp_rtol': 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur',
                                                'fieldsplit_0': {'ksp_type': 'default',
                                                                 'pc_type': 'jacobi'}}}}
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
@@ -373,7 +379,7 @@ def test_slate_hybridization_jacobi_prec_A00():
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-8,
+                                               'ksp_rtol': 1e-12,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.split()
 
