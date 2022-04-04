@@ -458,15 +458,16 @@ def test_slate_hybridization_jacobi_prec_schur():
     assert u_err < 1e-8
 
 
-def test_mixed_poisson_approximated_schur_jacobi_prec():
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system where
-    the a user supplied operator is used as preconditioner to the
-    Schur solver to a solution where the user supplied operator is replaced
-    with the jacobi preconditioning operator.
+    an operator carrying the diagonal of a user supplied operator is preconditioning (inner)
+    Schur complement solver.
     """
     # setup FEM
-    a, L, W = setup_poisson()
+    s = (1, True) if local_matfree else (3, True)
+    a, L, W = setup_poisson_3D(*s)
 
     # setup first solver
     w = Function(W)
@@ -486,6 +487,9 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
                                                                 'pc_python_type': __name__ + '.DGLaplacian',
                                                                 'aux_ksp_type': 'preonly',
                                                                 'aux_pc_type': 'jacobi'}}}}
+
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
