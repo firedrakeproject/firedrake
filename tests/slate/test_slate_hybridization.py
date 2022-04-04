@@ -465,7 +465,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
     """
     # setup FEM
     s = (1, True) if local_matfree else (3, True)
-    a, L, W = setup_poisson_3D(*s)
+    a, L, W = setup_poisson(*s)
 
     # setup first solver
     w = Function(W)
