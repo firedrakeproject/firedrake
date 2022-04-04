@@ -569,8 +569,8 @@ def test_slate_hybridization_full_local_prec():
     # double-check options are set as expected
     expected = {'nested': True,
                 'preonly_A00': False, 'jacobi_A00': True,
-                'schur_approx': False,
-                'preonly_Shat': False, 'jacobi_Shat': False,
+                'schur_approx': True,
+                'preonly_Shat': True, 'jacobi_Shat': True,
                 'preonly_S': False, 'jacobi_S': False}
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
