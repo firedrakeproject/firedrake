@@ -36,10 +36,9 @@ def setup_poisson():
     tau, v = TestFunctions(W)
 
     # Define the source function
-    f = Function(V)
-    import numpy as np
-    fvector = f.vector()
-    fvector.set_local(np.random.uniform(size=fvector.local_size()))
+    x = SpatialCoordinate(mesh)
+    exact = (10)*x[0]*(1-x[0])*x[1]*(1-x[1])
+    f = -div(grad(exact))
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
