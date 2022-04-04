@@ -526,6 +526,77 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
     assert u_err < 1e-8
 
 
+def test_slate_hybridization_full_local_prec():
+    """A test, which compares a solution to a 3D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system to
+    a solution with the same solver but which has a nested schur complement
+    in the trace solve operator, a jacobi preconditioner on the A00 block, 
+    and an operator carrying the diagonal of a user supplied operator
+    is preconditioning the (inner) Schur complement solver.
+
+    """
+    # setup FEM
+    a, L, W = setup_poisson_3D(1)
+
+    # setup first solver
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'ksp_rtol': 1e-8,
+                                'ksp_atol': 1e-8,
+                                'mat_type': 'matfree',
+                                'localsolve': {'ksp_type': 'preonly',
+                                               'pc_type': 'fieldsplit',
+                                               'pc_fieldsplit_type': 'schur',
+                                               'mat_type': 'matfree',
+                                               'fieldsplit_0': {'ksp_type': 'default',
+                                                                'pc_type': 'jacobi'},
+                                               'fieldsplit_1': {'ksp_type': 'default',
+                                                                'pc_type': 'python',
+                                                                'pc_python_type': __name__ + '.DGLaplacian3D',
+                                                                'aux_ksp_type': 'preonly',
+                                                                'aux_pc_type': 'jacobi'}}}}
+
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    # double-check options are set as expected
+    expected = {'nested': True,
+                'preonly_A00': False, 'jacobi_A00': True,
+                'schur_approx': False,
+                'preonly_Shat': False, 'jacobi_Shat': False,
+                'preonly_S': False, 'jacobi_S': False}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
+    sigma_h, u_h = w.split()
+
+    # setup second solver
+    w2 = Function(W)
+    solve(a == L, w2,
+          solver_parameters={'mat_type': 'matfree',
+                             'ksp_type': 'preonly',
+                             'pc_type': 'python',
+                             'pc_python_type': 'firedrake.HybridizationPC',
+                             'hybridization': {'ksp_type': 'cg',
+                                               'pc_type': 'none',
+                                               'ksp_rtol': 1e-16,
+                                               'mat_type': 'matfree'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
+
 def test_slate_hybridization_global_matfree_jacobi():
     a, L, W = setup_poisson()
 
