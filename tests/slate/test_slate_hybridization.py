@@ -386,6 +386,9 @@ def test_slate_hybridization_jacobi_prec_schur():
     NOTE With the setup in this test, using jacobi as apreconditioner to the
     schur complement matrix the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 17.13 to 16.71
+    
+    NOTE We can't do this locally matfree because we don't know
+    how to implement diag(Schur complement) in a matrix-free way
     """
     # setup FEM
     a, L, W = setup_poisson_3D()
