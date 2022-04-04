@@ -166,8 +166,8 @@ def test_slate_hybridization_wrong_option():
 def test_slate_hybridization_nested_schur(local_matfree):
     # Take lower order for local matrix-free solve
     # so that the test does not run too long
-    p = (1, True) if local_matfree else (3, False)
-    a, L, W = setup_poisson(p)
+    s = (1, True) if local_matfree else (3, False)
+    a, L, W = setup_poisson(*s)
 
     w = Function(W)
     params = {'mat_type': 'matfree',
