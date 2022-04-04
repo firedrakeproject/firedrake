@@ -161,19 +161,27 @@ def test_slate_hybridization_wrong_option():
         PETSc.Sys.popErrorHandler("ignore")
 
 
-def test_slate_hybridization_nested_schur():
-    a, L, W = setup_poisson()
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_slate_hybridization_nested_schur(local_matfree):
+    # Take lower order for local matrix-free solve
+    # so that the test does not run too long
+    p = (1, True) if local_matfree else (3, False)
+    a, L, W = setup_poisson(p)
 
     w = Function(W)
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'mat_type': 'matfree',
+                                'rtol': 1e-8,
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur'}}}
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -200,8 +208,8 @@ def test_slate_hybridization_nested_schur():
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
