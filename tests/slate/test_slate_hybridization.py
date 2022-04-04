@@ -405,7 +405,7 @@ def test_slate_hybridization_jacobi_prec_schur():
     how to implement diag(Schur complement) in a matrix-free way
     """
     # setup FEM
-    a, L, W = setup_poisson_3D()
+    a, L, W = setup_poisson_3D(3)
 
     # setup first solver
     w = Function(W)
