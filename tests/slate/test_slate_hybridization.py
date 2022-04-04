@@ -29,8 +29,9 @@ from firedrake import *
 def setup_poisson(p, quad):
     n = 2
     mesh = UnitSquareMesh(n, n, quadrilateral=quad)
-    U = FunctionSpace(mesh, "RTCF", p+1)
-    V = FunctionSpace(mesh, "DQ", p)
+    space1, space2 = ("RTCF", "DQ") if quad else ("RT", "DG")
+    U = FunctionSpace(mesh, space1, p+1)
+    V = FunctionSpace(mesh, space2, p)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
