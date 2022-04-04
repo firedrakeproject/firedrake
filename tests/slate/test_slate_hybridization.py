@@ -217,9 +217,9 @@ class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
         n = FacetNormal(W.mesh())
-        alpha = Constant(3**3)
-        gamma = Constant(4**3)
-        h = CellSize(W.mesh())
+        alpha = Constant(3**5)
+        gamma = Constant(4**5)
+        h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
                  - inner(jump(u, n), avg(grad(v)))*dS
@@ -254,18 +254,18 @@ class DGLaplacian3D(AuxiliaryOperatorPC):
         return (a_dg, bcs)
 
 
-def test_mixed_poisson_approximated_schur():
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_mixed_poisson_approximated_schur(local_matfree):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with uses a user supplied operator as preconditioner to the
     Schur solver.
-
-    NOTE: With the setup in this test, using the approximated schur complemement
-    defined as DGLaplacian as a preconditioner to the schur complement,
-    reduces the condition number of the local solve from 16.77 to 6.06.
     """
     # setup FEM
-    a, L, W = setup_poisson()
+    # Take lower order for local matrix-free solve
+    # so that the test does not run too long
+    s = (1, True) if local_matfree else (3, True)
+    a, L, W = setup_poisson(*s)
 
     # setup first solver
     w = Function(W)
@@ -283,6 +283,8 @@ def test_mixed_poisson_approximated_schur():
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'python',
                                                                 'pc_python_type': __name__ + '.DGLaplacian'}}}}
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -305,10 +307,8 @@ def test_mixed_poisson_approximated_schur():
                   'pc_type': 'python',
                   'mat_type': 'matfree',
                   'pc_python_type': 'firedrake.HybridizationPC',
-                  'hybridization': {'ksp_type': 'cg',
-                                    'pc_type': 'none',
-                                    'ksp_rtol': 1e-8,
-                                    'mat_type': 'matfree'}}
+                  'hybridization': {'ksp_type': 'preonly',
+                                    'pc_type': 'lu'}}
     solve(a == L, w2, solver_parameters=aij_params)
     _sigma, _u = w2.split()
 
