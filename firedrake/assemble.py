@@ -433,7 +433,11 @@ class FormAssembler(abc.ABC):
             return tsfc_interface.compile_form(self._form, "form", diagonal=self.diagonal,
                                                parameters=self._form_compiler_params)
         elif isinstance(self._form, slate.TensorBase):
-            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params, diagonal=self.diagonal)
+            slate_kernel = slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params, diagonal=self.diagonal)
+            split_kernel, = slate_kernel
+            coefficients = list(filter(lambda elm: isinstance(elm, kernel_args.CoefficientKernelArg), split_kernel.kinfo.arguments))
+            assert len(split_kernel.kinfo.coefficient_map) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
+            return slate_kernel
         else:
             raise AssertionError
 
