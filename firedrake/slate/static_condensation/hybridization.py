@@ -570,6 +570,7 @@ class SchurComplementBuilder(object):
         self.nested = (get_option("ksp_type") == "preonly"
                        and get_option("pc_type") == "fieldsplit"
                        and get_option("pc_fieldsplit_type") == "schur")
+        self.schur_diag = (self.nested and get_option("pc_fieldsplit_schur_fact_type") == "diag")
 
         # Get preconditioning options for A00
         fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
@@ -694,12 +695,21 @@ class SchurComplementBuilder(object):
             broken_residual = rhs.split()
             R = [AssembledVector(broken_residual[self.vidx]),
                  AssembledVector(broken_residual[self.pidx])]
-            # K * block1
-            K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
-            # K * block1 * block2
-            K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
-                             K_Ainv_block1[1] * self.inner_S_inv_hat]
-            # K * block1 * block2 * block3
+            
+            if self.schur_diag:
+                # K * block2
+                K_Ainv_block2 = [K0 * self.A00_inv_hat , -K1 * self.inner_S_inv_hat]
+                # K * block2 * broken residual
+                schur_rhs = (K_Ainv_block2[0] * R[0] + K_Ainv_block2[1] * R[1])
+                # K * block2 * K.T
+                schur_comp = (K_Ainv_block2[0] * K0.T + K_Ainv_block2[1] * K1.T)
+            else:
+                # K * block1
+                K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
+                # K * block1 * block2
+                K_Ainv_block2 = [K_Ainv_block1[0] * self.A00_inv_hat,
+                                K_Ainv_block1[1] * self.inner_S_inv_hat]
+                # K * block1 * block2 * block3
             K_Ainv_block3 = [K_Ainv_block2[0] - K_Ainv_block2[1] * A10 * self.A00_inv_hat,
                              K_Ainv_block2[1]]
             # K * block1 * block2 * block3 * broken residual
