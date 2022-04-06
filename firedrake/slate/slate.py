@@ -1387,13 +1387,12 @@ class TensorShell(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return (tuple(arg.function_space() for arg in [tensor.arguments()[0]])
-                if self.diagonal else tuple(arg.function_space() for arg in tensor.arguments()))
+        return tuple(arg.function_space() for arg in tensor.arguments()))
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         tensor, = self.operands
-        return (tensor.arguments()[0],) if self.diagonal else tensor.arguments()
+        return tensor.arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -1485,9 +1484,10 @@ class Solve(BinaryOp):
             self.preconditioner = TensorShell(self.preconditioner)
 
         # Create a matrix factorization
-        A_factored = (Factorization(A, decomposition=self.decomposition)
-                      if not A.diagonal and not self.matfree and not self.preconditioner
-                      else A)
+        A_factored = A 
+        # (Factorization(A, decomposition=self.decomposition)
+        #               if not A.diagonal and not self.matfree and not self.preconditioner
+        #               else A)
 
         super(Solve, self).__init__(A_factored, B)
 
