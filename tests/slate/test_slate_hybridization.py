@@ -459,12 +459,14 @@ def test_slate_hybridization_jacobi_prec_schur():
 @pytest.mark.parametrize("local_matfree", [True, False])
 def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
-    globally matrixfree with a HybridizationPC and CG on the trace system where
-    an operator carrying the diagonal of a user supplied operator is preconditioning (inner)
-    Schur complement solver.
+    globally matrixfree with a HybridizationPC and FGMRES on the trace system where
+    an operator carrying the diagonal of a user supplied operator is preconditioning
+    the (inner) Schur complement solver. When the local solves are matrix-free,
+    the A00 block needs to be solved quite accurate, because it is the innermost solver
+    and inaccuries will be propagated into the Schur complement approximation.
     """
     # setup FEM
-    s = (1, True) if local_matfree else (3, True)
+    s = (0, True) if local_matfree else (3, True)
     a, L, W = setup_poisson(*s)
 
     # setup first solver
@@ -473,18 +475,22 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
               'pc_type': 'python',
               'mat_type': 'matfree',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'cg',
+              'hybridization': {'ksp_type': 'fgmres',
                                 'pc_type': 'none',
                                 'ksp_rtol': 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
-                                               'pc_fieldsplit_type': 'schur',
+                                               'pc_fieldsplit_type': 'schur',       
+                                               'fieldsplit_0_ksp_rtol': 1e-12,
+                                               'fieldsplit_0_ksp_atol': 1e-12,
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'python',
                                                                 'pc_python_type': __name__ + '.DGLaplacian',
                                                                 'aux_ksp_type': 'preonly',
-                                                                'aux_pc_type': 'jacobi'}}}}
+                                                                'aux_pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-10,
+                                                                'ksp_atol': 1e-10}}}}
 
     if local_matfree:
         params['hybridization']['localsolve']['mat_type'] = 'matfree'
