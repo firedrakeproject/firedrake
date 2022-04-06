@@ -167,7 +167,7 @@ submatrices that omit these rows and the correspoing columns. ::
 
    bcnodes = Vcg.dof_dset.lgmap.apply(bc.nodes).astype(pyop2.datatypes.IntType)
    ISbd = PETSc.IS().createGeneral(bcnodes, comm=petsc_a.comm)
-   (s, e), _ = petsc_a.getSizes()
+   s, e = petsc_a.getOwnershipRange()#(s, e), _ = petsc_a.getSizes()
    ISin = ISbd.complement(s, e)
    A = petsc_a.createSubMatrix(ISin, ISin)
    M = petsc_m.createSubMatrix(ISin, ISin)
@@ -219,7 +219,7 @@ converge any eigenvalues at all. ::
 If we did, we go ahead and extract them from the SLEPc eigenvalue
 solver::
 
-   vr, vi = petsc_a.getVecs()
+   vr, vi = A.getVecs()
 
    lam = es.getEigenpair(0, vr, vi)
 
