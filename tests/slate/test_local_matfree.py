@@ -413,6 +413,8 @@ def test_preconditioning_like():
     schur = assemble((A00).inv*(C00), form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     assert np.allclose(matfree_schur.dat.data, schur.dat.data, rtol=1.e-6)
 
+    # TODO maybe check if diagonal Laplacian preconditioning in reconstruction is garbage
+
 
 def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
     a, L = MP_forms
