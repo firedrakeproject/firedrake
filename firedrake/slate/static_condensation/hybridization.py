@@ -304,20 +304,24 @@ class HybridizationPC(SCBase):
 
         R = K_1.T - C * Ahat * K_0.T
         rhs = f - C * Ahat * g - R * lambdar
-        if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
-            Shat = self.schur_builder.inner_S_approx_inv_hat
-            if self.schur_builder.preonly_S:
-                S = Shat
-            else:
-                S = Shat * S
-                rhs = Shat * rhs
-
-        u_rec = S.solve(rhs, decomposition="PartialPivLU", atol=self.schur_builder.atol_S, rtol=self.schur_builder.rtol_S)
+        if self.schur_builder.local_matfree:
+            u_rec = (self.schur_builder.inner_S_inv_hat) * (rhs)
+        else:
+            if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
+                Shat = self.schur_builder.inner_S_approx_inv_hat
+                if self.schur_builder.preonly_S:
+                    S = Shat
+                else:    
+                    S = (Shat * S)
+                    rhs = (Shat * rhs)
+            u_rec = S.solve(rhs, decomposition="PartialPivLU", atol=self.schur_builder.atol_S, rtol=self.schur_builder.rtol_S)
         self._sub_unknown = OneFormAssembler(u_rec, tensor=u,
                                              form_compiler_parameters=self.ctx.fc_params).assemble
 
-        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU", atol=self.schur_builder.atol_S, rtol=self.schur_builder.rtol_S)
+        if self.schur_builder.local_matfree:
+            sigma_rec = (Ahat) * (g - B * AssembledVector(u) - K_0.T * lambdar)
+        else:
+            sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar, decomposition="PartialPivLU", atol=self.schur_builder.atol_S, rtol=self.schur_builder.rtol_S)
         self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
                                               form_compiler_parameters=self.ctx.fc_params).assemble
 
@@ -603,7 +607,7 @@ class SchurComplementBuilder(object):
     def build_inner_S(self):
         """Build the inner Schur complement."""
         _, A01, A10, A11 = self.list_split_mixed_ops
-        return A11 - A10 * self.A00_inv_hat * A01
+        return (A11 - A10 * self.A00_inv_hat * A01)
 
     def inverse(self, A, P, prec, preonly=False, rtol=None, atol=None):
         """ Calculates the inverse of an operator A.
