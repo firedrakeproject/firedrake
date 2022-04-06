@@ -542,7 +542,7 @@ def test_slate_hybridization_full_local_prec():
 
     """
     # setup FEM
-    a, L, W = setup_poisson_3D(1)
+    a, L, W = setup_poisson(1)
 
     # setup first solver
     w = Function(W)
@@ -550,7 +550,7 @@ def test_slate_hybridization_full_local_prec():
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'cg',
+              'hybridization': {'ksp_type': 'fgmres',
                                 'pc_type': 'none',
                                 'ksp_rtol': 1e-8,
                                 'ksp_atol': 1e-8,
@@ -560,12 +560,16 @@ def test_slate_hybridization_full_local_prec():
                                                'pc_fieldsplit_type': 'schur',
                                                'mat_type': 'matfree',
                                                'fieldsplit_0': {'ksp_type': 'default',
-                                                                'pc_type': 'jacobi'},
+                                                                'pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-12,
+                                                                'ksp_atol': 1e-12},
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'python',
-                                                                'pc_python_type': __name__ + '.DGLaplacian3D',
+                                                                'pc_python_type': __name__ + '.DGLaplacian',
                                                                 'aux_ksp_type': 'preonly',
-                                                                'aux_pc_type': 'jacobi'}}}}
+                                                                'aux_pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-10,
+                                                                'ksp_atol': 1e-10}}}}
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -585,15 +589,16 @@ def test_slate_hybridization_full_local_prec():
 
     # setup second solver
     w2 = Function(W)
-    solve(a == L, w2,
-          solver_parameters={'mat_type': 'matfree',
-                             'ksp_type': 'preonly',
-                             'pc_type': 'python',
-                             'pc_python_type': 'firedrake.HybridizationPC',
-                             'hybridization': {'ksp_type': 'cg',
-                                               'pc_type': 'none',
-                                               'ksp_rtol': 1e-16,
-                                               'mat_type': 'matfree'}})
+    
+    aij_params = {'ksp_type': 'preonly',
+                  'pc_type': 'python',
+                  'mat_type': 'matfree',
+                  'pc_python_type': 'firedrake.HybridizationPC',
+                  'hybridization': {'ksp_type': 'cg',
+                                    'pc_type': 'none',
+                                    'ksp_rtol': 1e-8,
+                                    'mat_type': 'matfree'}}
+    solve(a == L, w2, solver_parameters=aij_params)
     nh_sigma, nh_u = w2.split()
 
     # Return the L2 error
