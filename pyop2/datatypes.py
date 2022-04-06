@@ -1,6 +1,7 @@
 
 import ctypes
 
+import loopy as lp
 import numpy
 from petsc4py.PETSc import IntType, RealType, ScalarType
 
@@ -40,6 +41,16 @@ def as_ctypes(dtype):
             "uint64": ctypes.c_uint64,
             "float32": ctypes.c_float,
             "float64": ctypes.c_double}[numpy.dtype(dtype).name]
+
+
+def as_numpy_dtype(dtype):
+    """Convert a dtype-like object into a numpy dtype."""
+    if isinstance(dtype, numpy.dtype):
+        return dtype
+    elif isinstance(dtype, lp.types.NumpyType):
+        return dtype.numpy_dtype
+    else:
+        raise ValueError
 
 
 def dtype_limits(dtype):
