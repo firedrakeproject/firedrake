@@ -107,7 +107,7 @@ def sniff_compiler(exe):
         name = "GNU"
     elif output.startswith("clang"):
         name = "clang"
-    elif output.startswith("Apple LLVM"):
+    elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
         name = "clang"
     elif output.startswith("icc"):
         name = "Intel"
