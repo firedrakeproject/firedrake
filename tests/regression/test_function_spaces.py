@@ -115,3 +115,11 @@ def test_validation(modifier, element):
             FunctionSpace(UnitSquareMesh(1, 1), VectorElement(element))
         with pytest.raises(ValueError):
             FunctionSpace(UnitSquareMesh(1, 1), modifier(element))
+
+
+def test_VV_ne_VVV():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    W0 = V * V
+    W1 = V * V * V
+    assert W0 != W1
