@@ -304,3 +304,21 @@ def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
     accesses = tuple([access] + [op2.READ]*(nargs-1))
     return op2.Kernel(ast, name, accesses=accesses,
                       requires_zeroed_output_arguments=True, **kwargs)
+
+
+def extract_numbered_coefficients(expr, numbers):
+    """Return expression coefficients specified by a numbering.
+
+    :arg expr: A UFL expression.
+    :arg numbers: Iterable of indices used for selecting the correct coefficients
+        from ``expr``.
+    :returns: A list of UFL coefficients.
+    """
+    orig_coefficients = ufl.algorithms.extract_coefficients(expr)
+    coefficients = []
+    for coeff in (orig_coefficients[i] for i in numbers):
+        if type(coeff.ufl_element()) == ufl.MixedElement:
+            coefficients.extend(coeff.split())
+        else:
+            coefficients.append(coeff)
+    return coefficients
