@@ -210,7 +210,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                              name, index_names, log=log)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficients, needs_external_coords,
+                                self.coefficient_numbers, needs_external_coords,
                                 self.tabulations, name, args, count_flops(impero_c), event)
 
 
