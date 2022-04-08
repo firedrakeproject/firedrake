@@ -1055,7 +1055,7 @@ def build_and_install_petsc():
         # to workaround issues configuring PETSc on macos.
         #
         # Choosing 10.15 as the oldest MacOS version supported as at 2022-04-07
-        with environment(MACOSX_DEPLOYMENT_TARGET=10.15):
+        with environment(MACOSX_DEPLOYMENT_TARGET="10.15"):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
