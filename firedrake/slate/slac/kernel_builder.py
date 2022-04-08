@@ -870,7 +870,7 @@ class LocalLoopyKernelBuilder(object):
         knl = loopy.make_function(
             """{[i_0,i_1,i_2,i_3,i_4,i_5,i_6,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
                  0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16<n
-                 and 0<=i_6<=3*n}""",
+                 and 0<=i_6<=2*n}""",
             insns,
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
