@@ -462,7 +462,7 @@ class MacClangCompiler(Compiler):
 class MacClangARMCompiler(MacClangCompiler):
     """A compiler for building a shared library on ARM based Mac systems."""
     # See https://stackoverflow.com/q/65966969
-    _opt_flags = ("-O3", "-ffast-math", "-mcpu=apple-a14")
+    _optflags = ("-O3", "-ffast-math", "-mcpu=apple-a14")
 
 
 class LinuxGnuCompiler(Compiler):
