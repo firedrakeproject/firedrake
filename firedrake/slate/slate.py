@@ -1387,7 +1387,7 @@ class TensorShell(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tuple(arg.function_space() for arg in tensor.arguments()))
+        return tuple(arg.function_space() for arg in tensor.arguments())
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
