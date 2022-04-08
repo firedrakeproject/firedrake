@@ -106,7 +106,11 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
 
             elif isinstance(callee_insn, (CInstruction,
                     _DataObliviousInstruction)):
-                pass
+                # The layout of the args to a CInstructions is not going to be matched to the caller_kernel,
+                # they are appended with unmatched args.
+                # We only use Cinstructions exceptionally, e.g. for adding profile instructions,
+                # without arguments that required to be matched, so this is ok.
+                new_callee_insns.append(callee_insn)
             else:
                 raise NotImplementedError("Unknown instruction %s." %
                         type(insn))

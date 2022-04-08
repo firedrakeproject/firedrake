@@ -69,6 +69,7 @@ class LocalKernel(abc.ABC):
     :kwarg user_code: code snippet to be executed once at the very start of
         the generated kernel wrapper code (optional, defaults to
         empty)
+    :kwarg events: Tuple of log event names which are called in the C code of the local kernels
 
     Consider the case of initialising a :class:`~pyop2.Dat` with seeded random
     values in the interval 0 to 1. The corresponding :class:`~pyop2.Kernel` is
@@ -92,7 +93,8 @@ class LocalKernel(abc.ABC):
                  ldargs=(),
                  opts=None,
                  requires_zeroed_output_arguments=False,
-                 user_code=""):
+                 user_code="",
+                 events=()):
         self.code = code
         self.name = name
         self.accesses = accesses
@@ -104,6 +106,7 @@ class LocalKernel(abc.ABC):
         self.opts = opts or {}
         self.requires_zeroed_output_arguments = requires_zeroed_output_arguments
         self.user_code = user_code
+        self.events = events
 
     @property
     @abc.abstractmethod
