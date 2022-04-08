@@ -25,7 +25,7 @@ class Kernel(object):
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations",
                  "coefficient_numbers", "name", "__weakref__",
-                 "flop_count")
+                 "flop_count", "event")
     """A compiled Kernel object.
 
     :kwarg ast: The COFFEE ast for the kernel.
@@ -40,6 +40,7 @@ class Kernel(object):
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
     :kwarg flop_count: Estimated total flops for this kernel.
+    :kwarg event: name for logging event
     """
     def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
                  subdomain_id=None, domain_number=None,
@@ -47,7 +48,8 @@ class Kernel(object):
                  needs_cell_sizes=False,
                  tabulations=None,
                  flop_count=0,
-                 name=None):
+                 name=None,
+                 event=None):
         # Defaults
         self.ast = ast
         self.arguments = arguments
@@ -60,6 +62,7 @@ class Kernel(object):
         self.tabulations = tabulations
         self.flop_count = flop_count
         self.name = name
+        self.event = None
         super(Kernel, self).__init__()
 
 
@@ -226,7 +229,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx):
+    def construct_kernel(self, name, ctx, log=False):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument

@@ -23,6 +23,22 @@ from contextlib import contextmanager
 from tsfc.parameters import target
 
 
+def profile_insns(kernel_name, instructions, log=False):
+    if log:
+        event_name = "Log_Event_" + kernel_name
+        event_id_var_name = "ID_" + event_name
+        # Logging registration
+        # The events are registered in PyOP2 and the event id is passed onto the dll
+        preamble = "PetscLogEvent "+event_id_var_name+" = -1;"
+        # Profiling
+        prepend = [lp.CInstruction("", "PetscLogEventBegin("+event_id_var_name+",0,0,0,0);")]
+        append = [lp.CInstruction("", "PetscLogEventEnd("+event_id_var_name+",0,0,0,0);")]
+        instructions = prepend + instructions + append
+        return instructions, event_name, [(str(2**31-1)+"_"+kernel_name, preamble)]
+    else:
+        return instructions, None, None
+
+
 @singledispatch
 def _assign_dtype(expression, self):
     return set.union(*map(self, expression.children))
@@ -183,7 +199,7 @@ def active_indices(mapping, ctx):
 
 
 def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_names=[],
-             return_increments=True):
+             return_increments=True, log=False):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -192,6 +208,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg kernel_name: function name of the kernel
     :arg index_names: pre-assigned index names
     :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
+    :arg log: bool if the Kernel should be profiled with Log events
     :returns: loopy kernel
     """
     ctx = LoopyContext(target=target)
@@ -215,18 +232,21 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create instructions
     instructions = statement(impero_c.tree, ctx)
 
+    # Profile the instructions
+    instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
+
     # Create domains
     domains = create_domains(ctx.index_extent.items())
 
     # Create loopy kernel
     knl = lp.make_function(domains, instructions, data, name=kernel_name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
-                           lang_version=(2018, 2))
+                           lang_version=(2018, 2), preambles=preamble)
 
     # Prevent loopy interchange by loopy
     knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
 
-    return knl
+    return knl, event_name
 
 
 def create_domains(indices):
