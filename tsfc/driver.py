@@ -186,6 +186,9 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
+
+    orig_expression = expression
+
     # Map into reference space
     expression = apply_mapping(expression, ufl_element, domain)
 
@@ -208,16 +211,20 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         domain = expression.ufl_domain()
     assert domain is not None
 
-    # Collect required coefficients
-    first_coefficient_fake_coords = False
+    # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
+    orig_coefficients = extract_coefficients(orig_expression)
+    coefficient_numbers = tuple(orig_coefficients.index(c) for c in coefficients)
+    builder.set_coefficient_numbers(coefficient_numbers)
+
+    needs_external_coords = False
     if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient
         builder.set_cell_sizes(domain)
         coefficients = [coords_coefficient] + coefficients
-        first_coefficient_fake_coords = True
+        needs_external_coords = True
     builder.set_coefficients(coefficients)
 
     # Split mixed coefficients
@@ -260,7 +267,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(impero_c, index_names, first_coefficient_fake_coords, log=log)
+    return builder.construct_kernel(impero_c, index_names, needs_external_coords, log=log)
 
 
 class DualEvaluationCallable(object):
