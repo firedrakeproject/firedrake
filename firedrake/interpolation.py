@@ -289,7 +289,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
     kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
-                                domain=source_mesh, parameters=parameters)
+                                domain=source_mesh, parameters=parameters,
+                                log=PETSc.Log.isActive())
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
@@ -297,7 +298,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                        flop_count=kernel.flop_count)
+                        flop_count=kernel.flop_count, events=(kernel.event,))
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
@@ -391,12 +392,12 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters):
+def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters, log):
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
     # Since the caching is collective, this function must return a 2-tuple of
     # the form (comm, key) where comm is the communicator the cache is collective over.
     # FIXME FInAT elements are not safely hashable so we ignore them here
-    key = _hash_expr(expr), hash(ufl_element), utils.tuplify(parameters)
+    key = _hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
     return comm, key
 
 
