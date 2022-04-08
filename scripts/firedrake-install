@@ -563,6 +563,13 @@ If you really want to use your own Python packages, please run again with the
 """)
 
 
+def brew_gcc_libdir():
+    brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
+    brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
+    gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
+    return brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
+
+
 def get_petsc_options(minimal=False):
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
@@ -646,14 +653,10 @@ def get_petsc_options(minimal=False):
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
     elif osname == "Darwin":
-        brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
-        brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
-        gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
-        brew_gcc_libdir = brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
+        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
     if not minimal:
         for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
@@ -1656,6 +1659,10 @@ if blas_location == "download":
 if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
+if osname == "Darwin":
+    blas["LDFLAGS"] = "-L" + brew_gcc_libdir()
+    config["environment"]["PYOP2_LDFLAGS"] = "-L" + brew_gcc_libdir()
+
 log.info("BLAS config is %s" % blas)
 
 # Configuration is now complete, and we have a venv so we dump the

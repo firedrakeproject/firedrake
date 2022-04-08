@@ -13,6 +13,11 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
 elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
+if "PYOP2_LDFLAGS" in config["environment"]:
+    os.environ["PYOP2_LDFLAGS"] = " ".join(
+        (os.environ.get("PYOP2_LDFLAGS", default=""),
+         config["environment"]["PYOP2_LDFLAGS"])
+    )
 del sys, config
 
 # Ensure petsc is initialised by us before anything else gets in there.
