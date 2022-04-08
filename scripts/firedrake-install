@@ -627,13 +627,13 @@ def get_minimal_petsc_packages():
     pkgs.add("superlu_dist")
     # Parallel mesh partitioner
     pkgs.add("ptscotch")
+    # Sparse direct solver
+    pkgs.add("scalapack")  # Needed for mumps
+    pkgs.add("mumps")
     if not options["complex"]:
         # AMG
         pkgs.add("hypre")
     if options["petsc_int_type"] == "int32":
-        # Sparse direct solver
-        pkgs.add("scalapack")  # Needed for mumps
-        pkgs.add("mumps")
         # Serial mesh partitioner
         pkgs.add("chaco")
     return pkgs
