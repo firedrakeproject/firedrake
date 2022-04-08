@@ -243,6 +243,11 @@ def honour_petsc_dir_get_petsc_int_type():
         return "int32"
 
 
+def honour_petsc_dir_get_petsc_packages():
+    line = honour_petsc_dir_fetch_petscconf("#define PETSC_HAVE_PACKAGES")
+    return set(line.split()[2].strip().strip(':"').split(':'))
+
+
 if mode == "install":
     # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
@@ -614,25 +619,38 @@ def brew_gcc_libdir():
     return brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
 
 
+def get_minimal_petsc_packages():
+    pkgs = set()
+    # File format
+    pkgs.add("hdf5")
+    # Sparse direct solver
+    pkgs.add("superlu_dist")
+    # Parallel mesh partitioner
+    pkgs.add("ptscotch")
+    if not options["complex"]:
+        # AMG
+        pkgs.add("hypre")
+    if options["petsc_int_type"] == "int32":
+        # Sparse direct solver
+        pkgs.add("scalapack")  # Needed for mumps
+        pkgs.add("mumps")
+        # Serial mesh partitioner
+        pkgs.add("chaco")
+    return pkgs
+
+
 def get_petsc_options(minimal=False):
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
                      "--with-c2html=0",
                      "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
-                     # File format
-                     "--download-hdf5",
-                     # AMG
-                     "--download-hypre",
-                     # Sparse direct solver
-                     "--download-superlu_dist",
-                     # Parallel mesh partitioner
-                     "--download-ptscotch",
                      # Parser generator
                      "--download-bison",
                      # For superlu_dist amongst others.
                      "--with-cxx-dialect=C++11"}
-
+    for pkg in get_minimal_petsc_packages():
+        petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
     elif osname == "Linux":
@@ -658,11 +676,6 @@ def get_petsc_options(minimal=False):
             petsc_options.add("--download-parmetis")
 
     if options["petsc_int_type"] == "int32":
-        # Sparse direct solver
-        petsc_options.add("--download-scalapack")  # Needed for mumps
-        petsc_options.add("--download-mumps")
-        # Serial mesh partitioner
-        petsc_options.add("--download-chaco")
         if not options["minimal_petsc"]:
             # AMG
             petsc_options.add("--download-ml")
@@ -670,7 +683,6 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-hypre'}
         petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
 
@@ -716,22 +728,6 @@ def get_petsc_options(minimal=False):
                  "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
                  "to have PETSc built against $HDF5_DIR.")
     return list(petsc_options)
-
-
-def get_petsc_packages(minimal=False):
-    if minimal:
-        packages = set([
-            "blaslapack", "chaco", "eigen3", "hdf5", "hypre", "mathlib",
-            "mpi", "mumps", "ptscotch", "scalapack", "superlu_dist"
-        ])
-    else:
-        petsc_dir, petsc_arch = get_petsc_dir()
-        with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
-            for line in fh.readlines():
-                if line.startswith("#define PETSC_HAVE_PACKAGES"):
-                    packages = set(line.split()[2].strip().strip(':"').split(':'))
-                    break
-    return packages
 
 
 def get_petsc_config():
@@ -1465,8 +1461,9 @@ log.debug(check_output(["env"]))
 log.debug("\n\n")
 
 if mode == "install" and args.honour_petsc_dir:
-    minimal_packages = get_petsc_packages(minimal=True)
-    current_packages = get_petsc_packages()
+    minimal_packages = get_minimal_petsc_packages()
+    minimal_packages.update({"blaslapack", "eigen3", "mathlib", "mpi"})
+    current_packages = honour_petsc_dir_get_petsc_packages()
     log.debug("*****************************************************")
     log.debug("Specified PETSc was built with the following options:")
     log.debug("*****************************************************\n")
@@ -1483,7 +1480,8 @@ if mode == "install" and args.honour_petsc_dir:
         log.error("*********************************************************************\n")
         log.error("\n".join(sorted(get_petsc_options(minimal=True))))
         log.error("")
-        log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
+        if "eigen3" in (minimal_packages - current_packages):
+            log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
         log.error('Use --show-petsc-configure-options as an argument to the firedrake-install script to display options if additional functionality is required.\n ')
         log.error("FATAL: Unable to install with specified PETSc")
         exit(1)
