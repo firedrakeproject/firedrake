@@ -330,7 +330,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
-            self._function_arg = ufl.zero()
+            self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
             if g.ufl_shape != self.function_space().ufl_element().value_shape():
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")

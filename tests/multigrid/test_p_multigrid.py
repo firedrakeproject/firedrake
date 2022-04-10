@@ -26,6 +26,36 @@ def test_reconstruct_degree():
             assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+def test_prolongation_matrix_matfree():
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+
+    tol = 1E-14
+    meshes = [UnitSquareMesh(3, 2, quadrilateral=True)]
+    meshes.append(ExtrudedMesh(meshes[0], layers=2))
+    for mesh in meshes:
+        ndim = mesh.topological_dimension()
+        b = Constant(list(range(ndim)))
+        mat = diag(Constant([ndim+1]*ndim)) + Constant([[-1]*ndim]*ndim)
+        expr = dot(mat, SpatialCoordinate(mesh)) + b
+
+        variant = None
+        cell = mesh.ufl_cell()
+        elems = []
+        elems.append(VectorElement(FiniteElement("Q", cell=cell, degree=3, variant=variant)))
+        elems.append(FiniteElement("NCF" if ndim == 3 else "RTCF", cell=cell, degree=2, variant=variant))
+        elems.append(FiniteElement("NCE" if ndim == 3 else "RTCE", cell=cell, degree=2, variant=variant))
+        fs = [FunctionSpace(mesh, e) for e in elems]
+        us = [Function(V) for V in fs]
+        us[0].interpolate(expr)
+        for u in us:
+            for v in us:
+                if u != v:
+                    v.assign(zero(v.ufl_shape))
+                    P = prolongation_matrix_matfree(v, u).getPythonContext()
+                    P._prolong()
+                    assert norm(v-expr, "L2") < tol
+
+
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
 def mesh(request):
     if request.param == "triangles":
@@ -44,7 +74,6 @@ def mat_type(request):
     return request.param
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -92,7 +121,6 @@ def test_p_multigrid_scalar(mesh, mat_type):
     assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
 
 
-@pytest.mark.skipcomplex
 def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 4)
 
@@ -256,7 +284,6 @@ def test_p_multigrid_mixed(mat_type):
     assert ctx_levels == 3
 
 
-@pytest.mark.skipcomplex
 def test_p_fas_scalar():
     mat_type = "matfree"
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
