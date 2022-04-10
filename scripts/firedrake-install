@@ -1410,11 +1410,6 @@ if "SLEPC_DIR" in os.environ and not args.honour_petsc_dir and options["slepc"]:
 your own SLEPc version, you must also build your own PETSc and run
 with --honour-petsc-dir.""")
 
-if platform.uname()[0] == "Darwin" and args.opencascade:
-    quit("""Sorry, automatically installing opencascade on OSX hasn't been
-implemented yet. (It's not a supported package in brew.)
-Please contact us to get this working.""")
-
 log.debug("Installer running with: %s" % sys.executable)
 log.debug("Python version: %s" % sys.version)
 
