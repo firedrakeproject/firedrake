@@ -58,6 +58,7 @@ cdef extern from "petscdmlabel.h" nogil:
 
 cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
+    int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
