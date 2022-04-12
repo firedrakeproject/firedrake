@@ -17,6 +17,8 @@ import loopy as lp
 from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
+from tsfc.loopy import profile_insns
+from petsc4py import PETSc
 
 
 class RemoveRestrictions(MultiFunction):
@@ -322,10 +324,10 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
     terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
-    calls_and_kernels = tuple((c, k) for terminal in terminal_tensors
-                              for c, k in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
-    if calls_and_kernels:  # tsfc may not give a kernel back
-        tsfc_calls, tsfc_kernels = zip(*calls_and_kernels)
+    calls_and_kernels_and_events = tuple((c, k, e) for terminal in terminal_tensors
+                                         for c, k, e in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+    if calls_and_kernels_and_events:  # tsfc may not give a kernel back
+        tsfc_calls, tsfc_kernels, tsfc_events = zip(*calls_and_kernels_and_events)
     else:
         tsfc_calls = ()
         tsfc_kernels = ()
@@ -334,18 +336,25 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     kernel_args = [output_arg] + args
     loopy_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
 
+    # Add profiling for inits
+    inits, slate_init_event, preamble_init = profile_insns("inits_"+name, inits, PETSc.Log.isActive())
+
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
 
+    # Add profiling for the whole kernel
+    insns, slate_wrapper_event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
+
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
+    preamble = preamble_init+preamble if preamble else []
     slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
                                      seq_dependencies=True, target=target,
-                                     lang_version=(2018, 2))
+                                     lang_version=(2018, 2), preambles=preamble)
 
     # Generate program from kernel, so that one can register kernels
     from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
@@ -363,4 +372,5 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
         if isinstance(slate_wrapper.callables_table[name], CallableKernel):
             slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
 
-    return slate_wrapper, tuple(kernel_args)
+    events = tsfc_events + (slate_wrapper_event, slate_init_event) if PETSc.Log.isActive() else ()
+    return slate_wrapper, tuple(kernel_args), events

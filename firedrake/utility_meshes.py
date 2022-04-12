@@ -34,7 +34,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
 
 
 @PETSc.Log.EventDecorator()
-def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD):
+def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """
     Generate a uniform mesh of an interval.
 
@@ -46,6 +46,7 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
          be the left boundary point).
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
@@ -66,7 +67,8 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
     coords = np.arange(left, right + 0.01 * dx, dx, dtype=np.double).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = mesh._from_cell_list(1, cells, coords, comm)
+    plex = mesh._from_cell_list(1, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
     # Apply boundary IDs
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
     coordinates = plex.getCoordinates()
@@ -79,40 +81,42 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
         if vcoord[0] == coords[-1]:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
-    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters)
+    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
+def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """
     Generate a uniform mesh of the interval [0,1].
 
     :arg ncells: The number of the cells over the interval.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
 
-    return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm)
+    return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD):
+def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic mesh of an interval.
 
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
 
     if ncells < 3:
         raise ValueError("1D periodic meshes with fewer than 3 \
 cells are not currently supported")
 
-    m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm)
+    m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm, name=name)
     coord_fs = VectorFunctionSpace(m, FiniteElement('DG', interval, 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
@@ -145,22 +149,23 @@ cells are not currently supported")
               "L": (cL, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates)
+    return mesh.Mesh(new_coordinates, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD):
+def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic mesh of the unit interval
 
     :arg ncells: The number of cells in the interval.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
-    return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm)
+    return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD):
+def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
     and [Lx, Ly] with ncells, that is periodic in the x-direction.
@@ -170,6 +175,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     :arg Ly: The width of the domain in the y-direction.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
 
     left = np.arange(ncells, dtype=np.int32)
@@ -181,7 +187,8 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     coords = np.array([X, Y]).T
 
     # a line of coordinates, with a looped topology
-    plex = mesh._from_cell_list(2, cells, coords, comm)
+    plex = mesh._from_cell_list(2, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
     mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters)
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
@@ -289,7 +296,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc).interpolate(mesh1.coordinates)
 
-    mash = mesh.Mesh(fc)
+    mash = mesh.Mesh(fc, name=name)
     topverts = Vc.cell_node_list[:, 1::2].flatten()
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
@@ -316,21 +323,23 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
 
 @PETSc.Log.EventDecorator()
-def UnitTriangleMesh(comm=COMM_WORLD):
+def UnitTriangleMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of the reference triangle
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = mesh._from_cell_list(2, cells, coords, comm)
-    return mesh.Mesh(plex, reorder=False)
+    plex = mesh._from_cell_list(2, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
+    return mesh.Mesh(plex, reorder=False, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
-                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
+                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -344,6 +353,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
         bottom right (``"left"``), or put in both diagonals (``"crossed"``).
+    :kwarg name: Optional name of the mesh.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -364,13 +374,15 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                                reorder=reorder,
                                diagonal=diagonal,
                                distribution_parameters=distribution_parameters,
-                               comm=comm)
+                               comm=comm,
+                               name=name)
 
 
 def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
                         reorder=None,
                         diagonal="left", distribution_parameters=None,
-                        comm=COMM_WORLD):
+                        comm=COMM_WORLD,
+                        name=mesh.DEFAULT_MESH_NAME):
     """Generate a rectangular mesh
 
     :arg xcoords: mesh points for the x direction
@@ -434,7 +446,8 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
             # two cells per cell above...
             cells = cells[:, idx].reshape(-1, 3)
 
-    plex = mesh._from_cell_list(2, cells, coords, comm)
+    plex = mesh._from_cell_list(2, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
 
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -460,11 +473,11 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -474,6 +487,7 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -486,11 +500,12 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
                          quadrilateral=quadrilateral,
                          diagonal=diagonal,
                          distribution_parameters=distribution_parameters,
-                         comm=comm)
+                         comm=comm,
+                         name=name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD):
+def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -499,6 +514,7 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -511,7 +527,8 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
                       quadrilateral=quadrilateral,
                       diagonal=diagonal,
                       distribution_parameters=distribution_parameters,
-                      comm=comm)
+                      comm=comm,
+                      name=name)
 
 
 @PETSc.Log.EventDecorator()
@@ -519,7 +536,8 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None,
                           distribution_parameters=None,
                           diagonal=None,
-                          comm=COMM_WORLD):
+                          comm=COMM_WORLD,
+                          name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -534,6 +552,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
         Not valid for quad meshes. Only used for direction ``"x"`` or direction ``"y"``.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -547,7 +566,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     """
 
     if direction == "both" and ny == 1 and quadrilateral:
-        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters)
+        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters, name=name)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
@@ -556,12 +575,12 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                                               quadrilateral=quadrilateral,
                                               reorder=reorder,
                                               distribution_parameters=distribution_parameters,
-                                              diagonal=diagonal, comm=comm)
+                                              diagonal=diagonal, comm=comm, name=name)
     if nx < 3 or ny < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name)
     coord_family = 'DQ' if quadrilateral else 'DG'
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
@@ -610,12 +629,12 @@ cells in each direction are not currently supported")
               "Ly": (cLy, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates)
+    return mesh.Mesh(new_coordinates, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -629,6 +648,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -643,13 +663,13 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
                                  quadrilateral=quadrilateral, reorder=reorder,
                                  distribution_parameters=distribution_parameters,
-                                 diagonal=diagonal, comm=comm)
+                                 diagonal=diagonal, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                            quadrilateral=False, distribution_parameters=None,
-                           diagonal=None, comm=COMM_WORLD):
+                           diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -662,6 +682,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -676,11 +697,11 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral,
                               distribution_parameters=distribution_parameters,
-                              diagonal=diagonal, comm=comm)
+                              diagonal=diagonal, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD):
+def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
@@ -691,6 +712,7 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
         to 1: cells are straight line segments)
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     if ncells < 3:
         raise ValueError("CircleManifoldMesh must have at least three cells")
@@ -701,26 +723,29 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = mesh._from_cell_list(1, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters)
+    plex = mesh._from_cell_list(1, cells, vertices, comm,
+                                mesh._generate_default_mesh_topology_name(name))
+    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters, name=name)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to circle
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords)
+        m = mesh.Mesh(new_coords, name=name)
     m._radius = radius
     return m
 
 
 @PETSc.Log.EventDecorator()
-def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of the unit disk in 2D
 
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD)."""
+        COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
+    """
     vertices = np.array([[0, 0],
                          [1, 0],
                          [1, 1],
@@ -740,7 +765,8 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
                       [0, 7, 8],
                       [0, 8, 1]], np.int32)
 
-    plex = mesh._from_cell_list(2, cells, vertices, comm)
+    plex = mesh._from_cell_list(2, cells, vertices, comm,
+                                mesh._generate_default_mesh_topology_name(name))
 
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -761,25 +787,27 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     return m
 
 
 @PETSc.Log.EventDecorator()
-def UnitTetrahedronMesh(comm=COMM_WORLD):
+def UnitTetrahedronMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of the reference tetrahedron.
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = mesh._from_cell_list(3, cells, coords, comm)
-    return mesh.Mesh(plex, reorder=False)
+    plex = mesh._from_cell_list(3, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
+    return mesh.Mesh(plex, reorder=False, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -854,7 +882,8 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     else:
         raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
 
-    plex = mesh._from_cell_list(3, cells, coords, comm)
+    plex = mesh._from_cell_list(3, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
 
     # Apply boundary IDs
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -882,11 +911,11 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
     plex.removeLabel("boundary_faces")
 
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of a cube
 
     :arg nx: The number of cells in the x direction
@@ -896,6 +925,7 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The boundary surfaces are numbered as follows:
 
@@ -907,11 +937,11 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
     * 6: plane z == L
     """
     return BoxMesh(nx, ny, nz, L, L, L, reorder=reorder, distribution_parameters=distribution_parameters,
-                   comm=comm)
+                   comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -920,6 +950,7 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The boundary surfaces are numbered as follows:
 
@@ -931,11 +962,11 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
     * 6: plane z == 1
     """
     return CubeMesh(nx, ny, nz, 1, reorder=reorder, distribution_parameters=distribution_parameters,
-                    comm=comm)
+                    comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -947,6 +978,7 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     for n in (nx, ny, nz):
         if n < 3:
@@ -975,7 +1007,8 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
              v0, v6, v4, v7,
              v0, v2, v6, v7]
     cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
-    plex = mesh._from_cell_list(3, cells, coords, comm)
+    plex = mesh._from_cell_list(3, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
     m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
     old_coordinates = m.coordinates
@@ -1026,12 +1059,12 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
               "hy": (hy, READ),
               "hz": (hz, READ)},
              is_loopy_kernel=True)
-    m1 = mesh.Mesh(new_coordinates)
+    m1 = mesh.Mesh(new_coordinates, name=name)
     return m1
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a periodic mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -1040,13 +1073,14 @@ def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
-    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm)
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
-                          distribution_parameters=None, comm=COMM_WORLD):
+                          distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -1065,6 +1099,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -1113,24 +1148,25 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
+    plex.setName(mesh._generate_default_mesh_topology_name(name))
 
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords)
+        m = mesh.Mesh(new_coords, name=name)
     m._radius = radius
     return m
 
 
 @PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
-                              distribution_parameters=None, comm=COMM_WORLD):
+                              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -1140,9 +1176,10 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
-                                 degree=degree, reorder=reorder, comm=comm)
+                                 degree=degree, reorder=reorder, comm=comm, name=name)
 
 
 # mesh is mainly used as a utility, so it's unnecessary to annotate the construction
@@ -1154,7 +1191,8 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          z0=0.8,
                          reorder=None,
                          distribution_parameters=None,
-                         comm=COMM_WORLD):
+                         comm=COMM_WORLD,
+                         name=mesh.DEFAULT_MESH_NAME):
     """Generate an octahedral approximation to the surface of the
     sphere.
 
@@ -1171,6 +1209,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise ValueError("Number of refinements must be a non-negative integer")
@@ -1208,12 +1247,13 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
+    plex.setName(mesh._generate_default_mesh_topology_name(name))
 
     # build the initial mesh
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     if degree > 1:
         # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)), name=name)
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -1265,7 +1305,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 @PETSc.Log.EventDecorator()
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                              hemisphere="both", z0=0.8, reorder=None,
-                             distribution_parameters=None, comm=COMM_WORLD):
+                             distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate an octahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -1280,12 +1320,13 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
                                 z0=z0,
                                 reorder=reorder,
-                                distribution_parameters=distribution_parameters, comm=comm)
+                                distribution_parameters=distribution_parameters, comm=comm, name=name)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -1417,7 +1458,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 @PETSc.Log.EventDecorator()
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
-                    reorder=None, distribution_parameters=None, comm=COMM_WORLD):
+                    reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -1428,6 +1469,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -1436,9 +1478,10 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         raise ValueError("Mesh coordinate degree must be at least 1")
 
     cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-    plex = mesh._from_cell_list(2, cells, coords, comm)
+    plex = mesh._from_cell_list(2, cells, coords, comm,
+                                mesh._generate_default_mesh_topology_name(name))
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
@@ -1452,7 +1495,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
 
 @PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
-                        distribution_parameters=None, comm=COMM_WORLD):
+                        distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
@@ -1461,14 +1504,15 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
-                           degree=degree, reorder=reorder, comm=comm)
+                           degree=degree, reorder=reorder, comm=comm, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
-              distribution_parameters=None, comm=COMM_WORLD):
+              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generate a toroidal mesh
 
     :arg nR: The number of cells in the major direction (min 3)
@@ -1479,6 +1523,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
     """
 
     if nR < 3 or nr < 3:
@@ -1507,15 +1552,16 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
-    plex = mesh._from_cell_list(2, cells, vertices, comm)
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    plex = mesh._from_cell_list(2, cells, vertices, comm,
+                                mesh._generate_default_mesh_topology_name(name))
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     return m
 
 
 @PETSc.Log.EventDecorator()
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1532,6 +1578,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -1615,7 +1662,8 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
-    plex = mesh._from_cell_list(2, cells, vertices, comm)
+    plex = mesh._from_cell_list(2, cells, vertices, comm,
+                                mesh._generate_default_mesh_topology_name(name))
 
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
@@ -1638,13 +1686,13 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     return m
 
 
 @PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
-                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD):
+                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
@@ -1658,6 +1706,7 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -1685,7 +1734,7 @@ cells in each direction are not currently supported")
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder,
                      distribution_parameters=distribution_parameters,
-                     diagonal=diagonal, comm=comm)
+                     diagonal=diagonal, comm=comm, name=name)
     coord_family = 'DQ' if quadrilateral else 'DG'
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
@@ -1728,4 +1777,4 @@ cells in each direction are not currently supported")
                                [1, 0]])
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
-    return mesh.Mesh(new_coordinates)
+    return mesh.Mesh(new_coordinates, name=name)
