@@ -44,6 +44,8 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
 
+    _variant = "fdm"
+
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
@@ -67,7 +69,7 @@ class FDMPC(PCBase):
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[0].function_space()
         element = V.ufl_element()
-        e_fdm = element.reconstruct(variant="fdm")
+        e_fdm = element.reconstruct(variant=self._variant)
 
         def interp_nullspace(I, nsp):
             if not nsp:
@@ -236,6 +238,7 @@ class FDMPC(PCBase):
         prealloc.setUp()
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
+
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
@@ -272,7 +275,7 @@ class FDMPC(PCBase):
         shift = get_axes_shift(V.finat_element) % ndim
 
         index_cell, nel = glonum_fun(V.cell_node_map())
-        index_coef, _ = glonum_fun(Gq.cell_node_map())
+        index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
@@ -329,41 +332,54 @@ class FDMPC(PCBase):
 
         # assemble the second order term and the zero-th order term if any,
         # discarding mixed derivatives and mixed components
+        mue = numpy.zeros((ncomp, ndim), dtype=PETSc.RealType)
+        bqe = numpy.zeros((ncomp,), dtype=PETSc.RealType)
         for e in range(nel):
             ie = numpy.reshape(index_cell(e), (ncomp//bsize, -1))
             je = index_coef(e)
             bce = bcflags[e]
 
             # get second order coefficient on this cell
-            mue = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro[je], axis=0))
+            if Gq is not None:
+                mue.flat[:] = numpy.sum(Gq.dat.data_ro[je], axis=0)
+            # get zero-th order coefficient on this cell
             if Bq is not None:
-                # get zero-th order coefficient on this cell
-                bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
+                bqe.flat[:] = numpy.sum(Bq.dat.data_ro[je], axis=0)
 
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
                 axes = numpy.roll(numpy.arange(ndim), -shift*k)
                 # for each component: compute the stiffness matrix Ae
-                muk = mue[k] if len(mue.shape) == 2 else mue
                 bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
 
-                # Ae = mue[k][0] Ahat + bqe[k] Bhat
-                Be = Afdm[axes[0]][0].copy()
-                Ae = Afdm[axes[0]][1+fbc[0]].copy()
-                Ae.scale(muk[0])
-                if Bq is not None:
-                    Ae.axpy(bqe[k], Be)
+                if Gq is not None:
+                    # Ae = mue[k][0] Ahat + bqe[k] Bhat
+                    Be = Afdm[axes[0]][0].copy()
+                    Ae = Afdm[axes[0]][1+fbc[0]].copy()
+                    Ae.scale(mue[k][0])
+                    if Bq is not None:
+                        Ae.axpy(bqe[k], Be)
 
-                if ndim > 1:
-                    # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
-                    Ae = Ae.kron(Afdm[axes[1]][0])
-                    Ae.axpy(muk[1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
-                    if ndim > 2:
-                        # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
-                        Be = Be.kron(Afdm[axes[1]][0])
-                        Ae = Ae.kron(Afdm[axes[2]][0])
-                        Ae.axpy(muk[2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+                    if ndim > 1:
+                        # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
+                        Ae = Ae.kron(Afdm[axes[1]][0])
+                        if Gq is not None:
+                            Ae.axpy(mue[k][1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
+
+                        if ndim > 2:
+                            # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
+                            Be = Be.kron(Afdm[axes[1]][0])
+                            Ae = Ae.kron(Afdm[axes[2]][0])
+                            if Gq is not None:
+                                Ae.axpy(mue[k][2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+                    Be.destroy()
+
+                elif Bq is not None:
+                    Ae = Afdm[axes[0]][0]
+                    for m in range(1, ndim):
+                        Ae = Ae.kron(Afdm[axes[m]][0])
+                    Ae.scale(bqe[k])
 
                 if static_condensation:
                     Ae = condense_element_mat(Ae, iset_interior, iset_facet)
@@ -371,7 +387,6 @@ class FDMPC(PCBase):
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
                 set_submat_csr(A, Ae, rows, imode)
                 Ae.destroy()
-                Be.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         if any(Dk is not None for Dk in Dfdm):
@@ -536,11 +551,12 @@ class FDMPC(PCBase):
             Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         # assemble second order coefficient
-        Q = firedrake.FunctionSpace(mesh, Qe)
-        q = firedrake.TestFunction(Q)
-        Gq = firedrake.Function(Q)
-        coefficients["Gq"] = Gq
-        assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
+        if not isinstance(alpha, ufl.constantvalue.Zero):
+            Q = firedrake.FunctionSpace(mesh, Qe)
+            q = firedrake.TestFunction(Q)
+            Gq = firedrake.Function(Q)
+            coefficients["Gq"] = Gq
+            assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
