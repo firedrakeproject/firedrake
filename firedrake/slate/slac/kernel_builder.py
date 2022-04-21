@@ -759,8 +759,8 @@ class LocalLoopyKernelBuilder(object):
                 insn = loopy.CallInstruction((output,), call,
                                              within_inames=frozenset(inames_dep),
                                              predicates=predicates, id=key)
-
-                yield insn, kinfo.kernel.code
+                event, = kinfo.events
+                yield insn, kinfo.kernel.code, event
 
 
 class SlateWrapperBag(object):

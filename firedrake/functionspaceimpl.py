@@ -669,7 +669,7 @@ class MixedFunctionSpace(object):
         return self._ufl_function_space
 
     def __eq__(self, other):
-        if not isinstance(other, MixedFunctionSpace):
+        if not isinstance(other, MixedFunctionSpace) or len(other) != len(self):
             return False
         return all(s == o for s, o in zip(self, other))
 

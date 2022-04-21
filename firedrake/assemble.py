@@ -312,6 +312,10 @@ def _check_inputs(form, tensor, bcs, diagonal):
     else:
         raise AssertionError
 
+    if any(c.dat.dtype != ScalarType for c in form.coefficients()):
+        raise ValueError("Cannot assemble a form containing coefficients where the "
+                         "dtype is not the PETSc scalar type.")
+
 
 def _zero_tensor(tensor, form, diagonal):
     rank = len(form.arguments())
