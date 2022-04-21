@@ -226,3 +226,13 @@ def test_two_form_assembler_cache(mesh):
     # changing form_compiler_parameters should increase the cache size
     assemble(a, form_compiler_parameters={"quadrature_degree": 2})
     assert len(a._cache[_FORM_CACHE_KEY]) == 4
+
+
+def test_assemble_only_valid_with_floats(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V, dtype=np.int32)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = dot(f*u, v) * dx
+    with pytest.raises(ValueError):
+        assemble(a)

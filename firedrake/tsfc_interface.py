@@ -47,7 +47,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes",
-                                     "arguments"])
+                                     "arguments",
+                                     "events"])
 
 
 class TSFCKernel(Cached):
@@ -137,17 +138,19 @@ class TSFCKernel(Cached):
             return
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface, coffee=coffee,
-                                 diagonal=diagonal)
+                                 diagonal=diagonal, log=PETSc.Log.isActive())
         kernels = []
         for kernel in tree:
             # Set optimization options
             opts = default_parameters["coffee"].copy()
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
+            events = (kernel.event,)
             pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
                                                  len(kernel.arguments),
                                                  flop_count=kernel.flop_count,
-                                                 opts=opts)
+                                                 opts=opts,
+                                                 events=events)
             kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
@@ -157,7 +160,8 @@ class TSFCKernel(Cached):
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes,
-                                      arguments=kernel.arguments))
+                                      arguments=kernel.arguments,
+                                      events=events))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -304,3 +308,21 @@ def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
     accesses = tuple([access] + [op2.READ]*(nargs-1))
     return op2.Kernel(ast, name, accesses=accesses,
                       requires_zeroed_output_arguments=True, **kwargs)
+
+
+def extract_numbered_coefficients(expr, numbers):
+    """Return expression coefficients specified by a numbering.
+
+    :arg expr: A UFL expression.
+    :arg numbers: Iterable of indices used for selecting the correct coefficients
+        from ``expr``.
+    :returns: A list of UFL coefficients.
+    """
+    orig_coefficients = ufl.algorithms.extract_coefficients(expr)
+    coefficients = []
+    for coeff in (orig_coefficients[i] for i in numbers):
+        if type(coeff.ufl_element()) == ufl.MixedElement:
+            coefficients.extend(coeff.split())
+        else:
+            coefficients.append(coeff)
+    return coefficients

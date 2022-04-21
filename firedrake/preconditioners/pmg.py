@@ -6,6 +6,7 @@ from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
 from firedrake.solving_utils import _SNESContext
+from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c
 from firedrake.petsc import PETSc
 import firedrake
@@ -499,15 +500,15 @@ def prolongation_transfer_kernel_action(Vf, expr):
     from tsfc import compile_expression_dual_evaluation
     from tsfc.finatinterface import create_element
     to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
-    coefficients = kernel.coefficients
-    if kernel.first_coefficient_fake_coords:
-        target_mesh = Vf.ufl_domain()
-        coefficients[0] = target_mesh.coordinates
+    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
+    coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
+    if kernel.needs_external_coords:
+        coefficients = [Vf.ufl_domain().coordinates] + coefficients
 
     return op2.Kernel(kernel.ast, kernel.name,
                       requires_zeroed_output_arguments=True,
-                      flop_count=kernel.flop_count), coefficients
+                      flop_count=kernel.flop_count,
+                      events=(kernel.event,)), coefficients
 
 
 @lru_cache(maxsize=10)
