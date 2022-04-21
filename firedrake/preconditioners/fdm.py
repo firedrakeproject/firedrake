@@ -144,7 +144,7 @@ class FDMPC(PCBase):
         fdmpc.setDM(fdm_dm)
         fdmpc.setOptionsPrefix(options_prefix)
         fdmpc.setOperators(A=Amat, P=Pmat)
-        fdmpc.setUseAmat(True)
+        fdmpc.setUseAmat(PETSc.Options(options_prefix).getBool("use_amat", True))
         self.pc = fdmpc
 
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
