@@ -61,7 +61,7 @@ The corresponding Python code is:
   exact = Function(V)
   x, y = SpatialCoordinate(m)
   exact.interpolate(y - 0.5)
-  print sqrt(assemble((u - exact)*(u - exact)*dx))
+  print(sqrt(assemble((u - exact)*(u - exact)*dx)))
 
 Setting and retrieving the value of a function in `R`
 -----------------------------------------------------

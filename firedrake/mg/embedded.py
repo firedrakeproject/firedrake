@@ -4,6 +4,7 @@ from functools import reduce
 from enum import IntEnum
 from operator import and_
 from firedrake.petsc import PETSc
+from firedrake.embedding import get_embedding_dg_element
 
 
 __all__ = ("TransferManager", )
@@ -24,26 +25,7 @@ class TransferManager(object):
 
         :arg element: The element to use for the caching."""
         def __init__(self, element):
-            cell = element.cell()
-            degree = element.degree()
-            family = lambda c: "DG" if c.is_simplex() else "DQ"
-            if isinstance(cell, ufl.TensorProductCell):
-                if type(degree) is int:
-                    scalar_element = ufl.FiniteElement("DQ", cell=cell, degree=degree)
-                else:
-                    scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
-                                                                for (c, d) in zip(cell.sub_cells(), degree)))
-            else:
-                scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
-            shape = element.value_shape()
-            if len(shape) == 0:
-                DG = scalar_element
-            elif len(shape) == 1:
-                shape, = shape
-                DG = ufl.VectorElement(scalar_element, dim=shape)
-            else:
-                DG = ufl.TensorElement(scalar_element, shape=shape)
-            self.embedding_element = DG
+            self.embedding_element = get_embedding_dg_element(element)
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
             self._V_approx_inv_mass = {}

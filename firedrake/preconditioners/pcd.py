@@ -1,5 +1,3 @@
-import functools
-
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 
@@ -41,9 +39,9 @@ class PCDPC(PCBase):
        but sub-optimal for in and outflow boundaries.
     """
     def initialize(self, pc):
-        from firedrake import TrialFunction, TestFunction, dx, \
-            assemble, inner, grad, split, Constant, parameters
-        from firedrake.assemble import allocate_matrix
+        from firedrake import (TrialFunction, TestFunction, dx, inner,
+                               grad, split, Constant, parameters)
+        from firedrake.assemble import allocate_matrix, assemble, TwoFormAssembler
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "pcd_"
@@ -115,12 +113,8 @@ class PCDPC(PCBase):
         self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
                                   mat_type=self.Fp_mat_type,
                                   options_prefix=prefix + "Fp_")
-        self._assemble_Fp = functools.partial(assemble,
-                                              fp,
-                                              tensor=self.Fp,
-                                              form_compiler_parameters=context.fc_params,
-                                              mat_type=self.Fp_mat_type,
-                                              assembly_type="residual")
+        self._assemble_Fp = TwoFormAssembler(fp, tensor=self.Fp,
+                                             form_compiler_parameters=context.fc_params).assemble
         self._assemble_Fp()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]

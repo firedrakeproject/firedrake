@@ -377,3 +377,31 @@ def test_bcs_string_bc_list():
     DirichletBC(V, Constant(1), "bottom").apply(u1)
 
     assert np.allclose(u0.dat.data, u1.dat.data)
+
+
+def test_bcs_mixed_real():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "R", 0)
+    V = V0 * V1
+    v0, v1 = TestFunctions(V)
+    u0, u1 = TrialFunctions(V)
+    bc = DirichletBC(V.sub(0), 0.0, 1)
+    a = inner(u1, v0) * dx + inner(u0, v1) * dx
+    A = assemble(a, bcs=[bc, ])
+    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
+    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+
+
+def test_bcs_mixed_real_vector():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V0 = VectorFunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "R", 0)
+    V = V0 * V1
+    v0, v1 = TestFunctions(V)
+    u0, u1 = TrialFunctions(V)
+    bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
+    a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
+    A = assemble(a, bcs=[bc, ])
+    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
+    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
