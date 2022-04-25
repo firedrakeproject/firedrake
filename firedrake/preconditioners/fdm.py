@@ -55,6 +55,7 @@ class FDMPC(PCBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
+        use_amat = PETSc.Options(options_prefix).getBool("pc_use_amat", True)
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -98,21 +99,22 @@ class FDMPC(PCBase):
             J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-            self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
-                                     options_prefix=options_prefix)
-            self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                       form_compiler_parameters=fcp, mat_type=mat_type)
-            self._assemble_A()
-            Amat = self.A.petscmat
 
             omat, _ = pc.getOperators()
-            inject = prolongation_matrix_matfree(V_fdm, V, [], [])
-            Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
-            Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
-            Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
-            self.work_vec_x = Amat.createVecLeft()
-            self.work_vec_y = Amat.createVecRight()
+            if use_amat:
+                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
+                                         options_prefix=options_prefix)
+                self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
+                                           form_compiler_parameters=fcp, mat_type=mat_type)
+                self._assemble_A()
+                Amat = self.A.petscmat
+                inject = prolongation_matrix_matfree(V_fdm, V, [], [])
+                Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
+                Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
+                Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
 
+            self.work_vec_x = omat.createVecLeft()
+            self.work_vec_y = omat.createVecRight()
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                               fcp=fcp, options_prefix=options_prefix)
 
@@ -144,7 +146,7 @@ class FDMPC(PCBase):
         fdmpc.setDM(fdm_dm)
         fdmpc.setOptionsPrefix(options_prefix)
         fdmpc.setOperators(A=Amat, P=Pmat)
-        fdmpc.setUseAmat(PETSc.Options(options_prefix).getBool("use_amat", True))
+        fdmpc.setUseAmat(use_amat)
         self.pc = fdmpc
 
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):

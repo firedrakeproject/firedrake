@@ -866,8 +866,7 @@ def get_permuted_map(V):
     for k in range(permutation.shape[0]):
         permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, shift*k)), pshape[1:])
 
-    permutation = numpy.reshape(permutation, (-1,))
-    return PermutedMap(V.cell_node_map(), permutation)
+    return PermutedMap(V.cell_node_map(), permutation.flat)
 
 
 def interior_facet_decomposition(pshape):
@@ -944,8 +943,8 @@ class StandaloneInterpolationMatrix(object):
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
 
-        Works by tabulating the coarse 1D Lagrange basis
-        functions as the (fdegree+1)-by-(cdegree+1) matrix Jhat,
+        Works by tabulating the coarse 1D basis functions
+        as the (fdegree+1)-by-(cdegree+1) matrix Jhat,
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
