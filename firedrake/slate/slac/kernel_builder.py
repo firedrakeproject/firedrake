@@ -776,6 +776,10 @@ class LocalLoopyKernelBuilder(object):
         max_it = getattr(expr.ctx, "max_it")
         preconditioned = bool(prec)
 
+        assert int(max_it)<10*shape[0], f"The local solver is looping up to 10*{shape[0]}." \
+                                         "Your max_it value is higher than that." \
+                                         "If you actually want to limit the run choose a lower max_it."
+
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
 
