@@ -56,6 +56,8 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         use_amat = PETSc.Options(options_prefix).getBool("pc_use_amat", True)
+        use_ainv = PETSc.Options(options_prefix).getString("pc_type") == "mat"
+        self.use_ainv = use_ainv
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -198,36 +200,11 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-        from firedrake.preconditioners.pmg import get_line_elements
-        try:
-            e = V.ufl_element()
-            if isinstance(e, ufl.RestrictedElement):
-                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
-                line_elements = get_line_elements(Ve)
-            else:
-                line_elements = get_line_elements(V)
-        except ValueError:
-            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
-        degree = max(e.degree() for e in line_elements)
-        eta = float(appctx.get("eta", degree*(degree+1)))
-        quad_degree = 2*degree+1
-        element = V.finat_element
-        is_dg = element.entity_dofs() == element.entity_closure_dofs()
-
-        Afdm = []  # sparse interval mass and stiffness matrices for each direction
-        Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
-        for e in line_elements:
-            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
-            if not (e.formdegree or is_dg):
-                Dfdm[0] = None
+        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(V, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
-        # set arbitrary non-zero coefficients for preallocation
-        for coef in coefficients.values():
-            with coef.dat.vec as cvec:
-                cvec.set(1.0E0)
 
         bcflags = get_weak_bc_flags(J)
 
@@ -247,6 +224,33 @@ class FDMPC(PCBase):
                              coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()
         return Pmat, assemble_P
+
+    def assemble_fdm_interval(self, V, appctx):
+        from firedrake.preconditioners.pmg import get_line_elements
+        try:
+            e = V.ufl_element()
+            if isinstance(e, ufl.RestrictedElement):
+                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
+                line_elements = get_line_elements(Ve)
+            else:
+                line_elements = get_line_elements(V)
+        except ValueError:
+            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+
+        degree = max(e.degree() for e in line_elements)
+        quad_degree = 2*degree+1
+        eta = float(appctx.get("eta", degree*(degree+1)))
+        element = V.finat_element
+        is_dg = element.entity_dofs() == element.entity_closure_dofs()
+
+        Afdm = []  # sparse interval mass and stiffness matrices for each direction
+        Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
+        for e in line_elements:
+            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            if not (e.formdegree or is_dg):
+                Dfdm[0] = None
+
+        return Afdm, Dfdm, quad_degree, eta
 
     def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags):
         """
@@ -602,6 +606,11 @@ class FDMPC(PCBase):
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
+
+        # set arbitrary non-zero coefficients for preallocation
+        for coef in coefficients.values():
+            with coef.dat.vec as cvec:
+                cvec.set(1.0E0)
         return coefficients, assembly_callables
 
 
