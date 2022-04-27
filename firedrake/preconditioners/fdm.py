@@ -231,12 +231,15 @@ class FDMPC(PCBase):
             e = V.ufl_element()
             if isinstance(e, ufl.RestrictedElement):
                 Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
-                line_elements = get_line_elements(Ve)
+                line_elements, shifts = get_line_elements(Ve)
             else:
-                line_elements = get_line_elements(V)
+                line_elements, shifts = get_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
-
+    
+        line_elements, = line_elements
+        self.axes_shift, = shifts
+        
         degree = max(e.degree() for e in line_elements)
         quad_degree = 2*degree+1
         eta = float(appctx.get("eta", degree*(degree+1)))
@@ -265,7 +268,7 @@ class FDMPC(PCBase):
         :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
-        from firedrake.preconditioners.pmg import get_axes_shift, interior_facet_decomposition
+        from firedrake.preconditioners.pmg import interior_facet_decomposition
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -278,7 +281,7 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
-        shift = get_axes_shift(V.finat_element) % ndim
+        shifts = self.axes_shifts
 
         index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
@@ -296,9 +299,9 @@ class FDMPC(PCBase):
             else:
                 raise ValueError("Cannot apply static condensation")
 
-        if shift:
+        if shift != (0,):
             assert ncomp == ndim
-            pshape = [tuple(numpy.roll(pshape, -shift*k)) for k in range(ncomp)]
+            pshape = [tuple(numpy.roll(pshape, -shift[k])) for k in range(ncomp)]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
@@ -354,7 +357,7 @@ class FDMPC(PCBase):
 
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
-                axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                axes = numpy.roll(numpy.arange(ndim), -shift[k])
                 # for each component: compute the stiffness matrix Ae
                 bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
@@ -421,7 +424,7 @@ class FDMPC(PCBase):
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
                 for k in range(ncomp):
-                    axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                    axes = numpy.roll(numpy.arange(ndim), -shift[k])
                     Dfacet = Dfdm[axes[0]]
                     if Dfacet is None:
                         continue
