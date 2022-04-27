@@ -398,7 +398,7 @@ def test_slate_hybridization_jacobi_prec_schur():
     NOTE With the setup in this test, using jacobi as apreconditioner to the
     schur complement matrix the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 17.13 to 16.71
-    
+
     NOTE We can't do this locally matfree because we don't know
     how to implement diag(Schur complement) in a matrix-free way
     """
@@ -481,7 +481,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
-                                               'pc_fieldsplit_type': 'schur',       
+                                               'pc_fieldsplit_type': 'schur',
                                                'fieldsplit_0_ksp_rtol': 1e-12,
                                                'fieldsplit_0_ksp_atol': 1e-12,
                                                'fieldsplit_1': {'ksp_type': 'default',
@@ -591,7 +591,7 @@ def test_slate_hybridization_full_local_prec():
 
     # setup second solver
     w2 = Function(W)
-    
+
     aij_params = {'ksp_type': 'preonly',
                   'pc_type': 'python',
                   'mat_type': 'matfree',
