@@ -838,7 +838,8 @@ class LocalLoopyKernelBuilder(object):
               f"""{z}[:] = action_P({P}[:], r[:]){{dep=residual0, id=z0}}""" if diagonal else
               f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
-                  {p}[i_4] = -{z}[i_4] {{dep=z0, id=projector0}}
+                  <> temp = 0  {{dep=z0, id=temp}}
+                  {p}[i_4] = -{z}[i_4] {{dep=temp, id=projector0}}
                   <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
                   rk_norm = rk_norm + r[i_5]*{z}[i_5] {{dep=projector0, id=rk_norm1}}
                   for i_c
@@ -860,7 +861,7 @@ class LocalLoopyKernelBuilder(object):
               f"""  {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_c}}"""),
              f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + r[i_9]*{z}[i_9] {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+                    rkp1_norm = rkp1_norm + abs(r[i_9]*{z}[i_9]) {{dep=rkp1_norm0, id={stop_criterion_dep}}}
              """,
              stop_criterion,
              f"""
@@ -868,8 +869,14 @@ class LocalLoopyKernelBuilder(object):
                     rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
                     {p}[i_10] = beta * {p}[i_10] - {z}[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_c}}
-                  end
-                  {output}[i_11] = {x}[i_11] {{dep=Aonp0, id=out}}
+                    temp = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
+                  end""",
+            loopy.CInstruction("",
+                                  f"if (temp==10*{shape[0]}) PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has diverged. Loop ended with %d.\\n\", temp);",  # should we exit() here?
+                                  read_variables=["n"],
+                                  depends_on="tempk",
+                                  id="print"),
+            f"""      {output}[i_11] = {x}[i_11] {{dep=print, id=out}}
              """]
                     
         insns, event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
