@@ -1656,7 +1656,6 @@ if blas_location is not None:
     blas["OPENBLAS"] = blas_location
 if osname == "Darwin":
     blas["LDFLAGS"] = "-L" + brew_gcc_libdir()
-    config["environment"]["PYOP2_LDFLAGS"] = "-L" + brew_gcc_libdir()
 
 log.info("BLAS config is %s" % blas)
 
