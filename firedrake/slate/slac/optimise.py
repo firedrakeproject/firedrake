@@ -383,8 +383,8 @@ def _push_mul_inverse(expr, self, state):
             preconditioner_l = None
             mat = child
             coeff = state.coeff
-        expr = (Solve(mat, coeff, preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.rtol) if state.pick_op
-                else Transpose(Solve(Transpose(mat), Transpose(coeff), preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.rtol)))
+        expr = (Solve(mat, coeff, preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.atol, max_it=expr.max_it) if state.pick_op
+                else Transpose(Solve(Transpose(mat), Transpose(coeff), preconditioner=preconditioner_l, rtol=expr.rtol, atol=expr.atol, max_it=expr.max_it)))
         # sometimes the solve constructor returns inverses (when the tensors are small enough)
         # so then we do not want to recurse futher into the node
         return expr if isinstance(expr, Mul) else self(expr, ActionBag(None, 1))
@@ -458,7 +458,7 @@ def _push_mul_solve(expr, self, state):
         new_rhs = Transpose(state.coeff)
         pushed_child = self(Solve(mat, new_rhs, matfree=self.action, Aonx=Aonx, Aonp=Aonp,
                                   preconditioner=expr.preconditioner, Ponr=Ponr, diag_prec=expr.diag_prec,
-                                  rtol=expr.rtol, atol=expr.atol),
+                                  rtol=expr.rtol, atol=expr.atol, max_it=expr.max_it),
                             ActionBag(None, flip(state.pick_op)))
         return Transpose(self(swapped_op, ActionBag(pushed_child, flip(state.pick_op))))
     else:
@@ -480,7 +480,7 @@ def _push_mul_solve(expr, self, state):
         return Solve(mat, self(self(rhs, state), state), matfree=self.action,
                      Aonx=Aonx, Aonp=Aonp,
                      preconditioner=expr.preconditioner, Ponr=Ponr, diag_prec=expr.diag_prec,
-                     rtol=expr.rtol, atol=expr.atol)
+                     rtol=expr.rtol, atol=expr.atol, max_it=expr.max_it)
 
 
 @_push_mul.register(Mul)

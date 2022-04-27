@@ -276,7 +276,7 @@ def _slate2gem_solve(expr, self):
             Ponr = None
         ctx = {'matfree': expr.matfree, 'Aonx': self(expr.Aonx),'Aonp': self(expr.Aonp),
                 'preconditioner': prec, 'Ponr': Ponr, "diag_prec": expr.diag_prec,
-               'rtol': expr.rtol, 'atol': expr.atol}
+               'rtol': expr.rtol, 'atol': expr.atol, 'max_it': expr.max_it}
         var = Solve(*children, ctx=MatfreeSolveContext(**ctx))
         self.gem2slate[var.name] = expr
         return var

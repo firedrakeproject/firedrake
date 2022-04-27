@@ -542,7 +542,7 @@ def test_slate_hybridization_full_local_prec():
 
     """
     # setup FEM
-    a, L, W = setup_poisson(1)
+    a, L, W = setup_poisson(0, True)
 
     # setup first solver
     w = Function(W)
@@ -561,15 +561,17 @@ def test_slate_hybridization_full_local_prec():
                                                'mat_type': 'matfree',
                                                'fieldsplit_0': {'ksp_type': 'default',
                                                                 'pc_type': 'jacobi',
-                                                                'ksp_rtol': 1e-12,
-                                                                'ksp_atol': 1e-12},
+                                                                'ksp_rtol': 1e-25,
+                                                                'ksp_atol': 1e-50,
+                                                                'ksp_max_it': 5},
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'python',
                                                                 'pc_python_type': __name__ + '.DGLaplacian',
                                                                 'aux_ksp_type': 'preonly',
                                                                 'aux_pc_type': 'jacobi',
-                                                                'ksp_rtol': 1e-10,
-                                                                'ksp_atol': 1e-10}}}}
+                                                                'ksp_rtol': 1e-25,
+                                                                'ksp_atol': 1e-50,
+                                                                'ksp_max_it': 5}}}}
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -597,6 +599,7 @@ def test_slate_hybridization_full_local_prec():
                   'hybridization': {'ksp_type': 'cg',
                                     'pc_type': 'none',
                                     'ksp_rtol': 1e-8,
+                                    'ksp_atol': 1e-8,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
     nh_sigma, nh_u = w2.split()
