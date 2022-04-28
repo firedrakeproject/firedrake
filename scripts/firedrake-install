@@ -1210,7 +1210,7 @@ def build_and_install_tinyasm():
 
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
-    url = "git+https://github.com/tpaviot/pythonocc-core.git"
+    url = "git+https://github.com/tpaviot/pythonocc-core.git@5169d6b65c099e38e2ba6d393898ad536fac462c"
     if not os.path.exists("pythonocc-core"):
         git_clone(url)
         with directory("pythonocc-core"):
