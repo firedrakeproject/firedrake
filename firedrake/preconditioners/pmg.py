@@ -500,14 +500,15 @@ def prolongation_transfer_kernel_action(Vf, expr):
     from tsfc import compile_expression_dual_evaluation
     from tsfc.finatinterface import create_element
     to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.ufl_domain().coordinates] + coefficients
 
     return op2.Kernel(kernel.ast, kernel.name,
                       requires_zeroed_output_arguments=True,
-                      flop_count=kernel.flop_count), coefficients
+                      flop_count=kernel.flop_count,
+                      events=(kernel.event,)), coefficients
 
 
 @lru_cache(maxsize=10)

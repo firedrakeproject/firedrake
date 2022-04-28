@@ -65,10 +65,10 @@ class ASMPatchPC(PCBase):
             if "sub_pc_factor_shift_type" not in opts:
                 opts["sub_pc_factor_shift_type"] = "NONE"
 
-            # Do not sort indices if we want to order the topological entities in the patch
-            ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default="NONE")
-            dosort = ordering == "NONE"
-            asmpc.setASMSortIndices(dosort)
+            # If an ordering type is provided, PCASM should not sort patch indices, otherwise it can.
+            sentinel = object()
+            ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default=sentinel)
+            asmpc.setASMSortIndices(ordering is sentinel)
 
             lgmap = V.dof_dset.lgmap
             # Translate to global numbers
@@ -294,6 +294,16 @@ class ASMLinesmoothPC(ASMPatchPC):
 
 
 def order_points(mesh_dm, points, ordering_type, prefix):
+    '''Order a the points (topological entities) of a patch based
+    on the adjacency graph of the mesh.
+
+    :arg mesh_dm: the `mesh.topology_dm`
+    :arg points: array with point indices forming the patch
+    :arg ordering_type: a `PETSc.Mat.OrderingType`
+    :arg prefix: the prefix associated with additional ordering options
+
+    :returns: the permuted array of points
+    '''
     if ordering_type == "natural":
         return points
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
