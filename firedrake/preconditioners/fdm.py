@@ -236,10 +236,10 @@ class FDMPC(PCBase):
                 line_elements, shifts = get_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
-    
+
         line_elements, = line_elements
-        self.axes_shift, = shifts
-        
+        self.axes_shifts, = shifts
+
         degree = max(e.degree() for e in line_elements)
         quad_degree = 2*degree+1
         eta = float(appctx.get("eta", degree*(degree+1)))
@@ -281,7 +281,7 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
-        shifts = self.axes_shifts
+        shift = self.axes_shifts * bsize
 
         index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
@@ -299,7 +299,7 @@ class FDMPC(PCBase):
             else:
                 raise ValueError("Cannot apply static condensation")
 
-        if shift != (0,):
+        if set(shift) != {0}:
             assert ncomp == ndim
             pshape = [tuple(numpy.roll(pshape, -shift[k])) for k in range(ncomp)]
 

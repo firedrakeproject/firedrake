@@ -560,13 +560,27 @@ def expand_element(ele):
         return ele
 
 
+def compare_dual(l1, l2):
+    if len(l1) != len(l2):
+        return False
+    for b1, b2 in zip(l1, l2):
+        p1 = b1.get_point_dict()
+        p2 = b2.get_point_dict()
+        if len(p1) != len(p2):
+            return False
+        for k1, k2 in zip(p1.keys(), p2.keys()):
+            if not (numpy.isclose(k1, k2, rtol=1E-16, atol=1E-16) and p1[k1] == p2[k2]):
+                return False
+    return True
+
+
 def get_line_elements(V):
     from FIAT.reference_element import LINE
     from tsfc.finatinterface import create_element
     ele = V.ufl_element()
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
-    
+
     ele = expand_element(ele)
     finat_ele = create_element(ele)
     if finat_ele.space_dimension() != V.finat_element.space_dimension():
@@ -574,9 +588,6 @@ def get_line_elements(V):
 
     def cyclic_perm(a):
         return [a[i:] + a[:i] for i in range(len(a))]
-    
-    def compare_elements(e1, e2):
-        return e1.dual_basis() == e2.dual_basis()
 
     permutations = []
     line_elements = []
@@ -589,12 +600,12 @@ def get_line_elements(V):
         if not all([e.get_reference_element().shape == LINE for e in expansion]):
             raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
 
-        shift = -1 
+        shift = -1
         for k, perm in enumerate(permutations):
-            if all([compare_elements(e1, e2) for e1, e2 in zip(perm, expansion)]):
+            if all([compare_dual(e1.dual_basis(), e2.dual_basis()) for e1, e2 in zip(perm, expansion)]):
                 shift = len(expansion)-k
-                axes_shifts[-1] = axes_shifts[-1] + (shift, ) 
-            
+                axes_shifts[-1] = axes_shifts[-1] + (shift, )
+
         if shift == -1:
             line_elements.append(expansion)
             axes_shifts.append((0, ))
@@ -606,11 +617,11 @@ def get_line_elements(V):
 @lru_cache(maxsize=10)
 def get_line_interpolator(felem, celem):
     from FIAT import functional, make_quadrature
+
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
-    if len(fdual) == len(cdual):
-        if all(f.get_point_dict() == c.get_point_dict() for f, c in zip(fdual, cdual)):
-            return numpy.array([])
+    if compare_dual(fdual, cdual):
+        return numpy.array([])
 
     if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
@@ -628,11 +639,11 @@ kronmxv_code = """
 #include <petscsys.h>
 #include <petscblaslapack.h>
 
-static inline PetscBLASInt kronmxv(PetscBLASInt tflag,
+static inline void kronmxv_inplace(PetscBLASInt tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
-    PetscScalar *x, PetscScalar *y){
+    PetscScalar **x, PetscScalar **y){
 
 /*
 Kronecker matrix-vector product
@@ -652,7 +663,7 @@ The input data in x is destroyed in the process.
 Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
 */
 
-PetscScalar *ptr[2] = {x, y};
+PetscScalar *ptr[2] = {*x, *y};
 PetscScalar zero = 0.0E0, one = 1.0E0;
 PetscBLASInt m, n, k, s, p, lda;
 PetscBLASInt ires = 0;
@@ -689,31 +700,91 @@ if(A3){
     }
     ires = !ires;
 }
-return ires;
-}
-
-static inline void swap(PetscBLASInt ires, PetscScalar **x, PetscScalar **y){
 // Reassign pointers such that y always points to the result
-PetscScalar *ptr[2] = {*x, *y};
 *x = ptr[!ires];
 *y = ptr[ires];
 return;
 }
+
+static inline void kronmxv(PetscBLASInt tflag,
+    PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
+    PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
+    PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
+    PetscScalar *x, PetscScalar *y, PetscScalar *work){
+
+    PetscScalar *ptr[2] = {work, work + mx*my*mz*nel};
+
+    for(PetscBLASInt j=0; j<nx*ny*nz*nel; j++)
+        ptr[0][j] = x[j];
+
+    kronmxv_inplace(tflag, mx, my, mz, nx, ny, nz, nel, A1, A2, A3, &ptr[0], &ptr[1]);
+
+    for(PetscBLASInt j=0; j<mx*my*mz*nel; j++)
+        y[j] = ptr[1][j];
+    return;
+}
+
+static inline void permute_axis(PetscBLASInt axis,
+    PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
+    PetscScalar *x, PetscScalar *y){
+
+    PetscBLASInt p = 0;
+    PetscBLASInt s0, s1, s2, s3;
+    if (axis == 0){
+        s0 = 1; s1 = s0*n0; s2 = s1*n1; s3 = s2*n2;
+    }else if(axis == 1){
+        s1 = 1; s2 = s1*n1; s0 = s2*n2; s3 = s0*n0;
+    }else if(axis == 2){
+        s2 = 1; s0 = s2*n2; s1 = s0*n0; s3 = s1*n1;
+    }
+    for(PetscBLASInt i3=0; i3<n3; i3++)
+        for(PetscBLASInt i2=0; i2<n2; i2++)
+            for(PetscBLASInt i1=0; i1<n1; i1++)
+                for(PetscBLASInt i0=0; i0<n0; i0++)
+                    y[s0*i0 + s1*i1 + s2*i2 + s3*i3] = x[p++];
+    return;
+}
+
+static inline void ipermute_axis(PetscBLASInt axis,
+    PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
+    PetscScalar *x, PetscScalar *y){
+
+    PetscBLASInt p = 0;
+    PetscBLASInt s0, s1, s2, s3;
+    if (axis == 0){
+        s0 = 1; s1 = s0*n0; s2 = s1*n1; s3 = s2*n2;
+    }else if(axis == 1){
+        s1 = 1; s2 = s1*n1; s0 = s2*n2; s3 = s0*n0;
+    }else if(axis == 2){
+        s2 = 1; s0 = s2*n2; s1 = s0*n0; s3 = s1*n1;
+    }
+
+    for(PetscBLASInt i3=0; i3<n3; i3++)
+        for(PetscBLASInt i2=0; i2<n2; i2++)
+            for(PetscBLASInt i1=0; i1<n1; i1++)
+                for(PetscBLASInt i0=0; i0<n0; i0++)
+                    x[p++] += y[s0*i0 + s1*i1 + s2*i2 + s3*i3];
+    return;
+}
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
+def make_kron_code(Vf, Vc, t_in, t_out, mat_name, work_name):
+    operator_decl = ""
     prolong_code = ""
     restrict_code = ""
-    
+
     felems, fshifts = get_line_elements(Vf)
     celems, cshifts = get_line_elements(Vc)
-    
+
     vsize = Vf.value_size
-    swap_pointers = False
+    perm_name = "perm_%s" % t_in
+    perm_ptr = "ptr_%s" % t_in
+    in_place = False
+
     if len(felems) == len(celems):
         shifts = fshifts
-        swap_pointers = len(felems) == 1
+        in_place = len(felems) == 1
     else:
         if len(celems) == 1:
             celems = celems*len(felems)
@@ -721,21 +792,36 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
         elif len(felems) == 1:
             felems = felems*len(celems)
             shifts = cshifts
+            perm_name = "perm_%s" % t_out
         else:
             raise ValueError("Cannot assign fine to coarse DOFs")
 
+    if not in_place:
+        perm = sum(shifts, tuple())
+        perm_len = len(perm)
+        perm_data = ", ".join(map(str, perm))
+        operator_decl += f"""
+            PetscBLASInt {perm_name}[{perm_len}] = {{ {perm_data} }};
+            PetscBLASInt {perm_ptr} = 0;
+        """
+        clen = Vc.value_size * Vc.finat_element.space_dimension()
+        restrict_code += f"""
+            for({IntType_c} j=0; j<{clen}; j++) {t_in}[j] = 0.0E0;
+        """
+
+    fskip = 0
+    cskip = 0
     Jlen = 0
+
     Jmats = []
     fshapes = []
     cshapes = []
-    fskip = 0
-    cskip = 0
     for felem, celem, shift in zip(felems, celems, shifts):
         if len(felem) != len(celem):
             raise ValueError("Fine and coarse elements do not have the same number of factors")
         if len(felem) > 3:
             raise ValueError("More than three factors are not supported")
-        
+
         # Declare array shapes to be used as literals inside the kernels
         nscal = vsize*len(shift)
         fshape = [e.space_dimension() for e in felem]
@@ -754,45 +840,40 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
         Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
         fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
         cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
-        if swap_pointers:
+        if in_place:
             prolong_code = f"""
-            swap(kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}, {t_out}), &{t_in}, &{t_out});
+            kronmxv_inplace(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
             """
             restrict_code = f"""
-            swap(kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}, {t_in}), &{t_out}, &{t_in});
+            kronmxv_inplace(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
             """
-        else:
+        elif shifts == fshifts:
             cskip = vsize*numpy.prod(cshape)
-            perm_name = "perm_%s" % t_in 
-            perm_data = ", ".join(map(str, shift))
+            scratch = "%s+%d" % (work_name, cskip*len(shift))
             prolong_code += f"""
-            PetscBLASInt {perm_name}[{len(shift)}] = {{ {perm_data} }};
-            for (int j=0; j<{len(shift)}; j++)
-                permute_axis({perm_name}[j], {cargs}, {t_in}, {t_in}+(j+1)*{cskip});
-            
-            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip});
-            
+            for({IntType_c} j=0; j<{len(shift)}; j++)
+                permute_axis({perm_name}[{perm_ptr}++], {cargs}, {vsize}, {t_in}, {work_name}+j*{cskip});
+
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {work_name}, {t_out}+{fskip}, {scratch});
             """
 
             restrict_code += f"""
-            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip});
-            
-            PetscBLASInt {perm_name}[{len(shift)}] = {{ {perm_data} }};
-            for (int j=0; j<{len(shift)}; j++)
-                permute_axis_add({perm_name}[j], {cargs}, {t_in}+(j+1)*{cskip}, {t_in});
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {work_name}, {scratch});
+
+            for({IntType_c} j=0; j<{len(shift)}; j++)
+                ipermute_axis({perm_name}[{perm_ptr}++], {cargs}, {vsize}, {t_in}, {work_name}+j*{cskip});
             """
-        
-        if shifts == fshifts:
+
             fskip += nscal*numpy.prod(fshape)
-        if shifts == cshifts:
+        else:
+            raise NotImplementedError("TODO")
             cskip += nscal*numpy.prod(cshape)
 
     Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in Jmats])))
-    operator_decl = f"""
+    operator_decl += f"""
             PetscScalar {mat_name}[{Jlen}] = {{ {Jdata} }};
     """
     shapes = [tuple(map(max, zip(*fshapes))), tuple(map(max, zip(*cshapes)))]
-
     return operator_decl, prolong_code, restrict_code, shapes
 
 
@@ -1040,7 +1121,7 @@ class StandaloneInterpolationMatrix(object):
         coef_decl = ""
         if fmapping == cmapping:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2")
         else:
             decl = [""]*4
             prolong = [""]*5
@@ -1062,7 +1143,7 @@ class StandaloneInterpolationMatrix(object):
 
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space
-            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Vc, "t0", "t1", "J0")
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Vc, "t0", "t1", "J0", "t2")
 
             if mapping_output is not None:
                 # permute to FInAT ordering, and apply the mapping
@@ -1071,14 +1152,13 @@ class StandaloneInterpolationMatrix(object):
                 if not in_place_mapping:
                     # permute to Kronecker-friendly ordering and interpolate to fine space
                     decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1")
+                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1", "t2")
                     shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
             prolong_code = "".join(prolong)
             restrict_code = "".join(reversed(restrict))
 
-        lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         # FInAT elements order the component DOFs related to the same node contiguously.
         # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
@@ -1088,6 +1168,10 @@ class StandaloneInterpolationMatrix(object):
 
         fshape = (Vf.value_size, Vf.finat_element.space_dimension())
         cshape = (Vc.value_size, Vc.finat_element.space_dimension())
+
+        lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
+        lwork = max(lwork, max(numpy.prod(fshape), numpy.prod(cshape)))
+
         if cshape[0] == 1:
             coarse_read = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) t0[i] = x[i];"""
             coarse_write = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) x[i] += t0[i];"""
@@ -1123,9 +1207,10 @@ class StandaloneInterpolationMatrix(object):
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
                           const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}] = {{0.0E0}};
+            PetscScalar work[4][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
+            PetscScalar *t2 = work[2];
             {operator_decl}
             {coarse_read}
             {prolong_code}
@@ -1135,9 +1220,10 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}] = {{0.0E0}};
+            PetscScalar work[4][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
+            PetscScalar *t2 = work[2];
             {operator_decl}
             {fine_read}
             {restrict_code}
