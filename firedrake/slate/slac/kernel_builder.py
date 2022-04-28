@@ -874,8 +874,8 @@ class LocalLoopyKernelBuilder(object):
                     temp = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
                   end""",
             loopy.CInstruction("",
-                                  f"if (temp=={max_it_loop}) {{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. Loop ended with %d.\\n\", temp);;}}",  # should we exit() here?
-                                  read_variables=["n"],
+                                  f"if (temp=={max_it_loop}) {{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. Loop ended with %d.\\n\", temp); PetscFinalize(); exit(1);}}",
+                                  read_variables=["temp"],
                                   depends_on="tempk",
                                   id="print"),
             f"""      {output}[i_11] = {x}[i_11] {{dep=print, id=out}}
