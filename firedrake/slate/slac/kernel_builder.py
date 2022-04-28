@@ -775,10 +775,12 @@ class LocalLoopyKernelBuilder(object):
         prec = getattr(expr.ctx, "preconditioner")
         max_it = getattr(expr.ctx, "max_it")
         preconditioned = bool(prec)
+        max_it_loop = 10*shape[0]
 
-        assert int(max_it)<10*shape[0], f"The local solver is looping up to 10*{shape[0]}." \
-                                         "Your max_it value is higher than that." \
-                                         "If you actually want to limit the run choose a lower max_it."
+        if max_it:
+            assert int(max_it)<max_it_loop, f"The local solver is looping up to {max_it_loop}." \
+                                            "Your max_it value is higher than that." \
+                                            "If you actually want to limit the run choose a lower max_it."
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -872,7 +874,7 @@ class LocalLoopyKernelBuilder(object):
                     temp = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
                   end""",
             loopy.CInstruction("",
-                                  f"if (temp==10*{shape[0]}) PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has diverged. Loop ended with %d.\\n\", temp);",  # should we exit() here?
+                                  f"if (temp=={max_it_loop}) {{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. Loop ended with %d.\\n\", temp);;}}",  # should we exit() here?
                                   read_variables=["n"],
                                   depends_on="tempk",
                                   id="print"),
@@ -884,7 +886,7 @@ class LocalLoopyKernelBuilder(object):
         knl = loopy.make_function(
             """{[i_0,i_1,i_2,i_3,i_4,i_5,i_c,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
                  0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16<n
-                 and 0<=i_c<=10*n}""",
+                 and 0<=i_c<=m}""",
             insns,
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
@@ -900,6 +902,7 @@ class LocalLoopyKernelBuilder(object):
             preambles=preamble)
 
         # set the length of the indices to the size of the temporaries
+        knl = loopy.fix_parameters(knl, m=max_it_loop)
         knl = loopy.fix_parameters(knl, n=shape[0])
 
         # update gem to pym mapping
