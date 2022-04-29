@@ -1,0 +1,109 @@
+#! /usr/bin/env python3
+
+import argparse
+import functools
+import json
+
+import pandas as pd
+import plotly.express as px
+import pytest
+
+
+def known_args_only(func):
+    @functools.wraps(func)
+    def wrapper(args, unknown_args):
+        if unknown_args:
+            print(f"{__name__}: error: unrecognized arguments: {' '.join(unknown_args)}")
+            exit(1)
+        return func(args, unknown_args)
+    return wrapper
+
+
+def run(args, unknown_args):
+    cmd = ["--benchmark-warmup=on", "--benchmark-only", "--benchmark-autosave"] + unknown_args
+    pytest.main(cmd)
+
+
+@known_args_only
+def show(args, _):
+    data = parse_benchmarks(args.paths)
+    for benchmark, df in data.groupby("benchmark"):
+        breakpoint()
+        fig = px.line(df, x="commit_time", y="mean", error_y_minus=df["min"], error_y=df["max"],
+            title=benchmark, color="machine", markers=True
+            # hover_data=[]
+        )
+        fig.show()
+    breakpoint()
+    pass
+
+
+@known_args_only
+def publish(args, _):
+    raise NotImplementedError
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+
+    run_parser = subparsers.add_parser("run")
+    run_parser.set_defaults(func=run)
+
+    show_parser = subparsers.add_parser("show")
+    show_parser.add_argument("paths", type=str, nargs="+")
+    show_parser.set_defaults(func=show)
+
+    publish_parser = subparsers.add_parser("publish")
+    publish_parser.add_argument("paths", type=str, nargs="+")
+    publish_parser.set_defaults(func=publish)
+
+    return parser.parse_known_args()
+
+
+def parse_benchmarks(paths):
+    dfs = []
+    for path in paths:
+        # TODO add try except stuff and handle dirs as well as files
+        dfs.append(parse_benchmark(path))
+    return pd.concat(dfs, ignore_index=True)
+
+
+def parse_benchmark(file):
+    with open(file) as f:
+        raw = json.load(f)
+
+    data = []
+    machine_info = "_".join(
+        raw["machine_info"][key] for key in ["node", "machine", "release", "system"]
+    )
+    for benchmark in raw["benchmarks"]:
+        data.append({
+            "benchmark": benchmark["fullname"],
+            "mean": benchmark["stats"]["mean"],
+            "min": benchmark["stats"]["min"],
+            "max": benchmark["stats"]["max"],
+        })
+
+    df = pd.DataFrame(data)
+    df = df.assign(
+        filename= file,
+        machine=machine_info,
+        commit_id=raw["commit_info"]["id"],
+        commit_time=raw["commit_info"]["time"],
+        dirty=raw["commit_info"]["dirty"],
+        branch=raw["commit_info"]["branch"],
+    )
+    return df
+
+
+# def file_or_dir(path):
+#     if os.path.isdir(path):
+#         return path
+#     else:
+#         raise argparse.ArgumentTypeError(f"ERROR: file or directory not found: {path}")
+
+
+if __name__ == "__main__":
+    args, unknown_args = parse_args()
+    args.func(args, unknown_args)
