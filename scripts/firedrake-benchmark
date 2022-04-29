@@ -1,45 +1,51 @@
 #! /usr/bin/env python3
 
 import argparse
-import functools
 import json
+import os
+import sys
+import warnings
 
+import dash
+from dash import html, dcc
 import pandas as pd
 import plotly.express as px
 import pytest
 
 
-def known_args_only(func):
-    @functools.wraps(func)
-    def wrapper(args, unknown_args):
-        if unknown_args:
-            print(f"{__name__}: error: unrecognized arguments: {' '.join(unknown_args)}")
-            exit(1)
-        return func(args, unknown_args)
-    return wrapper
-
-
-def run(args, unknown_args):
-    cmd = ["--benchmark-warmup=on", "--benchmark-only", "--benchmark-autosave"] + unknown_args
-    pytest.main(cmd)
-
-
-@known_args_only
-def show(args, _):
-    data = parse_benchmarks(args.paths)
-    for benchmark, df in data.groupby("benchmark"):
-        breakpoint()
-        fig = px.line(df, x="commit_time", y="mean", error_y_minus=df["min"], error_y=df["max"],
-            title=benchmark, color="machine", markers=True
-            # hover_data=[]
-        )
-        fig.show()
-    breakpoint()
+class InvalidFileError(Exception):
     pass
 
 
-@known_args_only
-def publish(args, _):
+def run(args):
+    _, pytest_args = split_args(sys.argv[1:])
+    cmd = ["--benchmark-warmup=on", "--benchmark-only", "--benchmark-autosave"] + pytest_args
+    pytest.main(cmd)
+
+
+def show(args):
+    """Launch a web application displaying the benchmark data."""
+    app = dash.Dash(__name__)
+
+    data = parse_benchmarks(args.path)
+    plots = []
+    for benchmark, df in data.groupby("benchmark"):
+        fig = plot_benchmark(benchmark, df)
+        fig.write_html(f"{benchmark}.html")
+        plots.append(dcc.Graph(id=benchmark, figure=fig))
+
+    app.layout = html.Div(children=plots)
+    app.run_server()
+
+
+def export(args):
+    """Export benchmark data (so it can be shared)."""
+    df = parse_benchmarks(args.path)
+    df.to_csv(args.output, index=False)
+    print(f"Benchmark data written to {args.output}")
+
+
+def publish(args):
     raise NotImplementedError
 
 
@@ -51,59 +57,111 @@ def parse_args():
     run_parser.set_defaults(func=run)
 
     show_parser = subparsers.add_parser("show")
-    show_parser.add_argument("paths", type=str, nargs="+")
+    show_parser.add_argument("path", type=str, nargs="+")
     show_parser.set_defaults(func=show)
 
+    export_parser = subparsers.add_parser("export")
+    export_parser.add_argument("path", type=str, nargs="+")
+    export_parser.add_argument("-o", dest="output", type=str, default="benchmarks-export.csv")
+    export_parser.set_defaults(func=export)
+
     publish_parser = subparsers.add_parser("publish")
-    publish_parser.add_argument("paths", type=str, nargs="+")
+    publish_parser.add_argument("path", type=str, nargs="+")
     publish_parser.set_defaults(func=publish)
 
-    return parser.parse_known_args()
+    args, _ = split_args(sys.argv[1:])
+    if not args:
+        parser.print_help()
+        exit()
+    return parser.parse_args(args)
+
+
+def split_args(argv):
+    """Split commandline arguments by '--'."""
+    try:
+        index = argv.index("--")
+    except ValueError:
+        index = len(argv)
+    return argv[:index], argv[index:]
 
 
 def parse_benchmarks(paths):
     dfs = []
     for path in paths:
-        # TODO add try except stuff and handle dirs as well as files
-        dfs.append(parse_benchmark(path))
-    return pd.concat(dfs, ignore_index=True)
+        if os.path.isdir(path):
+            for file in os.listdir(path):
+                try:
+                    dfs.append(parse_benchmark(os.path.join(path, file)))
+                except InvalidFileError:
+                    # skip invalid files if looping through a directory
+                    pass
+        elif os.path.isfile(path):
+            # read exported files here
+            if os.path.splitext(path)[1] == ".csv":
+                dfs.append(pd.read_csv(path))
+            else:
+                dfs.append(parse_benchmark(path))
+    df = pd.concat(dfs, ignore_index=True)
 
-
-def parse_benchmark(file):
-    with open(file) as f:
-        raw = json.load(f)
-
-    data = []
-    machine_info = "_".join(
-        raw["machine_info"][key] for key in ["node", "machine", "release", "system"]
-    )
-    for benchmark in raw["benchmarks"]:
-        data.append({
-            "benchmark": benchmark["fullname"],
-            "mean": benchmark["stats"]["mean"],
-            "min": benchmark["stats"]["min"],
-            "max": benchmark["stats"]["max"],
-        })
-
-    df = pd.DataFrame(data)
-    df = df.assign(
-        filename= file,
-        machine=machine_info,
-        commit_id=raw["commit_info"]["id"],
-        commit_time=raw["commit_info"]["time"],
-        dirty=raw["commit_info"]["dirty"],
-        branch=raw["commit_info"]["branch"],
-    )
+    df.sort_values(by="commit_time", inplace=True, ignore_index=True)
+    for duplicate in df[df.duplicated(subset=["commit_id", "dirty"], keep=False)].itertuples():
+        warnings.warn(
+            f"Duplicate benchmark results found for {duplicate.commit_id}, only the "
+            "last will be used"
+        )
+    df.drop_duplicates(subset=["benchmark", "commit_id", "dirty"], keep="last", inplace=True)
     return df
 
 
-# def file_or_dir(path):
-#     if os.path.isdir(path):
-#         return path
-#     else:
-#         raise argparse.ArgumentTypeError(f"ERROR: file or directory not found: {path}")
+def parse_benchmark(file):
+    """Parse a benchmark file into a dataframe."""
+    try:
+        with open(file) as f:
+            raw = json.load(f)
+
+        data = []
+        machine_info = "_".join(
+            raw["machine_info"][key] for key in ["node", "machine", "release", "system"]
+        )
+        for benchmark in raw["benchmarks"]:
+            data.append({
+                "benchmark": benchmark["fullname"],
+                "mean": benchmark["stats"]["mean"],
+                "min": benchmark["stats"]["min"],
+                "max": benchmark["stats"]["max"],
+            })
+
+        # add shared columns
+        return pd.DataFrame(data).assign(
+            filename= file,
+            machine=machine_info,
+            commit_id=raw["commit_info"]["id"],
+            commit_time=raw["commit_info"]["time"],
+            dirty=raw["commit_info"]["dirty"],
+            branch=raw["commit_info"]["branch"],
+        )
+    except:
+        raise InvalidFileError(f"{file} does not appear to be a benchmark data file")
+
+
+def plot_benchmark(benchmark: str, df: pd.DataFrame):
+    """Plot a benchmark.
+
+    Parameters
+    ----------
+    benchmark:
+        The name of the benchmark.
+    df:
+        A `pandas` dataframe containing the benchmark data.
+    """
+    return px.line(
+        df, title=benchmark,
+        x="commit_time", y="mean", error_y_minus=df["min"], error_y=df["max"],
+        color="machine", markers=True, hover_data=["commit_id", "branch"],
+        labels={"mean": "time"},
+    )
 
 
 if __name__ == "__main__":
-    args, unknown_args = parse_args()
-    args.func(args, unknown_args)
+    args = parse_args()
+    args.func(args)
