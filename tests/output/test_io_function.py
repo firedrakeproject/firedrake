@@ -532,3 +532,28 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name, variable_layers=True)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("cell_family_degree", [("triangle", "P", 1),
+                                                ("quadrilateral", "Q", 1)])
+def test_io_function_naming(cell_family_degree, tmpdir):
+    cell_type, family, degree = cell_family_degree
+    filename = join(str(tmpdir), "test_io_function_naming.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    meshA = _get_mesh(cell_type, COMM_WORLD)
+    VA = FunctionSpace(meshA, family, degree)
+    method = get_embedding_method_for_checkpointing(VA.ufl_element())
+    fA = Function(VA, name=func_name)
+    alt_name = "q"
+    assert alt_name != func_name
+    _initialise_function(fA, _get_expr(VA), method)
+    with CheckpointFile(filename, "w", comm=COMM_WORLD) as afile:
+        afile.save_function(fA, name=alt_name)
+    # Load -> View cycle
+    ntimes = COMM_WORLD.size
+    for i in range(ntimes):
+        mycolor = (COMM_WORLD.rank > ntimes - 1 - i)
+        comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
+        if mycolor == 0:
+            _load_check_save_functions(filename, alt_name, comm, method, mesh_name)
