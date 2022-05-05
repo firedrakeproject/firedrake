@@ -711,8 +711,7 @@ class CheckpointFile(object):
         :arg name: optional alternative name to save the function under
         """
         if name:
-            g = Function(f.function_space(), name=name)
-            g.assign(f)
+            g = Function(f.function_space(), val=f.dat, name=name)
             return self.save_function(g, idx=idx)
 
         # -- Save function space --
