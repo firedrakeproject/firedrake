@@ -713,8 +713,7 @@ class CheckpointFile(object):
         if name:
             g = Function(f.function_space(), name=name)
             g.assign(f)
-            self.save_function(g, idx=None)
-            return
+            return self.save_function(g, idx=idx)
 
         # -- Save function space --
         V = f.function_space()
