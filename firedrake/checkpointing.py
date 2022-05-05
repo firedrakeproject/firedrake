@@ -699,7 +699,7 @@ class CheckpointFile(object):
                 topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None):
+    def save_function(self, f, idx=None, name=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -708,7 +708,12 @@ class CheckpointFile(object):
             mode (non-timestepping); for each function of interest,
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
+        :arg name: optional alternative name to save the function under
         """
+        if name:
+            g = Function(f.function_space(), val=f.dat, name=name)
+            return self.save_function(g, idx=idx)
+
         # -- Save function space --
         V = f.function_space()
         self._save_function_space(V)
