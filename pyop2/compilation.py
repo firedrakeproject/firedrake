@@ -139,6 +139,8 @@ def sniff_compiler(exe):
                 compiler = MacClangARMCompiler
             elif machine == "x86_64":
                 compiler = MacClangCompiler
+        elif name == "GNU":
+            compiler = MacGNUCompiler
         else:
             compiler = AnonymousCompiler
     else:
@@ -469,6 +471,11 @@ class MacClangARMCompiler(MacClangCompiler):
     # seems to be a homebrew configuration issue somewhere. Hopefully this
     # requirement will go away at some point.
     _ldflags = ("-dynamiclib", "-L/opt/homebrew/opt/gcc/lib/gcc/11")
+
+
+class MacGNUCompiler(MacClangCompiler):
+    """A compiler for building a shared library on Mac systems with a GNU compiler."""
+    _name = "Mac GNU"
 
 
 class LinuxGnuCompiler(Compiler):
