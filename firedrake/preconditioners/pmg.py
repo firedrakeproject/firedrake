@@ -785,27 +785,30 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     felems, fshifts = get_line_elements(Vf)
     celems, cshifts = get_line_elements(Vc)
 
-    vsize = Vf.value_size
     shifts = fshifts
     in_place = False
     if len(felems) == len(celems):
-        in_place = len(felems) == 1
-    else:
+        in_place = all([(len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts)])
+        psize = Vf.value_size
+
+    if not in_place:
         if len(celems) == 1:
             psize = Vc.value_size
             pelem = celems[0]
             perm_name = "perm_%s" % t_in
             celems = celems*len(felems)
         elif len(felems) == 1:
-            vsize = Vc.value_size
             shifts = cshifts
-
             psize = Vf.value_size
             pelem = felems[0]
             perm_name = "perm_%s" % t_out
             felems = felems*len(celems)
         else:
             raise ValueError("Cannot assign fine to coarse DOFs")
+
+        for k in range(len(shifts)):
+            if Vc.value_size*len(shifts[k]) < Vf.value_size:
+                shifts[k] = shifts[k]*(Vf.value_size//Vc.value_size)
 
         perm = sum(shifts, tuple())
         perm_data = ", ".join(map(str, perm))
@@ -815,7 +818,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
 
         pshape = [e.space_dimension() for e in pelem]
         pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
-        pstride = vsize * numpy.prod(pshape)
+        pstride = psize * numpy.prod(pshape)
         if shifts == fshifts:
             prolong_code.append(f"""
             for({IntType_c} j=1; j<{len(perm)}; j++)
@@ -839,8 +842,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
             raise ValueError("More than three factors are not supported")
 
         # Declare array shapes to be used as literals inside the kernels
-        nscal = vsize*len(shift)
-
+        nscal = psize*len(shift)
         fshape = [e.space_dimension() for e in felem]
         cshape = [e.space_dimension() for e in celem]
         fshapes.append((nscal,) + tuple(fshape))
