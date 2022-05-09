@@ -63,7 +63,7 @@ jobs:
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
           . ../build/bin/activate
-          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 --timeout=600 -v tests/firedrake_adjoint
+          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 --timeout=1000 -v tests/firedrake_adjoint
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
