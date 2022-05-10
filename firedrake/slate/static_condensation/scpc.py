@@ -71,7 +71,7 @@ class SCPC(SCBase):
         for bc in cxt_bcs:
             if bc.function_space().index != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            bcs.append(DirichletBC(Vc, bc.function_arg, bc.sub_domain))
+            bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
