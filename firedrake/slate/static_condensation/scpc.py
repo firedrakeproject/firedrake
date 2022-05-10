@@ -1,4 +1,5 @@
 import firedrake.dmhooks as dmhooks
+import numpy as np
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -30,6 +31,8 @@ class SCPC(SCBase):
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
+        from firedrake.parloops import par_loop, INC
+        from ufl import dx
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
         A, P = pc.getOperators()
@@ -77,6 +80,20 @@ class SCPC(SCBase):
         self.residual = Function(W)
         self.solution = Function(W)
 
+        shapes = (Vc.finat_element.space_dimension(),
+                  np.prod(Vc.shape))
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        self.weight = Function(Vc)
+        par_loop((domain, instructions), dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
+        with self.weight.dat.vec as wc:
+            wc.reciprocal()
+
         # Get expressions for the condensed linear system
         A_tensor = Tensor(self.bilinear_form)
         reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
@@ -84,7 +101,7 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs,
+        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs, bcs=bcs,
                                                form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
@@ -236,6 +253,10 @@ class SCPC(SCBase):
 
         with self.residual.dat.vec_wo as v:
             x.copy(v)
+
+        # Disassemble the incoming right-hand side
+        with self.residual.split()[self.c_field].dat.vec_wo as vc, self.weight.dat.vec_ro as wc:
+            vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
         self._assemble_Srhs()
