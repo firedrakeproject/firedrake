@@ -746,6 +746,8 @@ class MeshTopology(AbstractMeshTopology):
         # Currently, we do the distribution manually, so
         # disable auto distribution.
         plex.distributeSetDefault(False)
+        # Similarly, disable auto plex reordering.
+        plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         plex.setFromOptions()
 
         self.topology_dm = plex
