@@ -255,7 +255,7 @@ class SCPC(SCBase):
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.split()[self.c_field].dat.vec_wo as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.split()[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
