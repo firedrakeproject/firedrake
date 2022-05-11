@@ -42,7 +42,7 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
-                        pytest.param("periodicrectangle", marks=pytest.mark.skip(reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("periodicrectangle"),
                         pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
 def parentmesh(request):
     if request.param == "interval":
@@ -78,7 +78,7 @@ def test_pic_swarm_in_plex(parentmesh):
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_plex(plex, inputpointcoords, fields=fields)
+    swarm = mesh._pic_swarm_in_plex(parentmesh, inputpointcoords, fields=fields)
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -103,6 +103,7 @@ def test_pic_swarm_in_plex(parentmesh):
         swarm.restoreField(name)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
+    
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
     # check local points are found in list of input points
@@ -110,7 +111,8 @@ def test_pic_swarm_in_plex(parentmesh):
         assert np.any(np.isclose(p, inputpointcoords))
     # check local points are correct local points given mesh
     # partitioning (but don't require ordering to be maintained)
-    assert np.allclose(np.sort(inputlocalpointcoords), np.sort(localpointcoords))
+    assert np.allclose(np.sort(inputlocalpointcoords, axis=0),
+                       np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
     # Check there are as many local points as there are local cells
