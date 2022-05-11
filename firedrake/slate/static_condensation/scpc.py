@@ -101,7 +101,8 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs, bcs=bcs,
+        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs,
+                                               bcs=bcs, zero_bc_nodes=True,
                                                form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
