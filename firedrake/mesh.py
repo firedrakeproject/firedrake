@@ -2173,13 +2173,10 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     if mesh.coordinates.function_space().ufl_element().degree() > 1:
         raise NotImplementedError("Only straight edged meshes are supported")
 
-    if hasattr(mesh, "_made_from_coordinates") and mesh._made_from_coordinates:
-        raise NotImplementedError("Meshes made from coordinate fields are not yet supported")
-
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+    swarm = _pic_swarm_in_plex(mesh, vertexcoords)
 
     if missing_points_behaviour:
 
@@ -2217,8 +2214,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
             else:
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
-    dmcommon.label_pic_parent_cell_info(swarm, mesh)
-
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
 
@@ -2254,7 +2249,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     return vmesh
 
 
-def _pic_swarm_in_plex(plex, coords, fields=[]):
+def _pic_swarm_in_plex(parent_mesh, coords, fields=None):
     """
     Create a Particle In Cell (PIC) DMSwarm, immersed in a DMPlex
     at given point coordinates.
@@ -2313,6 +2308,18 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
+
+    plex = parent_mesh.topology.topology_dm
+    tdim = parent_mesh.topological_dimension()
+    gdim = parent_mesh.geometric_dimension()
+
+    if fields is None:
+        fields = []
+    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)]
+
+    coords, reference_coords, parent_cell_nums = \
+        _parent_mesh_embedding(coords, parent_mesh)
+
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
@@ -2339,6 +2346,9 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
         swarm.registerField(name, size, dtype=dtype)
     swarm.finalizeFieldRegister()
 
+    num_vertices = len(coords)
+    swarm.setLocalSizes(num_vertices, -1)
+
     # Note that no new fields can now be associated with the DMSWARM.
 
     # Add point coordinates - note we set redundant mode to False
@@ -2351,7 +2361,28 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     # coordinates associated with them. The DMPlex cell id associated
     # with each PIC in the DMSwarm is accessed with the `DMSwarm_cellid`
     # field.
-    swarm.setPointCoordinates(coords, redundant=False, mode=PETSc.InsertMode.INSERT_VALUES)
+    # swarm.setPointCoordinates(coords, redundant=False, mode=PETSc.InsertMode.INSERT_VALUES)
+
+    # do this ourselves by just setting DMSwarmPICField_coor and DMSwarmPICField_cellid
+
+    # get fields - NOTE this isn't copied so make sure
+    # swarm.restoreField is called for each field too!
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+    # Why are the next two different?
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    field_parent_cell_nums = swarm.getField("parentcellnum")
+    field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+
+    swarm_coords[...] = coords
+    swarm_parent_cell_nums[...] = parent_cell_nums
+    field_parent_cell_nums[...] = parent_cell_nums
+    field_reference_coords[...] = reference_coords
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("refcoord")
+    swarm.restoreField("parentcellnum")
+    swarm.restoreField("DMSwarmPIC_coor")
+    swarm.restoreField("DMSwarm_cellid")
 
     # Remove PICs which have been placed into ghost cells of a distributed DMPlex
     dmcommon.remove_ghosts_pic(swarm, plex)
@@ -2364,6 +2395,44 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     swarm.setPointSF(sf)
 
     return swarm
+
+
+def _parent_mesh_embedding(vertex_coords, parent_mesh):
+
+    # Sort parallel later.
+
+    max_num_vertices = len(vertex_coords)
+    num_vertices = max_num_vertices
+
+    gdim = parent_mesh.geometric_dimension()
+    tdim = parent_mesh.topological_dimension()
+
+    # Create an out of mesh point to use in locate_cell when needed
+
+    out_of_mesh_point = np.full((1, gdim), np.inf)
+
+    # TODO: Eliminate points outside rank bounding box before calculating.
+
+    parent_cell_nums = np.empty(num_vertices, dtype=IntType)
+    reference_coords = np.empty((num_vertices, tdim), dtype=RealType)
+    valid = np.full(num_vertices, False)
+
+    for i in range(max_num_vertices):
+        if i < num_vertices:
+            parent_cell_num, reference_coord = \
+                parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i])
+            if parent_cell_num is not None:
+                valid[i] = True
+                parent_cell_nums[i] = parent_cell_num
+                reference_coords[i] = reference_coord
+        else:
+            parent_mesh.locate_cell(out_of_mesh_point)  # should return None
+
+    vertex_coords = np.compress(valid, vertex_coords, axis=0)
+    reference_coords = np.compress(valid, reference_coords, axis=0)
+    parent_cell_nums = np.compress(valid, parent_cell_nums, axis=0)
+
+    return vertex_coords, reference_coords, parent_cell_nums
 
 
 @PETSc.Log.EventDecorator()

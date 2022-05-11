@@ -103,7 +103,7 @@ def test_pic_swarm_in_plex(parentmesh):
         swarm.restoreField(name)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
-    
+
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
     # check local points are found in list of input points

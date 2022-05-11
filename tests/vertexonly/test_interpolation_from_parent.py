@@ -132,8 +132,8 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
     if (
-        parentmesh.coordinates.function_space().ufl_element().family() ==
-        "Discontinuous Lagrange"
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
         and fs_fam == "CG"
     ):
         pytest.skip(f"Interpolating into f{fs_fam} on a periodic mesh is not well-defined.")
@@ -169,8 +169,8 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
-        parentmesh.coordinates.function_space().ufl_element().family() ==
-        "Discontinuous Lagrange"
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
     ):
         pytest.skip(f"Interpolating into f{vfs_fam} on a periodic mesh is not well-defined.")
     V = vfs_typ(parentmesh, vfs_fam, vfs_deg)
@@ -211,8 +211,8 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
-        parentmesh.coordinates.function_space().ufl_element().family() ==
-        "Discontinuous Lagrange"
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
     ):
         pytest.skip(f"Interpolating into f{tfs_fam} on a periodic mesh is not well-defined.")
     V = tfs_typ(parentmesh, tfs_fam, tfs_deg)
