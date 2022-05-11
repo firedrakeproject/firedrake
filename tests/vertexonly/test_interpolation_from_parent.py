@@ -134,8 +134,10 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     if (
         parentmesh.coordinates.function_space().ufl_element().family() ==
         "Discontinuous Lagrange"
+        and fs_fam == "CG"
     ):
-        fs_fam = "DG"
+        pytest.skip(f"Interpolating into f{fs_fam} on a periodic mesh is not well-defined.")
+
     V = fs_typ(parentmesh, fs_fam, fs_deg)
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
