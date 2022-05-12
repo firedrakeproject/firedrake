@@ -2159,7 +2159,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
-    # In the futuer we hope to update the coordinates field correctly so that
+    # In the future we hope to update the coordinates field correctly so that
     # the DMSwarm PIC can immerse itself in the DMPlex. We can also hopefully
     # provide a callback for PETSc to use to find the parent cell id. We would
     # add `DMLocatePoints` as an `op` to `DMShell` types and do
@@ -2379,7 +2379,8 @@ def _pic_swarm_in_plex(parent_mesh, coords, fields=None):
 
 def _parent_mesh_embedding(vertex_coords, parent_mesh):
     """Find the parent cells and local coords for vertices on this rank."""
-    vertex_coords = _on_rank_vertices(vertex_coords)
+    if len(vertex_coords) > 0:
+        vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
 
     num_vertices = len(vertex_coords)
     max_num_vertices = parent_mesh.comm.allreduce(num_vertices, op=MPI.MAX)
@@ -2414,15 +2415,15 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh):
 
 def _on_rank_vertices(vertex_coords, parent_mesh):
     """Discard those vertices that are definitely not on this MPI rank."""
-    bounding_box_min = parent_mesh.coordinates.dat.data_ro.min(axis=0)
-    bounding_box_max = parent_mesh.coordinates.dat.data_ro.max(axis=0)
+    bounding_box_min = parent_mesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    bounding_box_max = parent_mesh.coordinates.dat.data_ro.max(axis=0, initial=-np.inf)
     length_scale = (bounding_box_max - bounding_box_min).max()
     # This is basically to avoid roundoff, so 1% is very conservative.
     bounding_box_min -= 0.01 * length_scale
     bounding_box_max += 0.01 * length_scale
 
     on_rank = (vertex_coords < bounding_box_max).all(axis=1) \
-        and (vertex_coords > bounding_box_min).all(axis=1)
+        | (vertex_coords > bounding_box_min).all(axis=1)
 
     return np.compress(on_rank, vertex_coords, axis=0)
 
