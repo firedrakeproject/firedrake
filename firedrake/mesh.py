@@ -2161,7 +2161,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     # sufficient.
     if mesh.coordinates.function_space().ufl_element().degree() > 1:
         raise NotImplementedError("Only straight edged meshes are supported")
-         
+
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
