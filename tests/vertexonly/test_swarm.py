@@ -67,7 +67,7 @@ def parentmesh(request):
 
 # pic swarm tests
 
-def test_pic_swarm_in_plex(parentmesh):
+def test_pic_swarm_in_mesh(parentmesh):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
 
@@ -78,7 +78,7 @@ def test_pic_swarm_in_plex(parentmesh):
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_plex(parentmesh, inputpointcoords, fields=fields)
+    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -129,15 +129,15 @@ def test_pic_swarm_in_plex(parentmesh):
 
 
 @pytest.mark.parallel
-def test_pic_swarm_in_plex_parallel(parentmesh):
-    test_pic_swarm_in_plex(parentmesh)
+def test_pic_swarm_in_mesh_parallel(parentmesh):
+    test_pic_swarm_in_mesh(parentmesh)
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
-def test_pic_swarm_in_plex_2d_2procs():
-    test_pic_swarm_in_plex(UnitSquareMesh(1, 1))
+def test_pic_swarm_in_mesh_2d_2procs():
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
 
 
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
-def test_pic_swarm_in_plex_2d_3procs():
-    test_pic_swarm_in_plex(UnitSquareMesh(1, 1))
+def test_pic_swarm_in_mesh_2d_3procs():
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))

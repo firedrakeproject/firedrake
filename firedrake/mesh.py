@@ -2156,6 +2156,12 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     if gdim != tdim:
         raise NotImplementedError("Immersed manifold meshes are not supported")
 
+    # Bendy meshes require a smarter bounding box algorithm at partition and
+    # (especially) cell level. Projecting coordinates to Bernstein may be
+    # sufficient.
+    if mesh.coordinates.function_space().ufl_element().degree() > 1:
+        raise NotImplementedError("Only straight edged meshes are supported")
+         
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
@@ -2169,7 +2175,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh, vertexcoords)
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords)
 
     if missing_points_behaviour:
 
@@ -2243,7 +2249,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     return vmesh
 
 
-def _pic_swarm_in_plex(parent_mesh, coords, fields=None):
+def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
     This should only by used for meshes with straight edges. If not, the
@@ -2415,8 +2421,8 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh):
 
 def _on_rank_vertices(vertex_coords, parent_mesh):
     """Discard those vertices that are definitely not on this MPI rank."""
-    bounding_box_min = parent_mesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
-    bounding_box_max = parent_mesh.coordinates.dat.data_ro.max(axis=0, initial=-np.inf)
+    bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf)
+    bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf)
     length_scale = (bounding_box_max - bounding_box_min).max()
     # This is basically to avoid roundoff, so 1% is very conservative.
     bounding_box_min -= 0.01 * length_scale
