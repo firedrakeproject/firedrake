@@ -215,7 +215,8 @@ def test_simple_expressions(expr):
                         "A[0, 2] + A[0, 0] * A[0, 2]",
                         "A[0, 0] * A[0, 0] * A[0, 2]",
                         "A[0, 1] * A[1, 0] * A[0, 2]",
-                        "A[0, 1] * A[1, 1] * A[1, 2]"
+                        "A[0, 1] * A[1, 1] * A[1, 2]",
+                        "A[0:2, 0:2]"
                         ])
 def block_expr(request, HMP_tensor, HMP_fs):
     _HMP, _ = HMP_tensor
@@ -231,6 +232,10 @@ def block_expr(request, HMP_tensor, HMP_fs):
         return (HMP[0, 1] * HMP[1, 0] * HMP[0, 2])*f
     elif request.param == "A[0, 1] * A[1, 1] * A[1, 2]":
         return (HMP[0, 1] * HMP[1, 1] * HMP[1, 2])*f
+    elif request.param == "A[0:2, 0:2]":
+        f2 = AssembledVector(Function(HMP_fs[0])).blocks[0:2]
+        return HMP[0:2, 0:2] * f2
+
 
 
 def test_blocks(block_expr):
