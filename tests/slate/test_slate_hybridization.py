@@ -131,7 +131,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
 
 
 def test_slate_hybridization_wrong_option():
-    a, L, W = setup_poisson()
+    a, L, W = setup_poisson(1, True)
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -612,7 +612,7 @@ def test_slate_hybridization_full_local_prec():
 
 
 def test_slate_hybridization_global_matfree_jacobi():
-    a, L, W = setup_poisson()
+    a, L, W = setup_poisson(1, True)
 
     w = Function(W)
     jacobi_matfree_params = {'mat_type': 'matfree',
