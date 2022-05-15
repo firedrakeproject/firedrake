@@ -216,10 +216,15 @@ class TensorBase(object, metaclass=ABCMeta):
         to the split global coefficient numbers.
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
-        return tuple((n, tuple(range(len(c.split()))))
+        blockass = False #any(isinstance(child, BlockAssembledVector) for child in self.children)
+        coefs = (self.coefficients(),) if blockass else self.coefficients()
+        r = len(self.coefficients()) if blockass else 1
+        t = tuple((n, tuple(range(len(c.split()))))
                      if isinstance(c, Function) or isinstance(c, Constant)
-                     else (n, (0,))
-                     for n, c in enumerate(self.coefficients()))
+                     else (n, tuple(range(r)))
+                     for n, c in enumerate(coefs))
+        print(t)
+        return t
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -491,13 +496,15 @@ class BlockAssembledVector(AssembledVector):
     :arg functions: A tuple of firedrake functions.
     """
 
-    def __new__(cls, function, split_functions, indices):
+    def __new__(cls, function, block, indices):
+        split_functions = block.form
         if isinstance(split_functions, tuple) \
            and all(isinstance(f, Coefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
             self._original_function = function
+            self._block = block
             return self
         else:
             raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
@@ -508,6 +515,8 @@ class BlockAssembledVector(AssembledVector):
         """Returns a tuple of function spaces that the tensor is defined on.
         """
         return tuple(f.ufl_function_space() for f in self._function)
+    
+        # return self._block.arg_function_spaces
 
     @cached_property
     def _argument(self):
@@ -518,6 +527,8 @@ class BlockAssembledVector(AssembledVector):
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         return self._argument
+    
+        # return self._block.arguments()
 
     def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -1180,23 +1191,41 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
+        print("mul")
         if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        fsA = A.arg_function_spaces[-1]
-        fsB = B.arg_function_spaces[0]
+        if False: #isinstance(B, BlockAssembledVector):
+            print("hi")
+            set_fsA = A.arg_function_spaces[-1].split()
+            set_fsB = B.arg_function_spaces[0]
+            print(len(set_fsA ))
+            print(len(set_fsB))
+            assert all([space_equivalence(fsA, fsB) for fsA, fsB in
+                        zip(set_fsA, set_fsB)]), (
+                "Function spaces associated with operands must match."
+            )
+        else:
+            fsA = A.arg_function_spaces[-1]
+            fsB = B.arg_function_spaces[0]
+            print(A.arg_function_spaces)
+            print(B.arg_function_spaces)
 
-        assert space_equivalence(fsA, fsB), (
-            "Cannot perform argument contraction over middle indices. "
-            "They must be in the same function space."
-        )
+            assert space_equivalence(fsA, fsB), (
+                "Cannot perform argument contraction over middle indices. "
+                "They must be in the same function space."
+            )
 
         super(Mul, self).__init__(A, B)
 
         # Function space check above ensures that middle arguments can
         # be 'eliminated'.
-        self._args = A.arguments()[:-1] + B.arguments()[1:]
+        
+        if False: #isinstance(B, BlockAssembledVector):
+            self._args = A.arguments()[:-1]
+        else:
+            self._args = A.arguments()[:-1] + B.arguments()[1:]
 
     @cached_property
     def arg_function_spaces(self):

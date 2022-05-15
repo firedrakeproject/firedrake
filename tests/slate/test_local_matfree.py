@@ -239,7 +239,7 @@ def block_expr(request, HMP_tensor, HMP_fs):
 
 
 def test_blocks(block_expr):
-    tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": True, "visual_debug": False}})
+    tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": False, "visual_debug": False}})
     tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
     for sub0, sub1 in zip(tmp.dat.data, tmp_opt.dat.data):
         assert np.allclose(sub0, sub1, rtol=1e-6)
