@@ -16,7 +16,7 @@ functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 from ufl import Coefficient, Constant
 
@@ -45,6 +45,8 @@ __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'TensorShell', 'BlockAssembledVector',
            'Hadamard']
 
+# Expression kernel description type
+BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])
 
 class RemoveNegativeRestrictions(MultiFunction):
     """UFL MultiFunction which removes any negative restrictions
@@ -216,15 +218,27 @@ class TensorBase(object, metaclass=ABCMeta):
         to the split global coefficient numbers.
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
-        blockass = False #any(isinstance(child, BlockAssembledVector) for child in self.children)
-        coefs = (self.coefficients(),) if blockass else self.coefficients()
-        r = len(self.coefficients()) if blockass else 1
-        t = tuple((n, tuple(range(len(c.split()))))
-                     if isinstance(c, Function) or isinstance(c, Constant)
-                     else (n, tuple(range(r)))
-                     for n, c in enumerate(coefs))
-        print(t)
-        return t
+        coeff_map = []
+        orig_to_pos_dict = {}
+        for c in self.coefficients():
+            m = len(coeff_map)
+            if isinstance(c, BlockFunction):  # for block assembled vectors
+                # Did we already add a part of the originial function of this block assembled vectors?
+                orig_to_pos = tuple(*filter(lambda item: item[0] == c.orig_function, orig_to_pos_dict.items()))
+                pos = orig_to_pos[1] if orig_to_pos else m
+                # We didn't -> we add normally and keep track that we did in the orig_to_pos_dict
+                # We did -> update already existing entry
+                split_map = c.indices[0] if pos == m else coeff_map[pos][1]+c.indices[0]
+                if pos < m:
+                    coeff_map[pos] = (pos, split_map)
+                else:
+                    coeff_map += [(pos, split_map)]
+                orig_to_pos_dict[c.orig_function] = pos
+            else:
+                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                coeff_map += [(m, split_map)]
+                orig_to_pos_dict[c] = m
+        return tuple(coeff_map)
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -511,12 +525,14 @@ class BlockAssembledVector(AssembledVector):
                             type(split_functions))
 
     @cached_property
+    def form(self):
+        return self._original_function
+
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor is defined on.
         """
-        return tuple(f.ufl_function_space() for f in self._function)
-    
-        # return self._block.arg_function_spaces
+        return self._block.arg_function_spaces
 
     @cached_property
     def _argument(self):
@@ -526,13 +542,11 @@ class BlockAssembledVector(AssembledVector):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self._argument
-    
-        # return self._block.arguments()
+        return self._block.arguments()
 
     def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
-        return self._function
+        return (BlockFunction(self._function, self._indices, self._original_function),)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
@@ -1191,41 +1205,23 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
-        print("mul")
         if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        if False: #isinstance(B, BlockAssembledVector):
-            print("hi")
-            set_fsA = A.arg_function_spaces[-1].split()
-            set_fsB = B.arg_function_spaces[0]
-            print(len(set_fsA ))
-            print(len(set_fsB))
-            assert all([space_equivalence(fsA, fsB) for fsA, fsB in
-                        zip(set_fsA, set_fsB)]), (
-                "Function spaces associated with operands must match."
-            )
-        else:
-            fsA = A.arg_function_spaces[-1]
-            fsB = B.arg_function_spaces[0]
-            print(A.arg_function_spaces)
-            print(B.arg_function_spaces)
+        fsA = A.arg_function_spaces[-1]
+        fsB = B.arg_function_spaces[0]
 
-            assert space_equivalence(fsA, fsB), (
-                "Cannot perform argument contraction over middle indices. "
-                "They must be in the same function space."
-            )
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
 
         super(Mul, self).__init__(A, B)
 
         # Function space check above ensures that middle arguments can
         # be 'eliminated'.
-        
-        if False: #isinstance(B, BlockAssembledVector):
-            self._args = A.arguments()[:-1]
-        else:
-            self._args = A.arguments()[:-1] + B.arguments()[1:]
+        self._args = A.arguments()[:-1] + B.arguments()[1:]
 
     @cached_property
     def arg_function_spaces(self):
@@ -1556,6 +1552,7 @@ class Solve(BinaryOp):
     def coefficients(self, artificial=False):
         """Returns the expected coefficients of the resulting tensor."""
         coeffs = [op.coefficients(artificial) for op in self.operands]
+        coeffs += [self.preconditioner.coefficients(artificial)] if self.preconditioner else []
         if artificial:
             coeffs.append([op.coefficients(artificial)[0] for op in [self.Aonx, self.Aonp, self.Ponr]])
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
