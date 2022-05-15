@@ -45,7 +45,7 @@ import numpy as np
 import loopy
 import gem
 from gem import indices as make_indices
-from tsfc.kernel_args import OutputKernelArg
+from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
 import copy
 
@@ -191,6 +191,10 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     orig_coeffs = orig_expr.coefficients()
     get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
     coeff_map = tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map)
+
+    coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
+    assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
+    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
