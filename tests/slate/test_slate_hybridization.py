@@ -262,7 +262,7 @@ def test_mixed_poisson_approximated_schur(local_matfree):
     # setup FEM
     # Take lower order for local matrix-free solve
     # so that the test does not run too long
-    s = (1, True) if local_matfree else (3, True)
+    s = (0, True) if local_matfree else (3, True)
     a, L, W = setup_poisson(*s)
 
     # setup first solver

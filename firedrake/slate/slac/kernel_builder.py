@@ -657,8 +657,10 @@ class LocalLoopyKernelBuilder(object):
         action_coeff_dict = OrderedDict()
 
         # TODO is there are better way to do this?
-        for i, c in enumerate(coeffs):
+        for i, coeff in enumerate(coeffs):
             new = False
+            c = coeff.orig_function if isinstance(coeff, slate.BlockFunction) else coeff
+            count2 = 0
             try:
                 # check if the coefficient is in names,
                 # if yes it will be replaced later
@@ -668,21 +670,23 @@ class LocalLoopyKernelBuilder(object):
                 # if coefficient is not in names it is not an
                 # an action coefficient so we can use usual naming conventions
                 if not new:
-                    if c not in self.bag.coefficients:
-                        count = i+len(self.bag.coefficients)
+                    if c not in coeff_dict.keys():
+                        count = i+len(coeff_dict)
                     else:
-                        count = i
+                        count = list(coeff_dict.keys()).index(c)
+                        count2 = len(coeff_dict[c])
                     prefix = "w_{}".format(count)
             element = c.ufl_element()
             # collect information about the coefficient in particular name and extent
             if type(element) == MixedElement:
                 # when dealing with a mixed coefficient
                 # collect information about the splits of the coefficient
-                info = OrderedDict()
-                splits = [Coefficient(FunctionSpace(c.ufl_domain(), element))
-                          for element in c.ufl_element().sub_elements()]
+                info = OrderedDict() if c not in coeff_dict else coeff_dict[c]
+                splits = (coeff.split_function if isinstance(coeff, slate.BlockFunction) else
+                          [Coefficient(FunctionSpace(c.ufl_domain(), element))
+                          for element in c.ufl_element().sub_elements()])
                 for j, c_ in enumerate(splits):
-                    name = prefix if new else prefix+"_{}".format(j)
+                    name = prefix if new else prefix+"_{}".format(j+count2)
                     split_info = (name, self.extent(c_))
                     info.update({c_: split_info})
             else:
@@ -725,10 +729,16 @@ class LocalLoopyKernelBuilder(object):
                 coeff = tuple(coefficients[c] for c in f)
                 offset = 0
                 ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                # Fetch the coefficient name corresponding to this assembled vector
+                # for block assembled vectors we also need to pick the right one from the names of the split functions
                 names = []
                 for (im, c) in zip(ismixed, coeff):
-                    names += [name for (name, ext) in c.values()] if im else [c[0]]
-
+                    if im:
+                        coeff = slate_tensor.coefficients()[0]
+                        filter_f = lambda item: (not isinstance(coeff, slate.BlockFunction) or item[0] in coeff.split_function)                 
+                        names += list(tup[1][0] for tup in tuple(filter(filter_f, c.items())))
+                    else:
+                        names += [c[0]]
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
                     indices = self.bag.index_creator((shp,))
@@ -741,7 +751,6 @@ class LocalLoopyKernelBuilder(object):
                                                   within_inames=frozenset(inames),
                                                   within_inames_is_final=True))
                     offset += shp
-
         return inits, tensor2temp
 
     def slate_call(self, kernel, temporaries):
