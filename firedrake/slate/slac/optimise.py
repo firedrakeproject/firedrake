@@ -78,7 +78,7 @@ def _push_block_transpose(expr, self, indices):
 @_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
     """Distributes Blocks for these nodes"""
-    return type(expr)(*map(self, expr.children, repeat(indices))) if indices else expr
+    return type(expr)(*map(self, expr.children, repeat(indices)))
 
 
 @_push_block.register(Factorization)
@@ -87,6 +87,7 @@ def _push_block_distributive(expr, self, indices):
 @_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
+    expr = type(expr)(*map(self, expr.children, repeat(tuple())))
     return Block(expr, indices) if indices else expr
 
 
