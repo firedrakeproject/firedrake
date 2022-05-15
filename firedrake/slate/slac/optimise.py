@@ -100,7 +100,7 @@ def _push_block_tensor(expr, self, indices):
 @_push_block.register(AssembledVector)
 def _push_block_assembled_vector(expr, self, indices):
     """Turns a Block on an AssembledVector into the  specialized node BlockAssembledVector."""
-    return BlockAssembledVector(expr._function, Block(expr, indices).form, indices) if indices else expr
+    return BlockAssembledVector(expr._function, expr, indices) if indices else expr
 
 
 @_push_block.register(Block)

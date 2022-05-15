@@ -579,15 +579,13 @@ class LocalLoopyKernelBuilder(object):
         """
         coeffs = self.expression.coefficients()
         coeff_dict = OrderedDict()
-        for i, c in enumerate(coeffs):
-            element = c.ufl_element()
-            if type(element) == MixedElement:
-                mixed = OrderedDict()
-                for j, c_ in enumerate(c.split()):
-                    mixed[c_] = f"w_{i}_{j}", self.extent(c_)
-                coeff_dict[c] = mixed
+        for i, (c, split_map) in enumerate(self.expression.coeff_map):
+            coeff = coeffs[c]
+            if type(coeff.ufl_element()) == MixedElement:
+                splits = coeff.split()
+                coeff_dict[coeff] = OrderedDict({splits[j]: (f"w_{i}_{j}", self.extent(splits[j])) for j in split_map})
             else:
-                coeff_dict[c] = f"w_{i}", self.extent(c)
+                coeff_dict[coeff] = (f"w_{i}", self.extent(coeff))
         return coeff_dict
 
     def initialise_terminals(self, var2terminal, coefficients):
@@ -615,14 +613,22 @@ class LocalLoopyKernelBuilder(object):
                                               within_inames=frozenset(inames)))
 
             else:
-                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
-                coeff = tuple(coefficients[c] for c in f)
+                potentially_mixed_f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
+                coeff_dict = tuple(coefficients[c] for c in potentially_mixed_f)
                 offset = 0
-                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in potentially_mixed_f)
+                # Fetch the coefficient name corresponding to this assembled vector
                 names = []
-                for (im, c) in zip(ismixed, coeff):
-                    names += [name for (name, ext) in c.values()] if im else [c[0]]
-
+                for (im, c) in zip(ismixed, coeff_dict):
+                    if im:
+                        # For block assembled vectors we need to pick the right name
+                        # corresponding to the split function of the block assembled vector
+                        block_function, = slate_tensor.slate_coefficients()
+                        filter_f = lambda name_and_extent: (not isinstance(block_function, slate.BlockFunction)
+                                                            or name_and_extent[0] in block_function.split_function)
+                        names += list(name for (_, (name, _)) in tuple(filter(filter_f, c.items())))
+                    else:
+                        names += [c[0]]
                 # Mixed coefficients come as seperate parameter (one per space)
                 for i, shp in enumerate(*slate_tensor.shapes.values()):
                     indices = self.bag.index_creator((shp,))
