@@ -56,7 +56,7 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         use_amat = PETSc.Options(options_prefix).getBool("pc_use_amat", True)
-        use_ainv = PETSc.Options(options_prefix).getString("pc_type") == "mat"
+        use_ainv = PETSc.Options(options_prefix).getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
 
         appctx = self.get_appctx(pc)
@@ -66,7 +66,14 @@ class FDMPC(PCBase):
         octx = dmhooks.get_appctx(pc.getDM())
         mat_type = octx.mat_type
         oproblem = octx._problem
+        self.use_slate = False
+
         J = oproblem.J
+        if isinstance(J, firedrake.slate.Add):
+            J = J.children[0].form
+            self.use_slate = True
+        assert type(J) == ufl.Form
+
         bcs = tuple(oproblem.bcs)
 
         # Transform the problem into the space with FDM shape functions
@@ -95,13 +102,12 @@ class FDMPC(PCBase):
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
             Amat, _ = pc.getOperators()
-            self._ctx_ref = octx
         else:
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-
+            Amat = None
             omat, _ = pc.getOperators()
             if use_amat:
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
@@ -117,8 +123,9 @@ class FDMPC(PCBase):
 
             self.work_vec_x = omat.createVecLeft()
             self.work_vec_y = omat.createVecRight()
-            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
-                                              fcp=fcp, options_prefix=options_prefix)
+
+        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+                                          fcp=fcp, options_prefix=options_prefix)
 
         if len(bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -131,8 +138,6 @@ class FDMPC(PCBase):
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
-        if isinstance(e_fdm, ufl.RestrictedElement):
-            Amat = Pmat
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -501,6 +506,7 @@ class FDMPC(PCBase):
         """
         from ufl import inner, diff
         from ufl.algorithms.ad import expand_derivatives
+
         coefficients = {}
         assembly_callables = []
 
