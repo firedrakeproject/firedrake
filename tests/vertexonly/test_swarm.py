@@ -127,6 +127,15 @@ def test_pic_swarm_in_mesh(parentmesh):
     for index in localparentcellindices:
         assert np.any(index == cell_indexes)
 
+    # Now have DMPLex compute the cell IDs in cases where it can:
+    if parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange":
+        swarm.setPointCoordinates(localpointcoords, redundant=False,
+                                  mode=PETSc.InsertMode.INSERT_VALUES)
+        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+        swarm.restoreField("DMSwarm_cellid")
+        # Check that we agree with PETSc
+        assert np.all(petsclocalparentcellindices == localparentcellindices)
+
 
 @pytest.mark.parallel
 def test_pic_swarm_in_mesh_parallel(parentmesh):
