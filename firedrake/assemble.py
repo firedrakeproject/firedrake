@@ -65,6 +65,9 @@ def assemble(expr, *args, **kwargs):
     :kwarg appctx: Additional information to hang on the assembled
         matrix if an implicit matrix is requested (mat_type ``"matfree"``).
     :kwarg options_prefix: PETSc options prefix to apply to matrices.
+    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
+        output tensor to zero rather than to the values prescribed by the
+        boundary condition. Default is ``False``.
 
     :returns: See below.
 
@@ -226,7 +229,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                    sub_mat_type=None,
                    appctx=None,
                    options_prefix=None,
-                   form_compiler_parameters=None):
+                   form_compiler_parameters=None,
+                   zero_bc_nodes=False):
     """Assemble a form.
 
     See :func:`assemble` for a description of the arguments to this function.
@@ -258,7 +262,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     is_cacheable = len(form.arguments()) == 1
     if is_cacheable:
         try:
-            key = tuple(bcs), diagonal, tuplify(form_compiler_parameters)
+            key = tuple(bcs), diagonal, tuplify(form_compiler_parameters), zero_bc_nodes
             assembler = form._cache[_FORM_CACHE_KEY][key]
             assembler.replace_tensor(tensor)
             return assembler.assemble()
@@ -271,7 +275,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     elif rank == 1 or (rank == 2 and diagonal):
         assembler = OneFormAssembler(form, tensor, bcs, diagonal=diagonal,
                                      form_compiler_parameters=form_compiler_parameters,
-                                     needs_zeroing=False)
+                                     needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
         assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
                                      needs_zeroing=False)
