@@ -270,9 +270,11 @@ def _assemble_form(form, tensor=None, bcs=None, *,
         assembler = ZeroFormAssembler(form, tensor, form_compiler_parameters)
     elif rank == 1 or (rank == 2 and diagonal):
         assembler = OneFormAssembler(form, tensor, bcs, diagonal=diagonal,
-                                     form_compiler_parameters=form_compiler_parameters)
+                                     form_compiler_parameters=form_compiler_parameters,
+                                     needs_zeroing=False)
     elif rank == 2:
-        assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters)
+        assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
+                                     needs_zeroing=False)
     else:
         raise AssertionError
 
