@@ -441,7 +441,7 @@ class PMGPC(PCBase, PMGBase):
         return self.ppc.applyTranspose(x, y)
 
     def coarsen_bc_value(self, bc, cV):
-        return firedrake.zero(cV.shape)
+        return 0
 
 
 class PMGSNES(SNESBase, PMGBase):
