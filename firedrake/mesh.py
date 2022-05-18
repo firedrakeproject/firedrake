@@ -2315,6 +2315,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
 
     coords, reference_coords, parent_cell_nums = \
         _parent_mesh_embedding(coords, parent_mesh)
+    # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+    plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums,-1]
 
     _, coordsdim = coords.shape
 
@@ -2359,7 +2361,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
 
     swarm_coords[...] = coords
-    swarm_parent_cell_nums[...] = parent_cell_nums
+    swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
     field_reference_coords[...] = reference_coords
 
@@ -2368,10 +2370,6 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
     swarm.restoreField("DMSwarm_cellid")
-
-    # Remove PICs which have been placed into ghost cells of a distributed
-    # DMPlex.
-    dmcommon.remove_ghosts_pic(swarm, plex)
 
     # Set the `SF` graph to advertises no shared points (since the halo
     # is now empty) by setting the leaves to an empty list
@@ -2405,7 +2403,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh):
         if i < num_vertices:
             parent_cell_num, reference_coord = \
                 parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i])
-            if parent_cell_num is not None:
+            if parent_cell_num is not None and parent_cell_num < parent_mesh.cell_set.size:
                 valid[i] = True
                 parent_cell_nums[i] = parent_cell_num
                 reference_coords[i] = reference_coord
