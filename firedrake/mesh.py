@@ -2315,8 +2315,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
 
     coords, reference_coords, parent_cell_nums = \
         _parent_mesh_embedding(coords, parent_mesh)
-    # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-    plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums,-1]
+    # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+    plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
     _, coordsdim = coords.shape
 
