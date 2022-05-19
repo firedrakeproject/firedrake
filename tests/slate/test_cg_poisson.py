@@ -94,7 +94,13 @@ def run_CG_problem_matfree(r, degree, quads=False):
                                   'pc_type': 'none',
                                   'ksp_rtol': 1e-8,
                                   'mat_type': 'matfree',
-                                  'localsolve': {'mat_type': 'matfree'}}}
+                                  'localsolve': {'ksp_type': 'preonly',
+                                                 'pc_type': 'fieldsplit',
+                                                 'mat_type': 'matfree',
+                                                 'fieldsplit_0': {'ksp_type': 'default',
+                                                                  'pc_type': 'jacobi',
+                                                                  'ksp_rtol': 1e-25,
+                                                                  'ksp_atol': 1e-50}}}}
 
     bcs = DirichletBC(Z.sub(1), zero(), "on_boundary")
     problem = NonlinearVariationalProblem(F, z, bcs=bcs)
