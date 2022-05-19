@@ -39,6 +39,8 @@ class SCPC(SCBase):
         self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
+        if not self.cxt.fc_params:
+            self.cxt.fc_params = {}
 
         self.bilinear_form = self.cxt.a
 
@@ -74,6 +76,8 @@ class SCPC(SCBase):
             bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
+        self.local_matfree = PETSc.Options(prefix).getString("localsolve_mat_type", default="") == "matfree"
+        self.cxt.fc_params.update({"slate_compiler": {"replace_mul": self.local_matfree}})
 
         self.c_field = c_field
         self.condensed_rhs = Function(Vc)
@@ -111,7 +115,7 @@ class SCPC(SCBase):
                                  form_compiler_parameters=self.cxt.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
+                                 appctx=self.cxt)
 
         self._assemble_S = TwoFormAssembler(S_expr, tensor=self.S, bcs=bcs,
                                             form_compiler_parameters=self.cxt.fc_params).assemble
@@ -136,7 +140,7 @@ class SCPC(SCBase):
                                         form_compiler_parameters=self.cxt.fc_params,
                                         mat_type=mat_type,
                                         options_prefix=prefix,
-                                        appctx=self.get_appctx(pc))
+                                        appctx=self.cxt)
 
             self._assemble_S_pc = TwoFormAssembler(S_pc_expr, tensor=self.S_pc, bcs=bcs,
                                                    form_compiler_parameters=self.cxt.fc_params).assemble
@@ -163,6 +167,8 @@ class SCPC(SCBase):
                                           mat_type,
                                           self.cxt.fc_params,
                                           options_prefix=prefix)
+        
+        self._ctx_ref.fc_params = {"slate_compiler": {"replace_mul": self.local_matfree}}
 
         # Push new context onto the dm associated with the condensed problem
         c_dm = Vc.dm
