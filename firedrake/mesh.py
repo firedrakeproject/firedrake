@@ -2382,7 +2382,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
 
 
 def _parent_mesh_embedding(vertex_coords, parent_mesh):
-    """Find the parent cells and local coords for vertices on this rank."""
+    """Find the parent cells and local coords for vertices on this rank.
+
+    Vertices not located in cells owned by this rank are discarded.
+    """
     if len(vertex_coords) > 0:
         vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
 
@@ -2403,6 +2406,8 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh):
         if i < num_vertices:
             parent_cell_num, reference_coord = \
                 parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i])
+            # parent_cell_num >= parent_mesh.cell_set.size means the vertex is in the halo
+            # and is to be discarded.
             if parent_cell_num is not None and parent_cell_num < parent_mesh.cell_set.size:
                 valid[i] = True
                 parent_cell_nums[i] = parent_cell_num
