@@ -543,7 +543,7 @@ class CheckpointFile(object):
             # -- Save mesh topology --
             base_tmesh = mesh._base_mesh.topology
             self._save_mesh_topology(base_tmesh)
-            if tmesh.name not in self.h5pyfile.require_group(self._path_to_topologies()):
+            if tmesh.name not in self.require_group(self._path_to_topologies()):
                 # The tmesh (an ExtrudedMeshTopology) is treated as if it was a first class topology object. It
                 # shares the plex data with the base_tmesh, but those data are stored under base_tmesh's path,
                 # so we here create a symbolic link:
@@ -551,10 +551,10 @@ class CheckpointFile(object):
                 # This is merely to make this group (topologies/{tmesh.name}) behave exactly like standard topology
                 # groups (topologies/{some_non_extruded_topology_name}), and not necessary at the moment.
                 path = self._path_to_topology(tmesh.name)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.h5pyfile[os.path.join(path, "topology")] = self.h5pyfile[os.path.join(self._path_to_topology(base_tmesh.name), "topology")]
                 path = self._path_to_topology_extruded(tmesh.name)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
                 self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
                 if tmesh.variable_layers:
@@ -575,9 +575,9 @@ class CheckpointFile(object):
                     self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
             # -- Save mesh --
             path = self._path_to_meshes(tmesh.name)
-            if mesh.name not in self.h5pyfile.require_group(path):
+            if mesh.name not in self.require_group(path):
                 path = self._path_to_mesh(tmesh.name, mesh.name)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.set_attr(path, PREFIX + "_coordinate_element", self._pickle(mesh._coordinates.function_space().ufl_element()))
                 self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
                 self._save_function_topology(mesh._coordinates)
@@ -592,7 +592,7 @@ class CheckpointFile(object):
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
                 # The followings are conceptually redundant, but needed.
                 path = os.path.join(self._path_to_mesh(tmesh.name, mesh.name), PREFIX_EXTRUDED)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.save_mesh(mesh._base_mesh)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
         else:
@@ -600,9 +600,9 @@ class CheckpointFile(object):
             self._save_mesh_topology(tmesh)
             # -- Save mesh --
             path = self._path_to_meshes(tmesh.name)
-            if mesh.name not in self.h5pyfile.require_group(path):
+            if mesh.name not in self.require_group(path):
                 path = self._path_to_mesh(tmesh.name, mesh.name)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 # Firedrake coodinates are saved here, but never loaded at the moment.
                 # We load plex coordinates instead.
                 mesh.init()
@@ -618,7 +618,7 @@ class CheckpointFile(object):
         # -- Save DMPlex --
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
-        if tmesh_name in self.h5pyfile.require_group(self._path_to_topologies()):
+        if tmesh_name in self.require_group(self._path_to_topologies()):
             # Check if the global number of DMPlex points and
             # the global sum of DMPlex cone sizes are consistent.
             order_array_size, ornt_array_size = dmcommon.compute_point_cone_global_sizes(topology_dm)
@@ -642,11 +642,11 @@ class CheckpointFile(object):
         if isinstance(V.topological, impl.MixedFunctionSpace):
             V_name = self._generate_function_space_name(V)
             base_path = self._path_to_mixed_function_space(mesh.name, V_name)
-            self.h5pyfile.require_group(base_path)
+            self.require_group(base_path)
             self.set_attr(base_path, PREFIX + "_num_sub_spaces", V.num_sub_spaces())
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 Vsub_name = self._generate_function_space_name(Vsub)
                 self.set_attr(path, PREFIX + "_function_space", Vsub_name)
                 self._save_function_space(Vsub)
@@ -661,10 +661,10 @@ class CheckpointFile(object):
             element = tV.ufl_element()
             V_name = self._generate_function_space_name(V)
             path = self._path_to_function_spaces(tmesh.name, mesh.name)
-            if V_name not in self.h5pyfile.require_group(path):
+            if V_name not in self.require_group(path):
                 # Save UFL element
                 path = self._path_to_function_space(tmesh.name, mesh.name, V_name)
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.set_attr(path, PREFIX + "_ufl_element", self._pickle(element))
                 # Test if the pickled UFL element matches the original element
                 loaded_element = self._unpickle(self.get_attr(path, PREFIX + "_ufl_element"))
@@ -680,7 +680,7 @@ class CheckpointFile(object):
         element = tV.ufl_element()
         dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
         path = self._path_to_dms(tmesh.name)
-        if dm_name not in self.h5pyfile.require_group(path):
+        if dm_name not in self.require_group(path):
             if element.family() == "Real":
                 assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
             else:
@@ -699,7 +699,7 @@ class CheckpointFile(object):
                 topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None):
+    def save_function(self, f, idx=None, name=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -708,7 +708,12 @@ class CheckpointFile(object):
             mode (non-timestepping); for each function of interest,
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
+        :arg name: optional alternative name to save the function under
         """
+        if name:
+            g = Function(f.function_space(), val=f.dat, name=name)
+            return self.save_function(g, idx=idx)
+
         # -- Save function space --
         V = f.function_space()
         self._save_function_space(V)
@@ -717,10 +722,10 @@ class CheckpointFile(object):
         V_name = self._generate_function_space_name(V)
         if isinstance(V.topological, impl.MixedFunctionSpace):
             base_path = self._path_to_mixed_function(mesh.name, V_name, f.name())
-            self.h5pyfile.require_group(base_path)
+            self.require_group(base_path)
             for i, fsub in enumerate(f.split()):
                 path = os.path.join(base_path, str(i))
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())
                 self.save_function(fsub, idx=idx)
             self._update_mixed_function_name_mixed_function_space_name_map(mesh.name, {f.name(): V_name})
@@ -734,7 +739,7 @@ class CheckpointFile(object):
             _element = get_embedding_element_for_checkpointing(element)
             if _element != element:
                 path = self._path_to_function_embedded(tmesh.name, mesh.name, V_name, f.name())
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 method = get_embedding_method_for_checkpointing(element)
                 _V = FunctionSpace(mesh, _element)
                 _name = "_".join([PREFIX_EMBEDDED, f.name()])
@@ -745,7 +750,7 @@ class CheckpointFile(object):
             else:
                 # -- Save function topology --
                 path = self._path_to_function(tmesh.name, mesh.name, V_name, f.name())
-                self.h5pyfile.require_group(path)
+                self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
 
@@ -764,7 +769,7 @@ class CheckpointFile(object):
             assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
             dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
-            self.h5pyfile.require_group(path)
+            self.require_group(path)
             self.set_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]), tf.dat.data.item())
         else:
             topology_dm = tmesh.topology_dm
@@ -1204,7 +1209,7 @@ class CheckpointFile(object):
         :arg name: the name of the attribute.
         :arg the_dict: the dict to pickle and write.
         """
-        self.h5pyfile.require_group(path)
+        self.require_group(path)
         self.set_attr(path, name, self._pickle(the_dict))
 
     def _read_pickled_dict(self, path, name):
@@ -1321,3 +1326,63 @@ class CheckpointFile(object):
             self._h5pyfile.flush()
             del self._h5pyfile
         self.viewer.destroy()
+
+    def create_group(self, name, track_order=None):
+        r"""Mimic :meth:`h5py.Group.create_group`.
+
+        :arg name: The name of the group.
+        :kwarg track_order: Whether to track dataset/group/attribute creation order.
+
+        In this method we customise the :class:`h5py.h5p.PropGCID`
+        object from which we create the `h5py.h5g.GroupID` object
+        to avoid the "object header message is too large" error
+        and/or "record is not in B-tree" error when storing many
+        (hundreds of) attributes; see
+        `this PR <https://github.com/firedrakeproject/firedrake/pull/2432>`_.
+
+        TODO: Lift this to upstream somehow.
+        """
+        _self = self.h5pyfile
+        if track_order is None:
+            track_order = h5py.h5.get_config().track_order
+        with h5py._hl.base.phil:
+            name, lcpl = _self._e(name, lcpl=True)
+            if track_order:
+                firedrake.warning("track_order = True is known to cause 'record is not in B-tree' error when trying to store many attributes.")
+                gcpl = h5py.Group._gcpl_crt_order
+            else:
+                gcpl = h5py.h5p.create(h5py.h5p.GROUP_CREATE)
+                # The following will remove the 64KiB limit for storing
+                # attributes, but it makes checkpointing very slow and
+                # actually seems not necessary to avoid the errors.
+                # >>> gcpl.set_attr_phase_change(0, 0)
+                gcpl.set_link_creation_order(h5py.h5p.CRT_ORDER_TRACKED)
+                gcpl.set_attr_creation_order(h5py.h5p.CRT_ORDER_TRACKED)
+                # The followings are supposed to improve performance, but
+                # makes the program fail with "record is not in B-tree" error.
+                # >>> gcpl.set_link_creation_order(h5py.h5p.CRT_ORDER_TRACKED | h5py.h5p.CRT_ORDER_INDEXED)
+                # >>> gcpl.set_attr_creation_order(h5py.h5p.CRT_ORDER_TRACKED | h5py.h5p.CRT_ORDER_INDEXED)
+            gid = h5py.h5g.create(_self.id, name, lcpl=lcpl, gcpl=gcpl)
+            return h5py.Group(gid)
+
+    def require_group(self, name):
+        r"""Mimic :meth:`h5py.Group.require_group`.
+
+        :arg name: name of the group.
+
+        This method uses :meth:`~.CheckpointFile.create_group`
+        instead of :meth:`h5py.Group.create_group` to create
+        an :class:`h5py.Group` object from an :class:`h5py.h5g.GroupID`
+        constructed with a custom :class:`h5py.h5p.PropGCID` object
+        (often named `gcpl`); see :meth:`h5py.Group.create_group`.
+
+        TODO: Lift this to upstream somehow.
+        """
+        _self = self.h5pyfile
+        with h5py._hl.base.phil:
+            if name not in _self:
+                return self.create_group(name)
+            grp = _self[name]
+            if not isinstance(grp, h5py.Group):
+                raise TypeError("Incompatible object (%s) already exists" % grp.__class__.__name__)
+            return grp
