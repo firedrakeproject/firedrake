@@ -2176,7 +2176,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance)
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance)
 
     if missing_points_behaviour:
 
