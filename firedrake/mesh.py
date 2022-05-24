@@ -2091,7 +2091,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
+                   tolerance=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
     by a list of coordinates.
@@ -2175,7 +2176,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_mesh(mesh, vertexcoords)
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance)
 
     if missing_points_behaviour:
 
@@ -2249,7 +2250,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     return vmesh
 
 
-def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
+def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
     This should only by used for meshes with straight edges. If not, the
@@ -2314,7 +2315,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
     fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)]
 
     coords, reference_coords, parent_cell_nums = \
-        _parent_mesh_embedding(coords, parent_mesh)
+        _parent_mesh_embedding(coords, parent_mesh, tolerance)
     # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
     plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
@@ -2381,7 +2382,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None):
     return swarm
 
 
-def _parent_mesh_embedding(vertex_coords, parent_mesh):
+def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
     """Find the parent cells and local coords for vertices on this rank.
 
     Vertices not located in cells owned by this rank are discarded.
@@ -2405,7 +2406,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh):
     for i in range(max_num_vertices):
         if i < num_vertices:
             parent_cell_num, reference_coord = \
-                parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i])
+                parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i], tolerance)
             # parent_cell_num >= parent_mesh.cell_set.size means the vertex is in the halo
             # and is to be discarded.
             if parent_cell_num is not None and parent_cell_num < parent_mesh.cell_set.size:
