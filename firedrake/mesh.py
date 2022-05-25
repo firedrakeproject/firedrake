@@ -2272,6 +2272,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
+    :kwarg tolerance: the amount by which the local coordinates of a point are
+        allowed to fall outside the cell while still having the point count as
+        in the cell. Increase the default (1.0e-14) somewhat if vertices are
+        being lost in the :class:`VertexOnlyMesh` construction process.
     :return: the immersed DMSwarm
 
     .. note::
