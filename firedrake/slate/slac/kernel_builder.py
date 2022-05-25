@@ -725,17 +725,17 @@ class LocalLoopyKernelBuilder(object):
                                               within_inames=frozenset(inames),
                                               within_inames_is_final=True))
             else:
-                f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
-                coeff = tuple(coefficients[c] for c in f)
+                potentially_mixed_f = slate_tensor.form if isinstance(slate_tensor.form, tuple) else (slate_tensor.form,)
+                coeff_dict = tuple(coefficients[c] for c in potentially_mixed_f)
                 offset = 0
-                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in f)
+                ismixed = tuple((type(c.ufl_element()) == MixedElement) for c in potentially_mixed_f)
                 # Fetch the coefficient name corresponding to this assembled vector
                 # for block assembled vectors we also need to pick the right one from the names of the split functions
                 names = []
-                for (im, c) in zip(ismixed, coeff):
+                for (im, c) in zip(ismixed, coeff_dict):
                     if im:
-                        coeff = slate_tensor.coefficients()[0]
-                        filter_f = lambda item: (not isinstance(coeff, slate.BlockFunction) or item[0] in coeff.split_function)                 
+                        block_function = slate_tensor.coefficients()[0]
+                        filter_f = lambda name_and_extent: (not isinstance(block_function, slate.BlockFunction) or name_and_extent[0] in block_function.split_function)                 
                         names += list(tup[1][0] for tup in tuple(filter(filter_f, c.items())))
                     else:
                         names += [c[0]]
