@@ -778,8 +778,8 @@ def initialise_temps(builder, gem2slate, tensor2temps):
     init_coeffs, _ = builder.collect_coefficients(artificial=False)
     gem2slate_vectors = {v: t for (v, t) in gem2slate.items()
                          for cv, ct in init_coeffs.items()
-                         if isinstance(t, sl.AssembledVector)
-                         and t._function == cv}
+                         if (isinstance(t, sl.AssembledVector) and t._function == cv)
+                         or (isinstance(t, sl.BlockAssembledVector) and cv == t._original_function)}
     builder.bag.coefficients.update(init_coeffs)
 
     inits, tensor2temp = builder.initialise_terminals(gem2slate_vectors, init_coeffs)
