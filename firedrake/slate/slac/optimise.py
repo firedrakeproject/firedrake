@@ -187,6 +187,7 @@ def _push_diag_stop(expr, self, diag):
 
 
 @_push_diag.register(Inverse)
+@_push_diag.register(Solve)
 def _push_diag_inverse(expr, self, diag):
     """Diagonal Tensors cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(False)), **expr.ctx) if not expr.terminal else expr
@@ -203,7 +204,6 @@ def _push_diag_block(expr, self, diag):
 @_push_diag.register(AssembledVector)
 @_push_diag.register(Reciprocal)
 @_push_diag.register(Action)
-@_push_diag.register(Solve)
 def _push_diag_vectors(expr, self, diag):
     """DiagonalTensors should not be pushed onto rank-1 tensors."""
     if diag:
@@ -288,7 +288,6 @@ def _drop_double_transpose_transpose(expr, self):
 @_drop_double_transpose.register(Negative)
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
-@_drop_double_transpose.register(Inverse)
 @_drop_double_transpose.register(Reciprocal)
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
