@@ -24,7 +24,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
            'CircleManifoldMesh', 'UnitDiskMesh',
-           'UnitTetrahedronMesh',
+           'UnitBallMesh', 'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'PeriodicBoxMesh', 'PeriodicUnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
@@ -788,6 +788,58 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             x[:] *= t
 
     m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    return m
+
+
+@PETSc.Log.EventDecorator()
+def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+    """Generate a mesh of the unit ball in 3D
+
+    :kwarg refinement_level: optional number of refinements (0 is an octahedron)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional MPI communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
+    """
+    vertices = np.array([[0, 0, 0],
+                         [1, 0, 0],
+                         [0, 1, 0],
+                         [0, 0, 1],
+                         [-1, 0, 0],
+                         [0, -1, 0],
+                         [0, 0, -1]], dtype=np.double)
+
+    cells = np.array([[0, 1, 2, 3],
+                      [0, 2, 4, 3],
+                      [0, 4, 5, 3],
+                      [0, 5, 1, 3],
+                      [0, 2, 1, 6],
+                      [0, 4, 2, 6],
+                      [0, 5, 4, 6],
+                      [0, 1, 5, 6]], np.int32)
+
+    plex = mesh._from_cell_list(3, cells, vertices, comm,
+                                mesh._generate_default_mesh_topology_name(name))
+
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        for face in boundary_faces:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+    plex.removeLabel("boundary_faces")
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
+    for x in coords:
+        norm = np.sqrt(np.dot(x, x))
+        if norm > 1. / (1 << (refinement_level + 1)):
+            t = np.sum(np.abs(x)) / norm
+            x[:] *= t
+
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
     return m
 
 
