@@ -2108,8 +2108,9 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         ranks.
     :kwarg tolerance: the amount by which the local coordinates of a point are
         allowed to fall outside the cell while still having the point count as
-        in the cell. Increase the default (1.0e-14) somewhat if vertices are
-        being lost in the :class:`VertexOnlyMesh` construction process.
+        in the cell. Increase the default (1.0e-14) somewhat if vertices
+        interior to the domain are being lost in the :class:`VertexOnlyMesh`
+        construction process.
 
     .. note::
 
