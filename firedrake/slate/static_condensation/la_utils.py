@@ -26,7 +26,7 @@ for the transformed linear system of equations.
 """
 
 
-def condense_and_forward_eliminate(A, b, elim_fields):
+def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
     """Returns Slate expressions for the operator and
     right-hand side vector after eliminating specified
     unknowns.
@@ -37,6 +37,9 @@ def condense_and_forward_eliminate(A, b, elim_fields):
             to the right-hand side.
     :arg elim_fields: a `tuple` of indices denoting
                       which fields to eliminate.
+    :arg prefix: an option prefix for the condensed field.
+    :arg pc: a Preconditioner instance.
+    :returns: a tuple of `LAContext` and `SchurComplementBuilder`
     """
 
     if not isinstance(A, Tensor):
@@ -70,26 +73,31 @@ def condense_and_forward_eliminate(A, b, elim_fields):
     # where subscript `e` denotes the coupling with fields
     # that will be eliminated, and `f` denotes the condensed
     # fields.
-    Aff = _A[f_idx0:f_idx1 + 1, f_idx0:f_idx1 + 1]
-    Aef = _A[e_idx0:e_idx1 + 1, f_idx0:f_idx1 + 1]
-    Afe = _A[f_idx0:f_idx1 + 1, e_idx0:e_idx1 + 1]
-    Aee = _A[e_idx0:e_idx1 + 1, e_idx0:e_idx1 + 1]
+    id_0 = e_idx0
+    id_1 = e_idx1
+    outer_id_0 = slice(e_idx0, e_idx1 + 1)
+    outer_id_1 = slice(f_idx0, f_idx1 + 1)
+    Aff = _A[outer_id_1, outer_id_1]
+    Aef = _A[outer_id_0, outer_id_1]
+    Afe = _A[outer_id_1, outer_id_0]
+    Aee = _A[outer_id_0, outer_id_0]
 
-    bf = _b[f_idx0:f_idx1 + 1]
-    be = _b[e_idx0:e_idx1 + 1]
+    bf = _b[outer_id_1]
+    be = _b[outer_id_0]
 
     # The reduced operator and right-hand side are:
     #  S = A_ff - A_fe * A_ee.inv * A_ef
     #  r = b_f - A_fe * A_ee.inv * b_e
-    # as show in Slate:
-    S = Aff - Afe * Aee.inv * Aef
-    r = bf - Afe * Aee.inv * be
+    # TODO check the vidx and pidx indices are correct
+    schur_builder = SchurComplementBuilder(prefix, Aee, Afe, Aef, pc, id_0, id_1, non_zero_saddle_mat=Aff)
+    r, S = schur_builder.build_schur(be, non_zero_saddle_rhs=bf)
+
     field_idx = [idx for idx in range(f_idx0, f_idx1)]
 
-    return LAContext(lhs=S, rhs=r, field_idx=field_idx)
+    return LAContext(lhs=S, rhs=r, field_idx=field_idx), schur_builder
 
 
-def backward_solve(A, b, x, reconstruct_fields):
+def backward_solve(A, b, x, schur_builder, reconstruct_fields):
     """Returns a sequence of linear algebra contexts containing
     Slate expressions for backwards substitution.
 
@@ -99,8 +107,10 @@ def backward_solve(A, b, x, reconstruct_fields):
             to the right-hand side.
     :arg x: a `firedrake.Function` corresponding
             to the solution.
+    :arg schur_builder: a `SchurComplementBuilder`
     :arg reconstruct_fields: a `tuple` of indices denoting
                              which fields to reconstruct.
+    :returns: a list of `LAContext` for the reconstruction
     """
 
     if not isinstance(A, Tensor):
@@ -173,12 +183,10 @@ def backward_solve(A, b, x, reconstruct_fields):
         id_e0, id_e1 = reconstruct_fields
         id_f, = [idx for idx in all_fields if idx not in reconstruct_fields]
 
-        A_e0e0 = _A[id_e0, id_e0]
-        A_e0e1 = _A[id_e0, id_e1]
-        A_e1e0 = _A[id_e1, id_e0]
-        A_e1e1 = _A[id_e1, id_e1]
-        A_e0f = _A[id_e0, id_f]
-        A_e1f = _A[id_e1, id_f]
+        A_e0e0, A_e0e1, A_e1e0, A_e1e1 = schur_builder.list_split_mixed_ops
+        A_e0f, A_e1f = schur_builder.list_split_trace_ops_transpose
+        A_e0e0inv = schur_builder.A00_inv_hat
+        S_e1 = schur_builder.inner_S
 
         x_e1 = AssembledVector(_x[id_e1])
         x_f = AssembledVector(_x[id_f])
@@ -187,9 +195,17 @@ def backward_solve(A, b, x, reconstruct_fields):
         b_e1 = AssembledVector(_b[id_e1])
 
         # Solve for e1
-        Sf = A_e1f - A_e1e0 * A_e0e0.inv * A_e0f
-        S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1
-        r_e1 = b_e1 - A_e1e0 * A_e0e0.inv * b_e0 - Sf * x_f
+        Sf = A_e1f - A_e1e0 * A_e0e0inv * A_e0f
+        S_e1 = A_e1e1 - A_e1e0 * A_e0e0inv * A_e0e1
+        r_e1 = b_e1 - A_e1e0 * A_e0e0inv * b_e0 - Sf * x_f
+
+        if schur_builder.schur_approx or schur_builder.jacobi_S:
+            Shat = schur_builder.inner_S_approx_inv_hat
+            if schur_builder.preonly_S:
+                S_e1 = Shat
+            else:
+                S_e1 = Shat * S_e1
+                r_e1 = Shat * r_e1
         systems.append(LAContext(lhs=S_e1, rhs=r_e1, field_idx=(id_e1,)))
 
         # Solve for e0

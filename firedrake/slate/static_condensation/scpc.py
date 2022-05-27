@@ -96,7 +96,7 @@ class SCPC(SCBase):
 
         # Get expressions for the condensed linear system
         A_tensor = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
+        reduced_sys, schur_builder = self.condensed_system(A_tensor, self.residual, elim_fields, prefix, pc)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -124,9 +124,9 @@ class SCPC(SCBase):
         if A != P:
             self.cxt_pc = P.getPythonContext()
             P_tensor = Tensor(self.cxt_pc.a)
-            P_reduced_sys = self.condensed_system(P_tensor,
-                                                  self.residual,
-                                                  elim_fields)
+            P_reduced_sys, _ = self.condensed_system(P_tensor,
+                                                     self.residual,
+                                                     elim_fields)
             S_pc_expr = P_reduced_sys.lhs
             self.S_pc_expr = S_pc_expr
 
@@ -187,22 +187,25 @@ class SCPC(SCBase):
         self.local_solvers = self.local_solver_calls(A_tensor,
                                                      self.residual,
                                                      self.solution,
-                                                     elim_fields)
+                                                     elim_fields,
+                                                     schur_builder)
 
-    def condensed_system(self, A, rhs, elim_fields):
+    def condensed_system(self, A, rhs, elim_fields, prefix, pc):
         """Forms the condensed linear system by eliminating
         specified unknowns.
 
         :arg A: A Slate Tensor containing the mixed bilinear form.
         :arg rhs: A firedrake function for the right-hand side.
         :arg elim_fields: An iterable of field indices to eliminate.
+        :arg prefix: an option prefix for the condensed field.
+        :arg pc: a Preconditioner instance.
         """
 
         from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
 
-        return condense_and_forward_eliminate(A, rhs, elim_fields)
+        return condense_and_forward_eliminate(A, rhs, elim_fields, prefix, pc)
 
-    def local_solver_calls(self, A, rhs, x, elim_fields):
+    def local_solver_calls(self, A, rhs, x, elim_fields, schur_builder):
         """Provides solver callbacks for inverting local operators
         and reconstructing eliminated fields.
 
@@ -211,12 +214,13 @@ class SCPC(SCBase):
         :arg x: A firedrake function for the solution.
         :arg elim_fields: An iterable of eliminated field indices
                           to recover.
+        :arg schur_builder: a `SchurComplementBuilder`.
         """
         from firedrake.assemble import OneFormAssembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
         fields = x.split()
-        systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
+        systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
