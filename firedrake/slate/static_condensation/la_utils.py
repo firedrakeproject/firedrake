@@ -499,8 +499,10 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
-            schur_rhs = self.K * self.Atilde.inv * rhs
-            schur_comp = self.K * self.Atilde.inv * self.KT
+            P = DiagonalTensor(self.Atilde).inverse(self.rtol_A00, self.atol_A00, self.max_it_A00)
+            Atildeinv = self.inverse(self.Atilde, P, self.jacobi_A00, self.preonly_A00, self.rtol_A00, self.atol_A00, self.max_it_A00)
+            schur_rhs = self.K * Atildeinv * rhs
+            schur_comp = self.K * Atildeinv * self.KT
         if self.non_zero_saddle_mat or non_zero_saddle_rhs:
             assert self.non_zero_saddle_mat and non_zero_saddle_rhs, "The problem is not a saddle point system and you missed to pass either A11 or the corresponding part in the rhs."
             # problem is not a saddle point problem
