@@ -176,3 +176,21 @@ def test_extrude(parentmesh):
     inputcoords, inputcoordslocal = cell_midpoints(parentmesh)
     vm = VertexOnlyMesh(parentmesh, inputcoords)
     ExtrudedMesh(vm, 1)
+
+
+def test_point_tolerance():
+    """Test the tolerance parameter to VertexOnlyMesh.
+
+    This test works by checking a point outside the domain. Tolerance does not
+    in fact promise to fix the problem of points outside the domain in the
+    general case. It is instead there to cope with losing points on internal
+    cell boundaries due to roundoff. The latter case is difficult to test in a
+    manner which is robust to roundoff behaviour in different environments."""
+    m = UnitSquareMesh(1, 1)
+    # Make the mesh non-axis-aligned.
+    m.coordinates.dat.data[1, :] = [1.1, 1]
+    coords = [[1.0501, 0.5]]
+    vm = VertexOnlyMesh(m, coords, tolerance=0.1)
+    assert vm.cell_set.size == 1
+    vm = VertexOnlyMesh(m, coords, tolerance=None)
+    assert vm.cell_set.size == 0
