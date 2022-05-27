@@ -456,9 +456,8 @@ class SchurComplementBuilder(object):
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
             KT0, KT1 = self.list_split_trace_ops_transpose
-            broken_residual = rhs.split()
-            R = [AssembledVector(broken_residual[self.vidx]),
-                 AssembledVector(broken_residual[self.pidx])]
+            R = [rhs.blocks[self.vidx],
+                 rhs.blocks[self.pidx]]
             # K * block1
             K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
             # K * block1 * block2
@@ -472,7 +471,7 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
-            schur_rhs = self.K * self.Atilde.inv * AssembledVector(rhs)
+            schur_rhs = self.K * self.Atilde.inv * rhs
             schur_comp = self.K * self.Atilde.inv * self.KT
         if self.non_zero_saddle_mat or non_zero_saddle_rhs:
             assert self.non_zero_saddle_mat and non_zero_saddle_rhs, "The problem is not a saddle point system and you missed to pass either A11 or the corresponding part in the rhs."
