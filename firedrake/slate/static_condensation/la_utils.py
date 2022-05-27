@@ -350,41 +350,57 @@ class SchurComplementBuilder(object):
 
     def _retrieve_options(self, pc):
         get_option = lambda key: PETSc.Options(self.prefix).getString(key, default="")
+        default_rtol = "1e-8"
+        default_atol = "1e-50"
+        default_max_it = None
 
         # Get options for Schur complement decomposition
         self._check_options([("ksp_type", {"preonly"}), ("pc_type", {"fieldsplit"}), ("pc_fieldsplit_type", {"schur"})])
         self.nested = (get_option("ksp_type") == "preonly"
                        and get_option("pc_type") == "fieldsplit"
                        and get_option("pc_fieldsplit_type") == "schur")
+        self.schur_diag = (self.nested and get_option("pc_fieldsplit_schur_fact_type") == "diag")
 
         # Get preconditioning options for A00
         fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
         self._check_options([(fs0+"ksp_type", {"preonly", "default"}), (fs0+"pc_type", {"jacobi"})])
         self.preonly_A00 = get_option(fs0+"_ksp_type") == "preonly"
         self.jacobi_A00 = get_option(fs0+"_pc_type") == "jacobi"
+        self.rtol_A00 = get_option(fs0+"_ksp_rtol") or default_rtol
+        self.atol_A00 = get_option(fs0+"_ksp_atol") or default_atol
+        self.max_it_A00 = get_option(fs0+"_ksp_max_it") or default_max_it
 
         # Get preconditioning options for the Schur complement
         self._check_options([(fs1+"ksp_type", {"preonly", "default"}), (fs1+"pc_type", {"jacobi", "python"})])
         self.preonly_S = get_option(fs1+"_ksp_type") == "preonly"
         self.jacobi_S = get_option(fs1+"_pc_type") == "jacobi"
+        self.rtol_S = get_option(fs1+"_ksp_rtol") or default_rtol
+        self.atol_S = get_option(fs1+"_ksp_atol") or default_atol
+        self.max_it_S = get_option(fs1+"_ksp_max_it") or default_max_it
 
         # Get user supplied operator and its options
         self.schur_approx = (get_option(fs1+"_pc_python_type") if get_option(fs1+"_pc_type") == "python" else False)
         self._check_options([(fs1+"aux_ksp_type", {"preonly", "default"}), (fs1+"aux_pc_type", {"jacobi"})])
         self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
         self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
+        self.rtol_Shat = get_option(fs1+"_aux_ksp_rtol") or default_rtol
+        self.atol_Shat = get_option(fs1+"_aux_ksp_atol") or default_atol
+        self.max_it_Shat = get_option(fs1+"_aux_ksp_max_it") or default_max_it
 
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], ("Local systems should only get preconditioned with "
                                                               "a preconditioning matrix if the Slate optimiser replaces "
                                                               "inverses by solves.")
+        # Do the local solves matrix-free?
+        self._check_options([("mat_type", {"matfree"})])
+        self.local_matfree = get_option("mat_type") == "matfree"
 
     def build_inner_S(self):
         """Build the inner Schur complement."""
         _, A01, A10, A11 = self.list_split_mixed_ops
         return A11 - A10 * self.A00_inv_hat * A01
 
-    def inv(self, A, P, prec, preonly=False):
+    def inverse(self, A, P, prec, preonly=False, rtol=None, atol=None, max_it=None):
         """ Calculates the inverse of an operator A.
             The inverse is potentially approximated through a solve
             which is potentially preconditioned with the preconditioner P
@@ -393,8 +409,8 @@ class SchurComplementBuilder(object):
             if prec and replace.
         """
         return (P if prec and preonly else
-                (P*A).inv * P if prec else
-                A.inv)
+                (P*A).inverse(rtol, atol, max_it) * P if prec else
+                A.inverse(rtol, atol, max_it))
 
     def build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
@@ -404,7 +420,7 @@ class SchurComplementBuilder(object):
         A = self.inner_S
         P = self.inner_S_approx_inv_hat
         prec = bool(self.schur_approx) or self.jacobi_S
-        return self.inv(A, P, prec, self.preonly_S)
+        return self.inverse(A, P, prec, self.preonly_S, self.rtol_S, self.atol_S, self.max_it_S)
 
     def build_Sapprox_inv(self):
         """ Calculates the inverse of preconditioner to the Schur complement,
@@ -415,9 +431,9 @@ class SchurComplementBuilder(object):
         """
         prec = (bool(self.schur_approx) and self.jacobi_Shat) or self.jacobi_S
         A = self.schur_approx if self.schur_approx else self.inner_S
-        P = DiagonalTensor(A).inv
+        P = DiagonalTensor(A).inverse(self.rtol_Shat, self.atol_Shat, self.max_it_Shat)
         preonly = self.preonly_Shat if self.schur_approx else True
-        return self.inv(A, P, prec, preonly)
+        return self.inverse(A, P, prec, preonly, self.rtol_Shat, self.atol_Shat, self.max_it_Shat)
 
     def build_A00_inv(self):
         """ Calculates the inverse of :math:`A_{00}`, the (0,0)-block of the mixed matrix Atilde.
@@ -425,8 +441,9 @@ class SchurComplementBuilder(object):
             which is potentially preconditioned with jacobi.
         """
         A, _, _, _ = self.list_split_mixed_ops
-        P = DiagonalTensor(A).inv
-        return self.inv(A, P, self.jacobi_A00, self.preonly_A00)
+        P = DiagonalTensor(A).inverse(self.rtol_A00, self.atol_A00, self.max_it_A00)
+        return self.inverse(A, P, self.jacobi_A00, self.preonly_A00, self.rtol_A00, self.atol_A00, self.max_it_A00)
+
 
     def retrieve_user_S_approx(self, pc, usercode):
         """Retrieve a user-defined :class:firedrake.preconditioners.AuxiliaryOperator from the PETSc Options,
@@ -462,7 +479,7 @@ class SchurComplementBuilder(object):
                         block1                      block2                  block3
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
-
+        self.rhs = rhs
         if self.nested:
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
