@@ -289,18 +289,25 @@ class SchurComplementBuilder(object):
         self.KT = KT
         self.vidx = vidx
         self.pidx = pidx
-        self._split_mixed_operator()
-        self.prefix = prefix + "localsolve_"
 
         # prefixes
+        self.prefix = prefix + "localsolve_"
         self._retrieve_options(pc)
 
-        # build all required inverses
-        self.A00_inv_hat = self.build_A00_inv()
-        self.inner_S = self.build_inner_S()
-        self.inner_S_approx_inv_hat = self.build_Sapprox_inv()
-        self.inner_S_inv_hat = self.build_inner_S_inv()
         self.non_zero_saddle_mat = non_zero_saddle_mat
+
+        # Check if Atilde is mixed
+        all_fields = list(range(len(Atilde.arg_function_spaces[0])))
+        nfields = len(all_fields)
+        if nfields > 1:
+            self._split_mixed_operator()
+            self.schur_approx = self.retrieve_user_S_approx(pc, self.schur_approx) if self.schur_approx else None
+
+            # build all required inverses
+            self.A00_inv_hat = self.build_A00_inv()
+            self.inner_S = self.build_inner_S()
+            self.inner_S_approx_inv_hat = self.build_Sapprox_inv()
+            self.inner_S_inv_hat = self.build_inner_S_inv()
 
     def _split_mixed_operator(self):
         split_mixed_op = dict(split_form(self.Atilde.form))
@@ -351,9 +358,7 @@ class SchurComplementBuilder(object):
         self.jacobi_S = get_option(fs1+"_pc_type") == "jacobi"
 
         # Get user supplied operator and its options
-        self.schur_approx = (self.retrieve_user_S_approx(pc, get_option(fs1+"_pc_python_type"))
-                             if get_option(fs1+"_pc_type") == "python"
-                             else None)
+        self.schur_approx = (get_option(fs1+"_pc_python_type") if get_option(fs1+"_pc_type") == "python" else False)
         self._check_options([(fs1+"aux_ksp_type", {"preonly", "default"}), (fs1+"aux_pc_type", {"jacobi"})])
         self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
         self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
