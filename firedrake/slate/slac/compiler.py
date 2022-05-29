@@ -208,7 +208,11 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
 
     new_coeffs = slate_expr.coefficients()
     orig_coeffs = orig_expr.coefficients()
-    get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
+    is_block_function = lambda n: isinstance(new_coeffs[n], slate.BlockFunction)
+    is_new_coeff = lambda n: new_coeffs[n] in orig_coeffs
+    get_index = lambda n: (orig_coeffs.index(new_coeffs[n]) if (not is_block_function(n) and is_new_coeff(n))
+                          else orig_coeffs.index(new_coeffs[n].orig_function) if (is_block_function(n) and is_new_coeff(n))
+                          else n)
     coeff_map =  (tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map))
     coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
     assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
