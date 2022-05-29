@@ -166,6 +166,8 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (op.form.signature(), op.diagonal, )
             elif isinstance(op, DiagonalTensor):
                 data = (type(op).__name__, op.vec, )
+            elif isinstance(op, Solve):
+                data = (type(op).__name__, op.preconditioner, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -1268,6 +1270,10 @@ class Hadamard(Mul):
         from multiplying two tensors A and B.
         """
         return self._args
+
+    def _output_string(self, prec):
+        """Returns a string representation."""
+        return "Hadamard(%s, %s)" % self.operands
 
 
 class Action(BinaryOp):
