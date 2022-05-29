@@ -1159,7 +1159,7 @@ class SlateWrapperBag(object):
         self.coords = coords
 
     def copy_extra_args(self, other):
-        self.coefficients.update(other.coefficients)
+        # self.coefficients.update({c:k for c, k in other.coefficients.items() if c not in self.coefficients})
         if not self.needs_cell_orientations:
             self.needs_cell_orientations = other.needs_cell_orientations
         if not self.needs_cell_sizes:
@@ -1171,8 +1171,8 @@ class SlateWrapperBag(object):
             self.needs_mesh_layers = other.needs_mesh_layers
 
     def copy_coefficients(self, coeffs=None, action_coeffs=None):
-        if coeffs:
-            self.coefficients = coeffs
+        # if coeffs:
+        self.coefficients = coeffs
         if action_coeffs:
             self.action_coefficients = action_coeffs
 
