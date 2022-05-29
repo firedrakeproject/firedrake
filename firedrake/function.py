@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import ufl
+from ufl.formatting.ufl2unicode import ufl2unicode
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -206,7 +207,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if self._name is not None:
             return self._name
         else:
-            return super(Function, self).__str__()
+            return ufl2unicode(self)
 
 
 class Function(ufl.Coefficient, FunctionMixin):
@@ -660,6 +661,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         if len(arg.shape) == 1:
             g_result = g_result[0]
         return g_result
+
+    def __str__(self):
+        return ufl2unicode(self)
 
 
 class PointNotInDomainError(Exception):
