@@ -230,7 +230,13 @@ class TensorBase(object, metaclass=ABCMeta):
                 pos = orig_to_pos[1] if orig_to_pos else m
                 # We didn't -> we add normally and keep track that we did in the orig_to_pos_dict
                 # We did -> update already existing entry
-                split_map = c.indices[0] if pos == m else coeff_map[pos][1]+c.indices[0]
+                if pos == m:
+                    split_map = c.indices[0]
+                else:
+                    if c.indices[0]:
+                        split_map = coeff_map[pos][1] + tuple(i for i in c.indices[0] if i not in coeff_map[pos][1])
+                    else:
+                        split_map = coeff_map[pos][1]
                 if pos < m:
                     coeff_map[pos] = (pos, split_map)
                 else:
