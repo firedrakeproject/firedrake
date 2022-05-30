@@ -615,7 +615,7 @@ def get_line_elements(V):
 
 
 @lru_cache(maxsize=10)
-def get_line_interpolator(felem, celem):
+def get_line_interpolator(felem, celem, hodgedecomp):
     from FIAT import functional, make_quadrature, RestrictedElement
 
     fdual = felem.dual_basis()
@@ -623,9 +623,11 @@ def get_line_interpolator(felem, celem):
     if compare_dual(fdual, cdual):
         return numpy.array([])
 
-    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
+    kf = felem.formdegree if hodgedecomp else 0
+    kc = celem.formdegree if hodgedecomp else 0
+    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(0, pts)[(0,)]
+        return celem.tabulate(kf, pts)[(kf,)]
     else:
         findices = slice(0, felem.space_dimension())
         if isinstance(felem, RestrictedElement):
@@ -635,8 +637,8 @@ def get_line_interpolator(felem, celem):
         pts = make_quadrature(felem.get_reference_element(),
                               felem.space_dimension()).get_points()
 
-        return numpy.dot(celem.tabulate(0, pts)[(0,)],
-                         numpy.linalg.inv(felem.tabulate(0, pts)[(0,)])[:, findices])
+        return numpy.dot(celem.tabulate(kf, pts)[(kf,)],
+                         numpy.linalg.inv(felem.tabulate(kc, pts)[(kc,)])[:, findices])
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -777,7 +779,7 @@ static inline void ipermute_axis(PetscBLASInt axis,
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
+def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
     operator_decl = []
     prolong_code = []
     restrict_code = []
@@ -848,7 +850,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [get_line_interpolator(fe, ce) for fe, ce in zip(felem, celem)]
+        J = [get_line_interpolator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
         if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
             fskip += nscal*numpy.prod(fshape)
             cskip += nscal*numpy.prod(cshape)
@@ -1147,9 +1149,11 @@ class StandaloneInterpolationMatrix(object):
         coefficients = []
         mapping_code = ""
         coef_decl = ""
-        if fmapping == cmapping:
+
+        hodgedecomp = felem.value_shape() != celem.value_shape()
+        if fmapping == cmapping or hodgedecomp:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2")
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2", hodgedecomp=hodgedecomp)
         else:
             decl = [""]*4
             prolong = [""]*5
