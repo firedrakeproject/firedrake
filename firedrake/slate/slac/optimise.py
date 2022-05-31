@@ -370,11 +370,13 @@ def _push_mul_inverse(expr, self, state):
         # in matrix-free mode lhs == P.inv * A * x and rhs == P.inv * b
         if self.action and state.coeff \
            and isinstance(child, Mul) \
-           and (isinstance(state.coeff, Mul) or isinstance(state.coeff, Action)):
+           and (isinstance(state.coeff, Mul) or isinstance(state.coeff, Action)) or isinstance(state.coeff, Solve):
             # turn the inverse into a preconditioned matrix-free solve
             assert state.pick_op == 1, "This case is not considered in the optimiser yet."
             preconditioner_l, mat = child.children
             preconditioner_r, coeff = state.coeff.children
+            if isinstance(state.coeff, Solve):
+                preconditioner_r = preconditioner_r.inverse(rtol=state.coeff.rtol, atol=state.coeff.atol, max_it=state.coeff.max_it)
             assert preconditioner_l == preconditioner_r, "If you want to use a local precondtioner, \
                                                           make sure you multiply with the same operator \
                                                           on the left and on the right."
