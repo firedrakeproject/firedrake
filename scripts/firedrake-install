@@ -1318,6 +1318,7 @@ def install_documentation_dependencies():
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
+    run_pip(["install", "-U", "numpydoc"])
 
 
 def clean_obsolete_packages():
