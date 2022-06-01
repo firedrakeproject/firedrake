@@ -890,9 +890,9 @@ def condense_element_mat(A, i0, i1):
     A10 = A.createSubMatrix(i1, i0)
     A11 = A.createSubMatrix(i1, i1)
 
-    #A00 = A.createSubMatrix(i0, i0)
-    #isperm = PETSc.IS().createGeneral(numpy.arange(A00.getSize()[0], dtype=PETSc.IntType))
-    #A00.factorILU(isperm, isperm)
+    # A00 = A.createSubMatrix(i0, i0)
+    # isperm = PETSc.IS().createGeneral(numpy.arange(A00.getSize()[0], dtype=PETSc.IntType))
+    # A00.factorILU(isperm, isperm)
 
     adiag = A.getDiagonal()
     adiag0 = adiag.getSubVector(i0)
