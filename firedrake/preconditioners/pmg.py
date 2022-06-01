@@ -1061,28 +1061,6 @@ def get_permuted_map(V):
     return PermutedMap(V.cell_node_map(), perm)
 
 
-def interior_facet_decomposition(pshape):
-    """
-    Split DOFs into interior and facet
-
-    :arg pshape: tuple with value size and space dimension along each axis
-
-    :returns: a tuple with the interior and facet indices
-    """
-    def hamming_weight(n):
-        t1 = n - ((n >> 1) & 0x55555555)
-        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
-        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24, n)
-
-    isplit = ([], [])
-    order = [x[1] for x in sorted(map(hamming_weight, range(1 << len(pshape[1:]))))]
-    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
-    for k in order:
-        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1 << j else slice(1, -1) for j, N in enumerate(pshape[1:]))
-        isplit[k != 0].extend(p[zlice].flat)
-    return isplit
-
-
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.

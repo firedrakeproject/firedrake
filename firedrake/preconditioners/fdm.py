@@ -206,7 +206,18 @@ class FDMPC(PCBase):
         """
         from pyop2.sparsity import get_preallocation
 
-        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(V, appctx)
+        Ve = V
+        e = Ve.ufl_element()
+        self.condense_element_mat = lambda Ae: Ae
+        if isinstance(e, ufl.RestrictedElement):
+            if e.restriction_domain() == "facet":
+                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
+                isplit = interior_facet_decomposition(Ve)
+                idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
+                fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
+                self.condense_element_mat = lambda Ae: condense_element_mat(Ae, idofs, fdofs)
+
+        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Ve, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -233,12 +244,7 @@ class FDMPC(PCBase):
     def assemble_fdm_interval(self, V, appctx):
         from firedrake.preconditioners.pmg import get_line_elements
         try:
-            e = V.ufl_element()
-            if isinstance(e, ufl.RestrictedElement):
-                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
-                line_elements, shifts = get_line_elements(Ve)
-            else:
-                line_elements, shifts = get_line_elements(V)
+            line_elements, shifts = get_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
@@ -273,7 +279,6 @@ class FDMPC(PCBase):
         :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
-        from firedrake.preconditioners.pmg import interior_facet_decomposition
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -296,13 +301,7 @@ class FDMPC(PCBase):
         pshape = tuple(Ak[0].size[0] for Ak in Afdm)
         static_condensation = False
         if sdim != numpy.prod(pshape):
-            isplit = interior_facet_decomposition((1,) + tuple(pshape))
-            iset_interior = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
-            iset_facet = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
-            if sdim == iset_facet.getSize():
-                static_condensation = True
-            else:
-                raise ValueError("Cannot apply static condensation")
+            static_condensation = True
 
         if set(shift) != {0}:
             assert ncomp == ndim
@@ -395,9 +394,7 @@ class FDMPC(PCBase):
                         Ae = Ae.kron(Afdm[axes[m]][0])
                     Ae.scale(bqe[k])
 
-                if static_condensation:
-                    Ae = condense_element_mat(Ae, iset_interior, iset_facet)
-
+                Ae = self.condense_element_mat(Ae)
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
                 set_submat_csr(A, Ae, rows, imode)
                 Ae.destroy()
@@ -664,7 +661,7 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True):
         nnz[[0, -1]] = 2
 
     imode = PETSc.InsertMode.INSERT
-    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, 1, nnz=nnz, comm=PETSc.COMM_SELF)
     if diag:
         for j, ajj in enumerate(A_numpy.diagonal()):
             A_petsc.setValue(j, j, ajj, imode)
@@ -889,15 +886,18 @@ def get_weak_bc_flags(J):
 
 
 def condense_element_mat(A, i0, i1):
-    adiag = A.getDiagonal()
-    adiag0 = adiag.getSubVector(i0)
-    adiag0.reciprocal()
-    adiag0.sqrtabs()
-
     A01 = A.createSubMatrix(i0, i1)
     A10 = A.createSubMatrix(i1, i0)
     A11 = A.createSubMatrix(i1, i1)
 
+    #A00 = A.createSubMatrix(i0, i0)
+    #isperm = PETSc.IS().createGeneral(numpy.arange(A00.getSize()[0], dtype=PETSc.IntType))
+    #A00.factorILU(isperm, isperm)
+
+    adiag = A.getDiagonal()
+    adiag0 = adiag.getSubVector(i0)
+    adiag0.sqrtabs()
+    adiag0.reciprocal()
     A01.diagonalScale(L=adiag0)
     A10.diagonalScale(R=adiag0)
     A11 -= A10.matMult(A01)
@@ -907,3 +907,51 @@ def condense_element_mat(A, i0, i1):
     A01.destroy()
     A10.destroy()
     return A11
+
+
+def interior_facet_decomposition(V):
+    """
+    Split DOFs into interior and facet
+
+    :arg V: a :class:`FunctionSpace`
+
+    :returns: a tuple with the interior and facet indices
+    """
+    entity_dofs = V.finat_element.entity_dofs()
+    ndim = V.mesh().topological_dimension()
+    edofs = [[] for k in range(ndim+1)]
+    for key in entity_dofs:
+        vals = entity_dofs[key]
+        edim = key
+        try:
+            edim = sum(edim)
+        except TypeError:
+            pass
+        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
+        for r in range(len(split)-1):
+            v = sum([vals[k] for k in range(split[r], split[r+1])], [])
+            edofs[edim].extend(sorted(v))
+
+    return edofs[-1], sum(reversed(edofs[:-1]), [])
+
+
+def interior_facet_decomposition_old(pshape):
+    """
+    Split DOFs into interior and facet
+
+    :arg pshape: tuple with value size and space dimension along each axis
+
+    :returns: a tuple with the interior and facet indices
+    """
+    def hamming_weight(n):
+        t1 = n - ((n >> 1) & 0x55555555)
+        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
+        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24, n)
+
+    isplit = ([], [])
+    order = [x[1] for x in sorted(map(hamming_weight, range(1 << len(pshape[1:]))))]
+    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
+    for k in order:
+        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1 << j else slice(1, -1) for j, N in enumerate(pshape[1:]))
+        isplit[k != 0].extend(p[zlice].flat)
+    return isplit
