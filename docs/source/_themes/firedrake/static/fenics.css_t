@@ -670,6 +670,7 @@ display: none;
 }
 
 #the-firedrake-team td {
+  width: 25%;
   text-align: center;
 }
 
