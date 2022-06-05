@@ -288,7 +288,7 @@ div.warning div.last {
 	padding: 10px 20px 10px 60px;
 }
 
-#firedrake-package div.section>dl {
+#firedrake-package section>dl {
     border: 2px solid #ddd;
 	border-right-style: none;
 	border-bottom-style: none;
@@ -670,6 +670,7 @@ display: none;
 }
 
 #the-firedrake-team td {
+  width: 25%;
   text-align: center;
 }
 
