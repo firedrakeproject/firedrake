@@ -66,12 +66,10 @@ class FDMPC(PCBase):
         octx = dmhooks.get_appctx(pc.getDM())
         mat_type = octx.mat_type
         oproblem = octx._problem
-        self.use_slate = False
 
         J = oproblem.J
         if isinstance(J, firedrake.slate.Add):
             J = J.children[0].form
-            self.use_slate = True
         assert type(J) == ufl.Form
 
         bcs = tuple(oproblem.bcs)
@@ -898,6 +896,7 @@ def condense_element_mat(A, i0, i1):
     adiag0 = adiag.getSubVector(i0)
     adiag0.sqrtabs()
     adiag0.reciprocal()
+
     A01.diagonalScale(L=adiag0)
     A10.diagonalScale(R=adiag0)
     A11 -= A10.matMult(A01)
