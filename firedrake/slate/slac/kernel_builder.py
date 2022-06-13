@@ -784,7 +784,7 @@ class LocalLoopyKernelBuilder(object):
         prec = getattr(expr.ctx, "preconditioner")
         max_it = getattr(expr.ctx, "max_it")
         preconditioned = bool(prec)
-        max_it_loop = 10*shape[0]
+        max_it_loop = 2*shape[0]
 
         if max_it:
             assert int(max_it)<max_it_loop, f"The local solver is looping up to {max_it_loop}." \
