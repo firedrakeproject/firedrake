@@ -857,7 +857,7 @@ class LocalLoopyKernelBuilder(object):
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=rk_norm1, id=Aonp, inames=i_c}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
-                    <> projector_is_zero = abs(p_on_Ap) < {atol} {{id={preconverged_criterion_dep}, dep=ponAp}}
+                    <> projector_is_zero = abs(p_on_Ap) < {1e-50} {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
              corner_case,
              f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
