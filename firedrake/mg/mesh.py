@@ -3,15 +3,58 @@ from fractions import Fraction
 from collections import defaultdict
 
 from pyop2.datatypes import IntType
-
 import firedrake
 from firedrake.utils import cached_property
+from firedrake.halo import _get_mtype as get_mpi_type
+from firedrake.halo import MPI
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
+from firedrake.cython.mgimpl import (build_section_migration_sf,
+                                     get_entity_renumbering)
 
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
-           "SemiCoarsenedExtrudedHierarchy")
+           "SemiCoarsenedExtrudedHierarchy", "RedistMeshHierarchy")
+
+
+class RedistMesh:
+    def __init__(self, orig, pointmigrationsf):
+        self.orig = orig
+        self.pointmigrationsf = pointmigrationsf
+
+    def orig2redist(self, source, target):
+        # TODO: cache keyed on UFL element
+        source_section = source.function_space().dm.getDefaultSection()
+        target_section = target.function_space().dm.getDefaultSection()
+        secmigrationsf = build_section_migration_sf(
+            self.pointmigrationsf, source_section, target_section
+        )
+        dtype, _ = get_mpi_type(source.dat)
+        secmigrationsf.bcastBegin(dtype,
+                                  source.dat.data_ro_with_halos,
+                                  target.dat.data_ro_with_halos,
+                                  MPI.REPLACE)
+        secmigrationsf.bcastEnd(dtype,
+                                source.dat.data_ro_with_halos,
+                                target.dat.data_ro_with_halos,
+                                MPI.REPLACE)
+
+    def redist2orig(self, target, source):
+        # TODO: cache keyed on UFL element
+        source_section = source.function_space().dm.getDefaultSection()
+        target_section = target.function_space().dm.getDefaultSection()
+        secmigrationsf = build_section_migration_sf(
+            self.pointmigrationsf, source_section, target_section
+        )
+        dtype, _ = get_mpi_type(source.dat)
+        secmigrationsf.reduceBegin(dtype,
+                                   target.dat.data_ro_with_halos,
+                                   source.dat.data_ro_with_halos,
+                                   MPI.REPLACE)
+        secmigrationsf.reduceEnd(dtype,
+                                 target.dat.data_ro_with_halos,
+                                 source.dat.data_ro_with_halos,
+                                 MPI.REPLACE)
 
 
 class HierarchyBase(object):
@@ -42,11 +85,11 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
         self.nested = nested
-        for level, m in enumerate(meshes):
-            set_level(m, self, Fraction(level, refinements_per_level))
-        for level, m in enumerate(self):
-            set_level(m, self, level)
         self._shared_data_cache = defaultdict(dict)
+        for level, m in enumerate(meshes):
+            set_level(m, self, level)
+            if hasattr(m, "redist"):
+                set_level(m.redist.orig, self, level)
 
     @cached_property
     def comm(self):
@@ -71,11 +114,96 @@ class HierarchyBase(object):
         return self.meshes[idx]
 
 
+def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
+                        callbacks=None,
+                        distribution_parameters=None):
+    coarse_to_fine_cells = []
+    fine_to_coarse_cells = [None]
+    meshes = [cmesh]
+    if callbacks is not None:
+        before, after = callbacks
+    else:
+        before = after = lambda dm, i: None
+
+    for i in range(refinement_levels*refinements_per_level):
+        cmesh.init()
+        cdm = cmesh.topology_dm
+
+        if i % refinements_per_level == 0:
+            before(cdm, i)
+
+        cdm.setRefinementUniform(True)
+        _, n2oc = get_entity_renumbering(cdm, cmesh._cell_numbering, "cell")
+        rdm = cdm.refine()
+        rmesh = firedrake.Mesh(rdm,
+                               distribution_parameters={
+                                   "partition": False,
+                                   "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0)
+                               })
+        rmesh.init()
+
+        o2nf, _ = get_entity_renumbering(rdm, rmesh._cell_numbering, "cell")
+
+        fine_to_coarse = np.empty((rmesh.cell_set.size, 1), dtype=np.int32)
+        coarse_to_fine = np.empty((cmesh.cell_set.size, 4), dtype=np.int32)
+        for coarse_cell in range(cmesh.cell_set.size):
+            c = n2oc[coarse_cell]
+            assert 0 <= c < cmesh.cell_set.size
+            for i in range(4):
+                f = 4 * c + i
+                assert 0 <= f < rmesh.cell_set.size
+                f = o2nf[f]
+                assert 0 <= f < rmesh.cell_set.size
+                coarse_to_fine[coarse_cell, i] = f
+                fine_to_coarse[f, 0] = coarse_cell
+
+        if rmesh.comm.size == 1:
+            rmeshredist = rmesh
+            if i % refinements_per_level == 0:
+                after(rdm, i)
+        else:
+            rdmredist = rdm.clone()
+            if i % refinements_per_level == 0:
+                after(rdmredist, i)
+            # TODO: configuration for setting partitioner
+            part = rdmredist.getPartitioner()
+            part.setType(part.Type.PARMETIS)
+            rdmredist.removeLabel("pyop2_ghost")
+            rdmredist.removeLabel("pyop2_owned")
+            rdmredist.removeLabel("pyop2_core")
+            pointmigrationsf = rdmredist.distribute(overlap=1)
+            rmeshredist = firedrake.Mesh(
+                rdmredist,
+                distribution_parameters={
+                    "partition": False,
+                    "overlap_type": (firedrake.DistributedMeshOverlapType.NONE, 0),
+                },
+            )
+            if pointmigrationsf is None:
+                assert rmesh.comm.size == 1
+            else:
+                rmeshredist.redist = RedistMesh(rmesh, pointmigrationsf)
+        meshes.append(rmeshredist)
+        coarse_to_fine_cells.append(coarse_to_fine)
+        fine_to_coarse_cells.append(fine_to_coarse)
+        cmesh = rmeshredist
+
+    coarse_to_fine_cells = dict((Fraction(i, 1), c2f)
+                                for i, c2f in enumerate(coarse_to_fine_cells))
+    fine_to_coarse_cells = dict((Fraction(i, 1), f2c)
+                                for i, f2c in enumerate(fine_to_coarse_cells))
+
+    return HierarchyBase(meshes,
+                         coarse_to_fine_cells=coarse_to_fine_cells,
+                         fine_to_coarse_cells=fine_to_coarse_cells,
+                         refinements_per_level=1,
+                         nested=True)
+
+
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
                   reorder=None,
-                  distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh):
+                  distribution_parameters=None, callbacks=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     :arg mesh: the coarse :func:`~.Mesh` to refine
@@ -93,7 +221,6 @@ def MeshHierarchy(mesh, refinement_levels,
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
-    :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
     """
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
@@ -137,9 +264,9 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
-                                    distribution_parameters=distribution_parameters,
-                                    reorder=reorder)
+    meshes = [mesh] + [firedrake.Mesh(dm,
+                                      distribution_parameters=distribution_parameters,
+                                      reorder=reorder)
                        for dm in dms]
 
     lgmaps = []
@@ -167,8 +294,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
-                          kernel=None, extrusion_type='uniform', gdim=None,
-                          mesh_builder=firedrake.ExtrudedMesh):
+                          kernel=None, extrusion_type='uniform', gdim=None):
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
     :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
@@ -187,8 +313,6 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
-       extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
     """
@@ -205,11 +329,20 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         if base_layer != -1:
             raise ValueError("Can't specify both layers and base_layer")
 
-    meshes = [mesh_builder(m, layer, kernel=kernel,
-                           layer_height=height/layer,
-                           extrusion_type=extrusion_type,
-                           gdim=gdim)
-              for (m, layer) in zip(base_hierarchy._meshes, layers)]
+    meshes = []
+    for m, layer in zip(base_hierarchy._meshes, layers):
+        ext = firedrake.ExtrudedMesh(m, layer, kernel=kernel,
+                                     layer_height=height/layer,
+                                     extrusion_type=extrusion_type,
+                                     gdim=gdim)
+        meshes.append(ext)
+        if hasattr(m, "redist"):
+            ext_orig = firedrake.ExtrudedMesh(m.redist.orig, layer, kernel=kernel,
+                                              layer_height=height/layer,
+                                              extrusion_type=extrusion_type,
+                                              gdim=gdim)
+            pointmigrationsf = m.redist.pointmigrationsf
+            ext.redist = RedistMesh(ext_orig, pointmigrationsf)
 
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,
@@ -219,8 +352,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
 
 
 def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, refinement_ratio=2, layers=None,
-                                   kernel=None, extrusion_type='uniform', gdim=None,
-                                   mesh_builder=firedrake.ExtrudedMesh):
+                                   kernel=None, extrusion_type='uniform', gdim=None):
     """Build a hierarchy of extruded meshes with refinement only in the extruded dimension.
 
     :arg base_mesh: the unextruded base mesh to extrude.
@@ -240,8 +372,6 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
-       extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
 
@@ -264,10 +394,10 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
             raise ValueError("Need to provide a number of layers for every refined mesh. "
                              f"Got {len(layers)}, needed {nref+1}")
 
-    meshes = [mesh_builder(base_mesh, layer, kernel=kernel,
-                           layer_height=height/layer,
-                           extrusion_type=extrusion_type,
-                           gdim=gdim)
+    meshes = [firedrake.ExtrudedMesh(base_mesh, layer, kernel=kernel,
+                                     layer_height=height/layer,
+                                     extrusion_type=extrusion_type,
+                                     gdim=gdim)
               for layer in layers]
     refinements_per_level = 1
     identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)

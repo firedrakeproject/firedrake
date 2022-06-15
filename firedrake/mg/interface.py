@@ -52,14 +52,23 @@ def prolong(coarse, fine):
 
     element = Vc.ufl_element()
     meshes = hierarchy._meshes
+
     for j in range(repeat):
         next_level += 1
-        if j == repeat - 1:
-            next = fine
-            Vf = fine.function_space()
-        else:
-            Vf = firedrake.FunctionSpace(meshes[next_level], element)
+        fine_mesh = meshes[next_level]
+        needs_redist = hasattr(fine_mesh, "redist")
+
+        if needs_redist:
+            target = fine_mesh.redist.orig
+            Vf = firedrake.FunctionSpace(target, element)
             next = firedrake.Function(Vf)
+        else:
+            if j == repeat - 1:
+                next = fine
+                Vf = fine.function_space()
+            else:
+                Vf = firedrake.FunctionSpace(fine_mesh, element)
+                next = firedrake.Function(Vf)
 
         coarse_coords = Vc.ufl_domain().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
@@ -80,8 +89,17 @@ def prolong(coarse, fine):
                      coarse.dat(op2.READ, fine_to_coarse),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
-        coarse = next
+        if needs_redist:
+            # push laterally:
+            if j == repeat - 1:
+                fine_mesh.redist.orig2redist(next, fine)
+            else:
+                Vf = firedrake.FunctionSpace(fine_mesh, element)
+                tmp = firedrake.Function(Vf)
+                fine_mesh.redist.orig2redist(next, tmp)
+                next = tmp
         Vc = Vf
+        coarse = next
     return fine
 
 
@@ -115,6 +133,16 @@ def restrict(fine_dual, coarse_dual):
     meshes = hierarchy._meshes
 
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        needs_redist = hasattr(fine_mesh, "redist")
+        if needs_redist:
+            # Move from redist mesh to original one, so we can restrict
+            source = fine_dual
+            target_mesh = fine_mesh.redist.orig
+            Vf = firedrake.FunctionSpace(target_mesh, element)
+            target = firedrake.Function(Vf)
+            fine_mesh.redist.redist2orig(source, target)
+            fine_dual = target
         next_level -= 1
         if j == repeat - 1:
             coarse_dual.dat.zero()
@@ -191,6 +219,16 @@ def inject(fine, coarse):
     meshes = hierarchy._meshes
 
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        needs_redist = hasattr(fine_mesh, "redist")
+        if needs_redist:
+            # Move from redist mesh to original one, so we can inject
+            source = fine
+            target_mesh = fine_mesh.redist.orig
+            Vf = firedrake.FunctionSpace(target_mesh, element)
+            target = firedrake.Function(Vf)
+            fine_mesh.redist.redist2orig(source, target)
+            fine = target
         next_level -= 1
         if j == repeat - 1:
             coarse.dat.zero()

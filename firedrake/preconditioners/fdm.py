@@ -44,6 +44,8 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
 
+    _variant = "fdm"
+
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
@@ -53,6 +55,9 @@ class FDMPC(PCBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
+        use_amat = PETSc.Options(options_prefix).getBool("pc_use_amat", True)
+        use_ainv = PETSc.Options(options_prefix).getString("pc_type", "") == "mat"
+        self.use_ainv = use_ainv
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -61,13 +66,18 @@ class FDMPC(PCBase):
         octx = dmhooks.get_appctx(pc.getDM())
         mat_type = octx.mat_type
         oproblem = octx._problem
+
         J = oproblem.J
+        if isinstance(J, firedrake.slate.Add):
+            J = J.children[0].form
+        assert type(J) == ufl.Form
+
         bcs = tuple(oproblem.bcs)
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[0].function_space()
         element = V.ufl_element()
-        e_fdm = element.reconstruct(variant="fdm")
+        e_fdm = element.reconstruct(variant=self._variant)
 
         def interp_nullspace(I, nsp):
             if not nsp:
@@ -90,29 +100,30 @@ class FDMPC(PCBase):
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
             Amat, _ = pc.getOperators()
-            self._ctx_ref = octx
         else:
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-            self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
-                                     options_prefix=options_prefix)
-            self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                       form_compiler_parameters=fcp, mat_type=mat_type)
-            self._assemble_A()
-            Amat = self.A.petscmat
-
+            Amat = None
             omat, _ = pc.getOperators()
-            inject = prolongation_matrix_matfree(V_fdm, V, [], [])
-            Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
-            Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
-            Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
-            self.work_vec_x = Amat.createVecLeft()
-            self.work_vec_y = Amat.createVecRight()
+            if use_amat:
+                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
+                                         options_prefix=options_prefix)
+                self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
+                                           form_compiler_parameters=fcp, mat_type=mat_type)
+                self._assemble_A()
+                Amat = self.A.petscmat
+                inject = prolongation_matrix_matfree(V_fdm, V, [], [])
+                Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
+                Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
+                Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
 
-            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
-                                              fcp=fcp, options_prefix=options_prefix)
+            self.work_vec_x = omat.createVecLeft()
+            self.work_vec_y = omat.createVecRight()
+
+        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+                                          fcp=fcp, options_prefix=options_prefix)
 
         if len(bcs) > 0:
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
@@ -140,7 +151,7 @@ class FDMPC(PCBase):
         fdmpc.setDM(fdm_dm)
         fdmpc.setOptionsPrefix(options_prefix)
         fdmpc.setOperators(A=Amat, P=Pmat)
-        fdmpc.setUseAmat(True)
+        fdmpc.setUseAmat(use_amat)
         self.pc = fdmpc
 
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
@@ -192,31 +203,22 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-        from firedrake.preconditioners.pmg import get_line_elements
-        try:
-            line_elements = get_line_elements(V)
-        except ValueError:
-            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
-        degree = max(e.degree() for e in line_elements)
-        eta = float(appctx.get("eta", (degree+1)**2))
-        quad_degree = 2*degree+1
-        element = V.finat_element
-        is_dg = element.entity_dofs() == element.entity_closure_dofs()
+        Ve = V
+        e = Ve.ufl_element()
+        self.condense_element_mat = lambda Ae: Ae
+        if isinstance(e, ufl.RestrictedElement):
+            if e.restriction_domain() == "facet":
+                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
+                isplit = interior_facet_decomposition(Ve)
+                idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
+                fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
+                self.condense_element_mat = lambda Ae: condense_element_mat(Ae, idofs, fdofs)
 
-        Afdm = []  # sparse interval mass and stiffness matrices for each direction
-        Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
-        for e in line_elements:
-            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
-            if not (e.formdegree or is_dg):
-                Dfdm[0] = None
+        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Ve, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
-        # set arbitrary non-zero coefficients for preallocation
-        for coef in coefficients.values():
-            with coef.dat.vec as cvec:
-                cvec.set(1.0E0)
 
         bcflags = get_weak_bc_flags(J)
 
@@ -229,12 +231,38 @@ class FDMPC(PCBase):
         prealloc.setUp()
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
+
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
                              coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()
         return Pmat, assemble_P
+
+    def assemble_fdm_interval(self, V, appctx):
+        from firedrake.preconditioners.pmg import get_line_elements
+        try:
+            line_elements, shifts = get_line_elements(V)
+        except ValueError:
+            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+
+        line_elements, = line_elements
+        self.axes_shifts, = shifts
+
+        degree = max(e.degree() for e in line_elements)
+        quad_degree = 2*degree+1
+        eta = float(appctx.get("eta", degree*(degree+1)))
+        element = V.finat_element
+        is_dg = element.entity_dofs() == element.entity_closure_dofs()
+
+        Afdm = []  # sparse interval mass and stiffness matrices for each direction
+        Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
+        for e in line_elements:
+            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            if not (e.formdegree or is_dg):
+                Dfdm[0] = None
+
+        return Afdm, Dfdm, quad_degree, eta
 
     def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags):
         """
@@ -249,7 +277,6 @@ class FDMPC(PCBase):
         :arg Dfdm: the list with normal derivatives matrices
         :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
         """
-        from firedrake.preconditioners.pmg import get_axes_shift
         Gq = coefficients.get("Gq")
         Bq = coefficients.get("Bq")
         Gq_facet = coefficients.get("Gq_facet")
@@ -262,17 +289,21 @@ class FDMPC(PCBase):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
-        shift = get_axes_shift(V.finat_element) % ndim
+        shift = self.axes_shifts * bsize
 
         index_cell, nel = glonum_fun(V.cell_node_map())
-        index_coef, _ = glonum_fun(Gq.cell_node_map())
+        index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
         pshape = tuple(Ak[0].size[0] for Ak in Afdm)
-        if shift:
+        static_condensation = False
+        if sdim != numpy.prod(pshape):
+            static_condensation = True
+
+        if set(shift) != {0}:
             assert ncomp == ndim
-            pshape = [tuple(numpy.roll(pshape, -shift*k)) for k in range(ncomp)]
+            pshape = [tuple(numpy.roll(pshape, -shift[k])) for k in range(ncomp)]
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
@@ -286,7 +317,7 @@ class FDMPC(PCBase):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
-        use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2
+        use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
         if not use_diag_Bq:
             bshape = Bq.ufl_shape
             # Be = Bhat kron ... kron Bhat
@@ -312,49 +343,64 @@ class FDMPC(PCBase):
 
         # assemble the second order term and the zero-th order term if any,
         # discarding mixed derivatives and mixed components
+        mue = numpy.zeros((ncomp, ndim), dtype=PETSc.RealType)
+        bqe = numpy.zeros((ncomp,), dtype=PETSc.RealType)
         for e in range(nel):
             ie = numpy.reshape(index_cell(e), (ncomp//bsize, -1))
             je = index_coef(e)
             bce = bcflags[e]
 
             # get second order coefficient on this cell
-            mue = numpy.atleast_1d(numpy.sum(Gq.dat.data_ro[je], axis=0))
+            if Gq is not None:
+                mue.flat[:] = numpy.sum(Gq.dat.data_ro[je], axis=0)
+            # get zero-th order coefficient on this cell
             if Bq is not None:
-                # get zero-th order coefficient on this cell
-                bqe = numpy.atleast_1d(numpy.sum(Bq.dat.data_ro[je], axis=0))
+                bqe.flat[:] = numpy.sum(Bq.dat.data_ro[je], axis=0)
 
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
-                axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                axes = numpy.roll(numpy.arange(ndim), -shift[k])
                 # for each component: compute the stiffness matrix Ae
-                muk = mue[k] if len(mue.shape) == 2 else mue
                 bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
 
-                # Ae = mue[k][0] Ahat + bqe[k] Bhat
-                Be = Afdm[axes[0]][0].copy()
-                Ae = Afdm[axes[0]][1+fbc[0]].copy()
-                Ae.scale(muk[0])
-                if Bq is not None:
-                    Ae.axpy(bqe[k], Be)
+                if Gq is not None:
+                    # Ae = mue[k][0] Ahat + bqe[k] Bhat
+                    Be = Afdm[axes[0]][0].copy()
+                    Ae = Afdm[axes[0]][1+fbc[0]].copy()
+                    Ae.scale(mue[k][0])
+                    if Bq is not None:
+                        Ae.axpy(bqe[k], Be)
 
-                if ndim > 1:
-                    # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
-                    Ae = Ae.kron(Afdm[axes[1]][0])
-                    Ae.axpy(muk[1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
-                    if ndim > 2:
-                        # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
-                        Be = Be.kron(Afdm[axes[1]][0])
-                        Ae = Ae.kron(Afdm[axes[2]][0])
-                        Ae.axpy(muk[2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+                    if ndim > 1:
+                        # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
+                        Ae = Ae.kron(Afdm[axes[1]][0])
+                        if Gq is not None:
+                            Ae.axpy(mue[k][1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
 
+                        if ndim > 2:
+                            # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
+                            Be = Be.kron(Afdm[axes[1]][0])
+                            Ae = Ae.kron(Afdm[axes[2]][0])
+                            if Gq is not None:
+                                Ae.axpy(mue[k][2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+                    Be.destroy()
+
+                elif Bq is not None:
+                    Ae = Afdm[axes[0]][0]
+                    for m in range(1, ndim):
+                        Ae = Ae.kron(Afdm[axes[m]][0])
+                    Ae.scale(bqe[k])
+
+                Ae = self.condense_element_mat(Ae)
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
                 set_submat_csr(A, Ae, rows, imode)
                 Ae.destroy()
-                Be.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         if any(Dk is not None for Dk in Dfdm):
+            if static_condensation:
+                raise NotImplementedError("Static condensation for SIPG not implemented")
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
@@ -378,7 +424,7 @@ class FDMPC(PCBase):
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
                 for k in range(ncomp):
-                    axes = numpy.roll(numpy.arange(ndim), -shift*k)
+                    axes = numpy.roll(numpy.arange(ndim), -shift[k])
                     Dfacet = Dfdm[axes[0]]
                     if Dfacet is None:
                         continue
@@ -455,6 +501,7 @@ class FDMPC(PCBase):
         """
         from ufl import inner, diff
         from ufl.algorithms.ad import expand_derivatives
+
         coefficients = {}
         assembly_callables = []
 
@@ -514,11 +561,12 @@ class FDMPC(PCBase):
             Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape, symmetry=True)
 
         # assemble second order coefficient
-        Q = firedrake.FunctionSpace(mesh, Qe)
-        q = firedrake.TestFunction(Q)
-        Gq = firedrake.Function(Q)
-        coefficients["Gq"] = Gq
-        assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
+        if not isinstance(alpha, ufl.constantvalue.Zero):
+            Q = firedrake.FunctionSpace(mesh, Qe)
+            q = firedrake.TestFunction(Q)
+            Gq = firedrake.Function(Q)
+            coefficients["Gq"] = Gq
+            assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
@@ -562,6 +610,11 @@ class FDMPC(PCBase):
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
+
+        # set arbitrary non-zero coefficients for preallocation
+        for coef in coefficients.values():
+            with coef.dat.vec as cvec:
+                cvec.set(1.0E0)
         return coefficients, assembly_callables
 
 
@@ -606,7 +659,7 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True):
         nnz[[0, -1]] = 2
 
     imode = PETSc.InsertMode.INSERT
-    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, 1, nnz=nnz, comm=PETSc.COMM_SELF)
     if diag:
         for j, ajj in enumerate(A_numpy.diagonal()):
             A_petsc.setValue(j, j, ajj, imode)
@@ -828,3 +881,76 @@ def get_weak_bc_flags(J):
         return (abs(fbc) > tol).astype(PETSc.IntType)
     else:
         return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
+
+
+def condense_element_mat(A, i0, i1):
+    A01 = A.createSubMatrix(i0, i1)
+    A10 = A.createSubMatrix(i1, i0)
+    A11 = A.createSubMatrix(i1, i1)
+
+    # A00 = A.createSubMatrix(i0, i0)
+    # isperm = PETSc.IS().createGeneral(numpy.arange(A00.getSize()[0], dtype=PETSc.IntType))
+    # A00.factorILU(isperm, isperm)
+
+    adiag = A.getDiagonal()
+    adiag0 = adiag.getSubVector(i0)
+    adiag0.sqrtabs()
+    adiag0.reciprocal()
+
+    A01.diagonalScale(L=adiag0)
+    A10.diagonalScale(R=adiag0)
+    A11 -= A10.matMult(A01)
+
+    adiag.destroy()
+    adiag0.destroy()
+    A01.destroy()
+    A10.destroy()
+    return A11
+
+
+def interior_facet_decomposition(V):
+    """
+    Split DOFs into interior and facet
+
+    :arg V: a :class:`FunctionSpace`
+
+    :returns: a tuple with the interior and facet indices
+    """
+    entity_dofs = V.finat_element.entity_dofs()
+    ndim = V.mesh().topological_dimension()
+    edofs = [[] for k in range(ndim+1)]
+    for key in entity_dofs:
+        vals = entity_dofs[key]
+        edim = key
+        try:
+            edim = sum(edim)
+        except TypeError:
+            pass
+        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
+        for r in range(len(split)-1):
+            v = sum([vals[k] for k in range(split[r], split[r+1])], [])
+            edofs[edim].extend(sorted(v))
+
+    return edofs[-1], sum(reversed(edofs[:-1]), [])
+
+
+def interior_facet_decomposition_old(pshape):
+    """
+    Split DOFs into interior and facet
+
+    :arg pshape: tuple with value size and space dimension along each axis
+
+    :returns: a tuple with the interior and facet indices
+    """
+    def hamming_weight(n):
+        t1 = n - ((n >> 1) & 0x55555555)
+        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
+        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24, n)
+
+    isplit = ([], [])
+    order = [x[1] for x in sorted(map(hamming_weight, range(1 << len(pshape[1:]))))]
+    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
+    for k in order:
+        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1 << j else slice(1, -1) for j, N in enumerate(pshape[1:]))
+        isplit[k != 0].extend(p[zlice].flat)
+    return isplit

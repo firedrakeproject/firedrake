@@ -400,7 +400,9 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
         elif isinstance(ele, ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, degree), ele.mapping())
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
+        elif isinstance(ele, ufl.RestrictedElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._element, degree), restriction_domain=ele._restriction_domain)
+        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
             return type(ele)(PMGBase.reconstruct_degree(ele._element, degree))
         else:
             return ele.reconstruct(degree=degree)
@@ -439,7 +441,7 @@ class PMGPC(PCBase, PMGBase):
         return self.ppc.applyTranspose(x, y)
 
     def coarsen_bc_value(self, bc, cV):
-        return firedrake.zero(cV.shape)
+        return 0
 
 
 class PMGSNES(SNESBase, PMGBase):
@@ -524,12 +526,14 @@ def expand_element(ele):
         return expand_element(ele.reconstruct(cell=hexahedron_tpc))
     elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         return expand_element(ele._sub_element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*[expand_element(e) for e in ele.sub_elements()])
+    elif isinstance(ele, ufl.RestrictedElement):
+        return type(ele)(expand_element(ele._element), restriction_domain=ele._restriction_domain)
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
         return expand_element(ele._element)
     elif isinstance(ele, ufl.WithMapping):
         return expand_element(ele.wrapee)
-    elif isinstance(ele, ufl.MixedElement):
-        return ufl.MixedElement(*[expand_element(e) for e in ele.sub_elements()])
     elif isinstance(ele, ufl.EnrichedElement):
         terms = []
         for e in ele._elements:
@@ -556,47 +560,85 @@ def expand_element(ele):
         return ele
 
 
+def compare_dual(l1, l2):
+    if len(l1) != len(l2):
+        return False
+    for b1, b2 in zip(l1, l2):
+        p1 = b1.get_point_dict()
+        p2 = b2.get_point_dict()
+        if len(p1) != len(p2):
+            return False
+        for k1, k2 in zip(p1.keys(), p2.keys()):
+            if not (numpy.isclose(k1, k2, rtol=1E-16, atol=1E-16) and p1[k1] == p2[k2]):
+                return False
+    return True
+
+
 def get_line_elements(V):
     from FIAT.reference_element import LINE
     from tsfc.finatinterface import create_element
     ele = V.ufl_element()
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
-    rvs = ele.reference_value_size()
-    ele = expand_element(ele)
-    if isinstance(ele, ufl.EnrichedElement):
-        ele = ele._elements[0]
 
+    ele = expand_element(ele)
     finat_ele = create_element(ele)
-    if rvs*finat_ele.space_dimension() != V.value_size*V.finat_element.space_dimension():
-        raise ValueError("Failed to decompose %s into a single tensor product" % V.ufl_element())
-    factors = finat_ele.factors if hasattr(finat_ele, "factors") else (finat_ele,)
+    if finat_ele.space_dimension() != V.finat_element.space_dimension():
+        raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
+
+    def cyclic_perm(a):
+        return [a[i:] + a[:i] for i in range(len(a))]
+
+    permutations = []
     line_elements = []
-    for e in reversed(factors):
-        fiat_ele = e.fiat_equivalent
-        if fiat_ele.get_reference_element().shape != LINE:
-            raise ValueError("Expecting %s to be on the interval" % fiat_ele)
-        line_elements.append(fiat_ele)
-    return line_elements
+    axes_shifts = []
+
+    terms = finat_ele.elements if hasattr(finat_ele, "elements") else [finat_ele]
+    for term in terms:
+        factors = term.factors if hasattr(term, "factors") else (term,)
+        expansion = tuple(e.fiat_equivalent for e in reversed(factors))
+        if not all([e.get_reference_element().shape == LINE for e in expansion]):
+            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
+
+        shift = -1
+        for k, perm in enumerate(permutations):
+            if all([compare_dual(e1.dual_basis(), e2.dual_basis()) for e1, e2 in zip(perm, expansion)]):
+                shift = len(expansion)-k
+                axes_shifts[-1] = axes_shifts[-1] + (shift, )
+
+        if shift == -1:
+            line_elements.append(expansion)
+            axes_shifts.append((0, ))
+            permutations = cyclic_perm(expansion)
+
+    return line_elements, axes_shifts
 
 
 @lru_cache(maxsize=10)
-def get_line_interpolator(felem, celem):
-    from FIAT import functional, make_quadrature
+def get_line_interpolator(felem, celem, hodgedecomp):
+    from FIAT import functional, make_quadrature, RestrictedElement
+
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
-    if len(fdual) == len(cdual):
-        if all(f.get_point_dict() == c.get_point_dict() for f, c in zip(fdual, cdual)):
-            return numpy.array([])
+    if compare_dual(fdual, cdual):
+        return numpy.array([])
 
-    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
+    kf = felem.formdegree if hodgedecomp else 0
+    kc = celem.formdegree if hodgedecomp else 0
+    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(0, pts)[(0,)]
+        return celem.tabulate(kf, pts)[(kf,)]
     else:
+        findices = slice(0, felem.space_dimension())
+        if isinstance(felem, RestrictedElement):
+            findices = felem._indices
+            felem = felem._element
+
         pts = make_quadrature(felem.get_reference_element(),
                               felem.space_dimension()).get_points()
-        return numpy.dot(celem.tabulate(0, pts)[(0,)],
-                         numpy.linalg.inv(felem.tabulate(0, pts)[(0,)]))
+
+        return numpy.dot(celem.tabulate(kf, pts)[(kf,)],
+                         numpy.linalg.inv(felem.tabulate(kc, pts)[(kc,)])[:, findices])
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -605,7 +647,7 @@ kronmxv_code = """
 #include <petscsys.h>
 #include <petscblaslapack.h>
 
-static inline void kronmxv(PetscBLASInt tflag,
+static inline void kronmxv_inplace(PetscBLASInt tflag,
     PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
@@ -671,42 +713,197 @@ if(A3){
 *y = ptr[ires];
 return;
 }
+
+static inline void kronmxv(PetscBLASInt tflag,
+    PetscBLASInt mx, PetscBLASInt my, PetscBLASInt mz,
+    PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
+    PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
+    PetscScalar *x, PetscScalar *y, PetscScalar *xwork, PetscScalar *ywork){
+
+    PetscScalar *ptr[2] = {xwork, ywork};
+
+    if(ptr[0] != x)
+        for(PetscBLASInt j=0; j<nx*ny*nz*nel; j++)
+            ptr[0][j] = x[j];
+
+    kronmxv_inplace(tflag, mx, my, mz, nx, ny, nz, nel, A1, A2, A3, &ptr[0], &ptr[1]);
+
+    if(ptr[1] != y)
+        for(PetscBLASInt j=0; j<mx*my*mz*nel; j++)
+            y[j] = ptr[1][j];
+    return;
+}
+
+static inline void permute_axis(PetscBLASInt axis,
+    PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
+    PetscScalar *x, PetscScalar *y){
+
+    PetscBLASInt p = 0;
+    PetscBLASInt s0, s1, s2, s3;
+    if (axis == 0){
+        s0 = 1; s1 = s0*n0; s2 = s1*n1; s3 = s2*n2;
+    }else if(axis == 1){
+        s1 = 1; s2 = s1*n1; s0 = s2*n2; s3 = s0*n0;
+    }else if(axis == 2){
+        s2 = 1; s0 = s2*n2; s1 = s0*n0; s3 = s1*n1;
+    }
+    for(PetscBLASInt i3=0; i3<n3; i3++)
+        for(PetscBLASInt i2=0; i2<n2; i2++)
+            for(PetscBLASInt i1=0; i1<n1; i1++)
+                for(PetscBLASInt i0=0; i0<n0; i0++)
+                    y[s0*i0 + s1*i1 + s2*i2 + s3*i3] = x[p++];
+    return;
+}
+
+static inline void ipermute_axis(PetscBLASInt axis,
+    PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
+    PetscScalar *x, PetscScalar *y){
+
+    PetscBLASInt p = 0;
+    PetscBLASInt s0, s1, s2, s3;
+    if (axis == 0){
+        s0 = 1; s1 = s0*n0; s2 = s1*n1; s3 = s2*n2;
+    }else if(axis == 1){
+        s1 = 1; s2 = s1*n1; s0 = s2*n2; s3 = s0*n0;
+    }else if(axis == 2){
+        s2 = 1; s0 = s2*n2; s1 = s0*n0; s3 = s1*n1;
+    }
+
+    for(PetscBLASInt i3=0; i3<n3; i3++)
+        for(PetscBLASInt i2=0; i2<n2; i2++)
+            for(PetscBLASInt i1=0; i1<n1; i1++)
+                for(PetscBLASInt i0=0; i0<n0; i0++)
+                    x[p++] += y[s0*i0 + s1*i1 + s2*i2 + s3*i3];
+    return;
+}
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name):
-    nscal = Vf.ufl_element().reference_value_size()
-    felems = get_line_elements(Vf)
-    celems = get_line_elements(Vc)
-    if len(felems) != len(celems):
-        raise ValueError("Fine and coarse elements do not have the same number of factors")
-    if len(felems) > 3:
-        raise ValueError("More than three factors are not supported")
+def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
+    operator_decl = []
+    prolong_code = []
+    restrict_code = []
 
-    # Declare array shapes to be used as literals inside the kernels
-    fshape = [e.space_dimension() for e in felems]
-    cshape = [e.space_dimension() for e in celems]
-    shapes = [(nscal,) + tuple(fshape), (nscal,) + tuple(cshape)]
+    felems, fshifts = get_line_elements(Vf)
+    celems, cshifts = get_line_elements(Vc)
+
+    shifts = fshifts
+    in_place = False
+    if len(felems) == len(celems):
+        in_place = all([(len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts)])
+        psize = Vf.value_size
+
+    if not in_place:
+        if len(celems) == 1:
+            psize = Vc.value_size
+            pelem = celems[0]
+            perm_name = "perm_%s" % t_in
+            celems = celems*len(felems)
+        elif len(felems) == 1:
+            shifts = cshifts
+            psize = Vf.value_size
+            pelem = felems[0]
+            perm_name = "perm_%s" % t_out
+            felems = felems*len(celems)
+        else:
+            raise ValueError("Cannot assign fine to coarse DOFs")
+
+        for k in range(len(shifts)):
+            if Vc.value_size*len(shifts[k]) < Vf.value_size:
+                shifts[k] = shifts[k]*(Vf.value_size//Vc.value_size)
+
+        perm = sum(shifts, tuple())
+        perm_data = ", ".join(map(str, perm))
+        operator_decl.append(f"""
+            PetscBLASInt {perm_name}[{len(perm)}] = {{ {perm_data} }};
+        """)
+
+        pshape = [e.space_dimension() for e in pelem]
+        pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
+        pstride = psize * numpy.prod(pshape)
+        if shifts == fshifts:
+            prolong_code.append(f"""
+            for({IntType_c} j=1; j<{len(perm)}; j++)
+                permute_axis({perm_name}[j], {pargs}, {psize}, {t_in}, {t_in}+j*{pstride});
+            """)
+            restrict_code.append(f"""
+            for({IntType_c} j=1; j<{len(perm)}; j++)
+                ipermute_axis({perm_name}[j], {pargs}, {psize}, {t_in}, {t_in}+j*{pstride});
+            """)
+
+    fskip = 0
+    cskip = 0
+    Jlen = 0
+    Jmats = []
+    fshapes = []
+    cshapes = []
+    for felem, celem, shift in zip(felems, celems, shifts):
+        if len(felem) != len(celem):
+            raise ValueError("Fine and coarse elements do not have the same number of factors")
+        if len(felem) > 3:
+            raise ValueError("More than three factors are not supported")
+
+        # Declare array shapes to be used as literals inside the kernels
+        nscal = psize*len(shift)
+        fshape = [e.space_dimension() for e in felem]
+        cshape = [e.space_dimension() for e in celem]
+        fshapes.append((nscal,) + tuple(fshape))
+        cshapes.append((nscal,) + tuple(cshape))
+
+        J = [get_line_interpolator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
+        if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
+            fskip += nscal*numpy.prod(fshape)
+            cskip += nscal*numpy.prod(cshape)
+            continue
+
+        Jsize = numpy.cumsum([Jlen]+[Jk.size for Jk in J])
+        Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
+        Jmats.extend(J)
+        Jlen = Jsize[-1]
+
+        # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
+        Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
+        fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
+        cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
+        if in_place:
+            prolong_code.append(f"""
+            kronmxv_inplace(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
+            """)
+            restrict_code.append(f"""
+            kronmxv_inplace(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
+            """)
+        elif shifts == fshifts:
+            # Single tensor product to many
+            prolong_code.append(f"""
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch}, {t_out}+{fskip});
+            """)
+            restrict_code.append(f"""
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch});
+            """)
+        else:
+            # Many tensor products to single tensor product
+            if len(prolong_code):
+                raise ValueError("Many tensor products to single tensor product not implemented")
+            fskip = 0
+            prolong_code.append(f"""
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip});
+            """)
+            restrict_code.append(f"""
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {t_in}+{cskip});
+            """)
+        fskip += nscal*numpy.prod(fshape)
+        cskip += nscal*numpy.prod(cshape)
 
     # Pass the 1D interpolators as a hexadecimal string
-    J = [get_line_interpolator(fe, ce) for fe, ce in zip(felems, celems)]
-    Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in J])))
-    Jsize = numpy.cumsum([0]+[Jk.size for Jk in J])
-    Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
+    Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in Jmats])))
+    operator_decl.append(f"""
+            PetscScalar {mat_name}[{Jlen}] = {{ {Jdata} }};
+    """)
 
-    # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
-    Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
-    fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
-    cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
-    operator_decl = f"""
-            PetscScalar {mat_name}[{Jsize[-1]}] = {{ {Jdata} }};
-    """
-    prolong_code = f"""
-            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
-    """
-    restrict_code = f"""
-            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
-    """
+    operator_decl = "".join(operator_decl)
+    prolong_code = "".join(prolong_code)
+    restrict_code = "".join(reversed(restrict_code))
+    shapes = [tuple(map(max, zip(*fshapes))), tuple(map(max, zip(*cshapes)))]
     return operator_decl, prolong_code, restrict_code, shapes
 
 
@@ -750,6 +947,8 @@ def cache_generate_code(kernel, comm):
 
 
 def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
+    if fmapping == cmapping:
+        return None
     domain = Q.ufl_domain()
     A = get_piola_tensor(cmapping, domain, inverse=False)
     B = get_piola_tensor(fmapping, domain, inverse=True)
@@ -791,28 +990,20 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     return coef_decl, prolong_code, restrict_code, mapping_code, coefficients
 
 
-def get_axes_shift(ele):
-    """Return the form degree of a FInAT element after discarding modifiers"""
-    if hasattr(ele, "element"):
-        return get_axes_shift(ele.element)
-    else:
-        return ele.formdegree
-
-
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    shift = get_axes_shift(V.finat_element)
-    tdim = V.mesh().topological_dimension()
-    if shift % tdim:
+    _, shifts = get_line_elements(V)
+    shift = shifts[0]
+    if shift != (0,):
         ndof = numpy.prod(vshape)
         permutation = numpy.reshape(numpy.arange(ndof), pshape)
-        axes = numpy.arange(tdim)
+        axes = numpy.arange(len(shift))
         for k in range(permutation.shape[0]):
-            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, -shift*k)), pshape[1:])
+            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, -shift[k])), pshape[1:])
         nflip = 0
         mapping = V.ufl_element().mapping().lower()
         if mapping == "contravariant piola":
             # flip the sign of the first component
-            nflip = ndof//tdim
+            nflip = ndof//len(shift)
         elif mapping == "covariant piola":
             # flip the order of reference components
             permutation = numpy.flip(permutation, axis=0)
@@ -851,19 +1042,23 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    shift = get_axes_shift(V.finat_element)
-    if shift % V.mesh().topological_dimension() == 0:
+    expansion, shifts = get_line_elements(V)
+    if {(0, )} == set(shifts):
         return V.cell_node_map()
 
-    elements = get_line_elements(V)
-    axes = numpy.arange(len(elements))
-    pshape = [-1] + [e.space_dimension() for e in elements]
-    permutation = numpy.reshape(numpy.arange(V.finat_element.space_dimension()), pshape)
-    for k in range(permutation.shape[0]):
-        permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, shift*k)), pshape[1:])
+    istart = 0
+    perm = []
+    for factors, shift in zip(expansion, shifts):
+        axes = numpy.arange(len(factors))
+        pshape = [len(shift)] + [e.space_dimension() for e in factors]
+        iend = istart + numpy.prod(pshape)
+        permutation = numpy.reshape(numpy.arange(istart, iend), pshape)
+        for k in range(permutation.shape[0]):
+            permutation[k] = numpy.reshape(numpy.transpose(permutation[k], axes=numpy.roll(axes, shift[k])), pshape[1:])
+        perm.extend(permutation.flat)
+        istart = iend
 
-    permutation = numpy.reshape(permutation, (-1,))
-    return PermutedMap(V.cell_node_map(), permutation)
+    return PermutedMap(V.cell_node_map(), perm)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -918,8 +1113,8 @@ class StandaloneInterpolationMatrix(object):
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
 
-        Works by tabulating the coarse 1D Lagrange basis
-        functions as the (fdegree+1)-by-(cdegree+1) matrix Jhat,
+        Works by tabulating the coarse 1D basis functions
+        as the (fdegree+1)-by-(cdegree+1) matrix Jhat,
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
@@ -932,43 +1127,48 @@ class StandaloneInterpolationMatrix(object):
         coefficients = []
         mapping_code = ""
         coef_decl = ""
-        if fmapping == cmapping:
+
+        hodgedecomp = felem.value_shape() != celem.value_shape()
+        if fmapping == cmapping or hodgedecomp:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0")
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2", hodgedecomp=hodgedecomp)
         else:
             decl = [""]*4
             prolong = [""]*5
             restrict = [""]*5
             # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(),
-                                                                              felem.reconstruct(mapping="identity"))
-                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
+                qelem = felem
+                if qelem.mapping() != "identity":
+                    qelem = qelem.reconstruct(mapping="identity")
+                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
-                Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
+                qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
-                    Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
-                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
-                mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
+                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
+                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 
-            qshape = (Q.value_size, Q.finat_element.space_dimension())
-            # interpolate to embedding fine space, permute to FInAT ordering, and apply the mapping
-            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Q, Vc, "t0", "t1", "J0")
-            decl[1], restrict[1], prolong[1] = make_permutation_code(Vc, qshape, shapes[0], "t0", "t1", "perm0")
-            coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
+            qshape = (Qf.value_size, Qf.finat_element.space_dimension())
+            # interpolate to embedding fine space
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Vc, "t0", "t1", "J0", "t2")
 
-            if not in_place_mapping:
-                # permute to Kronecker-friendly ordering and interpolate to fine space
-                decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Q, "t0", "t1", "J1")
-                shapes.extend(_shapes)
+            if mapping_output is not None:
+                # permute to FInAT ordering, and apply the mapping
+                decl[1], restrict[1], prolong[1] = make_permutation_code(Vc, qshape, shapes[0], "t0", "t1", "perm0")
+                coef_decl, prolong[2], restrict[2], mapping_code, coefficients = mapping_output
+                if not in_place_mapping:
+                    # permute to Kronecker-friendly ordering and interpolate to fine space
+                    decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
+                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1", "t2")
+                    shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
             prolong_code = "".join(prolong)
             restrict_code = "".join(reversed(restrict))
 
-        lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         # FInAT elements order the component DOFs related to the same node contiguously.
         # We transpose before and after the multiplication times J to have each component
         # stored contiguously as a scalar field, thus reducing the number of dgemm calls.
@@ -978,6 +1178,10 @@ class StandaloneInterpolationMatrix(object):
 
         fshape = (Vf.value_size, Vf.finat_element.space_dimension())
         cshape = (Vc.value_size, Vc.finat_element.space_dimension())
+
+        lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
+        lwork = max(lwork, max(numpy.prod(fshape), numpy.prod(cshape)))
+
         if cshape[0] == 1:
             coarse_read = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) t0[i] = x[i];"""
             coarse_write = f"""for({IntType_c} i=0; i<{numpy.prod(cshape)}; i++) x[i] += t0[i];"""
@@ -1013,9 +1217,10 @@ class StandaloneInterpolationMatrix(object):
 
         void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
                           const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}];
+            PetscScalar work[3][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
+            PetscScalar *t2 = work[2];
             {operator_decl}
             {coarse_read}
             {prolong_code}
@@ -1025,9 +1230,10 @@ class StandaloneInterpolationMatrix(object):
 
         void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[2][{lwork}];
+            PetscScalar work[3][{lwork}] = {{0.0E0}};
             PetscScalar *t0 = work[0];
             PetscScalar *t1 = work[1];
+            PetscScalar *t2 = work[2];
             {operator_decl}
             {fine_read}
             {restrict_code}
