@@ -181,8 +181,8 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     gem_expr, gem2slate = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    (slate_loopy, slate_loopy_event), output_arg = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
-                                                  matfree=compiler_parameters["slate_compiler"]["replace_mul"])
+    ((slate_loopy, ctx, slate_loopy_event), output_arg) = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
+                                                                       matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
                                       slate_loopy_name=ctx.kernel_name)

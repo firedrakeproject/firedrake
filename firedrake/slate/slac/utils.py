@@ -471,9 +471,6 @@ def assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name):
     # Add profiling for inits
     inits, slate_init_event, preamble_init = profile_insns("inits_"+wrapper_name, inits, PETSc.Log.isActive())
 
-    # Add profiling for inits
-    inits, slate_init_event, preamble_init = profile_insns("inits_"+name, inits, PETSc.Log.isActive())
-
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
