@@ -293,6 +293,9 @@ class FunctionSplitBlock(Block, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return self.backend.Function.sub(inputs[0], self.idx)
 
+    def __str__(self):
+        return f"{self.get_dependencies()[0]}[{self.idx}]"
+
 
 class FunctionMergeBlock(Block, Backend):
     def __init__(self, func, idx, ad_block_tag=None):
@@ -330,6 +333,10 @@ class FunctionMergeBlock(Block, Backend):
         parent_out = self.get_outputs()[0].checkpoint
         parent_out.assign(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
+
+    def __str__(self):
+        deps = self.get_dependencies()
+        return f"{deps[1]}[{self.idx}].assign({deps[0]})"
 
 
 class MeshOutputBlock(Block):
@@ -666,6 +673,10 @@ class InterpolateBlock(Block, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return self.backend.interpolate(prepared, self.V)
 
+    def __str__(self):
+        target_string = f"〈{str(self.V.ufl_element().shortstr())}〉"
+        return f"interpolate({self.expr},  {target_string})"
+
 
 class SupermeshProjectBlock(Block, Backend):
     r"""
@@ -770,3 +781,7 @@ class SupermeshProjectBlock(Block, Backend):
         if len(hessian_inputs) != 1:
             raise NotImplementedError("SupermeshProjectBlock must have a single output")
         return self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx).vector()
+
+    def __str__(self):
+        target_string = f"〈{str(self.target_space.ufl_element().shortstr())}〉"
+        return f"project({self.get_dependencies()[0]}, {target_string}))"
