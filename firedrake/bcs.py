@@ -358,7 +358,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         Set the value to zero.
 
         '''
-        self.function_arg = 0
+        self.function_arg = ufl.zero(self.function_arg.ufl_shape)
 
     def restore(self):
         '''Restore the original value of this boundary condition.
