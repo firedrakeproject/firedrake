@@ -199,6 +199,26 @@ with `idx` parameter always unset, and the same :class:`~.Function` can only be
 loaded using the same mode.
 
 
+Using disk checkpointing in adjoint simulations
+===============================================
+
+When adjoint annotation is active, the result of every Firedrake operation is
+stored in memory. For some simulations, this can result in a very large memory
+footprint. As an alternative, it is possible to specify that those intermediate
+results in forward evaluations of the tape which have type
+:class:`~firedrake.function.Function` be written to disk. This is usually the
+bulk of the data stored on the tape so this largely alleviates the memory
+problem, at the cost of the time taken to read to and write from disk.
+
+Having imported `firedrake_adjoint`, there are two steps required to enable
+disk checkpointing of the forward tape state.
+
+1. Call :func:`~firedrake.adjoint.checkpointing.enable_disk_checkpointing`.
+2. Wrap all mesh constructors in :func:`~firedrake.adjoint.checkpointing.checkpointable_mesh`.
+
+See the documentation of those functions for more detail.
+
+
 Checkpointing with DumbCheckpoint
 =================================
 
