@@ -100,77 +100,6 @@ def test_p_independence(mesh, expected, variant):
 
 
 @pytest.mark.skipcomplex
-def test_static_condensation(mesh):
-    degree = 3
-    variant = "fdm"
-    cell = mesh.ufl_cell()
-    e = FiniteElement("Lagrange", cell=cell, degree=degree, variant=variant)
-    Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
-    z = Function(Z)
-    u = sum(split(z))
-
-    x = SpatialCoordinate(mesh)
-    u_exact = sin(x[0]*pi)*sin(x[1]*pi)
-    f = -div(grad(u_exact))
-
-    U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
-    F = derivative(U, z, TestFunction(Z))
-
-    pmg = {
-        'mat_type': 'matfree',
-        'ksp_type': 'preonly',
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.P1PC',
-        'pmg_coarse_mat_type': 'aij',
-        'pmg_mg_levels': {
-            "ksp_type": "chebyshev",
-            "ksp_max_it": 1,
-            "esteig_ksp_type": "cg",
-            "esteig_ksp_norm_type": "unpreconditioned",
-            "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
-            "ksp_chebyshev_esteig_steps": 8,
-            "ksp_norm_type": "unpreconditioned",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
-            "pc_star_mat_ordering_type": "metisnd",
-            "pc_star_construct_dim": 0,
-            "pc_star_sub_sub": {
-                'pc_type': 'cholesky',
-                'pc_mat_factor_solver_type': "cholmod",
-                "pc_mat_ordering_type": "natural"}},
-        'pmg_mg_coarse': {
-            'pc_type': 'cholesky',
-            'pc_mat_factor_solver_type': 'mumps'}
-    }
-    params = {
-        'mat_type': 'matfree',
-        'snes_type': 'ksponly',
-        'ksp_monitor': None,
-        'ksp_type': 'preonly',
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.SCPC',
-        'pc_sc_eliminate_fields': '0',
-        'condensed_field': {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'ksp_rtol': 1E-8,
-            'ksp_atol': 0E-8,
-            'ksp_monitor': None,
-            'ksp_norm_type': 'unpreconditioned',
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.FDMPC',
-            'fdm': pmg,
-        }
-    }
-
-    bcs = DirichletBC(Z.sub(1), zero(), "on_boundary")
-    problem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
-    assert solver.snes.getFunctionNorm() < 1E-7
-
-
-@pytest.mark.skipcomplex
 def test_variable_coefficient(mesh):
     ndim = mesh.geometric_dimension()
     k = 4
@@ -325,3 +254,49 @@ def test_direct_solver(fs):
 
     assert solver.snes.ksp.getIterationNumber() == 1
     assert norm(u_exact-uh, "H1") < 1.0E-8
+
+
+@pytest.mark.skipcomplex
+def test_static_condensation(mesh):
+    #if mesh.cell_set._extruded:
+    #    return
+    degree = 3
+    variant = "fdm"
+    cell = mesh.ufl_cell()
+    e = FiniteElement("Lagrange", cell=cell, degree=degree, variant=variant)
+    Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
+    z = Function(Z)
+    u = sum(split(z))
+
+    f = Constant(1)
+    U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
+    F = derivative(U, z, TestFunction(Z))
+
+    subs = ["on_boundary"]
+    if mesh.cell_set._extruded:
+        subs += ["top", "bottom"]
+    bcs = [DirichletBC(Z.sub(1), zero(), sub) for sub in subs]
+
+    params = {
+        'mat_type': 'matfree',
+        'snes_type': 'ksponly',
+        'ksp_monitor': None,
+        'ksp_type': 'preonly',
+        'ksp_norm_type': 'unpreconditioned',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.SCPC',
+        'pc_sc_eliminate_fields': '0',
+        'condensed_field': {
+            'mat_type': 'matfree',
+            'ksp_monitor': None,
+            'ksp_type': 'preonly',
+            'ksp_norm_type': 'unpreconditioned',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.FDMPC',
+            'fdm_pc_type': 'lu',
+            'fdm_pc_mat_factor_solver_type': 'mumps'
+        }
+    }
+    problem = NonlinearVariationalProblem(F, z, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
