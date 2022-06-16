@@ -3,46 +3,46 @@ from firedrake import *
 
 
 fdmstar = {
-    "mat_type": "matfree",
-    "ksp_type": "cg",
-    "ksp_atol": 0.0E0,
-    "ksp_rtol": 1.0E-8,
-    "ksp_norm_type": "unpreconditioned",
-    "ksp_monitor_true_residual": None,
-    "ksp_converged_reason": None,
-    "pc_type": "python",
-    "pc_python_type": "firedrake.P1PC",
-    "pmg_coarse_mat_type": "aij",
-    "pmg_mg_coarse": {
-        "ksp_type": "preonly",
-        "pc_type": "cholesky",
+    'mat_type': 'matfree',
+    'ksp_type': 'cg',
+    'ksp_atol': 0.0E0,
+    'ksp_rtol': 1.0E-8,
+    'ksp_norm_type': 'unpreconditioned',
+    'ksp_monitor_true_residual': None,
+    'ksp_converged_reason': None,
+    'pc_type': 'python',
+    'pc_python_type': 'firedrake.P1PC',
+    'pmg_coarse_mat_type': 'aij',
+    'pmg_mg_coarse': {
+        'ksp_type': 'preonly',
+        'pc_type': 'cholesky',
     },
-    "pmg_mg_levels": {
-        "ksp_type": "chebyshev",
-        "esteig_ksp_type": "cg",
-        "esteig_ksp_norm_type": "unpreconditioned",
-        "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
-        "ksp_chebyshev_esteig_steps": 8,
-        "ksp_norm_type": "unpreconditioned",
-        "pc_type": "python",
-        "pc_python_type": "firedrake.FDMPC",
-        "fdm": {
-            "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
-            "pc_star_mat_ordering_type": "nd",
-            "pc_star_sub_sub_pc_type": "cholesky",
-            "pc_star_sub_sub_pc_mat_factor_type": "cholmod",
-            "pc_star_sub_sub_pc_mat_ordering_type": "natural",
+    'pmg_mg_levels': {
+        'ksp_type': 'chebyshev',
+        'esteig_ksp_type': 'cg',
+        'esteig_ksp_norm_type': 'unpreconditioned',
+        'ksp_chebyshev_esteig': '0.75,0.25,0.0,1.0',
+        'ksp_chebyshev_esteig_steps': 8,
+        'ksp_norm_type': 'unpreconditioned',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.FDMPC',
+        'fdm': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.ASMExtrudedStarPC',
+            'pc_star_mat_ordering_type': 'nd',
+            'pc_star_sub_sub_pc_type': 'cholesky',
+            'pc_star_sub_sub_pc_mat_factor_type': 'cholmod',
+            'pc_star_sub_sub_pc_mat_ordering_type': 'natural',
         }
     }
 }
 
 
 @pytest.fixture(params=[2, 3],
-                ids=["Rectangle", "Box"])
+                ids=['Rectangle', 'Box'])
 def mesh(request):
     nx = 4
-    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    distribution = {'overlap_type': (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
         m = ExtrudedMesh(m, nx)
@@ -61,7 +61,7 @@ def expected(mesh):
         return [8, 8, 8]
 
 
-@pytest.fixture(params=[None, "fdm"], ids=["spectral", "fdm"])
+@pytest.fixture(params=[None, 'fdm'], ids=['spectral', 'fdm'])
 def variant(request):
     return request.param
 
@@ -70,7 +70,7 @@ def variant(request):
 def test_p_independence(mesh, expected, variant):
     nits = []
     for p in range(3, 6):
-        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=p, variant=variant)
+        e = FiniteElement('Lagrange', cell=mesh.ufl_cell(), degree=p, variant=variant)
         V = FunctionSpace(mesh, e)
         u = TrialFunction(V)
         v = TestFunction(V)
@@ -85,9 +85,9 @@ def test_p_independence(mesh, expected, variant):
         a = inner(grad(v), grad(u))*dx
         L = inner(v, B)*dx
 
-        subs = ("on_boundary",)
+        subs = ('on_boundary',)
         if mesh.cell_set._extruded:
-            subs += ("top", "bottom")
+            subs += ('top', 'bottom')
         bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
 
         uh = Function(V)
@@ -95,7 +95,7 @@ def test_p_independence(mesh, expected, variant):
         solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
-    assert norm(u_exact-uh, "H1") < 1.0E-7
+    assert norm(u_exact-uh, 'H1') < 1.0E-7
     assert nits <= expected
 
 
@@ -103,7 +103,7 @@ def test_p_independence(mesh, expected, variant):
 def test_variable_coefficient(mesh):
     ndim = mesh.geometric_dimension()
     k = 4
-    V = FunctionSpace(mesh, "Lagrange", k)
+    V = FunctionSpace(mesh, 'Lagrange', k)
     u = TrialFunction(V)
     v = TestFunction(V)
     x = SpatialCoordinate(mesh)
@@ -118,9 +118,9 @@ def test_variable_coefficient(mesh):
     a = (inner(grad(v), dot(alpha, grad(u))) + inner(v, beta*u))*dx(degree=3*k+2)
     L = inner(v, Constant(1))*dx
 
-    subs = ("on_boundary",)
+    subs = ('on_boundary',)
     if mesh.cell_set._extruded:
-        subs += ("top", "bottom")
+        subs += ('top', 'bottom')
     bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
 
     uh = Function(V)
@@ -130,22 +130,22 @@ def test_variable_coefficient(mesh):
     assert solver.snes.ksp.getIterationNumber() <= 14
 
 
-@pytest.fixture(params=["cg", "dg", "rt"],
-                ids=["cg", "dg", "rt"])
+@pytest.fixture(params=['cg', 'dg', 'rt'],
+                ids=['cg', 'dg', 'rt'])
 def fs(request, mesh):
     degree = 3
     ndim = mesh.topological_dimension()
     cell = mesh.ufl_cell()
     element = request.param
     variant = None
-    if element == "rt":
-        family = "RTCF" if ndim == 2 else "NCF"
+    if element == 'rt':
+        family = 'RTCF' if ndim == 2 else 'NCF'
         return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
     else:
         if ndim == 1:
-            family = "DG" if element == "dg" else "CG"
+            family = 'DG' if element == 'dg' else 'CG'
         else:
-            family = "DQ" if element == "dg" else "Q"
+            family = 'DQ' if element == 'dg' else 'Q'
         return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-ndim)
 
 
@@ -186,31 +186,31 @@ def test_direct_solver(fs):
     if ndim > 1:
         subs += (3,)
     if extruded:
-        subs += ("top",)
+        subs += ('top',)
 
     bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
 
     dirichlet_ids = subs
-    if "on_boundary" in dirichlet_ids:
+    if 'on_boundary' in dirichlet_ids:
         neumann_ids = []
     else:
         make_tuple = lambda s: s if type(s) == tuple else (s,)
         neumann_ids = list(set(mesh.exterior_facets.unique_markers) - set(sum([make_tuple(s) for s in subs if type(s) != str], ())))
     if extruded:
-        if "top" not in dirichlet_ids:
-            neumann_ids.append("top")
-        if "bottom" not in dirichlet_ids:
-            neumann_ids.append("bottom")
+        if 'top' not in dirichlet_ids:
+            neumann_ids.append('top')
+        if 'bottom' not in dirichlet_ids:
+            neumann_ids.append('bottom')
 
     dxq = dx(degree=quad_degree, domain=mesh)
     if extruded:
         dS_int = dS_v(degree=quad_degree) + dS_h(degree=quad_degree)
-        ds_ext = {"on_boundary": ds_v(degree=quad_degree), "bottom": ds_b(degree=quad_degree), "top": ds_t(degree=quad_degree)}
+        ds_ext = {'on_boundary': ds_v(degree=quad_degree), 'bottom': ds_b(degree=quad_degree), 'top': ds_t(degree=quad_degree)}
         ds_Dir = [ds_ext.get(s) or ds_v(s, degree=quad_degree) for s in dirichlet_ids]
         ds_Neu = [ds_ext.get(s) or ds_v(s, degree=quad_degree) for s in neumann_ids]
     else:
         dS_int = dS(degree=quad_degree)
-        ds_ext = {"on_boundary": ds(degree=quad_degree)}
+        ds_ext = {'on_boundary': ds(degree=quad_degree)}
         ds_Dir = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in dirichlet_ids]
         ds_Neu = [ds_ext.get(s) or ds(s, degree=quad_degree) for s in neumann_ids]
 
@@ -237,44 +237,42 @@ def test_direct_solver(fs):
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
-        "mat_type": "matfree",
-        "ksp_type": "cg",
-        "ksp_atol": 0.0E0,
-        "ksp_rtol": 1.0E-8,
-        "ksp_max_it": 3,
-        "ksp_monitor": None,
-        "ksp_norm_type": "unpreconditioned",
-        "pc_type": "python",
-        "pc_python_type": "firedrake.FDMPC",
-        "fdm_pc_type": "cholesky",
-        "fdm_pc_factor_mat_solver_type": "mumps",
-        "fdm_pc_factor_mat_ordering_type": "nd",
-    }, appctx={"eta": eta, })
+        'mat_type': 'matfree',
+        'ksp_type': 'cg',
+        'ksp_atol': 0.0E0,
+        'ksp_rtol': 1.0E-8,
+        'ksp_max_it': 3,
+        'ksp_monitor': None,
+        'ksp_norm_type': 'unpreconditioned',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.FDMPC',
+        'fdm_pc_type': 'cholesky',
+        'fdm_pc_factor_mat_solver_type': 'mumps',
+        'fdm_pc_factor_mat_ordering_type': 'nd',
+    }, appctx={'eta': eta, })
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() == 1
-    assert norm(u_exact-uh, "H1") < 1.0E-8
+    assert norm(u_exact-uh, 'H1') < 1.0E-8
 
 
 @pytest.mark.skipcomplex
 def test_static_condensation(mesh):
-    #if mesh.cell_set._extruded:
-    #    return
     degree = 3
-    variant = "fdm"
+    quad_degree = 2*degree+1
     cell = mesh.ufl_cell()
-    e = FiniteElement("Lagrange", cell=cell, degree=degree, variant=variant)
+    e = FiniteElement('Lagrange', cell=cell, degree=degree, variant='fdm')
     Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
     z = Function(Z)
     u = sum(split(z))
 
     f = Constant(1)
-    U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
+    U = ((1/2)*inner(grad(u), grad(u)) - inner(u, f))*dx(degree=quad_degree)
     F = derivative(U, z, TestFunction(Z))
 
-    subs = ["on_boundary"]
+    subs = ['on_boundary']
     if mesh.cell_set._extruded:
-        subs += ["top", "bottom"]
+        subs += ['top', 'bottom']
     bcs = [DirichletBC(Z.sub(1), zero(), sub) for sub in subs]
 
     params = {
