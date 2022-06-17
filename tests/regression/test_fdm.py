@@ -269,15 +269,16 @@ def test_static_condensation(mesh):
     f = Constant(1)
     U = ((1/2)*inner(grad(u), grad(u)) - inner(u, f))*dx(degree=quad_degree)
     F = derivative(U, z, TestFunction(Z))
+    a = derivative(F, z, TrialFunction(Z))
 
     subs = ['on_boundary']
     if mesh.cell_set._extruded:
         subs += ['top', 'bottom']
     bcs = [DirichletBC(Z.sub(1), zero(), sub) for sub in subs]
 
-    params = {
+    problem = LinearVariationalProblem(a, -F, z, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters={
         'mat_type': 'matfree',
-        'snes_type': 'ksponly',
         'ksp_monitor': None,
         'ksp_type': 'preonly',
         'ksp_norm_type': 'unpreconditioned',
@@ -294,7 +295,7 @@ def test_static_condensation(mesh):
             'fdm_pc_type': 'lu',
             'fdm_pc_mat_factor_solver_type': 'mumps'
         }
-    }
-    problem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    })
     solver.solve()
+    residual = solver.snes.ksp.buildResidual()
+    assert residual.norm() < 1E-14
