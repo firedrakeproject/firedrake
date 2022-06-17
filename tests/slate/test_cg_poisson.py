@@ -124,6 +124,7 @@ def run_CG_problem_matfree_with_FDMPC(r, degree, quads=False):
     and Slate to perform the static condensation and local recovery.
     """
 
+    quad_degree = 2*degree+1
     # Set up problem domain
     mesh = UnitSquareMesh(2**r, 2**r, quadrilateral=quads)
     x = SpatialCoordinate(mesh)
@@ -131,13 +132,12 @@ def run_CG_problem_matfree_with_FDMPC(r, degree, quads=False):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant='fdm')
     Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
     z = Function(Z)
     u = sum(split(z))
 
-    # Formulate the CG method in UFL
-    U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
+    U = ((1/2)*inner(grad(u), grad(u)) - inner(u, f))*dx(degree=quad_degree)
     F = derivative(U, z, TestFunction(Z))
 
     params = {'snes_type': 'ksponly',
@@ -150,14 +150,20 @@ def run_CG_problem_matfree_with_FDMPC(r, degree, quads=False):
               'condensed_field': {'ksp_type': 'cg',
                                   'pc_type': 'python',
                                   'pc_python_type': 'firedrake.FDMPC',
-                                  'ksp_rtol': 1e-8,
                                   'mat_type': 'matfree',
+                                  'ksp_monitor': None,
+                                  'ksp_norm_type': 'unpreconditioned',
+                                  'ksp_rtol': 1e-8,
+                                  'fdm': {'ksp_type': 'cg',
+                                          'ksp_monitor': None,
+                                          'pc_type': 'jacobi',
+                                          'ksp_rtol': 1E-8},
                                   'localsolve': {'ksp_type': 'preonly',
                                                  'pc_type': 'fieldsplit',
                                                  'mat_type': 'matfree',
                                                  'fieldsplit_0': {'ksp_type': 'default',
                                                                   'pc_type': 'jacobi',
-                                                                  'ksp_rtol': 1e-25,
+                                                                  'ksp_rtol': 1e-16,
                                                                   'ksp_atol': 1e-50}}}}
 
     bcs = DirichletBC(Z.sub(1), zero(), "on_boundary")
@@ -189,7 +195,7 @@ def test_cg_convergence_matfree(degree, quads, rate):
 
 
 @pytest.mark.parametrize(('degree', 'quads', 'rate'),
-                         [(3, False, 3.75),
+                         [(3, True, 3.75),
                           (5, True, 5.75)])
 def test_cg_convergence_matfree_with_FDMPC(degree, quads, rate):
     import numpy as np
