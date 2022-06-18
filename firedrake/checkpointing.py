@@ -539,10 +539,12 @@ class CheckpointFile(object):
         self.close()
 
     @PETSc.Log.EventDecorator("SaveMesh")
-    def save_mesh(self, mesh):
+    def save_mesh(self, mesh, distribution_name=None, permutation_name=None):
         r"""Save a mesh.
 
         :arg mesh: the mesh to save.
+        :kwarg distribution_name: the name under which distribution is saved; if `None`, auto-generated name will be used.
+        :kwarg permutation_name: the name under which permutation is saved; if `None`, auto-generated name will be used.
         """
         mesh.init()
         # Handle extruded mesh

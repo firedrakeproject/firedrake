@@ -734,7 +734,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -750,6 +750,10 @@ class MeshTopology(AbstractMeshTopology):
             makes sense if we know the exact parallel distribution of `plex`
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, `reorder` param will be ignored.
+        :kwarg distribution_name: name of the parallel distribution;
+            if `None`, automatically generated.
+        :kwarg permutation_name: name of the entity permutation (reordering);
+            if `None`, automatically generated.
         """
 
         super().__init__(name)
@@ -853,7 +857,7 @@ class MeshTopology(AbstractMeshTopology):
         # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
-
+        # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
 
@@ -1951,6 +1955,14 @@ def Mesh(meshfile, **kwargs):
                  :class:`DistributedMeshOverlapType` instance, the
                  second the number of levels of overlap.
 
+    :param distribution_name: the name of parallel distribution used
+           when checkpointing; if not given, the name is automatically
+           generated.
+
+    :param permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if not given, the name is automatically
+           generated.
+
     :param comm: the communicator to use when creating the mesh.  If
            not supplied, then the mesh will be created on COMM_WORLD.
            Ignored if ``meshfile`` is a DMPlex object (in which case
@@ -2027,7 +2039,9 @@ def Mesh(meshfile, **kwargs):
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
     topology = MeshTopology(plex, name=plex.getName(), reorder=reorder,
-                            distribution_parameters=distribution_parameters)
+                            distribution_parameters=distribution_parameters,
+                            distribution_name=kwargs.get("distribution_name"),
+                            permutation_name=kwargs.get("permutation_name"))
     return make_mesh_from_mesh_topology(topology, name)
 
 
