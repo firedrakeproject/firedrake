@@ -44,9 +44,12 @@ def quit(message):
     sys.exit(1)
 
 
-try:
-    firedrake_env = os.environ["VIRTUAL_ENV"]
-except KeyError:
+firedrake_env = os.environ.get("VIRTUAL_ENV", None)
+if firedrake_env:
+    firedrake_env_src = os.path.join(firedrake_env, "src")
+else:
+    firedrake_env_src = os.environ.get("SPACK_ENV", None)
+if not firedrake_env_src:
     quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
 
 
@@ -83,12 +86,14 @@ for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
 
 print("Environment:")
 for key, val in iteritems(config["environment"]):
+    if len(val) > 200:
+        val = '\n' + val.replace(':', ':\\\n')
     print("    {}: {}".format(key, val))
 
 status = OrderedDict()
-for dir in sorted(os.listdir(firedrake_env + "/src")):
+for dir in sorted(os.listdir(firedrake_env_src)):
     try:
-        os.chdir(firedrake_env + "/src/" + dir)
+        os.chdir(os.path.join(firedrake_env_src, dir))
     except OSError as e:
         if e.errno == 20:
             # Not a directory

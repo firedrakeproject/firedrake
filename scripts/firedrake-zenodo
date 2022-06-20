@@ -164,9 +164,18 @@ else:
 log = logging.getLogger()
 
 cwd = os.getcwd()
-try:
-    src = os.environ["VIRTUAL_ENV"] + "/src"
-except KeyError:
+
+venv = os.environ.get("VIRTUAL_ENV", None)
+if venv:
+    src = os.path.join(firedrake_env, "src")
+    component_directories = components
+    optional_component_directories = optional_components
+else:
+    src = os.environ.get("SPACK_ENV", None)
+    component_directories = ["py-" + k.lower() for k in descriptions.keys() if k not in ["petsc", "slepc"]]
+    component_directories.remove("py-petsc4py")
+    optional_component_directories = ("slepc", "py-slepc4py")
+if not src:
     log.error("VIRTUAL_ENV environment variable not set. Please activate virtualenv before running firedrake-zenodo.")
     sys.exit(1)
 
@@ -206,17 +215,17 @@ class directory(object):
 def collect_repo_shas():
     shas = {}
 
-    for component in components:
+    for component in component_directories:
         try:
             with directory(os.path.join(src, component)):
                 try:
                     check_call(["git", "diff-index", "--quiet", "HEAD"])
                 except subprocess.CalledProcessError:
                     log.error("Component %s has uncommitted changes, cannot create release" % component)
-                    sys.exit(0)
+                    # ~ sys.exit(0)
                 shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
         except (subprocess.CalledProcessError, OSError):
-            if component in optional_components:
+            if component in optional_component_directories:
                 log.warning("Failed to retrieve git hash for optional "
                             "component '%s', continuing without it" % component)
             else:
