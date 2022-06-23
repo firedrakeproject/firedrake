@@ -3,7 +3,7 @@
 This is the final stage of code generation in TSFC."""
 
 import numpy
-from functools import singledispatch, partial
+from functools import singledispatch
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
@@ -20,59 +20,73 @@ from pytools import UniqueNameGenerator
 from tsfc.parameters import is_complex
 
 from contextlib import contextmanager
+from tsfc.parameters import target
 
 
-maxtype = partial(numpy.find_common_type, [])
+def profile_insns(kernel_name, instructions, log=False):
+    if log:
+        event_name = "Log_Event_" + kernel_name
+        event_id_var_name = "ID_" + event_name
+        # Logging registration
+        # The events are registered in PyOP2 and the event id is passed onto the dll
+        preamble = "PetscLogEvent "+event_id_var_name+" = -1;"
+        # Profiling
+        prepend = [lp.CInstruction("", "PetscLogEventBegin("+event_id_var_name+",0,0,0,0);")]
+        append = [lp.CInstruction("", "PetscLogEventEnd("+event_id_var_name+",0,0,0,0);")]
+        instructions = prepend + instructions + append
+        return instructions, event_name, [(str(2**31-1)+"_"+kernel_name, preamble)]
+    else:
+        return instructions, None, None
 
 
 @singledispatch
 def _assign_dtype(expression, self):
-    return maxtype(map(self, expression.children))
+    return set.union(*map(self, expression.children))
 
 
 @_assign_dtype.register(gem.Terminal)
 def _assign_dtype_terminal(expression, self):
-    return self.scalar_type
+    return {self.scalar_type}
 
 
 @_assign_dtype.register(gem.Zero)
 @_assign_dtype.register(gem.Identity)
 @_assign_dtype.register(gem.Delta)
 def _assign_dtype_real(expression, self):
-    return self.real_type
+    return {self.real_type}
 
 
 @_assign_dtype.register(gem.Literal)
 def _assign_dtype_identity(expression, self):
-    return expression.array.dtype
+    return {expression.array.dtype}
 
 
 @_assign_dtype.register(gem.Power)
 def _assign_dtype_power(expression, self):
     # Conservative
-    return self.scalar_type
+    return {self.scalar_type}
 
 
 @_assign_dtype.register(gem.MathFunction)
 def _assign_dtype_mathfunction(expression, self):
     if expression.name in {"abs", "real", "imag"}:
-        return self.real_type
+        return {self.real_type}
     elif expression.name == "sqrt":
-        return self.scalar_type
+        return {self.scalar_type}
     else:
-        return maxtype(map(self, expression.children))
+        return set.union(*map(self, expression.children))
 
 
 @_assign_dtype.register(gem.MinValue)
 @_assign_dtype.register(gem.MaxValue)
 def _assign_dtype_minmax(expression, self):
     # UFL did correctness checking
-    return self.real_type
+    return {self.real_type}
 
 
 @_assign_dtype.register(gem.Conditional)
 def _assign_dtype_conditional(expression, self):
-    return maxtype(map(self, expression.children[1:]))
+    return set.union(*map(self, expression.children[1:]))
 
 
 @_assign_dtype.register(gem.Comparison)
@@ -80,7 +94,7 @@ def _assign_dtype_conditional(expression, self):
 @_assign_dtype.register(gem.LogicalAnd)
 @_assign_dtype.register(gem.LogicalOr)
 def _assign_dtype_logical(expression, self):
-    return numpy.int8
+    return {numpy.int8}
 
 
 def assign_dtypes(expressions, scalar_type):
@@ -94,20 +108,18 @@ def assign_dtypes(expressions, scalar_type):
     :returns: list of tuples (expression, dtype)."""
     mapper = Memoizer(_assign_dtype)
     mapper.scalar_type = scalar_type
-    if scalar_type.kind == "c":
-        mapper.real_type = numpy.finfo(scalar_type).dtype
-    else:
-        mapper.real_type = scalar_type
-    return [(e, mapper(e)) for e in expressions]
+    mapper.real_type = numpy.finfo(scalar_type).dtype
+    return [(e, numpy.find_common_type(mapper(e), [])) for e in expressions]
 
 
 class LoopyContext(object):
-    def __init__(self):
+    def __init__(self, target=None):
         self.indices = {}  # indices for declarations and referencing values, from ImperoC
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
+        self.target = target
 
     def fetch_multiindex(self, multiindex):
         indices = []
@@ -187,7 +199,7 @@ def active_indices(mapping, ctx):
 
 
 def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_names=[],
-             return_increments=True):
+             return_increments=True, log=False):
     """Generates loopy code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -196,9 +208,10 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg kernel_name: function name of the kernel
     :arg index_names: pre-assigned index names
     :arg return_increments: Does codegen for Return nodes increment the lvalue, or assign?
+    :arg log: bool if the Kernel should be profiled with Log events
     :returns: loopy kernel
     """
-    ctx = LoopyContext()
+    ctx = LoopyContext(target=target)
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
     ctx.epsilon = numpy.finfo(scalar_type).resolution
@@ -219,23 +232,21 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create instructions
     instructions = statement(impero_c.tree, ctx)
 
+    # Profile the instructions
+    instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
+
     # Create domains
     domains = create_domains(ctx.index_extent.items())
 
     # Create loopy kernel
-    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=lp.CTarget(),
-                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+    knl = lp.make_function(domains, instructions, data, name=kernel_name, target=target,
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"],
+                           lang_version=(2018, 2), preambles=preamble)
 
     # Prevent loopy interchange by loopy
     knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
 
-    # Help loopy in scheduling by assigning priority to instructions
-    insn_new = []
-    for i, insn in enumerate(knl.instructions):
-        insn_new.append(insn.copy(priority=len(knl.instructions) - i))
-    knl = knl.copy(instructions=insn_new)
-
-    return knl
+    return knl, event_name
 
 
 def create_domains(indices):
@@ -335,7 +346,7 @@ def statement_evaluate(leaf, ctx):
         idx_reads = ctx.pymbolic_multiindex(expr.children[0].shape)
         var_reads = ctx.pymbolic_variable(expr.children[0])
         reads = (SubArrayRef(idx_reads, p.Subscript(var_reads, idx_reads)),)
-        rhs = p.Call(p.Variable("inv"), reads)
+        rhs = p.Call(p.Variable("inverse"), reads)
 
         return [lp.CallInstruction(lhs, rhs, within_inames=ctx.active_inames())]
     elif isinstance(expr, gem.Solve):
@@ -409,22 +420,28 @@ def _expression_mathfunction(expr, ctx):
         nu, arg = expr.children
         nu_ = expression(nu, ctx)
         arg_ = expression(arg, ctx)
-        # Modified Bessel functions (C++ only)
-        #
-        # These mappings work for FEniCS only, and fail with Firedrake
-        # since no Boost available.
-        if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
-            name = 'boost::math::' + expr.name
-            return p.Variable(name)(nu_, arg_)
+        if isinstance(ctx.target, lp.target.c.CWithGNULibcTarget):
+            # Generate right functions calls to gnulibc bessel functions
+            # cyl_bessel_{jy} -> bessel_{jy}
+            name = expr.name[4:]
+            return p.Variable(f"{name}n")(int(nu_), arg_)
         else:
-            # cyl_bessel_{jy} -> {jy}
-            name = expr.name[-1:]
-            if nu == gem.Zero():
-                return p.Variable(f"{name}0")(arg_)
-            elif nu == gem.one:
-                return p.Variable(f"{name}1")(arg_)
+            # Modified Bessel functions (C++ only)
+            # These mappings work for FEniCS only, and fail with Firedrake
+            # since no Boost available.
+            # Is this actually still supported/has ever been used by anyone?
+            if expr.name in {'cyl_bessel_i', 'cyl_bessel_k'}:
+                name = 'boost::math::' + expr.name
+                return p.Variable(name)(nu_, arg_)
             else:
-                return p.Variable(f"{name}n")(nu_, arg_)
+                # cyl_bessel_{jy} -> {jy}
+                name = expr.name[-1:]
+                if nu == gem.Zero():
+                    return p.Variable(f"{name}0")(arg_)
+                elif nu == gem.one:
+                    return p.Variable(f"{name}1")(arg_)
+                else:
+                    return p.Variable(f"{name}n")(nu_, arg_)
     else:
         if expr.name == "ln":
             name = "log"

@@ -13,6 +13,7 @@ from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+from ufl.algorithms.apply_restrictions import apply_restrictions
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.map_dag import map_expr_dag
@@ -21,7 +22,7 @@ from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
-                         Indexed, MixedElement, MultiIndex, Product,
+                         MixedElement, MultiIndex, Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
@@ -102,8 +103,12 @@ def entity_avg(integrand, measure, argument_multiindices):
     return integrand, degree, argument_multiindices
 
 
-def preprocess_expression(expression, complex_mode=False):
+def preprocess_expression(expression, complex_mode=False,
+                          do_apply_restrictions=False):
     """Imitates the compute_form_data processing pipeline.
+
+    :arg complex_mode: Are we in complex UFL mode?
+    :arg do_apply_restrictions: Propogate restrictions to terminals?
 
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
@@ -121,6 +126,8 @@ def preprocess_expression(expression, complex_mode=False):
     expression = apply_derivatives(expression)
     if not complex_mode:
         expression = remove_complex_nodes(expression)
+    if do_apply_restrictions:
+        expression = apply_restrictions(expression)
     return expression
 
 
@@ -338,12 +345,19 @@ def simplify_abs(expression, complex_mode):
     return mapper(expression, False)
 
 
-def apply_mapping(expression, mapping, domain):
-    """
-    This applies the appropriate transformation to the
-    given expression for interpolation to a specific
-    element, according to the manner in which it maps
-    from the reference cell.
+def apply_mapping(expression, element, domain):
+    """Apply the inverse of the pullback for element to an expression.
+
+    :arg expression: An expression in physical space
+    :arg element: The element we're going to interpolate into, whose
+         value_shape must match the shape of the expression, and will
+         advertise the pullback to apply.
+    :arg domain: Optional domain to provide in case expression does
+         not contain a domain (used for constructing geometric quantities).
+    :returns: A new UFL expression with shape element.reference_value_shape()
+    :raises NotImplementedError: If we don't know how to apply the
+        inverse of the pullback.
+    :raises ValueError: If we get shape mismatches.
 
     The following is borrowed from the UFC documentation:
 
@@ -357,7 +371,7 @@ def apply_mapping(expression, mapping, domain):
     inverse of the Jacobian K = J^{-1}. Then we (currently) have the
     following four types of mappings:
 
-    'affine' mapping for g:
+    'identity' mapping for g:
 
       G(X) = g(x)
 
@@ -379,38 +393,76 @@ def apply_mapping(expression, mapping, domain):
 
       G(X) = det(J)^2 K g(x) K^T  i.e. G_il(X)=(detJ)^2 K_ij g_jk K_lk
 
-    If 'contravariant piola' or 'covariant piola' are applied to a
-    matrix-valued function, the appropriate mappings are applied row-by-row.
-
-    :arg expression: UFL expression
-    :arg mapping: a string indicating the mapping to apply
+    If 'contravariant piola' or 'covariant piola' (or their double
+    variants) are applied to a matrix-valued function, the appropriate
+    mappings are applied row-by-row.
     """
-
     mesh = expression.ufl_domain()
     if mesh is None:
         mesh = domain
     if domain is not None and mesh != domain:
         raise NotImplementedError("Multiple domains not supported")
-    rank = len(expression.ufl_shape)
-    if mapping == "affine":
-        return expression
+    if expression.ufl_shape != element.value_shape():
+        raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {element.value_shape()}")
+    mapping = element.mapping().lower()
+    if mapping == "identity":
+        rexpression = expression
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
-        *i, j, k = indices(len(expression.ufl_shape) + 1)
-        expression = Indexed(expression, MultiIndex((*i, k)))
-        return as_tensor(J.T[j, k] * expression, (*i, j))
+        *k, i, j = indices(len(expression.ufl_shape) + 1)
+        kj = (*k, j)
+        rexpression = as_tensor(J[j, i] * expression[kj], (*k, i))
+    elif mapping == "l2 piola":
+        detJ = JacobianDeterminant(mesh)
+        rexpression = expression * detJ
     elif mapping == "contravariant piola":
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
-        *i, j, k = indices(len(expression.ufl_shape) + 1)
-        expression = Indexed(expression, MultiIndex((*i, k)))
-        return as_tensor(detJ * K[j, k] * expression, (*i, j))
-    elif mapping == "double covariant piola" and rank == 2:
+        *k, i, j = indices(len(expression.ufl_shape) + 1)
+        kj = (*k, j)
+        rexpression = as_tensor(detJ * K[i, j] * expression[kj], (*k, i))
+    elif mapping == "double covariant piola":
         J = Jacobian(mesh)
-        return J.T * expression * J
-    elif mapping == "double contravariant piola" and rank == 2:
+        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
+        kmn = (*k, m, n)
+        rexpression = as_tensor(J[m, i] * expression[kmn] * J[n, j], (*k, i, j))
+    elif mapping == "double contravariant piola":
         K = JacobianInverse(mesh)
         detJ = JacobianDeterminant(mesh)
-        return (detJ)**2 * K * expression * K.T
+        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
+        kmn = (*k, m, n)
+        rexpression = as_tensor(detJ**2 * K[i, m] * expression[kmn] * K[j, n], (*k, i, j))
+    elif mapping == "symmetries":
+        # This tells us how to get from the pieces of the reference
+        # space expression to the physical space one.
+        # We're going to apply the inverse of the physical to
+        # reference space mapping.
+        fcm = element.flattened_sub_element_mapping()
+        sub_elem = element.sub_elements()[0]
+        shape = expression.ufl_shape
+        flat = ufl.as_vector([expression[i] for i in numpy.ndindex(shape)])
+        vs = sub_elem.value_shape()
+        rvs = sub_elem.reference_value_shape()
+        seen = set()
+        rpieces = []
+        gm = int(numpy.prod(vs, dtype=int))
+        for gi, ri in enumerate(fcm):
+            # For each unique piece in reference space
+            if ri in seen:
+                continue
+            seen.add(ri)
+            # Get the physical space piece
+            piece = [flat[gm*gi + j] for j in range(gm)]
+            piece = as_tensor(numpy.asarray(piece).reshape(vs))
+            # get into reference space
+            piece = apply_mapping(piece, sub_elem, mesh)
+            assert piece.ufl_shape == rvs
+            # Concatenate with the other pieces
+            rpieces.extend([piece[idx] for idx in numpy.ndindex(rvs)])
+        # And reshape
+        rexpression = as_tensor(numpy.asarray(rpieces).reshape(element.reference_value_shape()))
     else:
-        raise NotImplementedError("Don't know how to handle mapping type %s for expression of rank %d" % (mapping, rank))
+        raise NotImplementedError(f"Don't know how to handle mapping type {mapping} for expression of rank {element.value_shape()}")
+    if rexpression.ufl_shape != element.reference_value_shape():
+        raise ValueError(f"Mismatching reference shapes, got {rexpression.ufl_shape} expected {element.reference_value_shape()}")
+    return rexpression

@@ -6,28 +6,35 @@ from functools import partial
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
 
 import gem
+from gem.flop_count import count_flops
 from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
 
+from tsfc import kernel_args
 from tsfc.finatinterface import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names
 from tsfc.kernel_interface.firedrake import check_requirements
 from tsfc.loopy import generate as generate_loopy
 
 
 # Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients', 'tabulations'])
+ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',
+                                                   'coefficient_numbers',
+                                                   'needs_external_coords',
+                                                   'tabulations', 'name', 'arguments',
+                                                   'flop_count', 'event'])
 
 
 def make_builder(*args, **kwargs):
     return partial(KernelBuilder, *args, **kwargs)
 
 
-class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
-                 "coefficient_numbers", "__weakref__")
+class Kernel:
+    __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
+                 "domain_number", "needs_cell_sizes", "tabulations",
+                 "coefficient_numbers", "name", "flop_count", "event",
+                 "__weakref__")
     """A compiled Kernel object.
 
     :kwarg ast: The loopy kernel object.
@@ -39,23 +46,33 @@ class Kernel(object):
         original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
-    :kwarg quadrature_rule: The finat quadrature rule used to generate this kernel
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
+    :kwarg name: The name of this kernel.
+    :kwarg flop_count: Estimated total flops for this kernel.
+    :kwarg event: name for logging event
     """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, domain_number=None, quadrature_rule=None,
+    def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
+                 subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
-                 needs_cell_sizes=False):
+                 needs_cell_sizes=False,
+                 tabulations=None,
+                 flop_count=0,
+                 name=None,
+                 event=None):
         # Defaults
         self.ast = ast
+        self.arguments = arguments
         self.integral_type = integral_type
         self.oriented = oriented
         self.domain_number = domain_number
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
-        super(Kernel, self).__init__()
+        self.tabulations = tabulations
+        self.flop_count = flop_count
+        self.name = name
+        self.event = event
 
 
 class KernelBuilderBase(_KernelBuilderBase):
@@ -65,8 +82,7 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         :arg interior_facet: kernel accesses two cells
         """
-        super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
-                                                interior_facet=interior_facet)
+        super().__init__(scalar_type=scalar_type, interior_facet=interior_facet)
 
         # Cell orientation
         if self.interior_facet:
@@ -78,7 +94,8 @@ class KernelBuilderBase(_KernelBuilderBase):
             shape = (1,)
             cell_orientations = gem.Variable("cell_orientations", shape)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
-        self.cell_orientations_loopy_arg = lp.GlobalArg("cell_orientations", dtype=numpy.int32, shape=shape)
+        loopy_arg = lp.GlobalArg("cell_orientations", dtype=numpy.int32, shape=shape)
+        self.cell_orientations_arg = kernel_args.CellOrientationsKernelArg(loopy_arg)
 
     def _coefficient(self, coefficient, name):
         """Prepare a coefficient. Adds glue code for the coefficient
@@ -111,7 +128,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
             funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-            self.cell_sizes_arg = funarg
+            self.cell_sizes_arg = kernel_args.CellSizesKernelArg(funarg)
             self._cell_sizes = expression
 
     def create_element(self, element, **kwargs):
@@ -133,59 +150,80 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         :arg coefficients: UFL coefficients from Firedrake
         """
-        self.coefficients = []  # Firedrake coefficients for calling the kernel
         self.coefficient_split = {}
         self.kernel_args = []
 
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == ufl_MixedElement:
                 subcoeffs = coefficient.split()  # Firedrake-specific
-                self.coefficients.extend(subcoeffs)
                 self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j))
-                                     for j, subcoeff in enumerate(subcoeffs)]
+                coeff_loopy_args = [self._coefficient(subcoeff, f"w_{i}_{j}")
+                                    for j, subcoeff in enumerate(subcoeffs)]
+                self.kernel_args += [kernel_args.CoefficientKernelArg(a)
+                                     for a in coeff_loopy_args]
             else:
-                self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,)))
+                coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
+                self.kernel_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
+
+    def set_coefficient_numbers(self, coefficient_numbers):
+        """Store the coefficient indices of the original form.
+
+        :arg coefficient_numbers: Iterable of indices describing which coefficients
+            from the input expression need to be passed in to the kernel.
+        """
+        self.coefficient_numbers = coefficient_numbers
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
         self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
 
-    def construct_kernel(self, return_arg, impero_c, index_names):
+    def set_output(self, o):
+        """Produce the kernel return argument"""
+        loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
+        self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
+
+    def construct_kernel(self, impero_c, index_names, needs_external_coords, log=False):
         """Constructs an :class:`ExpressionKernel`.
 
-        :arg return_arg: loopy.GlobalArg for the return value
         :arg impero_c: gem.ImperoC object that represents the kernel
         :arg index_names: pre-assigned index names
+        :arg needs_external_coords: If ``True``, the first argument to
+            the kernel is an externally provided coordinate field.
+        :arg log: bool if the Kernel should be profiled with Log events
+
         :returns: :class:`ExpressionKernel` object
         """
-        args = [return_arg]
+        args = [self.output_arg]
         if self.oriented:
-            args.append(self.cell_orientations_loopy_arg)
+            args.append(self.cell_orientations_arg)
         if self.cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.kernel_args)
         for name_, shape in self.tabulations:
-            args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
+            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
+            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
 
-        loopy_kernel = generate_loopy(impero_c, args, self.scalar_type,
-                                      "expression_kernel", index_names)
+        loopy_args = [arg.loopy_arg for arg in args]
+
+        name = "expression_kernel"
+        loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
+                                             name, index_names, log=log)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficients, self.tabulations)
+                                self.coefficient_numbers, needs_external_coords,
+                                self.tabulations, name, args, count_flops(impero_c), event)
 
 
-class KernelBuilder(KernelBuilderBase):
+class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type, dont_split=(),
-                 diagonal=False):
+    def __init__(self, integral_data_info, scalar_type,
+                 dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
+        integral_type = integral_data_info.integral_type
         super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        self.fem_scalar_type = scalar_type
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
-                             domain_number=domain_number)
         self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
@@ -206,17 +244,31 @@ class KernelBuilder(KernelBuilderBase):
         elif integral_type == 'interior_facet_horiz':
             self._entity_number = {'+': 1, '-': 0}
 
-    def set_arguments(self, arguments, multiindices):
+        self.set_arguments(integral_data_info.arguments)
+        self.integral_data_info = integral_data_info
+
+    def set_arguments(self, arguments):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
-        :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
-            diagonal=self.diagonal)
-        return expressions
+        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                      for arg in arguments)
+        if self.diagonal:
+            # Error checking occurs in the builder constructor.
+            # Diagonal assembly is obtained by using the test indices for
+            # the trial space as well.
+            a, _ = argument_multiindices
+            argument_multiindices = (a, a)
+        funarg, return_variables = prepare_arguments(arguments,
+                                                     argument_multiindices,
+                                                     self.scalar_type,
+                                                     interior_facet=self.interior_facet,
+                                                     diagonal=self.diagonal)
+        self.output_arg = kernel_args.OutputKernelArg(funarg)
+        self.return_variables = return_variables
+        self.argument_multiindices = argument_multiindices
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -226,7 +278,8 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self.coordinates_arg = self._coefficient(f, "coords")
+        coords_loopy_arg = self._coefficient(f, "coords")
+        self.coordinates_arg = kernel_args.CoordinatesKernelArg(coords_loopy_arg)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -235,7 +288,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg form_data: UFL form data
         """
         coefficients = []
-        coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
@@ -253,52 +305,61 @@ class KernelBuilder(KernelBuilderBase):
                         self.coefficient_split[coefficient] = split
                 else:
                     coefficients.append(coefficient)
-                # This is which coefficient in the original form the
-                # current coefficient is.
-                # Consider f*v*dx + g*v*ds, the full form contains two
-                # coefficients, but each integral only requires one.
-                coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
-            self.coefficient_args.append(
-                self._coefficient(coefficient, "w_%d" % i))
-        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
+            coeff_loopy_arg = self._coefficient(coefficient, f"w_{i}")
+            self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        knl = self.kernel
-        knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
+        return check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
+    def construct_kernel(self, name, ctx, log=False):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
         list for assembly kernels.
 
-        :arg name: function name
-        :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg index_names: pre-assigned index names
-        :arg quadrature rule: quadrature rule
+        :arg name: kernel name
+        :arg ctx: kernel builder context to get impero_c from
+        :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`Kernel` object
         """
-
-        args = [self.local_tensor, self.coordinates_arg]
-        if self.kernel.oriented:
-            args.append(self.cell_orientations_loopy_arg)
-        if self.kernel.needs_cell_sizes:
+        impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
+        if impero_c is None:
+            return self.construct_empty_kernel(name)
+        info = self.integral_data_info
+        args = [self.output_arg, self.coordinates_arg]
+        if oriented:
+            args.append(self.cell_orientations_arg)
+        if needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
-        if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(lp.GlobalArg("facet", dtype=numpy.uint32, shape=(1,)))
-        elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(lp.GlobalArg("facet", dtype=numpy.uint32, shape=(2,)))
-
-        for name_, shape in self.kernel.tabulations:
-            args.append(lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape))
-
-        self.kernel.quadrature_rule = quadrature_rule
-        self.kernel.ast = generate_loopy(impero_c, args, self.scalar_type, name, index_names)
-        return self.kernel
+        if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+            ext_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
+            args.append(kernel_args.ExteriorFacetKernelArg(ext_loopy_arg))
+        elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
+            int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
+            args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
+        for name_, shape in tabulations:
+            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
+            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
+        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
+        ast, event_name = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
+                                         self.scalar_type, name, index_names, log=log)
+        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        return Kernel(ast=ast,
+                      arguments=tuple(args),
+                      integral_type=info.integral_type,
+                      subdomain_id=info.subdomain_id,
+                      domain_number=info.domain_number,
+                      coefficient_numbers=info.coefficient_numbers,
+                      oriented=oriented,
+                      needs_cell_sizes=needs_cell_sizes,
+                      tabulations=tabulations,
+                      flop_count=flop_count,
+                      name=name,
+                      event=event_name)
 
     def construct_empty_kernel(self, name):
         """Return None, since Firedrake needs no empty kernels.
@@ -325,8 +386,9 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(coefficient.ufl_element().value_size(),))
-        expression = gem.reshape(gem.Variable(name, (None,)),
+        value_size = coefficient.ufl_element().value_size()
+        funarg = lp.GlobalArg(name, dtype=scalar_type, shape=(value_size,))
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
 
         return funarg, expression

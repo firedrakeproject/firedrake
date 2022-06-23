@@ -1,5 +1,4 @@
 import numpy
-from collections import namedtuple
 from itertools import chain, product
 from functools import partial
 
@@ -8,16 +7,14 @@ from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, Fi
 import coffee.base as coffee
 
 import gem
+from gem.flop_count import count_flops
 from gem.node import traversal
 from gem.optimise import remove_componenttensors as prune
 
-from tsfc.finatinterface import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
+from tsfc import kernel_args
 from tsfc.coffee import generate as generate_coffee
-
-
-# Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes', 'coefficients', 'tabulations'])
+from tsfc.finatinterface import create_element
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names
 
 
 def make_builder(*args, **kwargs):
@@ -25,9 +22,10 @@ def make_builder(*args, **kwargs):
 
 
 class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "domain_number", "needs_cell_sizes", "tabulations", "quadrature_rule",
-                 "coefficient_numbers", "__weakref__")
+    __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
+                 "domain_number", "needs_cell_sizes", "tabulations",
+                 "coefficient_numbers", "name", "__weakref__",
+                 "flop_count", "event")
     """A compiled Kernel object.
 
     :kwarg ast: The COFFEE ast for the kernel.
@@ -39,22 +37,32 @@ class Kernel(object):
         original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
-    :kwarg quadrature_rule: The finat quadrature rule used to generate this kernel
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
+    :kwarg flop_count: Estimated total flops for this kernel.
+    :kwarg event: name for logging event
     """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, domain_number=None, quadrature_rule=None,
+    def __init__(self, ast=None, arguments=None, integral_type=None, oriented=False,
+                 subdomain_id=None, domain_number=None,
                  coefficient_numbers=(),
-                 needs_cell_sizes=False):
+                 needs_cell_sizes=False,
+                 tabulations=None,
+                 flop_count=0,
+                 name=None,
+                 event=None):
         # Defaults
         self.ast = ast
+        self.arguments = arguments
         self.integral_type = integral_type
         self.oriented = oriented
         self.domain_number = domain_number
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         self.needs_cell_sizes = needs_cell_sizes
+        self.tabulations = tabulations
+        self.flop_count = flop_count
+        self.name = name
+        self.event = None
         super(Kernel, self).__init__()
 
 
@@ -85,8 +93,10 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: COFFEE function argument for the coefficient
         """
-        funarg, expression = prepare_coefficient(coefficient, name, self.scalar_type, interior_facet=self.interior_facet)
-        self.coefficient_map[coefficient] = expression
+        funarg, expr = prepare_coefficient(coefficient, name,
+                                           self.scalar_type,
+                                           interior_facet=self.interior_facet)
+        self.coefficient_map[coefficient] = expr
         return funarg
 
     def set_cell_sizes(self, domain):
@@ -107,9 +117,11 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            funarg, expression = prepare_coefficient(f, "cell_sizes", self.scalar_type, interior_facet=self.interior_facet)
-            self.cell_sizes_arg = funarg
-            self._cell_sizes = expression
+            funarg, expr = prepare_coefficient(f, "cell_sizes",
+                                               self.scalar_type,
+                                               interior_facet=self.interior_facet)
+            self.cell_sizes_arg = kernel_args.CellSizesKernelArg(funarg)
+            self._cell_sizes = expr
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -117,73 +129,16 @@ class KernelBuilderBase(_KernelBuilderBase):
         return create_element(element, **kwargs)
 
 
-class ExpressionKernelBuilder(KernelBuilderBase):
-    """Builds expression kernels for UFL interpolation in Firedrake."""
-
-    def __init__(self, scalar_type):
-        super(ExpressionKernelBuilder, self).__init__(scalar_type)
-        self.oriented = False
-        self.cell_sizes = False
-
-    def set_coefficients(self, coefficients):
-        """Prepare the coefficients of the expression.
-
-        :arg coefficients: UFL coefficients from Firedrake
-        """
-        self.coefficients = []  # Firedrake coefficients for calling the kernel
-        self.coefficient_split = {}
-        self.kernel_args = []
-
-        for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl_MixedElement:
-                subcoeffs = coefficient.split()  # Firedrake-specific
-                self.coefficients.extend(subcoeffs)
-                self.coefficient_split[coefficient] = subcoeffs
-                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j))
-                                     for j, subcoeff in enumerate(subcoeffs)]
-            else:
-                self.coefficients.append(coefficient)
-                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,)))
-
-    def register_requirements(self, ir):
-        """Inspect what is referenced by the IR that needs to be
-        provided by the kernel interface."""
-        self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
-
-    def construct_kernel(self, return_arg, impero_c, index_names):
-        """Constructs an :class:`ExpressionKernel`.
-
-        :arg return_arg: COFFEE argument for the return value
-        :arg body: function body (:class:`coffee.Block` node)
-        :returns: :class:`ExpressionKernel` object
-        """
-        args = [return_arg]
-        if self.oriented:
-            args.append(cell_orientations_coffee_arg)
-        if self.cell_sizes:
-            args.append(self.cell_sizes_arg)
-        args.extend(self.kernel_args)
-
-        body = generate_coffee(impero_c, index_names, self.scalar_type)
-
-        for name_, shape in self.tabulations:
-            args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
-                name_, rank=shape), qualifiers=["const"]))
-
-        kernel_code = super(ExpressionKernelBuilder, self).construct_kernel("expression_kernel", args, body)
-        return ExpressionKernel(kernel_code, self.oriented, self.cell_sizes, self.coefficients, self.tabulations)
-
-
-class KernelBuilder(KernelBuilderBase):
+class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id, domain_number, scalar_type,
+    def __init__(self, integral_data_info, scalar_type,
                  dont_split=(), diagonal=False):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        integral_type = integral_data_info.integral_type
+        super(KernelBuilder, self).__init__(coffee.as_cstr(scalar_type), integral_type.startswith("interior_facet"))
+        self.fem_scalar_type = scalar_type
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
-                             domain_number=domain_number)
         self.diagonal = diagonal
         self.local_tensor = None
         self.coordinates_arg = None
@@ -204,17 +159,31 @@ class KernelBuilder(KernelBuilderBase):
         elif integral_type == 'interior_facet_horiz':
             self._entity_number = {'+': 1, '-': 0}
 
-    def set_arguments(self, arguments, multiindices):
+        self.set_arguments(integral_data_info.arguments)
+        self.integral_data_info = integral_data_info
+
+    def set_arguments(self, arguments):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
-        :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = prepare_arguments(
-            arguments, multiindices, self.scalar_type, interior_facet=self.interior_facet,
-            diagonal=self.diagonal)
-        return expressions
+        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                      for arg in arguments)
+        if self.diagonal:
+            # Error checking occurs in the builder constructor.
+            # Diagonal assembly is obtained by using the test indices for
+            # the trial space as well.
+            a, _ = argument_multiindices
+            argument_multiindices = (a, a)
+        funarg, return_variables = prepare_arguments(arguments,
+                                                     argument_multiindices,
+                                                     self.scalar_type,
+                                                     interior_facet=self.interior_facet,
+                                                     diagonal=self.diagonal)
+        self.output_arg = kernel_args.OutputKernelArg(funarg)
+        self.return_variables = return_variables
+        self.argument_multiindices = argument_multiindices
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
@@ -224,7 +193,8 @@ class KernelBuilder(KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self.coordinates_arg = self._coefficient(f, "coords")
+        coords_coffee_arg = self._coefficient(f, "coords")
+        self.coordinates_arg = kernel_args.CoordinatesKernelArg(coords_coffee_arg)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -233,7 +203,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg form_data: UFL form data
         """
         coefficients = []
-        coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
@@ -251,60 +220,68 @@ class KernelBuilder(KernelBuilderBase):
                         self.coefficient_split[coefficient] = split
                 else:
                     coefficients.append(coefficient)
-                # This is which coefficient in the original form the
-                # current coefficient is.
-                # Consider f*v*dx + g*v*ds, the full form contains two
-                # coefficients, but each integral only requires one.
-                coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
-            self.coefficient_args.append(
-                self._coefficient(coefficient, "w_%d" % i))
-        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
+            coeff_coffee_arg = self._coefficient(coefficient, f"w_{i}")
+            self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_coffee_arg))
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        knl = self.kernel
-        knl.oriented, knl.needs_cell_sizes, knl.tabulations = check_requirements(ir)
+        return check_requirements(ir)
 
-    def construct_kernel(self, name, impero_c, index_names, quadrature_rule):
+    def construct_kernel(self, name, ctx, log=False):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
         list for assembly kernels.
 
-        :arg name: function name
-        :arg impero_c: ImperoC tuple with Impero AST and other data
-        :arg index_names: pre-assigned index names
-        :arg quadrature rule: quadrature rule
-
+        :arg name: kernel name
+        :arg ctx: kernel builder context to get impero_c from
         :returns: :class:`Kernel` object
         """
-        body = generate_coffee(impero_c, index_names, self.scalar_type)
-
-        args = [self.local_tensor, self.coordinates_arg]
-        if self.kernel.oriented:
-            args.append(cell_orientations_coffee_arg)
-        if self.kernel.needs_cell_sizes:
+        impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
+        if impero_c is None:
+            return self.construct_empty_kernel(name)
+        info = self.integral_data_info
+        args = [self.output_arg, self.coordinates_arg]
+        if oriented:
+            ori_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
+                                         pointers=[("restrict",)],
+                                         qualifiers=["const"])
+            args.append(kernel_args.CellOrientationsKernelArg(ori_coffee_arg))
+        if needs_cell_sizes:
             args.append(self.cell_sizes_arg)
         args.extend(self.coefficient_args)
-        if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            args.append(coffee.Decl("unsigned int",
-                                    coffee.Symbol("facet", rank=(1,)),
-                                    qualifiers=["const"]))
-        elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
-            args.append(coffee.Decl("unsigned int",
-                                    coffee.Symbol("facet", rank=(2,)),
-                                    qualifiers=["const"]))
-
-        for name_, shape in self.kernel.tabulations:
-            args.append(coffee.Decl(self.scalar_type, coffee.Symbol(
-                name_, rank=shape), qualifiers=["const"]))
-
-        self.kernel.quadrature_rule = quadrature_rule
-
-        self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
-        return self.kernel
+        if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+            ext_coffee_arg = coffee.Decl("unsigned int",
+                                         coffee.Symbol("facet", rank=(1,)),
+                                         qualifiers=["const"])
+            args.append(kernel_args.ExteriorFacetKernelArg(ext_coffee_arg))
+        elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
+            int_coffee_arg = coffee.Decl("unsigned int",
+                                         coffee.Symbol("facet", rank=(2,)),
+                                         qualifiers=["const"])
+            args.append(kernel_args.InteriorFacetKernelArg(int_coffee_arg))
+        for name_, shape in tabulations:
+            tab_coffee_arg = coffee.Decl(self.scalar_type,
+                                         coffee.Symbol(name_, rank=shape),
+                                         qualifiers=["const"])
+            args.append(kernel_args.TabulationKernelArg(tab_coffee_arg))
+        index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
+        body = generate_coffee(impero_c, index_names, self.scalar_type)
+        ast = KernelBuilderBase.construct_kernel(self, name, [a.coffee_arg for a in args], body)
+        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        return Kernel(ast=ast,
+                      arguments=tuple(args),
+                      integral_type=info.integral_type,
+                      subdomain_id=info.subdomain_id,
+                      domain_number=info.domain_number,
+                      coefficient_numbers=info.coefficient_numbers,
+                      oriented=oriented,
+                      needs_cell_sizes=needs_cell_sizes,
+                      tabulations=tabulations,
+                      flop_count=flop_count,
+                      name=name)
 
     def construct_empty_kernel(self, name):
         """Return None, since Firedrake needs no empty kernels.
@@ -351,8 +328,8 @@ def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
         funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
-
-        expression = gem.reshape(gem.Variable(name, (None,)),
+        value_size = coefficient.ufl_element().value_size()
+        expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
 
         return funarg, expression
@@ -432,9 +409,3 @@ def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
     return funarg, prune(expressions)
-
-
-cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
-                                           pointers=[("restrict",)],
-                                           qualifiers=["const"])
-"""COFFEE function argument for cell orientations"""
