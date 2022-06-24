@@ -746,6 +746,8 @@ class MeshTopology(AbstractMeshTopology):
         # Currently, we do the distribution manually, so
         # disable auto distribution.
         plex.distributeSetDefault(False)
+        # Similarly, disable auto plex reordering.
+        plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         plex.setFromOptions()
 
         self.topology_dm = plex
@@ -2091,20 +2093,26 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
+                   tolerance=None):
     """
-    Create a vertex only mesh, immersed in a given mesh, with vertices
-    defined by a list of coordinates.
+    Create a vertex only mesh, immersed in a given mesh, with vertices defined
+    by a list of coordinates.
 
-    :arg mesh: The unstructured mesh in which to immerse the vertex only
-        mesh.
+    :arg mesh: The unstructured mesh in which to immerse the vertex only mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
     :kwarg missing_points_behaviour: optional string argument for what to do
-        when vertices which are outside of the mesh are discarded. If ``'warn'``,
-        will print a warning. If ``'error'`` will raise a ValueError. Note that
-        setting this will cause all MPI ranks to check that they have the same
-        list of vertices (else the test is not possible): this operation scales
-        with number of vertices and number of ranks.
+        when vertices which are outside of the mesh are discarded. If
+        ``'warn'``, will print a warning. If ``'error'`` will raise a
+        ValueError. Note that setting this will cause all MPI ranks to check
+        that they have the same list of vertices (else the test is not
+        possible): this operation scales with number of vertices and number of
+        ranks.
+    :kwarg tolerance: the amount by which the local coordinates of a point are
+        allowed to fall outside the cell while still having the point count as
+        in the cell. Increase the default (1.0e-14) somewhat if vertices
+        interior to the domain are being lost in the :class:`VertexOnlyMesh`
+        construction process.
 
     .. note::
 
@@ -2112,15 +2120,13 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
 
     .. note::
 
-        Meshes created from a coordinates :py:class:`~.Function` and immersed
-        manifold meshes are not yet supported.
+        Extruded and immersed manifold meshes are not yet supported.
 
     .. note::
 
-        This should also only be used for meshes which have not had their
-        coordinates field modified as, at present, this does not update the
-        coordinates field of the underlying DMPlex. Such meshes may cause
-        unexpected behavioir or hangs when running in parallel.
+        Modifying the coordinates of the parent mesh is not currently
+        supported. Doing so will cause interpolation to Functions defined on
+        the VertexOnlyMesh to return the wrong values.
 
     .. note::
         When running in parallel, ``vertexcoords`` are strictly confined
@@ -2134,8 +2140,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
 
         #. making sure that all ranks are supplied with the same
            ``vertexcoords`` or by
-        #. ensuring that ``vertexcoords`` are already found in cells
-           owned by the ``mesh`` partition of the given rank.
+        #. ensuring that ``vertexcoords`` are already found in cells owned by
+           the ``mesh`` partition of the given rank.
 
         For more see `this github issue
         <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
@@ -2158,28 +2164,26 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
     if gdim != tdim:
         raise NotImplementedError("Immersed manifold meshes are not supported")
 
-    # TODO Some better method of matching points to cells will need to
-    # be used for bendy meshes since our PETSc DMPlex implementation
-    # only supports straight-edged mesh topologies and meshes made from
-    # coordinate fields.
-    # We can hopefully update the coordinates field correctly so that
-    # the DMSwarm PIC can immerse itself in the DMPlex.
-    # We can also hopefully provide a callback for PETSc to use to find
-    # the parent cell id. We would add `DMLocatePoints` as an `op` to
-    # `DMShell` types and do `DMSwarmSetCellDM(yourdmshell)` which has
-    # `DMLocatePoints_Shell` implemented.
-    # Whether one or both of these is needed is unclear.
-
+    # Bendy meshes require a smarter bounding box algorithm at partition and
+    # (especially) cell level. Projecting coordinates to Bernstein may be
+    # sufficient.
     if mesh.coordinates.function_space().ufl_element().degree() > 1:
         raise NotImplementedError("Only straight edged meshes are supported")
 
-    if hasattr(mesh, "_made_from_coordinates") and mesh._made_from_coordinates:
-        raise NotImplementedError("Meshes made from coordinate fields are not yet supported")
+    # Currently we take responsibility for locating the mesh cells in which the
+    # vertices lie.
+    #
+    # In the future we hope to update the coordinates field correctly so that
+    # the DMSwarm PIC can immerse itself in the DMPlex. We can also hopefully
+    # provide a callback for PETSc to use to find the parent cell id. We would
+    # add `DMLocatePoints` as an `op` to `DMShell` types and do
+    # `DMSwarmSetCellDM(yourdmshell)` which has `DMLocatePoints_Shell`
+    # implemented. Whether one or both of these is needed is unclear.
 
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_plex(mesh.topology.topology_dm, vertexcoords, fields=[("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)])
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance)
 
     if missing_points_behaviour:
 
@@ -2217,8 +2221,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
             else:
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
-    dmcommon.label_pic_parent_cell_info(swarm, mesh)
-
     # Topology
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
 
@@ -2249,48 +2251,45 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None):
 
     # Save vertex reference coordinate (within reference cell) in function
     reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
-    vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+    vmesh.reference_coordinates = \
+        dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
 
     return vmesh
 
 
-def _pic_swarm_in_plex(plex, coords, fields=[]):
-    """
-    Create a Particle In Cell (PIC) DMSwarm, immersed in a DMPlex
-    at given point coordinates.
+def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
+    """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
-    This should only by used for dmplexes associated with meshes with
-    straight edges. If not, the particles may be placed in the wrong
-    cells.
+    This should only by used for meshes with straight edges. If not, the
+    particles may be placed in the wrong cells.
 
-    :arg plex: the DMPlex within with the DMSwarm should be
+    :arg parent_mesh: the :class:`Mesh` within with the DMSwarm should be
         immersed.
     :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
-    :kwarg fields: An optional list of named data which can be stored
-        for each point in the DMSwarm. The format should be::
+    :kwarg fields: An optional list of named data which can be stored for each
+        point in the DMSwarm. The format should be::
 
         [(fieldname1, blocksize1, dtype1),
           ...,
          (fieldnameN, blocksizeN, dtypeN)]
 
-        For example, the swarm coordinates themselves are stored in a
-        field named ``DMSwarmPIC_coor`` which, were it not created
-        automatically, would be initialised with
-        ``fields = [("DMSwarmPIC_coor", coordsdim, RealType)]``.
-        All fields must have the same number of points. For more
+        For example, the swarm coordinates themselves are stored in a field
+        named ``DMSwarmPIC_coor`` which, were it not created automatically,
+        would be initialised with ``fields = [("DMSwarmPIC_coor", coordsdim,
+        RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
     :return: the immersed DMSwarm
 
     .. note::
 
-        The created DMSwarm uses the communicator of the input DMPlex.
+        The created DMSwarm uses the communicator of the input Mesh.
 
     .. note::
 
-        In complex mode the "DMSwarmPIC_coor" field is still saved as a
-        real number unlike the coordinates of a DMPlex which become
-        complex (though usually with zeroed imaginary parts).
+        In complex mode the "DMSwarmPIC_coor" field is still saved as a real
+        number unlike the coordinates of a DMPlex which become complex (though
+        usually with zeroed imaginary parts).
 
     .. note::
         When running in parallel, ``coords`` are strictly confined to
@@ -2304,8 +2303,8 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
         #. making sure that all ranks are supplied with the same list of
           ``coords`` or by
-        #. ensuring that ``coords`` are already localised for to the
-           DMPlex cells of the given rank.
+        #. ensuring that ``coords`` are already localised for to the DMPlex
+           cells of the given rank.
 
         For more see `this github issue
         <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
@@ -2313,6 +2312,20 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
+
+    plex = parent_mesh.topology.topology_dm
+    tdim = parent_mesh.topological_dimension()
+    gdim = parent_mesh.geometric_dimension()
+
+    if fields is None:
+        fields = []
+    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)]
+
+    coords, reference_coords, parent_cell_nums = \
+        _parent_mesh_embedding(coords, parent_mesh, tolerance)
+    # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+    plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
+
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
@@ -2338,23 +2351,33 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     for name, size, dtype in fields:
         swarm.registerField(name, size, dtype=dtype)
     swarm.finalizeFieldRegister()
-
     # Note that no new fields can now be associated with the DMSWARM.
 
-    # Add point coordinates - note we set redundant mode to False
-    # because we allow different MPI ranks to be given the overlapping
-    # lists of coordinates. The cell DM (`plex`) will then attempt to
-    # locate the coordinates within its rank-local sub domain and
-    # disregard those which are outside it. See https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSwarmSetPointCoordinates.html
-    # for more information. The result is that all DMPlex cells,
-    # including ghost cells on distributed meshes, have the relevent PIC
-    # coordinates associated with them. The DMPlex cell id associated
-    # with each PIC in the DMSwarm is accessed with the `DMSwarm_cellid`
-    # field.
-    swarm.setPointCoordinates(coords, redundant=False, mode=PETSc.InsertMode.INSERT_VALUES)
+    num_vertices = len(coords)
+    swarm.setLocalSizes(num_vertices, -1)
 
-    # Remove PICs which have been placed into ghost cells of a distributed DMPlex
-    dmcommon.remove_ghosts_pic(swarm, plex)
+    # Add point coordinates. This amounts to our own implementation of
+    # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
+    # doesn't always exactly coincide with that of DMPlex.
+
+    # NOTE ensure that swarm.restoreField is called for each field too!
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+    # Once we support extruded meshes, the plex cell ID won't coincide with the
+    # Firedrake cell ID so the following fields will differ.
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    field_parent_cell_nums = swarm.getField("parentcellnum")
+    field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+
+    swarm_coords[...] = coords
+    swarm_parent_cell_nums[...] = plex_parent_cell_nums
+    field_parent_cell_nums[...] = parent_cell_nums
+    field_reference_coords[...] = reference_coords
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("refcoord")
+    swarm.restoreField("parentcellnum")
+    swarm.restoreField("DMSwarmPIC_coor")
+    swarm.restoreField("DMSwarm_cellid")
 
     # Set the `SF` graph to advertises no shared points (since the halo
     # is now empty) by setting the leaves to an empty list
@@ -2364,6 +2387,62 @@ def _pic_swarm_in_plex(plex, coords, fields=[]):
     swarm.setPointSF(sf)
 
     return swarm
+
+
+def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
+    """Find the parent cells and local coords for vertices on this rank.
+
+    Vertices not located in cells owned by this rank are discarded.
+    """
+    if len(vertex_coords) > 0:
+        vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
+
+    num_vertices = len(vertex_coords)
+    max_num_vertices = parent_mesh.comm.allreduce(num_vertices, op=MPI.MAX)
+
+    gdim = parent_mesh.geometric_dimension()
+    tdim = parent_mesh.topological_dimension()
+
+    parent_cell_nums = np.empty(num_vertices, dtype=IntType)
+    reference_coords = np.empty((num_vertices, tdim), dtype=RealType)
+    valid = np.full(num_vertices, False)
+
+    # Create an out of mesh point to use in locate_cell when needed
+    out_of_mesh_point = np.full((1, gdim), np.inf)
+
+    for i in range(max_num_vertices):
+        if i < num_vertices:
+            parent_cell_num, reference_coord = \
+                parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i], tolerance)
+            # parent_cell_num >= parent_mesh.cell_set.size means the vertex is in the halo
+            # and is to be discarded.
+            if parent_cell_num is not None and parent_cell_num < parent_mesh.cell_set.size:
+                valid[i] = True
+                parent_cell_nums[i] = parent_cell_num
+                reference_coords[i] = reference_coord
+        else:
+            parent_mesh.locate_cell(out_of_mesh_point)  # should return None
+
+    vertex_coords = np.compress(valid, vertex_coords, axis=0)
+    reference_coords = np.compress(valid, reference_coords, axis=0)
+    parent_cell_nums = np.compress(valid, parent_cell_nums, axis=0)
+
+    return vertex_coords, reference_coords, parent_cell_nums
+
+
+def _on_rank_vertices(vertex_coords, parent_mesh):
+    """Discard those vertices that are definitely not on this MPI rank."""
+    bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf)
+    bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf)
+    length_scale = (bounding_box_max - bounding_box_min).max()
+    # This is basically to avoid roundoff, so 1% is very conservative.
+    bounding_box_min -= 0.01 * length_scale
+    bounding_box_max += 0.01 * length_scale
+
+    on_rank = (vertex_coords < bounding_box_max).all(axis=1) \
+        | (vertex_coords > bounding_box_min).all(axis=1)
+
+    return np.compress(on_rank, vertex_coords, axis=0)
 
 
 @PETSc.Log.EventDecorator()

@@ -1318,6 +1318,7 @@ def install_documentation_dependencies():
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
+    run_pip(["install", "-U", "numpydoc"])
 
 
 def clean_obsolete_packages():
@@ -1601,9 +1602,9 @@ if mode == "install":
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
     # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools==59.8"])  # Unpin this when numpy will build with latest setuptools
+    run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
     run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel"])
+    run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
@@ -1650,7 +1651,6 @@ if blas_location is not None:
     blas["OPENBLAS"] = blas_location
 if osname == "Darwin":
     blas["LDFLAGS"] = "-L" + brew_gcc_libdir()
-    config["environment"]["PYOP2_LDFLAGS"] = "-L" + brew_gcc_libdir()
 
 log.info("BLAS config is %s" % blas)
 

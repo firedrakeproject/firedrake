@@ -11,3 +11,4 @@ cached_property
 requests
 nbval
 packaging
+progress
