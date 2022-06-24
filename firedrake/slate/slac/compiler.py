@@ -45,9 +45,11 @@ import numpy as np
 import loopy
 import gem
 from gem import indices as make_indices
-from tsfc.kernel_args import OutputKernelArg
+from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
 import copy
+
+from petsc4py import PETSc
 
 __all__ = ['compile_expression']
 
@@ -169,25 +171,29 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+    (slate_loopy, slate_loopy_event), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
 
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"])
 
     name = "slate_wrapper"
-    loopy_merged, arguments = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
+    loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
     loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
                                                        include_dirs=BLASLAPACK_INCLUDE.split(),
-                                                       ldargs=BLASLAPACK_LIB.split())
+                                                       ldargs=BLASLAPACK_LIB.split(),
+                                                       events=events+(slate_loopy_event,))
 
     # map the coefficients in the order that PyOP2 needs
-    new_coeffs = slate_expr.coefficients()
     orig_coeffs = orig_expr.coefficients()
-    get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
-    coeff_map = tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map)
+    new_coeffs = slate_expr.coefficients()
+    map_new_to_orig = [orig_coeffs.index(c) for c in new_coeffs]
+    coeff_map = tuple((map_new_to_orig[n], split_map) for (n, split_map) in slate_expr.coeff_map)
+    coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
+    assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
+    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -198,7 +204,8 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
                        needs_cell_sizes=builder.bag.needs_cell_sizes,
-                       arguments=arguments)
+                       arguments=arguments,
+                       events=events)
 
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.
@@ -367,7 +374,8 @@ def generate_kernel_ast(builder, statements, declared_temps):
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers,
                        needs_cell_sizes=builder.needs_cell_sizes,
-                       arguments=None)
+                       arguments=None,
+                       events=())
 
     return kinfo
 
@@ -666,7 +674,7 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
 
 
 def slate_to_cpp(expr, temps, prec=None):

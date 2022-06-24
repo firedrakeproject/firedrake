@@ -146,6 +146,21 @@ def test_assemble_diagonal_bcs(mesh):
     assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)
 
 
+def test_zero_bc_nodes(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(sin(x + y))
+    v = TestFunction(V)
+    bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
+    a = inner(grad(f), grad(v))*dx
+
+    b1 = assemble(a)
+    for bc in bcs:
+        bc.zero(b1)
+    b2 = assemble(a, bcs=bcs, zero_bc_nodes=True)
+    assert np.allclose(b1.dat.data, b2.dat.data)
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for zero forms")
 def test_zero_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
@@ -191,6 +206,10 @@ def test_one_form_assembler_cache(mesh):
     assemble(L, form_compiler_parameters={"quadrature_degree": 2})
     assert len(L._cache[_FORM_CACHE_KEY]) == 3
 
+    # changing zero_bc_nodes should increase the cache size
+    assemble(L, zero_bc_nodes=True)
+    assert len(L._cache[_FORM_CACHE_KEY]) == 4
+
 
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
@@ -226,3 +245,13 @@ def test_two_form_assembler_cache(mesh):
     # changing form_compiler_parameters should increase the cache size
     assemble(a, form_compiler_parameters={"quadrature_degree": 2})
     assert len(a._cache[_FORM_CACHE_KEY]) == 4
+
+
+def test_assemble_only_valid_with_floats(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V, dtype=np.int32)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = dot(f*u, v) * dx
+    with pytest.raises(ValueError):
+        assemble(a)
