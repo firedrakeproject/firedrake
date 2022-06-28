@@ -310,12 +310,12 @@ class SchurComplementBuilder(object):
         # Check if Atilde is mixed
         all_fields = list(range(len(Atilde.arg_function_spaces[0])))
         nfields = len(all_fields)
+        self.A00_inv_hat = self.build_A00_inv()
         if nfields > 1:
             self._split_mixed_operator()
             self.schur_approx = self.retrieve_user_S_approx(pc, self.schur_approx) if self.schur_approx else None
 
             # build all required inverses
-            self.A00_inv_hat = self.build_A00_inv()
             self.inner_S = self.build_inner_S()
             self.inner_S_approx_inv_hat = self.build_Sapprox_inv()
             self.inner_S_inv_hat = self.build_inner_S_inv()

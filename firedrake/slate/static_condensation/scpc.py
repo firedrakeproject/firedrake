@@ -167,7 +167,7 @@ class SCPC(SCBase):
                                           mat_type,
                                           self.cxt.fc_params,
                                           options_prefix=prefix)
-        
+
         self._ctx_ref.fc_params = {"slate_compiler": {"replace_mul": self.local_matfree}}
 
         # Push new context onto the dm associated with the condensed problem
@@ -230,7 +230,12 @@ class SCPC(SCBase):
             Ae = local_system.lhs
             be = local_system.rhs
             i, = local_system.field_idx
-            local_solve = Ae.solve(be, decomposition="PartialPivLU")
+
+            if schur_builder.local_matfree:
+                local_solve = schur_builder.A00_inv_hat * be
+            else:
+                local_solve = Ae.solve(be, decomposition="PartialPivLU")
+
             solve_call = OneFormAssembler(local_solve, tensor=fields[i],
                                           form_compiler_parameters=self.cxt.fc_params).assemble
             local_solvers.append(solve_call)
