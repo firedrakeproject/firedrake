@@ -224,10 +224,10 @@ class SCPC(SCBase):
 
         local_solvers = []
         for local_system in systems:
-            Ae = local_system.lhs
+            Aeinv = local_system.lhs
             be = local_system.rhs
             i, = local_system.field_idx
-            local_solve = Ae.solve(be, decomposition="PartialPivLU")
+            local_solve = Aeinv * be
             solve_call = OneFormAssembler(local_solve, tensor=fields[i],
                                           form_compiler_parameters=self.cxt.fc_params).assemble
             local_solvers.append(solve_call)
