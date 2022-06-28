@@ -14,6 +14,7 @@ from gem import Variable as gVar, Action
 
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
+from pymbolic import parse
 
 from functools import singledispatch
 import firedrake.slate.slate as slate
@@ -782,14 +783,12 @@ class LocalLoopyKernelBuilder(object):
         rtol = getattr(expr.ctx, "rtol")
         atol = getattr(expr.ctx, "atol")
         prec = getattr(expr.ctx, "preconditioner")
-        max_it = getattr(expr.ctx, "max_it")
+        max_it = getattr(expr.ctx, "max_it") if getattr(expr.ctx, "max_it") else 2*shape[0]
         preconditioned = bool(prec)
-        max_it_loop = 2*shape[0]
 
         if max_it:
-            assert int(max_it)<max_it_loop, f"The local solver is looping up to {max_it_loop}." \
-                                            "Your max_it value is higher than that." \
-                                            "If you actually want to limit the run choose a lower max_it."
+            assert int(max_it)<=2*shape[0], f"Your max_it value is higher than 2 times the shape of the local solution vector." \
+                                             "If you actually want to achieve good performance consider choosing a lower max_it."
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
@@ -825,11 +824,8 @@ class LocalLoopyKernelBuilder(object):
 
         # setup the stop criterions
         stop_criterion_id = "cond"
-        stop_criterion_dep = "rkp1_normk"
-        stop_criterion = self.generate_code_for_stop_criterion("fabs(sqrt(rkp1_norm))/fabs(sqrt(rk_norm))",
-                                                               "fabs(sqrt(rkp1_norm))",
-                                                                "i_c",
-                                                               rtol,
+        stop_criterion_dep = "atol_crit_id"
+        stop_criterion = self.generate_code_for_stop_criterion(rtol,
                                                                atol,
                                                                max_it,
                                                                stop_criterion_dep,
@@ -849,10 +845,13 @@ class LocalLoopyKernelBuilder(object):
               f"""{z}[:] = action_P({P}[:], r[:]){{dep=residual0, id=z0}}""" if diagonal else
               f"""{z}[i_13] = r[i_13] {{dep=residual0, id=z0}}"""),
              f"""
-                  <> temp = 0  {{dep=z0, id=temp}}
-                  {p}[i_4] = -{z}[i_4] {{dep=temp, id=projector0}}
-                  <> rk_norm = 0. {{dep=projector0, id=rk_norm0}}
-                  rk_norm = rk_norm + r[i_5]*{z}[i_5] {{dep=projector0, id=rk_norm1}}
+                  <> max_it_crit = 0  {{dep=z0, id=max_it_crit_0}}
+                  <> atol_crit = 0  {{dep=max_it_crit_0, id=atol_crit_0}}
+                  <> rtol_crit = 0  {{dep=atol_crit_0, id=rtol_crit_0}}
+                  {p}[i_4] = -{z}[i_4] {{dep=rtol_crit_0, id=projector0}}
+                  <> rk_norm_init = 0. {{dep=projector0, id=rk_norm0}}
+                  rk_norm_init = rk_norm_init + r[i_5]*{z}[i_5] {{dep=rk_norm0, id=rk_norm_init}}
+                  <> rk_norm = rk_norm_init {{dep=rk_norm_init, id=rk_norm1}}
                   for i_c
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=rk_norm1, id=Aonp, inames=i_c}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
@@ -872,7 +871,9 @@ class LocalLoopyKernelBuilder(object):
               f"""  {z}[i_14] = r[i_14] {{dep=rk, id=zk, inames=i_c}}"""),
              f"""
                     <> rkp1_norm = 0. {{dep=zk, id=rkp1_norm0}}
-                    rkp1_norm = rkp1_norm + abs(r[i_9]*{z}[i_9]) {{dep=rkp1_norm0, id={stop_criterion_dep}}}
+                    rkp1_norm = rkp1_norm + abs(r[i_9]*{z}[i_9]) {{dep=rkp1_norm0, id=rkp1_normk}}
+                    rtol_crit = sqrt(rkp1_norm)/sqrt(rk_norm_init) {{dep=rkp1_normk, id=rtol_crit_id}}
+                    atol_crit = sqrt(rkp1_norm) {{dep=rtol_crit_id, id={stop_criterion_dep}}}
              """,
              stop_criterion,
              f"""
@@ -880,11 +881,15 @@ class LocalLoopyKernelBuilder(object):
                     rk_norm = rkp1_norm {{dep=beta, id=rk_normk}}
                     {p}[i_10] = beta * {p}[i_10] - {z}[i_10] {{dep=rk_normk, id=projectork}}
                     {A_on_p}[i_12] = 0. {{dep=projectork, id=Aonp0, inames=i_c}}
-                    temp = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
+                    max_it_crit = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
                   end""",
             loopy.CInstruction("",
-                                  f"if (temp=={max_it_loop}) {{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. Loop ended with %d.\\n\", temp); PetscFinalize(); exit(1);}}",
-                                  read_variables=["temp"],
+                                  f"{{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. \
+                                                                      Loop ended with %d iterations. \
+                                                                      The reached relative tolerance is %d. \
+                                                                      The reached absolute tolerance is %d\\n\", \
+                                                                      max_it_crit, rtol_crit, atol_crit); PetscFinalize(); exit(1);}}",
+                                  predicates={parse(f"""(max_it_crit=={max_it} or (rtol_crit>{rtol} and atol_crit>{atol}))""")},
                                   depends_on="tempk",
                                   id="print"),
             f"""      {output}[i_11] = {x}[i_11] {{dep=print, id=out}}
@@ -893,9 +898,9 @@ class LocalLoopyKernelBuilder(object):
         insns, event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
 
         knl = loopy.make_function(
-            """{[i_0,i_1,i_2,i_3,i_4,i_5,i_c,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
+            f"""{{[i_0,i_1,i_2,i_3,i_4,i_5,i_c,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16]:
                  0<=i_0,i_1,i_2,i_3,i_4,i_5,i_7,i_8,i_9,i_10,i_11,i_12, i_13, i_14, i_15, i_16<n
-                 and 0<=i_c<=m}""",
+                 and 0<=i_c<=m}}""",
             insns,
             [*args,
              loopy.TemporaryVariable(x, dtype, shape=shape, address_space=loopy.AddressSpace.LOCAL),
@@ -911,7 +916,7 @@ class LocalLoopyKernelBuilder(object):
             preambles=preamble)
 
         # set the length of the indices to the size of the temporaries
-        knl = loopy.fix_parameters(knl, m=max_it_loop)
+        knl = loopy.fix_parameters(knl, m=max_it)
         knl = loopy.fix_parameters(knl, n=shape[0])
 
         # update gem to pym mapping
@@ -937,7 +942,7 @@ class LocalLoopyKernelBuilder(object):
                                   depends_on=dep,
                                   id=id)
 
-    def generate_code_for_stop_criterion(self, rtol_var_name, atol_var_name, max_it_var_name, rtol, atol, max_it, dep, id):
+    def generate_code_for_stop_criterion(self, rtol, atol, max_it, dep, id):
         """ This method is workaround need since Loo.py does not support while loops yet.
             FIXME whenever while loops become available
 
@@ -955,19 +960,10 @@ class LocalLoopyKernelBuilder(object):
         """
         rtol_cond = " < " + str(rtol)
         atol_cond = " < " + str(atol)
-        max_it_cond = " > " + str(max_it)
-        if configuration["simd_width"]:
-            # vectorisation of the stop criterion
-            variable = "(" + rtol_var_name + "[" + str(0) + "]" + rtol_cond + "||" + atol_var_name + "[" + str(0) + "]" + atol_cond + ")"
-            for i in range(int(configuration["simd_width"])-1):
-                variable += "&& (" + rtol_var_name + "["+str(i+1)+"]" + rtol_cond + "||" + atol_var_name + "["+str(i+1)+"]" + atol_cond + ")"
-            variable += + "||" + max_it_var_name + "["+str(i+1)+"]" + max_it_cond if max_it else ""
-        else:
-            variable = rtol_var_name + rtol_cond + "||" + atol_var_name  + atol_cond
-            variable += "||" + max_it_var_name  + max_it_cond if max_it else ""
+        variable = "rtol_crit" + rtol_cond + " or " + "atol_crit"  + atol_cond
         return loopy.CInstruction("",
-                                  "if (" + variable + ") break;",
-                                  read_variables=[rtol_var_name, atol_var_name, max_it_var_name],
+                                  code="break;",
+                                  predicates={parse(variable)},
                                   depends_on=dep,
                                   id=id)
 
