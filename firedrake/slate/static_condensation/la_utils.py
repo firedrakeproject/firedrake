@@ -136,13 +136,13 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
         id_e, = reconstruct_fields
         id_f, = [idx for idx in all_fields if idx != id_e]
 
-        A_ee = _A[id_e, id_e]
-        A_ef = _A[id_e, id_f]
+        A_eeinv = schur_builder.A00_inv_hat
+        A_ef = schur_builder.KT
         b_e = AssembledVector(_b[id_e])
         x_f = AssembledVector(_x[id_f])
 
         r_e = b_e - A_ef * x_f
-        local_system = LAContext(lhs=A_ee, rhs=r_e, field_idx=(id_e,))
+        local_system = LAContext(lhs=A_eeinv, rhs=r_e, field_idx=(id_e,))
 
         systems.append(local_system)
 
@@ -178,7 +178,7 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
         id_e0, id_e1 = reconstruct_fields
         id_f, = [idx for idx in all_fields if idx not in reconstruct_fields]
 
-        A_e0e0, A_e0e1, A_e1e0, A_e1e1 = schur_builder.list_split_mixed_ops
+        _, A_e0e1, A_e1e0, A_e1e1 = schur_builder.list_split_mixed_ops
         A_e0f, A_e1f = schur_builder.list_split_trace_ops_transpose
         A_e0e0inv = schur_builder.A00_inv_hat
         S_e1 = schur_builder.inner_S
@@ -205,7 +205,7 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
 
         # Solve for e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
-        systems.append(LAContext(lhs=A_e0e0, rhs=r_e0, field_idx=(id_e0,)))
+        systems.append(LAContext(lhs=A_e0e0inv, rhs=r_e0, field_idx=(id_e0,)))
 
     else:
         msg = "Not implemented for systems with %s fields" % nfields
@@ -309,12 +309,12 @@ class SchurComplementBuilder(object):
 
         # Check if Atilde is mixed
         all_fields = list(range(len(Atilde.arg_function_spaces[0])))
-        nfields = len(all_fields)
+        self.nfields = len(all_fields)
         self._split_mixed_operator()
         
         # build all inverses
         self.A00_inv_hat = self.build_A00_inv()
-        if nfields > 1:
+        if self.nfields > 1:
             self.schur_approx = self.retrieve_user_S_approx(pc, self.schur_approx) if self.schur_approx else None
             self.inner_S = self.build_inner_S()
             self.inner_S_approx_inv_hat = self.build_Sapprox_inv()
@@ -324,20 +324,23 @@ class SchurComplementBuilder(object):
         split_mixed_op = dict(split_form(self.Atilde.form))
         id0, id1 = (self.vidx, self.pidx)
         A00 = Tensor(split_mixed_op[(id0, id0)])
-        A01 = Tensor(split_mixed_op[(id0, id1)])
-        A10 = Tensor(split_mixed_op[(id1, id0)])
-        A11 = Tensor(split_mixed_op[(id1, id1)])
-        self.list_split_mixed_ops = [A00, A01, A10, A11]
+        self.list_split_mixed_ops = [A00, None, None, None]
+        
+        if self.nfields > 1:
+            A01 = Tensor(split_mixed_op[(id0, id1)])
+            A10 = Tensor(split_mixed_op[(id1, id0)])
+            A11 = Tensor(split_mixed_op[(id1, id1)])
+            self.list_split_mixed_ops = [A00, A01, A10, A11]
 
-        split_trace_op = dict(split_form(self.K.form))
-        K0 = Tensor(split_trace_op[(0, id0)])
-        K1 = Tensor(split_trace_op[(0, id1)])
-        self.list_split_trace_ops = [K0, K1]
+            split_trace_op = dict(split_form(self.K.form))
+            K0 = Tensor(split_trace_op[(0, id0)])
+            K1 = Tensor(split_trace_op[(0, id1)])
+            self.list_split_trace_ops = [K0, K1]
 
-        split_trace_op_transpose = dict(split_form(self.KT.form))
-        K0 = Tensor(split_trace_op_transpose[(id0, 0)])
-        K1 = Tensor(split_trace_op_transpose[(id1, 0)])
-        self.list_split_trace_ops_transpose = [K0, K1]
+            split_trace_op_transpose = dict(split_form(self.KT.form))
+            K0 = Tensor(split_trace_op_transpose[(id0, 0)])
+            K1 = Tensor(split_trace_op_transpose[(id1, 0)])
+            self.list_split_trace_ops_transpose = [K0, K1]
 
     def _check_options(self, valid):
         default = object()

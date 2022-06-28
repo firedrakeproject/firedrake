@@ -232,7 +232,7 @@ class SCPC(SCBase):
             i, = local_system.field_idx
 
             if schur_builder.local_matfree:
-                local_solve = schur_builder.A00_inv_hat * be
+                local_solve = Ae * be
             else:
                 local_solve = Ae.solve(be, decomposition="PartialPivLU")
 
