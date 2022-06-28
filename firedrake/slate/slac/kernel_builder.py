@@ -783,7 +783,7 @@ class LocalLoopyKernelBuilder(object):
         rtol = getattr(expr.ctx, "rtol")
         atol = getattr(expr.ctx, "atol")
         prec = getattr(expr.ctx, "preconditioner")
-        max_it = getattr(expr.ctx, "max_it") if getattr(expr.ctx, "max_it") else 2*shape[0]
+        max_it = int(getattr(expr.ctx, "max_it")) if getattr(expr.ctx, "max_it") else 2*shape[0]
         preconditioned = bool(prec)
 
         if max_it:
@@ -858,8 +858,8 @@ class LocalLoopyKernelBuilder(object):
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
                     <> projector_is_zero = abs(p_on_Ap) < {1e-50} {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
-             corner_case,
-             f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
+            #  corner_case,
+             f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_dep}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
                     
