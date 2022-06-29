@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-#
 # This file was modified from FFC
 # (http://bitbucket.org/fenics-project/ffc), copyright notice
 # reproduced below.
@@ -71,6 +69,10 @@ supported_elements = {
     "Real": finat.Real,
     "DPC": finat.DPC,
     "S": finat.Serendipity,
+    "SminusF": finat.TrimmedSerendipityFace,
+    "SminusDiv": finat.TrimmedSerendipityDiv,
+    "SminusE": finat.TrimmedSerendipityEdge,
+    "SminusCurl": finat.TrimmedSerendipityCurl,
     "DPC L2": finat.DPC,
     "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
     "Gauss-Legendre L2": finat.GaussLegendre,
@@ -321,7 +323,6 @@ def _create_element(ufl_element, **kwargs):
 
 def create_base_element(ufl_element, **kwargs):
     """Create a "scalar" base FInAT element given a UFL element.
-
     Takes a UFL element and an unspecified set of parameter options,
     and returns the converted element.
     """
