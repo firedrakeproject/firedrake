@@ -57,6 +57,9 @@ def adjoint_example(mesh):
     return Jnew, grad_Jnew
 
 
+@pytest.mark.skipcomplex
+# Waiting on stable parallel decompositions through disk checkpointing.
+@pytest.mark.xfail
 # A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
@@ -78,5 +81,26 @@ def test_disk_checkpointing():
     tape.clear_tape()
 
 
-if __name__ == "__main__":
-    test_disk_checkpointing()
+@pytest.mark.skipcomplex
+def test_disk_checkpointing_successive_writes():
+    from firedrake_adjoint import enable_disk_checkpointing, \
+        checkpointable_mesh, pause_disk_checkpointing
+    tape = get_working_tape()
+    tape.clear_tape()
+    enable_disk_checkpointing()
+
+    mesh = checkpointable_mesh(UnitSquareMesh(1, 1))
+
+    cg_space = FunctionSpace(mesh, "CG", 1)
+    u = Function(cg_space, name='u')
+    v = Function(cg_space, name='v')
+
+    u.assign(1.)
+    v.assign(v + 2.*u)
+    v.assign(v + 3.*u)
+
+    J = assemble(v*dx)
+    Jhat = ReducedFunctional(J, Control(u))
+    assert np.allclose(J, Jhat(1))
+    pause_disk_checkpointing()
+    tape.clear_tape()
