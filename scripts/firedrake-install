@@ -584,6 +584,8 @@ def get_petsc_options(minimal=False):
                      "--download-superlu_dist",
                      # Parallel mesh partitioner
                      "--download-ptscotch",
+                     # Parser generator
+                     "--download-bison",
                      # For superlu_dist amongst others.
                      "--with-cxx-dialect=C++11"}
 
