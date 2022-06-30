@@ -1,5 +1,4 @@
-import numpy
-from itertools import chain, product
+from collections import OrderedDict
 from functools import partial
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
@@ -8,13 +7,11 @@ import coffee.base as coffee
 
 import gem
 from gem.flop_count import count_flops
-from gem.node import traversal
-from gem.optimise import remove_componenttensors as prune
 
 from tsfc import kernel_args
 from tsfc.coffee import generate as generate_coffee
 from tsfc.finatinterface import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments
 
 
 def make_builder(*args, **kwargs):
@@ -39,6 +36,7 @@ class Kernel(object):
         form the kernel needs.
     :kwarg tabulations: The runtime tabulations this kernel requires
     :kwarg needs_cell_sizes: Does the kernel require cell sizes.
+    :kwarg name: The name of this kernel.
     :kwarg flop_count: Estimated total flops for this kernel.
     :kwarg event: name for logging event
     """
@@ -73,8 +71,7 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         :arg interior_facet: kernel accesses two cells
         """
-        super(KernelBuilderBase, self).__init__(scalar_type=scalar_type,
-                                                interior_facet=interior_facet)
+        super().__init__(scalar_type=scalar_type, interior_facet=interior_facet)
 
         # Cell orientation
         if self.interior_facet:
@@ -91,13 +88,9 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         :arg coefficient: :class:`ufl.Coefficient`
         :arg name: coefficient name
-        :returns: COFFEE function argument for the coefficient
         """
-        funarg, expr = prepare_coefficient(coefficient, name,
-                                           self.scalar_type,
-                                           interior_facet=self.interior_facet)
+        expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet)
         self.coefficient_map[coefficient] = expr
-        return funarg
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
@@ -117,16 +110,35 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            funarg, expr = prepare_coefficient(f, "cell_sizes",
-                                               self.scalar_type,
-                                               interior_facet=self.interior_facet)
-            self.cell_sizes_arg = kernel_args.CellSizesKernelArg(funarg)
+            expr = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
             self._cell_sizes = expr
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
         return create_element(element, **kwargs)
+
+    def generate_arg_from_variable(self, var, is_output=False):
+        """Generate kernel arg from a :class:`gem.Variable`.
+
+        :arg var: a :class:`gem.Variable`
+        :arg is_output: if expr represents the output or not
+        :returns: kernel arg
+        """
+        if is_output:
+            return coffee.Decl(self.scalar_type, coffee.Symbol(var.name, rank=var.shape))
+        else:
+            return coffee.Decl(self.scalar_type, coffee.Symbol(var.name), pointers=[("restrict",)], qualifiers=["const"])
+
+    def generate_arg_from_expression(self, expr, is_output=False):
+        """Generate kernel arg from gem expression(s).
+
+        :arg expr: gem expression(s) representing a coefficient or the output tensor
+        :arg is_output: if expr represents the output or not
+        :returns: kernel arg
+        """
+        var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
+        return self.generate_arg_from_variable(var, is_output=is_output)
 
 
 class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
@@ -141,9 +153,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         self.diagonal = diagonal
         self.local_tensor = None
-        self.coordinates_arg = None
-        self.coefficient_args = []
         self.coefficient_split = {}
+        self.coefficient_number_index_map = OrderedDict()
         self.dont_split = frozenset(dont_split)
 
         # Facet number
@@ -176,12 +187,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             # the trial space as well.
             a, _ = argument_multiindices
             argument_multiindices = (a, a)
-        funarg, return_variables = prepare_arguments(arguments,
-                                                     argument_multiindices,
-                                                     self.scalar_type,
-                                                     interior_facet=self.interior_facet,
-                                                     diagonal=self.diagonal)
-        self.output_arg = kernel_args.OutputKernelArg(funarg)
+        return_variables = prepare_arguments(arguments,
+                                             argument_multiindices,
+                                             interior_facet=self.interior_facet,
+                                             diagonal=self.diagonal)
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
 
@@ -193,8 +202,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        coords_coffee_arg = self._coefficient(f, "coords")
-        self.coordinates_arg = kernel_args.CoordinatesKernelArg(coords_coffee_arg)
+        self._coefficient(f, "coords")
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -202,27 +210,32 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg integral_data: UFL integral data
         :arg form_data: UFL form data
         """
-        coefficients = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
+        n, k = 0, 0
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 original = form_data.reduced_coefficients[i]
                 coefficient = form_data.function_replace_map[original]
                 if type(coefficient.ufl_element()) == ufl_MixedElement:
                     if original in self.dont_split:
-                        coefficients.append(coefficient)
                         self.coefficient_split[coefficient] = [coefficient]
+                        self._coefficient(coefficient, f"w_{k}")
+                        self.coefficient_number_index_map[coefficient] = (n, 0)
+                        k += 1
                     else:
-                        split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
-                                 for element in coefficient.ufl_element().sub_elements()]
-                        coefficients.extend(split)
-                        self.coefficient_split[coefficient] = split
+                        self.coefficient_split[coefficient] = []
+                        for j, element in enumerate(coefficient.ufl_element().sub_elements()):
+                            c = Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
+                            self.coefficient_split[coefficient].append(c)
+                            self._coefficient(c, f"w_{k}")
+                            self.coefficient_number_index_map[c] = (n, j)
+                            k += 1
                 else:
-                    coefficients.append(coefficient)
-        for i, coefficient in enumerate(coefficients):
-            coeff_coffee_arg = self._coefficient(coefficient, f"w_{i}")
-            self.coefficient_args.append(kernel_args.CoefficientKernelArg(coeff_coffee_arg))
+                    self._coefficient(coefficient, f"w_{k}")
+                    self.coefficient_number_index_map[coefficient] = (n, 0)
+                    k += 1
+                n += 1
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
@@ -239,19 +252,45 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg ctx: kernel builder context to get impero_c from
         :returns: :class:`Kernel` object
         """
-        impero_c, oriented, needs_cell_sizes, tabulations = self.compile_gem(ctx)
+        impero_c, oriented, needs_cell_sizes, tabulations, active_variables = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
         info = self.integral_data_info
-        args = [self.output_arg, self.coordinates_arg]
+        # In the following funargs are only generated
+        # for gem expressions that are actually used;
+        # see `generate_arg_from_expression()` method.
+        # Specifically, funargs are not generated for
+        # unused components of mixed coefficients.
+        # Problem solving environment, such as Firedrake,
+        # will know which components have been included
+        # in the list of kernel arguments by investigating
+        # `Kernel.coefficient_numbers`.
+        # Add return arg
+        funarg = self.generate_arg_from_expression(self.return_variables, is_output=True)
+        args = [kernel_args.OutputKernelArg(funarg)]
+        # Add coordinates arg
+        coord = self.domain_coordinate[info.domain]
+        expr = self.coefficient_map[coord]
+        funarg = self.generate_arg_from_expression(expr)
+        args.append(kernel_args.CoordinatesKernelArg(funarg))
         if oriented:
             ori_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
                                          pointers=[("restrict",)],
                                          qualifiers=["const"])
             args.append(kernel_args.CellOrientationsKernelArg(ori_coffee_arg))
         if needs_cell_sizes:
-            args.append(self.cell_sizes_arg)
-        args.extend(self.coefficient_args)
+            funarg = self.generate_arg_from_expression(self._cell_sizes)
+            args.append(kernel_args.CellSizesKernelArg(funarg))
+        coefficient_indices = {}
+        for coeff, (number, index) in self.coefficient_number_index_map.items():
+            a = coefficient_indices.setdefault(number, [])
+            expr = self.coefficient_map[coeff]
+            var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
+            if var in active_variables:
+                funarg = self.generate_arg_from_expression(expr)
+                args.append(kernel_args.CoefficientKernelArg(funarg))
+                a.append(index)
+        coefficient_indices = tuple(tuple(v) for v in coefficient_indices.values())
         if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             ext_coffee_arg = coffee.Decl("unsigned int",
                                          coffee.Symbol("facet", rank=(1,)),
@@ -276,7 +315,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                       integral_type=info.integral_type,
                       subdomain_id=info.subdomain_id,
                       domain_number=info.domain_number,
-                      coefficient_numbers=info.coefficient_numbers,
+                      coefficient_numbers=tuple(zip(info.coefficient_numbers, coefficient_indices)),
                       oriented=oriented,
                       needs_cell_sizes=needs_cell_sizes,
                       tabulations=tabulations,
@@ -290,122 +329,3 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :returns: None
         """
         return None
-
-
-def check_requirements(ir):
-    """Look for cell orientations, cell sizes, and collect tabulations
-    in one pass."""
-    cell_orientations = False
-    cell_sizes = False
-    rt_tabs = {}
-    for node in traversal(ir):
-        if isinstance(node, gem.Variable):
-            if node.name == "cell_orientations":
-                cell_orientations = True
-            elif node.name == "cell_sizes":
-                cell_sizes = True
-            elif node.name.startswith("rt_"):
-                rt_tabs[node.name] = node.shape
-    return cell_orientations, cell_sizes, tuple(sorted(rt_tabs.items()))
-
-
-def prepare_coefficient(coefficient, name, scalar_type, interior_facet=False):
-    """Bridges the kernel interface and the GEM abstraction for
-    Coefficients.
-
-    :arg coefficient: UFL Coefficient
-    :arg name: unique name to refer to the Coefficient in the kernel
-    :arg interior_facet: interior facet integral?
-    :returns: (funarg, expression)
-         funarg     - :class:`coffee.Decl` function argument
-         expression - GEM expression referring to the Coefficient
-                      values
-    """
-    assert isinstance(interior_facet, bool)
-
-    if coefficient.ufl_element().family() == 'Real':
-        # Constant
-        funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
-                             pointers=[("restrict",)],
-                             qualifiers=["const"])
-        value_size = coefficient.ufl_element().value_size()
-        expression = gem.reshape(gem.Variable(name, (value_size,)),
-                                 coefficient.ufl_shape)
-
-        return funarg, expression
-
-    finat_element = create_element(coefficient.ufl_element())
-    shape = finat_element.index_shape
-    size = numpy.prod(shape, dtype=int)
-
-    funarg = coffee.Decl(scalar_type, coffee.Symbol(name),
-                         pointers=[("restrict",)],
-                         qualifiers=["const"])
-
-    if not interior_facet:
-        expression = gem.reshape(gem.Variable(name, (size,)), shape)
-    else:
-        varexp = gem.Variable(name, (2 * size,))
-        plus = gem.view(varexp, slice(size))
-        minus = gem.view(varexp, slice(size, 2 * size))
-        expression = (gem.reshape(plus, shape),
-                      gem.reshape(minus, shape))
-    return funarg, expression
-
-
-def prepare_arguments(arguments, multiindices, scalar_type, interior_facet=False, diagonal=False):
-    """Bridges the kernel interface and the GEM abstraction for
-    Arguments.  Vector Arguments are rearranged here for interior
-    facet integrals.
-
-    :arg arguments: UFL Arguments
-    :arg multiindices: Argument multiindices
-    :arg interior_facet: interior facet integral?
-    :arg diagonal: Are we assembling the diagonal of a rank-2 element tensor?
-    :returns: (funarg, expression)
-         funarg      - :class:`coffee.Decl` function argument
-         expressions - GEM expressions referring to the argument
-                       tensor
-    """
-    assert isinstance(interior_facet, bool)
-
-    if len(arguments) == 0:
-        # No arguments
-        funarg = coffee.Decl(scalar_type, coffee.Symbol("A", rank=(1,)))
-        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
-
-        return funarg, [expression]
-
-    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    shapes = tuple(element.index_shape for element in elements)
-
-    if diagonal:
-        if len(arguments) != 2:
-            raise ValueError("Diagonal only for 2-forms")
-        try:
-            element, = set(elements)
-        except ValueError:
-            raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
-
-        elements = (element, )
-        shapes = tuple(element.index_shape for element in elements)
-        multiindices = multiindices[:1]
-
-    def expression(restricted):
-        return gem.Indexed(gem.reshape(restricted, *shapes),
-                           tuple(chain(*multiindices)))
-
-    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
-    if interior_facet:
-        c_shape = tuple(2 * u_shape)
-        slicez = [[slice(r * s, (r + 1) * s)
-                   for r, s in zip(restrictions, u_shape)]
-                  for restrictions in product((0, 1), repeat=len(arguments))]
-    else:
-        c_shape = tuple(u_shape)
-        slicez = [[slice(s) for s in u_shape]]
-
-    funarg = coffee.Decl(scalar_type, coffee.Symbol("A", rank=c_shape))
-    varexp = gem.Variable("A", c_shape)
-    expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
-    return funarg, prune(expressions)

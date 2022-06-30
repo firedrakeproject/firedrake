@@ -139,7 +139,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         from tsfc.coffee import generate as generate_coffee
 
-        impero_c, _, _, _ = self.compile_gem(ctx)
+        impero_c, _, _, _, _ = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
