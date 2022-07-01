@@ -16,8 +16,6 @@ import collections
 
 import ufl
 from ufl import Form, conj
-from firedrake.constant import Constant
-from firedrake.function import Function
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
@@ -130,8 +128,7 @@ class TSFCKernel(Cached):
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg number_map: a map from local coefficient numbers
-                         to the split global coefficient numbers.
+        :arg number_map: a map from local coefficient numbers to the global coefficient numbers.
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
@@ -144,7 +141,7 @@ class TSFCKernel(Cached):
             # Set optimization options
             opts = default_parameters["coffee"].copy()
             # Unwind coefficient numbering
-            numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
+            numbers = tuple((number_map[number], indices) for number, indices in kernel.coefficient_numbers)
             events = (kernel.event,)
             pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
                                                  len(kernel.arguments),
@@ -230,12 +227,8 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     for idx, f in iterable:
         f = _real_mangle(f)
         # Map local coefficient numbers (as seen inside the
-        # compiler) to the split global coefficient numbers
-        number_map = dict((n, (coefficient_numbers[c], tuple(range(len(c.split())))))
-                          if isinstance(c, Function) or isinstance(c, Constant)
-                          else (n, (coefficient_numbers[c], (0,)))
-                          for (n, c) in enumerate(f.coefficients()))
-
+        # compiler) to the global coefficient numbers
+        number_map = tuple(coefficient_numbers[c] for c in f.coefficients())
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
                             number_map, interface, coffee, diagonal).kernels

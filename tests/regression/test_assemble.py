@@ -255,3 +255,14 @@ def test_assemble_only_valid_with_floats(mesh):
     a = dot(f*u, v) * dx
     with pytest.raises(ValueError):
         assemble(a)
+
+
+def test_assemble_mixed_function_sparse():
+    mesh = UnitSquareMesh(1, 1)
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V = V0 * V0 * V0 * V0 * V0 * V0 * V0 * V0
+    f = Function(V)
+    f.sub(1).interpolate(Constant(2.0))
+    f.sub(4).interpolate(Constant(3.0))
+    v = assemble((inner(f[1], f[1]) + inner(f[4], f[4])) * dx)
+    assert np.allclose(v, 13.0)

@@ -223,7 +223,7 @@ class ASMVankaPC(ASMPatchPC):
             star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
             pt_array = set()
             for pt in star.tolist():
-                closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
+                closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
                 pt_array.update(closure.tolist())
 
             pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
