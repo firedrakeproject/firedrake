@@ -569,7 +569,7 @@ def compare_dual(l1, l2):
         if len(p1) != len(p2):
             return False
         for k1, k2 in zip(p1.keys(), p2.keys()):
-            if not (numpy.isclose(k1, k2, rtol=1E-16, atol=1E-16) and p1[k1] == p2[k2]):
+            if not (numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16) and p1[k1] == p2[k2]):
                 return False
     return True
 
