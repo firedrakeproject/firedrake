@@ -249,7 +249,7 @@ class PMGBase(PCSNESBase):
         # injection of the initial state
         def inject_state(mat):
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.multTranspose(xf, xc)
+                mat.mult(xf, xc)
 
         injection = self.create_injection(cdm, fdm)
         add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
@@ -285,7 +285,7 @@ class PMGBase(PCSNESBase):
 
         I, _ = self.create_interpolation(cdm, fdm)
         ises = cV._ises
-        cctx._nullspace = coarsen_nullspace(cV, I, fctx._nullspace)
+        cctx._nullspace = coarsen_nullspace(cV, injection, fctx._nullspace)
         cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
         cctx._nullspace_T = coarsen_nullspace(cV, I, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
@@ -345,8 +345,7 @@ class PMGBase(PCSNESBase):
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False, True)
-        return PETSc.Mat().createTranspose(I)
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False, True)
 
     @staticmethod
     def max_degree(ele):
@@ -429,8 +428,7 @@ class PMGPC(PCBase, PMGBase):
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
         opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
-        if "mg_coarse_pc_mg_levels" not in opts:
-            opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+        opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
 
         return ppc
 
@@ -473,10 +471,8 @@ class PMGSNES(SNESBase, PMGBase):
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
         opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
-        if "fas_coarse_pc_mg_levels" not in opts:
-            opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-        if "fas_coarse_snes_fas_levels" not in opts:
-            opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
+        opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+        opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
 
         return psnes
 
