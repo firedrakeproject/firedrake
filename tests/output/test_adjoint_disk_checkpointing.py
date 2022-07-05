@@ -1,13 +1,16 @@
 from firedrake import *
 from pyadjoint import (ReducedFunctional, get_working_tape, stop_annotating,
-                       annotate_tape, pause_annotation, Control)
+                       pause_annotation, Control)
 import numpy as np
 import os
 import pytest
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_exit_annotation():
+def handle_annotation():
+    from firedrake_adjoint import annotate_tape, continue_annotation
+    if not annotate_tape():
+        continue_annotation()
     yield
     # Since importing firedrake_adjoint modifies a global variable, we need to
     # pause annotations at the end of the module
