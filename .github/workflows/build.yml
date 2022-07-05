@@ -74,7 +74,7 @@ jobs:
     name: "Build Docker environment container"
     # The type of runner that the job will run on
     needs: build
-    if: ${{ github.ref == 'refs/heads/master' }}
+    # if: ${{ github.ref == 'refs/heads/master' }}
     runs-on: self-hosted
     steps:
       - name: Check out the repo
@@ -92,7 +92,7 @@ jobs:
         with:
           push: true
           file: docker/Dockerfile.env
-          tags: firedrakeproject/firedrake-env:latest
+          tags: firedrakeproject/firedrake-env:experimental
   docker_vanilla:
     name: "Build Docker vanilla container"
     # The type of runner that the job will run on
@@ -119,7 +119,7 @@ jobs:
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.vanilla
-          tags: firedrakeproject/firedrake-vanilla:latest
+          tags: firedrakeproject/firedrake-vanilla:experimental
   docker_firedrake:
     name: "Build full Firedrake Docker container"
     # The type of runner that the job will run on
@@ -146,7 +146,7 @@ jobs:
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.firedrake
-          tags: firedrakeproject/firedrake:latest
+          tags: firedrakeproject/firedrake:experimental
   docker_jupyter:
     name: "Build tutorial notebooks Docker container"
     # The type of runner that the job will run on
@@ -171,7 +171,7 @@ jobs:
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.jupyter
-          tags: firedrakeproject/firedrake-notebooks:latest
+          tags: firedrakeproject/firedrake-notebooks:experimental
   docker_complex:
     name: "Build Docker complex container"
     # The type of runner that the job will run on
@@ -198,4 +198,4 @@ jobs:
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.complex
-          tags: firedrakeproject/firedrake-complex:latest
+          tags: firedrakeproject/firedrake-complex:experimental

@@ -1,6 +1,6 @@
 # DockerFile for Firedrake in complex mode with a full set of capabilities.
 
-FROM firedrakeproject/firedrake-env:latest
+FROM firedrakeproject/firedrake-env:experimental
 
 # This DockerFile is looked after by
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
