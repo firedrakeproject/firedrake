@@ -103,7 +103,7 @@ class FDMPC(PCBase):
         else:
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
-            bcs_fdm = tuple(bc.reconstruct(V=V_fdm) for bc in bcs)
+            bcs_fdm = tuple(bc.reconstruct(V=V_fdm, g=0) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
             Amat = None
             omat, _ = pc.getOperators()
