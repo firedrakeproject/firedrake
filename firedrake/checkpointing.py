@@ -777,7 +777,10 @@ class CheckpointFile(object):
             dm = self._get_dm_for_checkpointing(tV)
             path = self._path_to_vec(tmesh.name, dm.name, tf.name())
             if path in self.h5pyfile:
-                timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
+                try:
+                    timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
+                except KeyError:
+                    timestepping = False
                 if timestepping:
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:

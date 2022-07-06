@@ -230,7 +230,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
@@ -242,6 +243,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
+        :param count: The :class:`ufl.Coefficient` count which creates the
+            symbolic identity of this :class:`Function`.
         """
 
         V = function_space
@@ -261,7 +264,9 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                 val=val, name=name, dtype=dtype)
 
         self._function_space = V
-        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
+        ufl.Coefficient.__init__(
+            self, self.function_space().ufl_function_space(), count=count
+        )
 
         if cachetools:
             # LRU cache for expressions assembled onto this function

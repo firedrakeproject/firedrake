@@ -1,8 +1,10 @@
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
+from pyadjoint import stop_annotating
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
+from .checkpointing import maybe_disk_checkpoint
 
 import firedrake
 import firedrake.utils as utils
@@ -29,11 +31,18 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-    pass
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        result = super().recompute_component(inputs, block_variable, idx, prepared)
+        return maybe_disk_checkpoint(result)
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
-    pass
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        result = super().recompute_component(inputs, block_variable, idx, prepared)
+        if isinstance(result, firedrake.Function):
+            return maybe_disk_checkpoint(result)
+        else:
+            return result
 
 
 def solve_init_params(self, args, kwargs, varform):
@@ -67,7 +76,9 @@ def solve_init_params(self, args, kwargs, varform):
 
 
 class GenericSolveBlock(blocks.GenericSolveBlock, Backend):
-    pass
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        result = super().recompute_component(inputs, block_variable, idx, prepared)
+        return maybe_disk_checkpoint(result)
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
@@ -261,7 +272,7 @@ class MeshInputBlock(Block):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         mesh = self.get_dependencies()[0].saved_output
-        return mesh.coordinates
+        return maybe_disk_checkpoint(mesh.coordinates)
 
 
 class FunctionSplitBlock(Block, Backend):
@@ -291,7 +302,9 @@ class FunctionSplitBlock(Block, Backend):
         return eval_hessian.vector()
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        return self.backend.Function.sub(inputs[0], self.idx)
+        return maybe_disk_checkpoint(
+            self.backend.Function.sub(inputs[0], self.idx)
+        )
 
     def __str__(self):
         return f"{self.get_dependencies()[0]}[{self.idx}]"
@@ -326,13 +339,12 @@ class FunctionMergeBlock(Block, Backend):
                                    relevant_dependencies, prepared=None):
         return hessian_inputs[0]
 
-    def recompute(self):
-        deps = self.get_dependencies()
-        sub_func = deps[0].checkpoint
-        parent_in = deps[1].checkpoint
-        parent_out = self.get_outputs()[0].checkpoint
-        parent_out.assign(parent_in)
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        sub_func = inputs[0]
+        parent_in = inputs[1]
+        parent_out = self.backend.Function(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
+        return maybe_disk_checkpoint(parent_out)
 
     def __str__(self):
         deps = self.get_dependencies()
@@ -671,7 +683,11 @@ class InterpolateBlock(Block, Backend):
         return replace(self.expr, self._replace_map())
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        return self.backend.interpolate(prepared, self.V)
+        result = self.backend.interpolate(prepared, self.V)
+        if isinstance(result, firedrake.Function):
+            return maybe_disk_checkpoint(result)
+        else:
+            return result
 
     def __str__(self):
         target_string = f"〈{str(self.V.ufl_element().shortstr())}〉"
@@ -717,8 +733,10 @@ class SupermeshProjectBlock(Block, Backend):
         self.projector = firedrake.Projector(source, target_space, **kwargs)
 
         # Assemble mixed mass matrix
-        self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
-            source.function_space(), target_space)
+        with stop_annotating():
+            self.mixed_mass = supermesh.assemble_mixed_mass_matrix(
+                source.function_space(), target_space
+            )
 
         # Add dependencies
         self.add_dependency(source, no_duplicates=True)
@@ -737,7 +755,7 @@ class SupermeshProjectBlock(Block, Backend):
         target = self.backend.Function(self.target_space)
         rhs = self.apply_mixedmass(inputs[0])      # Step 1
         self.projector.apply_massinv(target, rhs)  # Step 2
-        return target
+        return maybe_disk_checkpoint(target)
 
     def _recompute_component_transpose(self, inputs):
         if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
