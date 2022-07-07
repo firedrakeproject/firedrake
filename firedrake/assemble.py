@@ -156,13 +156,22 @@ def assemble_base_form(expr, tensor, bcs, diagonal, assembly_type,
             stack.append(e)
             stack.extend(unvisted_children)
         else:
-            visited[e] = base_form_assembly_visitor(e, tensor, bcs, diagonal,
+            t = tensor if e is expr else None
+            visited[e] = base_form_assembly_visitor(e, t, bcs, diagonal,
                                                     assembly_type,
                                                     form_compiler_parameters,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
                                                     *(visited[arg] for arg in operands))
-    return visited[expr]
+    # Update tensor with the assembled result value
+    assembled_base_form = visited[expr]
+    # Doesn't need to update `tensor` with `assembled_base_form`
+    # for assembled 1-form (Cofunction) because both underlying
+    # Dat objects are the same (they automatically update).
+    #if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+    #    assembled_base_form.petscmat.copy(tensor.petscmat)
+    return assembled_base_form
 
 
 def restructure_base_form(expr, visited=None):
@@ -207,7 +216,7 @@ def restructure_base_form(expr, visited=None):
     """
     if isinstance(expr, ufl.Action):
         left, right = expr.ufl_operands
-        is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function)) or len(x.arguments()) == 1
+        is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function, firedrake.Argument)) or len(x.arguments()) == 1
         is_rank_2 = lambda x: len(x.arguments()) == 2
 
         # -- Case (1) -- #
@@ -329,7 +338,7 @@ def preprocess_form(form, fc_params):
 
 
 def preprocess_base_form(expr, mat_type, form_compiler_parameters):
-    if isinstance(expr, ufl.form.Form) and mat_type != "matfree":
+    if isinstance(expr, (ufl.form.Form, ufl.core.base_form_operator.BaseFormOperator)) and mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
@@ -461,10 +470,12 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
-                output = firedrake.Cofunction(expression.function_space().dual())
-                return interpolator.interpolate(v, output=output, transpose=is_adjoint)
+                print('\n\n adjoint\n\n')
+                #import ipdb; ipdb.set_trace()
+                output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
+                return interpolator._interpolate(v, output=output, transpose=is_adjoint)
             # Assembling the operator, or its Jacobian action.
-            return interpolator.interpolate(transpose=is_adjoint)
+            return interpolator._interpolate(transpose=is_adjoint, output=tensor)
         elif rank == 2:
             # Return the interpolation matrix
             op2_mat = interpolator.callable()
@@ -476,7 +487,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal, assembly_type,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
-            # TODO: The case rank == 0 is handled via the DAG restructuration
+            # The case rank == 0 is handled via the DAG restructuration
             raise ValueError("Incompatible number of arguments.")
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix)):
         return expr

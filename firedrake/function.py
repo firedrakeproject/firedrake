@@ -364,14 +364,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, subset=None, ad_block_tag=None):
+    def interpolate(self, expression, subset=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: a UFL expression to interpolate
-        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
+        return interpolation.interpolate(expression, self, subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign

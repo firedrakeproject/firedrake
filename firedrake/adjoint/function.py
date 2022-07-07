@@ -205,7 +205,8 @@ class FunctionMixin(FloatingType):
         riesz_representation = options.get("riesz_representation", "l2")
 
         if riesz_representation == "l2":
-            return Function(self.function_space(), val=value.vector())
+            value = value if not hasattr(value, 'vector') else value.vector()
+            return Function(self.function_space(), val=value)
 
         elif riesz_representation == "L2":
             ret = Function(self.function_space())

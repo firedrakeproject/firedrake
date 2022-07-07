@@ -14,9 +14,9 @@ import gem
 import finat
 
 import firedrake
+import firedrake.assemble
 from firedrake import utils, functionspaceimpl
-from firedrake.ufl_expr import Argument
-from firedrake.adjoint import annotate_interpolate
+from firedrake.ufl_expr import Argument, action, adjoint
 from firedrake.petsc import PETSc
 
 __all__ = ("interpolate", "Interpolator", "Interp")
@@ -41,9 +41,9 @@ class Interp(ufl.Interp):
                 # Cope with the different convention of Interp and Inteprolator:
                 #  -> Interp(Argument(V1, 1), Argument(V2.dual(), 0))
                 #  -> Interpolator(Argument(V1, 0), V2)
-                expr = replace(expr, {v2: Argument(v2.function_space(),
-                                                   number=1,
-                                                   part=v2.part())})
+                expr = replace(expr, {v2[0]: Argument(v2[0].function_space(),
+                                                      number=1,
+                                                      part=v2[0].part())})
 
         # Get the primal space (V** = V)
         vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
@@ -87,7 +87,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
        performance by using an :class:`Interpolator` instead.
 
     """
-    return Interpolator(expr, V, subset=subset, access=access).interpolate(ad_block_tag=ad_block_tag)
+    return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
 
 class Interpolator(object):
@@ -123,9 +123,49 @@ class Interpolator(object):
         self.V = V
 
     @PETSc.Log.EventDecorator()
-    @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
-        """Compute the interpolation.
+        """This performs interpolation by assembling `Interp`, which in turn calls
+        `Interpolator._interpolate`. Having this structure ensures consistency between
+        `Interpolator` and `Interp`.
+
+        This mechanism handles annotation since performing interpolation will drop an
+        Assemble block on the tape.
+
+        :arg function: If the expression being interpolated contains an
+            :class:`ufl.Argument`, then the :class:`.Function` value to
+            interpolate.
+        :kwarg output: Optional. A :class:`.Function` to contain the output.
+        :kwarg transpose: Set to true to apply the transpose (adjoint) of the
+              interpolation operator.
+        :returns: The resulting interpolated :class:`.Function`.
+        """
+        V = self.V
+        if isinstance(V, firedrake.Function):
+            if not output:
+                # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
+                output = V
+            V = V.function_space()
+        interp = Interp(self.expr, V)
+        if transpose:
+            interp = adjoint(interp)
+
+        if function:
+            f, = function
+            # Passing in a function is equivalent to taking the action.
+            interp = action(interp, f)
+
+        from pyadjoint.tape import get_working_tape, annotate_tape
+        annotate = annotate_tape()
+        tape = get_working_tape()
+        print('\n annotate: ', annotate)
+        res = firedrake.assemble(interp, tensor=output)
+        #import ipdb; ipdb.set_trace()
+        return res
+
+    def _interpolate(self, *function, output=None, transpose=False):
+        """Compute the interpolation. This is only expected to be called
+        from the Interp assembly handler. Interpolation should be achieved
+        by calling `Interpolator.interpolate` which is annotated.
 
         :arg function: If the expression being interpolated contains an
             :class:`ufl.Argument`, then the :class:`.Function` value to
