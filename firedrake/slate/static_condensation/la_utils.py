@@ -182,10 +182,9 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
         id_e0, id_e1 = reconstruct_fields
         id_f, = [idx for idx in all_fields if idx not in reconstruct_fields]
 
-        _, A_e0e1, A_e1e0, A_e1e1 = schur_builder.list_split_mixed_ops
+        _, A_e0e1, A_e1e0, _ = schur_builder.list_split_mixed_ops
         A_e0f, A_e1f = schur_builder.list_split_trace_ops_transpose
         A_e0e0inv = schur_builder.A00_inv_hat
-        S_e1 = schur_builder.inner_S
 
         x_e1 = AssembledVector(_x[id_e1])
         x_f = AssembledVector(_x[id_f])
@@ -195,17 +194,10 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
 
         # Solve for e1
         Sf = A_e1f - A_e1e0 * A_e0e0inv * A_e0f
-        S_e1 = A_e1e1 - A_e1e0 * A_e0e0inv * A_e0e1
         r_e1 = b_e1 - A_e1e0 * A_e0e0inv * b_e0 - Sf * x_f
 
-        if schur_builder.schur_approx or schur_builder.jacobi_S:
-            Shat = schur_builder.inner_S_approx_inv_hat
-            if schur_builder.preonly_S:
-                S_e1 = Shat
-            else:
-                S_e1 = Shat * S_e1
-                r_e1 = Shat * r_e1
-        systems.append(LAContext(lhs=S_e1, rhs=r_e1, field_idx=(id_e1,)))
+        Sinv = schur_builder.inner_S_inv_hat
+        systems.append(LAContext(lhs=Sinv, rhs=r_e1, field_idx=(id_e1,)))
 
         # Solve for e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
