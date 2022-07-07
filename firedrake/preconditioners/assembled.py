@@ -78,10 +78,8 @@ class AssembledPC(PCBase):
         from firedrake.variational_solver import NonlinearVariationalProblem
         from firedrake.solving_utils import _SNESContext
         dm = opc.getDM()
-        octx = get_appctx(dm)
-        oproblem = octx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
+        self._ctx_ref = self.new_snes_ctx(opc, a, bcs, mat_type,
+                                          fcp=fcp, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

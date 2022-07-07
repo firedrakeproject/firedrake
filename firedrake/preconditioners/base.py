@@ -76,6 +76,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         nprob = NonlinearVariationalProblem(F, u,
                                             bcs=bcs,
                                             J=op,
+                                            is_linear=True,
                                             form_compiler_parameters=fcp)
         return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix)
 
