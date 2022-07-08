@@ -634,9 +634,9 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
     else:
         # Sniff compiler from executable
         if cpp:
-            exe = configuration["cxx"] or "g++"
+            exe = configuration["cxx"] or "mpicxx"
         else:
-            exe = configuration["cc"] or "gcc"
+            exe = configuration["cc"] or "mpicc"
         compiler = sniff_compiler(exe)
     dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
     if isinstance(jitmodule, GlobalKernel):
