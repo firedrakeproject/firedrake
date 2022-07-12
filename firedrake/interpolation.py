@@ -1112,7 +1112,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = op2.Dat(tensor.dataset)
+        tensor = op2.compute_backend.Dat(tensor.dataset)
         if access is not op2.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:

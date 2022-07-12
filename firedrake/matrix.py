@@ -116,7 +116,7 @@ class Matrix(MatrixBase):
         # sets self._a, self._bcs, and self._mat_type
         MatrixBase.__init__(self, a, bcs, mat_type)
         options_prefix = kwargs.pop("options_prefix")
-        self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
+        self.M = op2.compute_backend.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
         self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type

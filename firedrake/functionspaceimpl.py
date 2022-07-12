@@ -695,7 +695,7 @@ class FunctionSpace(object):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name)
+        return op2.compute_backend.Dat(self.dof_dset, val, valuetype, name)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         r"""Return entity node map rebased on ``source_mesh``.
@@ -1073,7 +1073,7 @@ class MixedFunctionSpace(object):
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of one or (for VectorFunctionSpaces) more degrees of freedom
         are stored at each node."""
-        return op2.MixedSet(s.node_set for s in self._spaces)
+        return op2.compute_backend.MixedSet(s.node_set for s in self._spaces)
 
     @utils.cached_property
     def dof_dset(self):
@@ -1082,7 +1082,7 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
+        return op2.compute_backend.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         r"""Return entity node map rebased on ``source_mesh``.
@@ -1114,17 +1114,17 @@ class MixedFunctionSpace(object):
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
+        return op2.compute_backend.MixedMap(s.cell_node_map() for s in self._spaces)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.MixedMap` from interior facets to
         function space nodes."""
-        return op2.MixedMap(s.interior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.interior_facet_node_map() for s in self)
 
     def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
         function space nodes."""
-        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
+        return op2.compute_backend.MixedMap(s.exterior_facet_node_map() for s in self)
 
     def local_to_global_map(self, bcs):
         r"""Return a map from process local dof numbering to global dof numbering.
@@ -1139,8 +1139,8 @@ class MixedFunctionSpace(object):
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
-                            for i, (s, v) in enumerate(zip(self._spaces, val)))
+        return op2.compute_backend.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
+                                            for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
     def dm(self):
@@ -1339,12 +1339,12 @@ class RealFunctionSpace(FunctionSpace):
         pass
 
     def make_dof_dset(self):
-        return op2.GlobalDataSet(self.make_dat())
+        return op2.compute_backend.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self._comm)
+        return op2.compute_backend.Global(self.value_size, val, valuetype, name, self._comm)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None
