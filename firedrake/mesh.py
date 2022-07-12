@@ -133,15 +133,15 @@ class _Facets(object):
         self.facet_cell = facet_cell
 
         if isinstance(self.set, op2.ExtrudedSet):
-            dset = op2.DataSet(self.set.parent, self._rank)
+            dset = op2.compute_backend.DataSet(self.set.parent, self._rank)
         else:
-            dset = op2.DataSet(self.set, self._rank)
+            dset = op2.compute_backend.DataSet(self.set, self._rank)
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
-        self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
-                                       "%s_%s_local_facet_number" %
-                                       (self.mesh.name, self.kind))
+        self.local_facet_dat = op2.compute_backend.Dat(dset, local_facet_number, np.uintc,
+                                                       "%s_%s_local_facet_number" %
+                                                       (self.mesh.name, self.kind))
 
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
@@ -159,9 +159,9 @@ class _Facets(object):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
             base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers)
-        return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
-                       comm=self.mesh.comm)
+            return op2.compute_backend.ExtrudedSet(base, layers=layers)
+        return op2.compute_backend.Set(size, "%sFacets" % self.kind.capitalize()[:3],
+                                       comm=self.mesh.comm)
 
     @utils.cached_property
     def _null_subset(self):
@@ -169,7 +169,7 @@ class _Facets(object):
         a given marker value. This is required because not all
         markers need be represented on all processors.'''
 
-        return op2.Subset(self.set, [])
+        return op2.compute_backend.Subset(self.set, [])
 
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
@@ -213,7 +213,7 @@ class _Facets(object):
                 to_remove = np.unique(np.concatenate(ids))
                 indices = np.arange(self.set.total_size, dtype=np.int32)
                 indices = np.delete(indices, to_remove)
-                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
+                return self._subsets.setdefault(key, op2.compute_backend.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
@@ -240,13 +240,13 @@ class _Facets(object):
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            return self._subsets.setdefault(markers, op2.compute_backend.Subset(self.set, indices))
 
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
-                       "facet_to_cell_map")
+        return op2.compute_backend.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
+                                       "facet_to_cell_map")
 
 
 @PETSc.Log.EventDecorator()
@@ -744,7 +744,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 indices = dmcommon.get_cell_markers(self.topology_dm,
                                                     self._cell_numbering,
                                                     subdomain_id)
-            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+            return self._subsets.setdefault(key, op2.compute_backend.Subset(self.cell_set, indices))
 
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
@@ -1092,9 +1092,9 @@ class MeshTopology(AbstractMeshTopology):
                                                    self._cell_numbering,
                                                    self.cell_closure)
         if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
+            dataset = op2.compute_backend.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
         else:
-            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
+            dataset = op2.compute_backend.DataSet(self.cell_set, dim=cell_facets.shape[1:])
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
@@ -1125,7 +1125,7 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self._comm)
+        return op2.compute_backend.Set(size, "Cells", comm=self._comm)
 
     @PETSc.Log.EventDecorator()
     def set_partitioner(self, distribute, partitioner_type=None):
@@ -1243,7 +1243,7 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
+        self.cell_set = op2.compute_backend.ExtrudedSet(mesh.cell_set, layers=layers)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1523,7 +1523,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        return op2.compute_backend.Set(size, "Cells", comm=self.comm)
 
     @property
     def cell_parent_cell_list(self):
@@ -2644,4 +2644,4 @@ def SubDomainData(geometric_expr):
 
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
-    return op2.Subset(m.cell_set, indices)
+    return op2.compute_backend.Subset(m.cell_set, indices)

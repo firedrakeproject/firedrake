@@ -1182,7 +1182,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
                        P1.dof_dset),
                       (Pk.cell_node_map(),
                        P1.cell_node_map()))
-    mat = op2.Mat(sp, PETSc.ScalarType)
+    mat = op2.compute_backend.Mat(sp, PETSc.ScalarType)
     mesh = Pk.ufl_domain()
 
     fele = Pk.ufl_element()
