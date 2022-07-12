@@ -48,7 +48,7 @@ jobs:
       - name: Build docs
         run: |
           cd /home/firedrake/firedrake/src/ufl
-          git checkout dualspace_update
+          git checkout dualspace
           cd /home/firedrake/firedrake/src/firedrake
           . /home/firedrake/firedrake/bin/activate
           cd docs
