@@ -104,6 +104,7 @@ def assemble(expr, *args, **kwargs):
     else:
         raise TypeError(f"Unable to assemble: {expr}")
 
+
 def assemble_base_form(expr, tensor=None, bcs=None,
                        diagonal=False,
                        mat_type=None,
