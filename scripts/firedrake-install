@@ -121,10 +121,10 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 10):
-    print("""\nCan not install Firedrake with Python 3.10 at the moment:
-Some wheels are not yet available for Python 3.10 for some required package(s).
-Please install with Python 3.9 (or an earlier version >= 3.6).""")
+if sys.version_info >= (3, 11):
+    print("""\nCan not install Firedrake with Python 3.11 at the moment:
+Some wheels are not yet available for Python 3.11 for some required package(s).
+Please install with Python 3.10 (or an earlier version >= 3.6).""")
     sys.exit(1)
 elif sys.version_info < (3, 6):
     if mode == "install":
@@ -563,7 +563,14 @@ If you really want to use your own Python packages, please run again with the
 """)
 
 
-def get_petsc_options():
+def brew_gcc_libdir():
+    brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
+    brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
+    gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
+    return brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
+
+
+def get_petsc_options(minimal=False):
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -577,13 +584,18 @@ def get_petsc_options():
                      "--download-superlu_dist",
                      # Parallel mesh partitioner
                      "--download-ptscotch",
+                     # Parser generator
+                     "--download-bison",
                      # For superlu_dist amongst others.
                      "--with-cxx-dialect=C++11"}
 
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+    elif osname == "Linux":
+        # PETSc requires cmake version 3.18.1 or higher.
+        petsc_options.add("--download-cmake")
 
-    if not options["minimal_petsc"]:
+    if (not options["minimal_petsc"]) and (not minimal):
         petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
@@ -643,26 +655,49 @@ def get_petsc_options():
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
     elif osname == "Darwin":
-        brew_gcc_prefix = check_output(["brew", "--prefix", "gcc"])[:-1]
-        brew_gcc_info = json.loads(check_output(["brew", "info", "--json", "gcc"])[:-1])
-        gcc_major_version = brew_gcc_info[0]["installed"][0]["version"].split(".")[0]
-        brew_gcc_libdir = brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir))
+        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
-    for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
-        if option.startswith("--with-hdf5-dir"):
-            petsc_options.discard("--download-hdf5")
-            os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
-        petsc_options.add(option)
+    if not minimal:
+        for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
+            if option.startswith("--with-hdf5-dir"):
+                petsc_options.discard("--download-hdf5")
+                os.environ["HDF5_DIR"] = option.replace("--with-hdf5-dir=", "")
+            petsc_options.add(option)
     if "HDF5_DIR" in os.environ and "--download-hdf5" in petsc_options:
         del os.environ["HDF5_DIR"]
         log.info("\nWarning: HDF5_DIR environment variable set, but ignored; "
                  "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
                  "to have PETSc built against $HDF5_DIR.")
     return list(petsc_options)
+
+
+def get_petsc_packages(minimal=False):
+    if minimal:
+        packages = set([
+            "blaslapack", "chaco", "eigen3", "hdf5", "hypre", "mathlib",
+            "mpi", "mumps", "ptscotch", "scalapack", "superlu_dist"
+        ])
+    else:
+        petsc_dir, petsc_arch = get_petsc_dir()
+        with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
+            for line in fh.readlines():
+                if line.startswith("#define PETSC_HAVE_PACKAGES"):
+                    packages = set(line.split()[2].strip().strip(':"').split(':'))
+                    break
+    return packages
+
+
+def get_petsc_config():
+    petsc_dir, petsc_arch = get_petsc_dir()
+    with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconfiginfo.h")) as fh:
+        for line in fh.readlines():
+            if line.startswith("static const char *petscconfigureoptions"):
+                info = line.split("=", maxsplit=1)[1].strip(' ";\n').split('--')[1:]
+                break
+    return ["--" + arg for arg in info]
 
 
 if mode == "update" and petsc_int_type_changed:
@@ -870,8 +905,8 @@ def pip_requirements(package, parallel_compiler_env):
                         log.debug("Skipping failing install of optional pyadjoint dependency tensorflow")
                     else:
                         raise e
-        elif package == "loopy":
-            # loopy dependencies are installed in setup.py
+        elif package in {"loopy", "icepack"}:
+            # dependencies are installed in setup.py
             return
         else:
             reqs = get_requirements("%s/requirements.txt" % package)
@@ -887,7 +922,7 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     elif package == "petsc4py/":
-        run_pip_install(["--ignore-installed", get_petsc4py_dir()])
+        build_and_install_petsc4py()
     elif package == "slepc4py/":
         # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
         run_pip_install(["--ignore-installed", get_slepc4py_dir()])
@@ -1018,8 +1053,13 @@ def build_and_install_petsc():
         petsc_dir, petsc_arch = get_petsc_dir()
         check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch)])
         petsc_options = get_petsc_options()
-        check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
-        check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
+        # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
+        # to workaround issues configuring PETSc on macos.
+        #
+        # Choosing 10.15 as the oldest MacOS version supported as at 2022-04-07
+        with environment(MACOSX_DEPLOYMENT_TARGET="10.15"):
+            check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
+            check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
             log.info("Cleaning up PETSc build artifacts")
             check_call(["rm", "-rf", os.path.join(petsc_dir, petsc_arch, "externalpackages")])
@@ -1028,6 +1068,29 @@ def build_and_install_petsc():
             test_output = os.path.join(petsc_dir, "src", "**", "tests", "output", "*")
             for deletefile in chain(iglob(tutorial_output, recursive=True), iglob(test_output, recursive=True)):
                 check_call(["rm", "-f", deletefile])
+
+
+def build_and_install_petsc4py():
+    with environment(**blas):
+        if args.honour_petsc_dir:
+            log.info("Copying petsc4py to virtualenv to install")
+            petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
+            if not os.path.exists(petsc4py_copy):
+                shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
+            pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
+            try:
+                check_output(pipinstall + pipargs)
+            except subprocess.CalledProcessError:
+                with open(os.path.join(petsc4py_copy, "README.md")) as fh:
+                    fh.write("# Unable to install petsc4py\n")
+                    fh.write("This is just a copy of the petsc4py source for debugging\n")
+                    fh.write("See `firedrake-install.log` for the error")
+                raise
+            else:
+                shutil.rmtree(petsc4py_copy)
+        else:
+            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
+            check_output(pipinstall + pipargs)
 
 
 def build_and_install_h5py():
@@ -1253,9 +1316,11 @@ def install_documentation_dependencies():
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
     run_pip(["install", "-U", "sphinx"])
+    run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
+    run_pip(["install", "-U", "numpydoc"])
 
 
 def clean_obsolete_packages():
@@ -1327,7 +1392,6 @@ if mode == "install" and args.show_petsc_configure_options:
     log.info("\nEigen will be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz")
     sys.exit(0)
 
-
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
@@ -1360,6 +1424,30 @@ log.debug("Python version: %s" % sys.version)
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
+
+if mode == "install" and args.honour_petsc_dir:
+    minimal_packages = get_petsc_packages(minimal=True)
+    current_packages = get_petsc_packages()
+    log.debug("*****************************************************")
+    log.debug("Specified PETSc was built with the following options:")
+    log.debug("*****************************************************\n")
+    log.debug("PETSC_DIR={}  PETSC_ARCH={}".format(*get_petsc_dir()))
+    log.debug("\n".join(sorted(get_petsc_config())) + '\n')
+    log.debug("The following external packages were detected and are used by PETSc:")
+    log.debug(", ".join(sorted(current_packages)))
+    log.debug("\n")
+    if not minimal_packages < current_packages:
+        log.error("*********************************************************************")
+        log.error("Specified PETSc is missing the following packages:")
+        log.error(", ".join(sorted(minimal_packages - current_packages)) + '\n')
+        log.error("You must ensure that PETSc has been built with these minimal options:")
+        log.error("*********************************************************************\n")
+        log.error("\n".join(sorted(get_petsc_options(minimal=True))))
+        log.error("")
+        log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
+        log.error('Use --show-petsc-configure-options as an argument to the firedrake-install script to display options if additional functionality is required.\n ')
+        log.error("FATAL: Unable to install with specified PETSc")
+        exit(1)
 
 if mode == "install" or not args.update_script:
     # Check operating system.
@@ -1522,9 +1610,9 @@ if mode == "install":
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
     # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
     run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel"])
+    run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
@@ -1569,6 +1657,9 @@ if blas_location == "download":
 if blas_location is not None:
     blas["BLAS"] = blas_location
     blas["OPENBLAS"] = blas_location
+if osname == "Darwin":
+    blas["LDFLAGS"] = "-L" + brew_gcc_libdir()
+
 log.info("BLAS config is %s" % blas)
 
 # Configuration is now complete, and we have a venv so we dump the
@@ -1615,20 +1706,25 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
 
-    # Temporary workaround for missing VTK wheel on Python 3.9
-    if sys.version_info[:2] == (3, 9):
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20210113/"
+    # "Temporary" workaround for missing VTK wheel on Python 3.10
+    if sys.version_info[:2] == (3, 10):
+        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20220106/"
         if osname == "Darwin":
             if arch == "arm64":
-                source += "vtk-9.0.1-cp39-cp39-macosx_11_0_arm64.whl"
+                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_11_0_arm64.whl"
             elif arch == "x86_64":
-                source += "vtk-9.0.1-cp39-cp39-macosx_10_14_x86_64.whl"
+                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_10_15_x86_64.whl"
             else:
-                log.error("unknown Darwin architecture {0}.".format(arch))
+                log.error("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
+                raise InstallError("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
-            source += "vtk-9.0.1-cp39-cp39-linux_x86_64.whl"
-        log.info("Pip installing VTK for Python 3.9 to venv")
+            source += "vtk-9.1.0.dev0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+        else:
+            log.error("Cannot install VTK for Python 3.10: unknown operating system  {0}.".format(osname))
+            raise InstallError("Cannot install VTK for Python 3.10: unknown operating system {0}.".format(osname))
+        log.info("Pip installing VTK for Python 3.10 to venv")
         run_pip_install([source])
+    if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
@@ -1834,7 +1930,8 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         # Ensure pytest is at the latest version
-        run_pip(["install", "-U", "pytest"])
+        print('We use pytest==6.2.5 until the issue with pytest==7.0.0 is resolved.')
+        run_pip(["install", "-U", "pytest==6.2.5"])
 
 with environment(**compiler_env):
     with pipargs("--no-deps"):

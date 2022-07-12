@@ -5,6 +5,8 @@ classes for attaching extra information to instances of these.
 """
 
 from collections import OrderedDict
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy
 
@@ -24,35 +26,68 @@ class WithGeometryBase(object):
     topology can share data, except for their UFL cell.  This class
     facilitates that.
 
-    Users should not instantiate a :class:`WithGeometry` object
+    Users should not instantiate a :class:`WithGeometryBase` object
     explicitly except in a small number of cases.
 
     :arg function_space: The topological function space to attach
         geometry to.
     :arg mesh: The mesh with geometric information to use.
     """
-    def __init__(self, function_space, mesh):
+    def __init__(self, mesh, element, component=None, cargo=None):
+        assert component is None or isinstance(component, int)
+        assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
+
+        super().__init__(mesh, element)
+        self.component = component
+        self.cargo = cargo
+
+    @classmethod
+    def create(cls, function_space, mesh):
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
-        super(WithGeometryBase, self).__init__(mesh, element)
-        self.topological = function_space
+
+        topological = function_space
+        component = function_space.component
 
         if function_space.parent is not None:
-            self.parent = type(self)(function_space.parent, mesh)
+            parent = cls.create(function_space.parent, mesh)
         else:
-            self.parent = None
+            parent = None
+
+        cargo = FunctionSpaceCargo(topological, parent)
+        return cls(mesh, element, component=component, cargo=cargo)
+
+    def _ufl_signature_data_(self, *args, **kwargs):
+        return (type(self), self.component,
+                super()._ufl_signature_data_(*args, **kwargs))
+
+    @property
+    def parent(self):
+        return self.cargo.parent
+
+    @parent.setter
+    def parent(self, val):
+        self.cargo.parent = val
+
+    @property
+    def topological(self):
+        return self.cargo.topological
+
+    @topological.setter
+    def topological(self, val):
+        self.cargo.topological = val
 
     @utils.cached_property
     def _split(self):
-        return tuple(type(self)(subspace, self.mesh())
+        return tuple(type(self).create(subspace, self.mesh())
                      for subspace in self.topological.split())
 
     mesh = ufl.FunctionSpace.ufl_domain
 
-    @utils.cached_property
+    @property
     def _ad_parent_space(self):
         return self.parent
 
@@ -72,7 +107,7 @@ class WithGeometryBase(object):
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
-            return tuple(type(self)(self.topological.sub(i), self.mesh())
+            return tuple(type(self).create(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
             return self._split
@@ -236,7 +271,7 @@ class WithGeometryBase(object):
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def boundary_nodes(self, sub_domain):
-        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+        r"""Return the boundary nodes for this :class:`~.WithGeometryBase`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
         :returns: A numpy array of the unique function space nodes on
@@ -249,25 +284,29 @@ class WithGeometryBase(object):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     def collapse(self):
-        return type(self)(self.topological.collapse(), self.mesh())
+        return type(self).create(self.topological.collapse(), self.mesh())
 
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
-    def __init__(self, function_space, mesh):
-        super(WithGeometry, self).__init__(function_space, mesh)
+    def __init__(self, mesh, element, component=None, cargo=None):
+        super(WithGeometry, self).__init__(mesh, element,
+                                           component=component,
+                                           cargo=cargo)
 
     def dual(self):
-        return FiredrakeDualSpace(self.topological, self.mesh())
+        return FiredrakeDualSpace.create(self.topological, self.mesh())
 
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
-    def __init__(self, function_space, mesh):
-        super(FiredrakeDualSpace, self).__init__(function_space, mesh)
+    def __init__(self, mesh, element, component=None, cargo=None):
+        super(FiredrakeDualSpace, self).__init__(mesh, element,
+                                                 component=component,
+                                                 cargo=cargo)
 
     def dual(self):
-        return WithGeometry(self.topological, self.mesh())
+        return WithGeometry.create(self.topological, self.mesh())
 
 
 class FunctionSpace(object):
@@ -310,14 +349,19 @@ class FunctionSpace(object):
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
-        if type(element) in {ufl.TensorElement, ufl.VectorElement}:
+        if type(element) in {ufl.TensorElement, ufl.VectorElement} \
+           or (isinstance(element, ufl.WithMapping)
+               and type(element.wrapee) in {ufl.TensorElement, ufl.VectorElement}):
             # The number of "free" dofs is given by reference_value_shape,
             # not value_shape due to symmetry specifications
             rvs = element.reference_value_shape()
             # This requires that the sub element is not itself a
             # tensor element (which is checked by the top level
             # constructor of function spaces)
-            sub = element.sub_elements()[0].value_shape()
+            shape_element = element
+            if isinstance(element, ufl.WithMapping):
+                shape_element = element.wrapee
+            sub = shape_element.sub_elements()[0].value_shape()
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
@@ -647,7 +691,7 @@ class MixedFunctionSpace(object):
         return self._ufl_function_space
 
     def __eq__(self, other):
-        if not isinstance(other, MixedFunctionSpace):
+        if not isinstance(other, MixedFunctionSpace) or len(other) != len(self):
             return False
         return all(s == o for s, o in zip(self, other))
 
@@ -808,7 +852,7 @@ class ProxyFunctionSpace(FunctionSpace):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
-            return WithGeometry(self, mesh)
+            return WithGeometry.create(self, mesh)
         else:
             return self
 
@@ -967,3 +1011,16 @@ class RealFunctionSpace(FunctionSpace):
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
         return None
+
+
+@dataclass
+class FunctionSpaceCargo:
+    """Helper class carrying data for a :class:`WithGeometryBase`.
+
+    It is required because it permits Firedrake to have stripped forms
+    that still know Firedrake-specific information (e.g. that they are a
+    component of a parent function space).
+    """
+
+    topological: FunctionSpace
+    parent: Optional[WithGeometryBase]

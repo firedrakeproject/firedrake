@@ -16,7 +16,7 @@ functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
@@ -42,6 +42,16 @@ __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal']
+
+# BlockFunction description type
+BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])
+BlockFunction.__doc__ = """\
+Context that carries information for a block on an assembled vector.
+
+:param split_function: The splits of the orig_function corresponding to the block.
+:param indices: The indices of the block.
+:param orig_function: The  (unsplit) function corresponding the assembled vector.
+"""
 
 
 class RemoveNegativeRestrictions(MultiFunction):
@@ -204,18 +214,26 @@ class TensorBase(object, metaclass=ABCMeta):
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
 
+    @abstractmethod
+    def slate_coefficients(self):
+        """Returns a tuple of Slate coefficients associated with the tensor."""
+
     @property
     def coeff_map(self):
         """A map from local coefficient numbers
         to the split global coefficient numbers.
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
-        return tuple((n, tuple(range(len(c.split()))))
-                     if isinstance(c, Function)
-                     or isinstance(c, Constant)
-                     or isinstance(c, Cofunction)
-                     else (n, (0,))
-                     for n, c in enumerate(self.coefficients()))
+        coeff_map = defaultdict(set)
+        for c in self.slate_coefficients():
+            if isinstance(c, BlockFunction):  # for block assembled vectors
+                m = self.coefficients().index(c.orig_function)
+                coeff_map[m].update(c.indices[0])
+            else:
+                m = self.coefficients().index(c)
+                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) or isinstance(c, Cofunction) else tuple(range(1))
+                coeff_map[m].update(split_map)
+        return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -447,6 +465,10 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
+    def slate_coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.coefficients()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -481,23 +503,30 @@ class BlockAssembledVector(AssembledVector):
     :arg functions: A tuple of firedrake functions.
     """
 
-    def __new__(cls, function, split_functions, indices):
+    def __new__(cls, function, expr, indices):
+        block = Block(expr, indices)
+        split_functions = block.form
         if isinstance(split_functions, tuple) \
            and all(isinstance(f, BaseCoefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
             self._original_function = function
+            self._block = block
             return self
         else:
             raise TypeError("Expecting a tuple of BaseCoefficients (not a %r)" %
                             type(split_functions))
 
     @cached_property
+    def form(self):
+        return self._original_function
+
+    @cached_property
     def arg_function_spaces(self):
-        """Returns a tuple of function spaces that the tensor is defined on.
+        """Returns a tuple of function spaces associated to the corresponding block.
         """
-        return tuple(f.ufl_function_space() for f in self._function)
+        return self._block.arg_function_spaces
 
     @cached_property
     def _argument(self):
@@ -506,12 +535,15 @@ class BlockAssembledVector(AssembledVector):
         return tuple(TestFunction(fs) for fs in self.arg_function_spaces)
 
     def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        return self._argument
+        """Returns a tuple of arguments associated with the corresponding block."""
+        return self._block.arguments()
 
     def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
-        return self._function
+        return (self._original_function, )
+
+    def slate_coefficients(self):
+        """Returns a BlockFunction in a tuple which carries all information to generate the right coefficients and maps."""
+        return (BlockFunction(self._function, self._indices, self._original_function),)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
@@ -677,6 +709,10 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
+    def slate_coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.coefficients()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -762,6 +798,10 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
         return tensor.coefficients()
+
+    def slate_coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.coefficients()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -858,6 +898,10 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
+    def slate_coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.coefficients()
+
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -900,6 +944,11 @@ class TensorOp(TensorBase):
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
         coeffs = [op.coefficients() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+    def slate_coefficients(self):
+        """Returns the expected coefficients of the resulting tensor."""
+        coeffs = [op.slate_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     def ufl_domains(self):

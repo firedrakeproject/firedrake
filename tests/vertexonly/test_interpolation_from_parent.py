@@ -18,9 +18,7 @@ import subprocess
                                      # CalledProcessError is so the parallel tests correctly xfail
                                      marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
                                                              reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle",
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("periodicrectangle"),
                         pytest.param("shiftedmesh",
                                      marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))],
                 ids=lambda x: f"{x}-mesh")
@@ -133,6 +131,13 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
+    if (
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
+        and fs_fam == "CG"
+    ):
+        pytest.skip(f"Interpolating into f{fs_fam} on a periodic mesh is not well-defined.")
+
     V = fs_typ(parentmesh, fs_fam, fs_deg)
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
@@ -163,6 +168,11 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     vfs_fam, vfs_deg, vfs_typ = vfs
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
+    if (
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
+    ):
+        pytest.skip(f"Interpolating into f{vfs_fam} on a periodic mesh is not well-defined.")
     V = vfs_typ(parentmesh, vfs_fam, vfs_deg)
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
@@ -200,6 +210,11 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     vertexcoords = vm.coordinates.dat.data_ro
+    if (
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
+    ):
+        pytest.skip(f"Interpolating into f{tfs_fam} on a periodic mesh is not well-defined.")
     V = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)

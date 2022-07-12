@@ -168,6 +168,7 @@ and use GAMG to approximate the inverse of the Schur complement matrix. ::
   #
      "fieldsplit_1_ksp_type": "preonly",
      "fieldsplit_1_pc_type": "gamg",
+     "fieldsplit_1_mg_levels_pc_type": "sor",
 
 Finally, we'd like to see some output to check things are working, and
 to limit the KSP solver to 20 iterations. ::

@@ -1,5 +1,4 @@
 from collections import OrderedDict
-import functools
 import itertools
 
 from mpi4py import MPI
@@ -87,7 +86,7 @@ class ImplicitMatrixContext(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
-        from firedrake.assemble import assemble
+        from firedrake.assemble import OneFormAssembler
 
         self.a = a
         self.aT = adjoint(a)
@@ -139,12 +138,10 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = functools.partial(assemble,
-                                                  self.action,
-                                                  tensor=self._y,
-                                                  bcs=self.bcs_action,
-                                                  form_compiler_parameters=self.fc_params,
-                                                  assembly_type="residual")
+        self._assemble_action = OneFormAssembler(self.action, tensor=self._y,
+                                                 bcs=self.bcs_action,
+                                                 form_compiler_parameters=self.fc_params,
+                                                 zero_bc_nodes=True).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -158,20 +155,13 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
                 self._assemble_actionT.append(
-                    functools.partial(assemble,
-                                      action(adjoint(ebc.f), self._y),
-                                      tensor=self._xbc,
-                                      bcs=None,
-                                      form_compiler_parameters=self.fc_params,
-                                      assembly_type="residual"))
+                    OneFormAssembler(action(adjoint(ebc.f), self._y), tensor=self._xbc,
+                                     form_compiler_parameters=self.fc_params).assemble)
         # Domain last
         self._assemble_actionT.append(
-            functools.partial(assemble,
-                              self.actionT,
-                              tensor=self._x if len(self.bcs) == 0 else self._xbc,
-                              bcs=None,
-                              form_compiler_parameters=self.fc_params,
-                              assembly_type="residual"))
+            OneFormAssembler(self.actionT,
+                             tensor=self._x if len(self.bcs) == 0 else self._xbc,
+                             form_compiler_parameters=self.fc_params).assemble)
 
     @cached_property
     def _diagonal(self):
@@ -181,13 +171,10 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake.assemble import assemble
-        return functools.partial(assemble,
-                                 self.a,
-                                 tensor=self._diagonal,
-                                 form_compiler_parameters=self.fc_params,
-                                 diagonal=True,
-                                 assembly_type="residual")
+        from firedrake.assemble import OneFormAssembler
+        return OneFormAssembler(self.a, tensor=self._diagonal,
+                                form_compiler_parameters=self.fc_params,
+                                diagonal=True).assemble
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()

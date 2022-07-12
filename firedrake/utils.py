@@ -1,4 +1,5 @@
 # Some generic python utilities not really specific to our work.
+import collections.abc
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
@@ -74,3 +75,23 @@ def known_pyop2_safe(f):
         finally:
             opts["type_check"] = check
     return decorator(wrapper, f)
+
+
+def tuplify(item):
+    """Convert an object into a hashable equivalent.
+
+    This is particularly useful for caching dictionaries of parameters such
+    as `form_compiler_parameters` from :func:`firedrake.assemble.assemble`.
+
+    :arg item: The object to attempt to 'tuplify'.
+    :returns: The object interpreted as a tuple. For hashable objects this is
+        simply a 1-tuple containing `item`. For dictionaries the function is
+        called recursively on the values of the dict. For example,
+        `{"a": 5, "b": 8}` returns `(("a", (5,)), ("b", (8,)))`.
+    """
+    if isinstance(item, collections.abc.Hashable):
+        return (item,)
+
+    if not isinstance(item, dict):
+        raise ValueError(f"tuplify does not know how to handle objects of type {type(item)}")
+    return tuple((k, tuplify(item[k])) for k in sorted(item))
