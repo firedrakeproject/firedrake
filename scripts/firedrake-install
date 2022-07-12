@@ -80,7 +80,9 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "torch", "jax",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen",
+                           "cuda", "cuda_dir", "cuda_arch", "cudac", "cuda_compile_flags", "opencl",
+                           ]
 
 
 def deep_update(this, that):
@@ -262,6 +264,18 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
+    parser.add_argument("--cuda", action="store_true",
+                        help="Use CUDA as backend.")
+    parser.add_argument('--cuda-dir', type=str, help="cuda toolkit directory path"
+                        " to be passed to PETSc", action="store")
+    parser.add_argument('--cuda-arch', type=int, help="cuda compute capability"
+                        " to be passed to PETSc", action="store")
+    parser.add_argument('--cuda-compile-flags', type=str, help="cuda directory location"
+                        " to be passed to PETSc", default=None, action="store")
+    parser.add_argument('--cudac', type=str, help="path of 'nvcc' "
+                        " to be passed to PETSc", default='nvcc', action="store")
+    parser.add_argument("--opencl", action="store_true",
+                        help="Use OpenCL as backend.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--jax", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
@@ -726,6 +740,11 @@ def get_petsc_options(minimal=False):
                      "--download-bison"}
     for pkg in get_minimal_petsc_packages():
         petsc_options.add("--download-" + pkg)
+
+    if args.cuda:
+        # SUPERLU requires OpenMP for operating on GPUs
+        petsc_options.add("--with-openmp=1")
+
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
         # These three lines are used to inspect the MacOS Command Line Tools (CLT) version
@@ -758,6 +777,25 @@ def get_petsc_options(minimal=False):
 
     if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
+
+    if args.cuda:
+        petsc_options.add('--with-cuda=1')
+        if args.cuda_dir:
+            petsc_options.add('--with-cuda-dir={}'.format(args.cuda_dir))
+        petsc_options.add('--with-cudac={}'.format(args.cudac))
+        if args.cuda_compile_flags:
+            petsc_options.add('--CUDAFLAGS={}'.format(args.cuda_compile_flags))
+        if args.cuda_arch:
+            petsc_options.add('--with-cuda-arch={args.cuda_arch}')
+    else:
+        if args.cuda_dir or args.cuda_arch:
+            raise InstallError("--cuda-dir/--cuda-arch passed but CUDA installation "
+                               " is disabled.")
+
+    if args.opencl:
+        petsc_options.add('--with-viennacl=1')
+        petsc_options.add('--download-viennacl')
+        petsc_options.add('--with-opencl=1')
 
     if options["complex"]:
         petsc_options.add('--with-scalar-type=complex')
@@ -1902,6 +1940,12 @@ if mode == "install":
     except ValueError:
         pass
     packages.remove("petsc4py")
+
+    if args.cuda:
+        run_pip_install(["pycuda"])
+
+    if args.opencl:
+        run_pip_install(["pyopencl"])
 
 else:
     # Update mode
