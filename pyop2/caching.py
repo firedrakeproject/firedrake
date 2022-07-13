@@ -33,7 +33,15 @@
 
 """Provides common base classes for cached objects."""
 
+import hashlib
+import os
+from pathlib import Path
+import pickle
 
+import cachetools
+
+from pyop2.configuration import configuration
+from pyop2.mpi import hash_comm
 from pyop2.utils import cached_property
 
 
@@ -230,3 +238,108 @@ class Cached(object):
     def cache_key(self):
         """Cache key."""
         return self._key
+
+
+cached = cachetools.cached
+"""Cache decorator for functions. See the cachetools documentation for more
+information.
+
+.. note::
+    If you intend to use this decorator to cache things that are collective
+    across a communicator then you must include the communicator as part of
+    the cache key. Since communicators are themselves not hashable you should
+    use :func:`pyop2.mpi.hash_comm`.
+
+    You should also make sure to use unbounded caches as otherwise some ranks
+    may evict results leading to deadlocks.
+"""
+
+
+def disk_cached(cache, cachedir=None, key=cachetools.keys.hashkey, collective=False):
+    """Decorator for wrapping a function in a cache that stores values in memory and to disk.
+
+    :arg cache: The in-memory cache, usually a :class:`dict`.
+    :arg cachedir: The location of the cache directory. Defaults to ``PYOP2_CACHE_DIR``.
+    :arg key: Callable returning the cache key for the function inputs. If ``collective``
+        is ``True`` then this function must return a 2-tuple where the first entry is the
+        communicator to be collective over and the second is the key. This is required to ensure
+        that deadlocks do not occur when using different subcommunicators.
+    :arg collective: If ``True`` then cache lookup is done collectively over a communicator.
+    """
+    if cachedir is None:
+        cachedir = configuration["cache_dir"]
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if collective:
+                comm, disk_key = key(*args, **kwargs)
+                disk_key = _as_hexdigest(disk_key)
+                k = hash_comm(comm), disk_key
+            else:
+                k = _as_hexdigest(key(*args, **kwargs))
+
+            # first try the in-memory cache
+            try:
+                return cache[k]
+            except KeyError:
+                pass
+
+            # then try to retrieve from disk
+            if collective:
+                if comm.rank == 0:
+                    v = _disk_cache_get(cachedir, disk_key)
+                    comm.bcast(v, root=0)
+                else:
+                    v = comm.bcast(None, root=0)
+            else:
+                v = _disk_cache_get(cachedir, k)
+            if v is not None:
+                return cache.setdefault(k, v)
+
+            # if all else fails call func and populate the caches
+            v = func(*args, **kwargs)
+            if collective:
+                if comm.rank == 0:
+                    _disk_cache_set(cachedir, disk_key, v)
+            else:
+                _disk_cache_set(cachedir, k, v)
+            return cache.setdefault(k, v)
+        return wrapper
+    return decorator
+
+
+def _as_hexdigest(key):
+    return hashlib.md5(str(key).encode()).hexdigest()
+
+
+def _disk_cache_get(cachedir, key):
+    """Retrieve a value from the disk cache.
+
+    :arg cachedir: The cache directory.
+    :arg key: The cache key (must be a string).
+    :returns: The cached object if found, else ``None``.
+    """
+    filepath = Path(cachedir, key[:2], key[2:])
+    try:
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return None
+
+
+def _disk_cache_set(cachedir, key, value):
+    """Store a new value in the disk cache.
+
+    :arg cachedir: The cache directory.
+    :arg key: The cache key (must be a string).
+    :arg value: The new item to store in the cache.
+    """
+    k1, k2 = key[:2], key[2:]
+    basedir = Path(cachedir, k1)
+    basedir.mkdir(parents=True, exist_ok=True)
+
+    tempfile = basedir.joinpath(f"{k2}_p{os.getpid()}.tmp")
+    filepath = basedir.joinpath(k2)
+    with open(tempfile, "wb") as f:
+        pickle.dump(value, f)
+    tempfile.rename(filepath)

@@ -32,6 +32,7 @@ class DimChanger(IdentityMapper):
     def __init__(self, callee_arg_dict, desired_shape):
         self.callee_arg_dict = callee_arg_dict
         self.desired_shape = desired_shape
+        super().__init__()
 
     def map_subscript(self, expr):
         if expr.aggregate.name not in self.callee_arg_dict:
@@ -106,7 +107,11 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
 
             elif isinstance(callee_insn, (CInstruction,
                     _DataObliviousInstruction)):
-                pass
+                # The layout of the args to a CInstructions is not going to be matched to the caller_kernel,
+                # they are appended with unmatched args.
+                # We only use Cinstructions exceptionally, e.g. for adding profile instructions,
+                # without arguments that required to be matched, so this is ok.
+                new_callee_insns.append(callee_insn)
             else:
                 raise NotImplementedError("Unknown instruction %s." %
                         type(insn))
@@ -126,6 +131,7 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
 class _FunctionCalledChecker(CombineMapper):
     def __init__(self, func_name):
         self.func_name = func_name
+        super().__init__()
 
     def combine(self, values):
         return any(values)

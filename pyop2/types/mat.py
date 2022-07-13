@@ -138,7 +138,7 @@ class Sparsity(caching.ObjectCached):
                          ('maps', (Map, tuple, list), ex.MapTypeError))
     def _process_args(cls, dsets, maps, *, iteration_regions=None, name=None, nest=None, block_sparse=None):
         "Turn maps argument into a canonical tuple of pairs."
-        from pyop2.parloop import IterationRegion
+        from pyop2.types import IterationRegion
 
         # A single data set becomes a pair of identical data sets
         dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
@@ -423,10 +423,6 @@ class AbstractMat(DataCarrier, abc.ABC):
        before using it (for example to view its values), you must call
        :meth:`assemble` to finalise the writes.
     """
-    @utils.cached_property
-    def pack(self):
-        from pyop2.codegen.builder import MatPack
-        return MatPack
 
     ASSEMBLED = "ASSEMBLED"
     INSERT_VALUES = "INSERT_VALUES"
@@ -448,11 +444,16 @@ class AbstractMat(DataCarrier, abc.ABC):
 
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path, lgmaps=None, unroll_map=False):
-        from pyop2.parloop import Arg
+        from pyop2.parloop import MatLegacyArg, MixedMatLegacyArg
+
         path_maps = utils.as_tuple(path, Map, 2)
         if conf.configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise ex.MapValueError("Path maps not in sparsity maps")
-        return Arg(data=self, map=path_maps, access=access, lgmaps=lgmaps, unroll_map=unroll_map)
+
+        if self.is_mixed:
+            return MixedMatLegacyArg(self, path, access, lgmaps, unroll_map)
+        else:
+            return MatLegacyArg(self, path, access, lgmaps, unroll_map)
 
     @utils.cached_property
     def _wrapper_cache_key_(self):
@@ -484,6 +485,10 @@ class AbstractMat(DataCarrier, abc.ABC):
     def _argtypes_(self):
         """Ctypes argtype for this :class:`Mat`"""
         return tuple(ctypes.c_voidp for _ in self)
+
+    @utils.cached_property
+    def is_mixed(self):
+        return self.sparsity.shape > (1, 1)
 
     @utils.cached_property
     def dims(self):
@@ -794,17 +799,17 @@ class Mat(AbstractMat):
     def __call__(self, access, path, lgmaps=None, unroll_map=False):
         """Override the parent __call__ method in order to special-case global
         blocks in matrices."""
-        from pyop2.parloop import Arg
-        # One of the path entries was not an Arg.
+        from pyop2.parloop import GlobalLegacyArg, DatLegacyArg
+
         if path == (None, None):
             lgmaps, = lgmaps
             assert all(l is None for l in lgmaps)
-            return Arg(data=self.handle.getPythonContext().global_, access=access)
+            return GlobalLegacyArg(self.handle.getPythonContext().global_, access)
         elif None in path:
             thispath = path[0] or path[1]
-            return Arg(data=self.handle.getPythonContext().dat, map=thispath, access=access)
+            return DatLegacyArg(self.handle.getPythonContext().dat, thispath, access)
         else:
-            return super().__call__(access, path, lgmaps=lgmaps, unroll_map=unroll_map)
+            return super().__call__(access, path, lgmaps, unroll_map)
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
@@ -1049,6 +1054,7 @@ class _DatMatPayload:
 
     def __init__(self, sparsity, dat=None, dset=None):
         from pyop2.types.dat import Dat
+
         if isinstance(sparsity.dsets[0], GlobalDataSet):
             self.dset = sparsity.dsets[1]
             self.sizes = ((None, 1), (self.dset.size * self.dset.cdim, None))

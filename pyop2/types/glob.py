@@ -68,9 +68,11 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         return (type(self), self.dtype, self.shape)
 
     @utils.validate_in(('access', _modes, ex.ModeValueError))
-    def __call__(self, access, path=None):
-        from pyop2.parloop import Arg
-        return Arg(data=self, access=access)
+    def __call__(self, access, map_=None):
+        from pyop2.parloop import GlobalLegacyArg
+
+        assert map_ is None
+        return GlobalLegacyArg(self, access)
 
     def __iter__(self):
         """Yield self when iterated over."""

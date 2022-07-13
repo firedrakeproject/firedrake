@@ -39,20 +39,23 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, info, warning, error, critical, set_log_level
 from pyop2.mpi import MPI, COMM_WORLD, collective
 
-from .types import (
+from pyop2.types import (
     Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
     Map, MixedMap, PermutedMap, Sparsity, Halo,
     Global, GlobalDataSet,
     Dat, MixedDat, DatView, Mat
 )
-from .types.access import READ, WRITE, RW, INC, MIN, MAX
+from pyop2.types import (READ, WRITE, RW, INC, MIN, MAX,
+                         ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL)
 
-from pyop2.parloop import par_loop, ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
-from pyop2.kernel import Kernel
+from pyop2.local_kernel import CStringLocalKernel, LoopyLocalKernel, CoffeeLocalKernel, Kernel  # noqa: F401
+from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,  # noqa: F401
+                                 MatKernelArg, MixedMatKernelArg, MapKernelArg, GlobalKernel)
+from pyop2.parloop import (GlobalParloopArg, DatParloopArg, MixedDatParloopArg,  # noqa: F401
+                           MatParloopArg, MixedMatParloopArg, Parloop, parloop, par_loop)
+from pyop2.parloop import (GlobalLegacyArg, DatLegacyArg, MixedDatLegacyArg,  # noqa: F401
+                           MatLegacyArg, MixedMatLegacyArg, LegacyParloop, ParLoop)
 
-from pyop2.parloop import ParLoop as SeqParLoop, PyParLoop
-
-import types
 import loopy
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
@@ -61,15 +64,8 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
-           'Sparsity', 'par_loop', 'ParLoop',
+           'Sparsity', 'parloop', 'Parloop', 'ParLoop', 'par_loop',
            'DatView', 'PermutedMap']
-
-
-def ParLoop(kernel, *args, **kwargs):
-    if isinstance(kernel, types.FunctionType):
-        return PyParLoop(kernel, *args, **kwargs)
-    else:
-        return SeqParLoop(kernel, *args, **kwargs)
 
 
 _initialised = False

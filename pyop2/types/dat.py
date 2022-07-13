@@ -23,7 +23,7 @@ from pyop2.types.set import ExtrudedSet, GlobalSet, Set
 
 class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     """OP2 vector data. A :class:`Dat` holds values on every element of a
-    :class:`DataSet`.
+    :class:`DataSet`.o
 
     If a :class:`Set` is passed as the ``dataset`` argument, rather
     than a :class:`DataSet`, the :class:`Dat` is created with a default
@@ -63,11 +63,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
     _modes = [Access.READ, Access.WRITE, Access.RW, Access.INC, Access.MIN, Access.MAX]
 
-    @utils.cached_property
-    def pack(self):
-        from pyop2.codegen.builder import DatPack
-        return DatPack
-
     @utils.validate_type(('dataset', (DataCarrier, DataSet, Set), ex.DataSetTypeError),
                          ('name', str, ex.NameTypeError))
     @utils.validate_dtype(('dtype', None, ex.DataTypeError))
@@ -104,10 +99,11 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path=None):
-        from pyop2.parloop import Arg
+        from pyop2.parloop import DatLegacyArg
+
         if conf.configuration["type_check"] and path and path.toset != self.dataset.set:
             raise ex.MapValueError("To Set of Map does not match Set of Dat.")
-        return Arg(data=self, map=path, access=access)
+        return DatLegacyArg(self, path, access)
 
     def __getitem__(self, idx):
         """Return self if ``idx`` is 0, raise an error otherwise."""
@@ -314,7 +310,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
                              self.dataset.dim, other.dataset.dim)
 
     def _op_kernel(self, op, globalp, dtype):
-        from pyop2.kernel import Kernel
         key = (op, globalp, dtype)
         try:
             if not hasattr(self, "_op_kernel_cache"):
@@ -324,6 +319,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
+        from pyop2.local_kernel import Kernel
         name = "binop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
@@ -342,12 +338,13 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=rshape),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return self._op_kernel_cache.setdefault(key, Kernel(knl, name))
 
     def _op(self, other, op):
-        from pyop2.parloop import par_loop
         from pyop2.types.glob import Global
+        from pyop2.parloop import parloop
+
         ret = Dat(self.dataset, None, self.dtype)
         if np.isscalar(other):
             other = Global(1, data=other)
@@ -355,8 +352,8 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         else:
             self._check_shape(other)
             globalp = False
-        par_loop(self._op_kernel(op, globalp, other.dtype),
-                 self.dataset.set, self(Access.READ), other(Access.READ), ret(Access.WRITE))
+        parloop(self._op_kernel(op, globalp, other.dtype),
+                self.dataset.set, self(Access.READ), other(Access.READ), ret(Access.WRITE))
         return ret
 
     def _iop_kernel(self, op, globalp, other_is_self, dtype):
@@ -369,7 +366,8 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
-        from pyop2.parloop import Kernel
+        from pyop2.local_kernel import Kernel
+
         name = "iop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
@@ -389,12 +387,13 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         if not other_is_self:
             data.append(lp.GlobalArg("other", dtype=dtype, shape=rshape))
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return self._iop_kernel_cache.setdefault(key, Kernel(knl, name))
 
     def _iop(self, other, op):
-        from pyop2.parloop import par_loop
+        from pyop2.parloop import parloop
         from pyop2.types.glob import Global
+
         globalp = False
         if np.isscalar(other):
             other = Global(1, data=other)
@@ -404,7 +403,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         args = [self(Access.INC)]
         if other is not self:
             args.append(other(Access.READ))
-        par_loop(self._iop_kernel(op, globalp, other is self, other.dtype), self.dataset.set, *args)
+        parloop(self._iop_kernel(op, globalp, other is self, other.dtype), self.dataset.set, *args)
         return self
 
     def _inner_kernel(self, dtype):
@@ -416,7 +415,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
-        from pyop2.kernel import Kernel
+        from pyop2.local_kernel import Kernel
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
         _self = p.Variable("self")
@@ -429,7 +428,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=(self.cdim,)),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(1,))]
-        knl = lp.make_function([domain], [insn], data, name="inner", target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name="inner", target=conf.target, lang_version=(2018, 2))
         k = Kernel(knl, "inner")
         return self._inner_kernel_cache.setdefault(dtype, k)
 
@@ -440,12 +439,13 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
              product against. The complex conjugate of this is taken.
 
         """
-        from pyop2.parloop import par_loop
+        from pyop2.parloop import parloop
         from pyop2.types.glob import Global
+
         self._check_shape(other)
         ret = Global(1, data=0, dtype=self.dtype)
-        par_loop(self._inner_kernel(other.dtype), self.dataset.set,
-                 self(Access.READ), other(Access.READ), ret(Access.INC))
+        parloop(self._inner_kernel(other.dtype), self.dataset.set,
+                self(Access.READ), other(Access.READ), ret(Access.INC))
         return ret.data_ro[0]
 
     @property
@@ -477,7 +477,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         # Copy and negate in one go.
         import islpy as isl
         import pymbolic.primitives as p
-        from pyop2.kernel import Kernel
+        from pyop2.local_kernel import Kernel
         name = "neg"
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
@@ -487,13 +487,14 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         insn = lp.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
-        knl = lp.make_function([domain], [insn], data, name=name, target=lp.CTarget(), lang_version=(2018, 2))
+        knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
         return Kernel(knl, name)
 
     def __neg__(self):
-        from pyop2.parloop import par_loop
+        from pyop2.parloop import parloop
+
         neg = Dat(self.dataset, dtype=self.dtype)
-        par_loop(self._neg_kernel, self.dataset.set, neg(Access.WRITE), self(Access.READ))
+        parloop(self._neg_kernel, self.dataset.set, neg(Access.WRITE), self(Access.READ))
         return neg
 
     def __sub__(self, other):
@@ -521,8 +522,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     def __truediv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._op(other, operator.truediv)
-
-    __div__ = __truediv__  # Python 2 compatibility
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -726,7 +725,6 @@ class MixedDat(AbstractDat, VecAccessMixin):
                 return Dat
             else:
                 raise ex.DataSetTypeError("Huh?!")
-
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(what(d)(d) for d in mdset_or_dats)
         else:
@@ -739,6 +737,9 @@ class MixedDat(AbstractDat, VecAccessMixin):
     @property
     def dat_version(self):
         return sum(d.dat_version for d in self._dats)
+    def __call__(self, access, path=None):
+        from pyop2.parloop import MixedDatLegacyArg
+        return MixedDatLegacyArg(self, path, access)
 
     @utils.cached_property
     def _kernel_args_(self):

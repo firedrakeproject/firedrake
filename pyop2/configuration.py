@@ -35,6 +35,7 @@
 
 import os
 from tempfile import gettempdir
+from loopy.target.c import CWithGNULibcTarget
 
 from pyop2.exceptions import ConfigurationError
 
@@ -42,11 +43,17 @@ from pyop2.exceptions import ConfigurationError
 class Configuration(dict):
     r"""PyOP2 configuration parameters
 
-    :param compiler: compiler identifier (one of `gcc`, `icc`).
+    :param cc: C compiler (executable name eg: `gcc`
+        or path eg: `/opt/gcc/bin/gcc`).
+    :param cxx: C++ compiler (executable name eg: `g++`
+        or path eg: `/opt/gcc/bin/g++`).
+    :param ld: Linker (executable name `ld`
+        or path eg: `/opt/gcc/bin/ld`).
+    :param cflags: extra flags to be passed to the C compiler.
+    :param cxxflags: extra flags to be passed to the C++ compiler.
+    :param ldflags: extra flags to be passed to the linker.
     :param simd_width: number of doubles in SIMD instructions
         (e.g. 4 for AVX2, 8 for AVX512).
-    :param cflags: extra flags to be passed to the C compiler.
-    :param ldflags: extra flags to be passed to the linker.
     :param debug: Turn on debugging for generated code (turns off
         compiler optimisations).
     :param type_check: Should PyOP2 type-check API-calls?  (Default,
@@ -60,14 +67,7 @@ class Configuration(dict):
          to a node-local filesystem too.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    :param use_safe_cflags: Apply cflags turning off some compiler
-        optimisations that are known to be buggy on particular
-        versions? See :attr:`~.Compiler.workaround_cflags` for details.
-    :param dump_gencode: Should PyOP2 write the generated code
-         somewhere for inspection?
     :param print_cache_size: Should PyOP2 print the size of caches at
-        program exit?
-    :param print_summary: Should PyOP2 print a summary of timings at
         program exit?
     :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
     :param block_sparsity: Should sparsity patterns on datasets with
@@ -76,27 +76,44 @@ class Configuration(dict):
         available for the resulting matrices.  (Default yes)
     """
     # name, env variable, type, default, write once
+    cache_dir = os.path.join(gettempdir(), "pyop2-cache-uid%s" % os.getuid())
     DEFAULTS = {
-        "compiler": ("PYOP2_BACKEND_COMPILER", str, "gcc"),
-        "simd_width": ("PYOP2_SIMD_WIDTH", int, 4),
-        "debug": ("PYOP2_DEBUG", bool, False),
-        "cflags": ("PYOP2_CFLAGS", str, ""),
-        "ldflags": ("PYOP2_LDFLAGS", str, ""),
-        "compute_kernel_flops": ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
-        "use_safe_cflags": ("PYOP2_USE_SAFE_CFLAGS", bool, True),
-        "type_check": ("PYOP2_TYPE_CHECK", bool, True),
-        "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
-        "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
-        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
-        "cache_dir": ("PYOP2_CACHE_DIR", str,
-                      os.path.join(gettempdir(),
-                                   "pyop2-cache-uid%s" % os.getuid())),
-        "node_local_compilation": ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
-        "no_fork_available": ("PYOP2_NO_FORK_AVAILABLE", bool, False),
-        "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
-        "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
-        "matnest": ("PYOP2_MATNEST", bool, True),
-        "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True),
+        "cc":
+            ("PYOP2_CC", str, ""),
+        "cxx":
+            ("PYOP2_CXX", str, ""),
+        "ld":
+            ("PYOP2_LD", str, ""),
+        "cflags":
+            ("PYOP2_CFLAGS", str, ""),
+        "cxxflags":
+            ("PYOP2_CXXFLAGS", str, ""),
+        "ldflags":
+            ("PYOP2_LDFLAGS", str, ""),
+        "simd_width":
+            ("PYOP2_SIMD_WIDTH", int, 4),
+        "debug":
+            ("PYOP2_DEBUG", bool, False),
+        "compute_kernel_flops":
+            ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
+        "type_check":
+            ("PYOP2_TYPE_CHECK", bool, True),
+        "check_src_hashes":
+            ("PYOP2_CHECK_SRC_HASHES", bool, True),
+        "log_level":
+            ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
+        "cache_dir":
+            ("PYOP2_CACHE_DIR", str, cache_dir),
+        "node_local_compilation":
+            ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
+        "no_fork_available":
+            ("PYOP2_NO_FORK_AVAILABLE", bool, False),
+        "print_cache_size":
+            ("PYOP2_PRINT_CACHE_SIZE", bool, False),
+        "matnest":
+            ("PYOP2_MATNEST", bool, True),
+        "block_sparsity":
+            ("PYOP2_BLOCK_SPARSITY", bool, True)
     }
     """Default values for PyOP2 configuration parameters"""
 
@@ -146,3 +163,5 @@ class Configuration(dict):
 
 
 configuration = Configuration()
+
+target = CWithGNULibcTarget()

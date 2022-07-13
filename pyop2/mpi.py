@@ -230,6 +230,13 @@ def free_comms():
         MPI.Comm.Free_keyval(kv)
 
 
+def hash_comm(comm):
+    """Return a hashable identifier for a communicator."""
+    # dup_comm returns a persistent internal communicator so we can
+    # use its id() as the hash since this is stable between invocations.
+    return id(dup_comm(comm))
+
+
 def collective(fn):
     extra = trim("""
     This function is logically collective over MPI ranks, it is an

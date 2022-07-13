@@ -36,6 +36,7 @@ import loopy
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 import numpy as np
 from pyop2 import op2
+from pyop2.configuration import target
 
 
 @pytest.fixture
@@ -81,7 +82,7 @@ class TestCallables:
             """,
             [loopy.GlobalArg('B', dtype=np.float64, shape=(2, 2)),
              loopy.GlobalArg('A', dtype=np.float64, shape=(2, 2))],
-            target=loopy.CTarget(),
+            target=target,
             name="callable_kernel",
             lang_version=(2018, 2))
 
@@ -106,7 +107,7 @@ class TestCallables:
             [loopy.GlobalArg('x', dtype=np.float64, shape=(2, )),
              loopy.GlobalArg('A', dtype=np.float64, shape=(2, 2)),
              loopy.GlobalArg('b', dtype=np.float64, shape=(2, ),)],
-            target=loopy.CTarget(),
+            target=target,
             name="callable_kernel2",
             lang_version=(2018, 2))
 
