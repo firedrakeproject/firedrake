@@ -4,7 +4,7 @@ from ufl.coefficient import Coefficient
 from ufl.referencevalue import ReferenceValue
 
 import firedrake.ufl_expr as ufl_expr
-from firedrake.assemble import _make_matrix
+from firedrake.assemble import allocate_matrix
 from firedrake.function import Function
 from firedrake.matrix import MatrixBase
 from firedrake import utils, functionspaceimpl
@@ -253,7 +253,7 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
     # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
         # TODO: Add doc (especialy for integral_types)
-        return _make_matrix(self, bcs, opts, integral_types)
+        return allocate_matrix(self, bcs=bcs, integral_types=integral_types, **opts)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.

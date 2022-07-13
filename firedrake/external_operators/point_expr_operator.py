@@ -91,7 +91,8 @@ class PointexprOperator(AbstractExternalOperator):
             # expr = expr*var._Id
         elif expr == 0:
             return self.assign(expr)
-        return self.interpolate(expr)
+        # TODO: Clean that once Interp branch got merged to this branch
+        return self.assign(expr)  # self.interpolate(expr)
 
 
 # Helper function #

@@ -170,7 +170,7 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
     else:
         new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
-        return impl.FiredrakeDualSpace(new, mesh)
+        return impl.FiredrakeDualSpace.create(new, mesh)
     else:
         return new
 
