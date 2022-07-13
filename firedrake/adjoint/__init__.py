@@ -6,6 +6,7 @@ from firedrake.adjoint.solving import *                # noqa: F401
 from firedrake.adjoint.mesh import *                   # noqa: F401
 from firedrake.adjoint.external_operators import *    # noqa: F401
 from firedrake.adjoint.interpolate import *            # noqa: F401
+from firedrake.adjoint.checkpointing import *          # noqa: F401
 from pyadjoint.tape import Tape, set_working_tape
 
 set_working_tape(Tape())

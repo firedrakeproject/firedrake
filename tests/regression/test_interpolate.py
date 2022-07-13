@@ -124,6 +124,28 @@ def test_compound_expression():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_hdiv_extruded_interval():
+    mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
+    x = SpatialCoordinate(mesh)
+    U = FunctionSpace(mesh, HDiv(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
+    expr = as_vector([x[0], x[1]])
+    u = interpolate(expr, U)
+    u_proj = project(expr, U)
+
+    assert np.allclose(u.dat.data, u_proj.dat.data)
+
+
+def test_hcurl_extruded_interval():
+    mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
+    x = SpatialCoordinate(mesh)
+    U = FunctionSpace(mesh, HCurl(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
+    expr = as_vector([x[0], x[1]])
+    u = interpolate(expr, U)
+    u_proj = project(expr, U)
+
+    assert np.allclose(u.dat.data, u_proj.dat.data)
+
+
 # Requires the relevant FInAT or FIAT duals to be defined
 @pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hdiv_2d():

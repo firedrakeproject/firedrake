@@ -29,7 +29,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.viewcode',
               'sphinx.ext.graphviz',
               'sphinxcontrib.youtube',
-              'sphinxcontrib.bibtex']
+              'sphinxcontrib.bibtex',
+              'numpydoc']
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
 
@@ -259,8 +260,11 @@ intersphinx_mapping = {
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'matplotlib': ('https://matplotlib.org/', None),
-    'python':('https://docs.python.org/3/', None),
+    'python': ('https://docs.python.org/3/', None),
+    'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
+
+numpydoc_show_class_members = False
