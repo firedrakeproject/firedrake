@@ -737,6 +737,7 @@ class MixedDat(AbstractDat, VecAccessMixin):
     @property
     def dat_version(self):
         return sum(d.dat_version for d in self._dats)
+
     def __call__(self, access, path=None):
         from pyop2.parloop import MixedDatLegacyArg
         return MixedDatLegacyArg(self, path, access)
