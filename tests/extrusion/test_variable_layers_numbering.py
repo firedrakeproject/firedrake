@@ -13,14 +13,6 @@ def test_disconnected():
                      layer_height=1)
 
 
-def test_no_layers_property():
-    mesh = UnitIntervalMesh(2)
-    extmesh = ExtrudedMesh(mesh, [[0, 2], [1, 1]],
-                           layer_height=1)
-    with pytest.raises(ValueError):
-        extmesh.layers
-
-
 def test_no_layer_height():
     mesh = UnitIntervalMesh(2)
 

@@ -1,4 +1,6 @@
 import itertools
+import os
+import tempfile
 import weakref
 from collections import OrderedDict, defaultdict
 from functools import singledispatch
@@ -11,7 +13,8 @@ from gem.impero_utils import compile_gem, preprocess_gem
 from gem.node import MemoizerArg
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
-from pyop2.parloop import Arg
+from pyop2.caching import disk_cached
+from pyop2.parloop import GlobalLegacyArg, DatLegacyArg
 from tsfc import ufl2gem
 from tsfc.loopy import generate
 from tsfc.ufl_utils import ufl_reuse_if_untouched
@@ -288,13 +291,13 @@ class Assign(object):
         """Tuple of par_loop arguments for the expression."""
         args = []
         if isinstance(self, AugmentedAssign) or self.lvalue in self.rcoefficients:
-            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.RW))
+            args.append(self._as_weakreffed_arg(self.lvalue.dat, op2.RW))
         else:
-            args.append(Arg(weakref.ref(self.lvalue.dat), access=op2.WRITE))
+            args.append(self._as_weakreffed_arg(self.lvalue.dat, op2.WRITE))
         for c in self.rcoefficients:
             if c.dat == self.lvalue.dat:
                 continue
-            args.append(Arg(weakref.ref(c.dat), access=op2.READ))
+            args.append(self._as_weakreffed_arg(c.dat, op2.READ))
         return tuple(args)
 
     @cached_property
@@ -326,9 +329,21 @@ class Assign(object):
         for e in self.split:
             grouping.setdefault(e.lvalue.node_set, []).append(e)
         for iterset, exprs in grouping.items():
-            k, args = pointwise_expression_kernel(exprs, ScalarType)
-            result.append((k, iterset, tuple(args)))
+            k, arg_numbers = pointwise_expression_kernel(exprs, ScalarType, PETSc.Log.isActive())
+            args = tuple(expr.args[i]
+                         for expr, numbers in zip(exprs, arg_numbers)
+                         for i in numbers)
+            result.append((k, iterset, args))
         return tuple(result)
+
+    @staticmethod
+    def _as_weakreffed_arg(dat, access):
+        if isinstance(dat, op2.Global):
+            return GlobalLegacyArg(weakref.ref(dat), access)
+        elif isinstance(dat, (op2.Dat, op2.DatView)):
+            return DatLegacyArg(weakref.ref(dat), None, access)
+        else:
+            raise AssertionError
 
 
 class AugmentedAssign(Assign):
@@ -401,13 +416,35 @@ def compile_to_gem(expr, translator):
     return preprocess_gem([lvalue, rvalue])
 
 
+try:
+    _cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
+except KeyError:
+    _cachedir = os.path.join(tempfile.gettempdir(),
+                             f"firedrake-pointwise-expression-kernel-cache-uid{os.getuid()}")
+"""Storage location for the kernel cache."""
+
+
+def _pointwise_expression_key(exprs, scalar_type, is_logging):
+    """Return a cache key for use with :func:`pointwise_expression_kernel`."""
+    # Since this cache is collective this function must return a 2-tuple of
+    # communicator and cache key.
+    comm = exprs[0].lvalue.node_set.comm
+    key = tuple(e.slow_key for e in exprs) + (scalar_type, is_logging)
+    return comm, key
+
+
 @PETSc.Log.EventDecorator()
-def pointwise_expression_kernel(exprs, scalar_type):
+@disk_cached({}, _cachedir, key=_pointwise_expression_key, collective=True)
+def pointwise_expression_kernel(exprs, scalar_type, is_logging):
     """Compile a kernel for pointwise expressions.
 
     :arg exprs: List of expressions, all on the same iteration set.
     :arg scalar_type: Default scalar type (numpy.dtype).
-    :returns: a PyOP2 kernel for evaluation of the expressions."""
+    :arg is_logging: ``True`` if the kernel is to be annotated with PETSc events.
+    :returns: A 2-tuple where the first entry is a PyOP2 kernel for
+        evaluating the expressions and the second is a list of lists containing
+        the indices of the parloop arguments that are needed from ``exprs``.
+    """
     if len(set(e.lvalue.node_set for e in exprs)) > 1:
         raise ValueError("All expressions must have same node layout.")
     translator = Translator()
@@ -419,26 +456,28 @@ def pointwise_expression_kernel(exprs, scalar_type):
     impero_c = compile_gem(assignments, prefix_ordering=prefix_ordering,
                            remove_zeros=False, emit_return_accumulate=False)
     coefficients = translator.varmapping
-    args = []
-    plargs = []
+    loopy_args = []
+    parloop_arg_numbers = []
     for expr in exprs:
-        for c, arg in zip(expr.coefficients, expr.args):
+        parloop_arg_numbers.append([])
+        for i, (c, arg) in enumerate(zip(expr.coefficients, expr.args)):
             try:
                 var = coefficients.pop(c)
             except KeyError:
                 continue
-            plargs.append(arg)
             is_input = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.READ, op2.RW]
             is_output = arg.access in [op2.INC, op2.MAX, op2.MIN, op2.RW, op2.WRITE]
-            args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype, is_input=is_input, is_output=is_output))
+            loopy_args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=c.dat.dtype,
+                              is_input=is_input, is_output=is_output))
+            parloop_arg_numbers[-1].append(i)
     assert len(coefficients) == 0
     name = "expression_kernel"
-    knl = generate(impero_c, args, scalar_type, kernel_name=name,
-                   return_increments=False)
-    return firedrake.op2.Kernel(knl, name), plargs
+    knl, event = generate(impero_c, loopy_args, scalar_type, kernel_name=name,
+                          return_increments=False, log=is_logging)
+    return firedrake.op2.Kernel(knl, name, events=(event,)), parloop_arg_numbers
 
 
-class dereffed(object):
+class dereffed:
     def __init__(self, args):
         self.args = args
 

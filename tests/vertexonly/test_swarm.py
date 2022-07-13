@@ -42,7 +42,7 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
-                        pytest.param("periodicrectangle", marks=pytest.mark.skip(reason="meshes made from coordinate fields are not supported")),
+                        pytest.param("periodicrectangle"),
                         pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
 def parentmesh(request):
     if request.param == "interval":
@@ -67,7 +67,7 @@ def parentmesh(request):
 
 # pic swarm tests
 
-def test_pic_swarm_in_plex(parentmesh):
+def test_pic_swarm_in_mesh(parentmesh):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
 
@@ -78,7 +78,7 @@ def test_pic_swarm_in_plex(parentmesh):
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_plex(plex, inputpointcoords, fields=fields)
+    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -103,6 +103,7 @@ def test_pic_swarm_in_plex(parentmesh):
         swarm.restoreField(name)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
+
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
     # check local points are found in list of input points
@@ -110,7 +111,8 @@ def test_pic_swarm_in_plex(parentmesh):
         assert np.any(np.isclose(p, inputpointcoords))
     # check local points are correct local points given mesh
     # partitioning (but don't require ordering to be maintained)
-    assert np.allclose(np.sort(inputlocalpointcoords), np.sort(localpointcoords))
+    assert np.allclose(np.sort(inputlocalpointcoords, axis=0),
+                       np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
     # Check there are as many local points as there are local cells
@@ -125,17 +127,26 @@ def test_pic_swarm_in_plex(parentmesh):
     for index in localparentcellindices:
         assert np.any(index == cell_indexes)
 
+    # Now have DMPLex compute the cell IDs in cases where it can:
+    if parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange":
+        swarm.setPointCoordinates(localpointcoords, redundant=False,
+                                  mode=PETSc.InsertMode.INSERT_VALUES)
+        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+        swarm.restoreField("DMSwarm_cellid")
+        # Check that we agree with PETSc
+        assert np.all(petsclocalparentcellindices == localparentcellindices)
+
 
 @pytest.mark.parallel
-def test_pic_swarm_in_plex_parallel(parentmesh):
-    test_pic_swarm_in_plex(parentmesh)
+def test_pic_swarm_in_mesh_parallel(parentmesh):
+    test_pic_swarm_in_mesh(parentmesh)
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
-def test_pic_swarm_in_plex_2d_2procs():
-    test_pic_swarm_in_plex(UnitSquareMesh(1, 1))
+def test_pic_swarm_in_mesh_2d_2procs():
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
 
 
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
-def test_pic_swarm_in_plex_2d_3procs():
-    test_pic_swarm_in_plex(UnitSquareMesh(1, 1))
+def test_pic_swarm_in_mesh_2d_3procs():
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))

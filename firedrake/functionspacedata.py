@@ -37,6 +37,7 @@ from firedrake.petsc import PETSc
 __all__ = ("get_shared_data", )
 
 
+@PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
     finat_element = _create_element(ufl_element)
     if isinstance(finat_element, finat.TensorFiniteElement):
@@ -67,7 +68,7 @@ def cached(f, mesh, key, *args, **kwargs):
 
 
 @cached
-def get_global_numbering(mesh, key):
+def get_global_numbering(mesh, key, global_numbering=None):
     """Get a PETSc Section describing the global numbering.
 
     This numbering associates function space nodes with topological
@@ -80,6 +81,8 @@ def get_global_numbering(mesh, key):
         degenerate fs x Real tensorproduct.
     :returns: A new PETSc Section.
     """
+    if global_numbering:
+        return global_numbering
     nodes_per_entity, real_tensorproduct = key
     return mesh.create_section(nodes_per_entity, real_tensorproduct)
 
@@ -192,23 +195,6 @@ def get_map_cache(mesh, key):
                 mesh.interior_facets.set: None,
                 mesh.exterior_facets.set: None,
                 "boundary_node": None}
-
-
-@cached
-def get_dof_offset(mesh, key, entity_dofs, ndof):
-    """Get the dof offsets.
-
-    :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct) tuple where
-        entity_dofs_key is Canonicalised entity_dofs
-        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
-        function space is a degenerate fs x Real tensorproduct.
-    :arg entity_dofs: The FInAT entity_dofs dict.
-    :arg ndof: The number of dofs (the FInAT space_dimension).
-    :returns: A numpy array of dof offsets (extruded) or ``None``.
-    """
-    _, real_tensorproduct = key
-    return mesh.make_offset(entity_dofs, ndof, real_tensorproduct=real_tensorproduct)
 
 
 @cached
@@ -402,30 +388,6 @@ def entity_permutations_key(entity_permutations):
     return key
 
 
-def preprocess_ufl_element(mesh, ufl_element):
-    """Preprocess a UFL element for descretised representation
-
-    :arg mesh: The MeshTopology object
-    :arg ufl_element: The UFL element
-    :returns: A tuple of the FInAT element, entity_dofs, nodes_per_entity,
-        and real_tensorproduct derived from ufl_element.
-    """
-    if type(ufl_element) is ufl.MixedElement:
-        raise ValueError("Can't create FunctionSpace for MixedElement")
-    finat_element = create_element(ufl_element)
-    # Support foo x Real tensorproduct elements
-    real_tensorproduct = False
-    scalar_element = ufl_element
-    if isinstance(ufl_element, (ufl.VectorElement, ufl.TensorElement)):
-        scalar_element = ufl_element.sub_elements()[0]
-    if isinstance(scalar_element, ufl.TensorProductElement):
-        a, b = scalar_element.sub_elements()
-        real_tensorproduct = b.family() == 'Real'
-    entity_dofs = finat_element.entity_dofs()
-    nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-    return (finat_element, entity_dofs, nodes_per_entity, real_tensorproduct)
-
-
 class FunctionSpaceData(object):
     """Function spaces with the same entity dofs share data.  This class
     stores that shared data.  It is cached on the mesh.
@@ -440,11 +402,18 @@ class FunctionSpaceData(object):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element):
-        finat_element, entity_dofs, nodes_per_entity, real_tensorproduct = preprocess_ufl_element(mesh, ufl_element)
+        if type(ufl_element) is ufl.MixedElement:
+            raise ValueError("Can't create FunctionSpace for MixedElement")
+
+        finat_element = create_element(ufl_element)
+        real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
+        entity_dofs = finat_element.entity_dofs()
+        nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
         try:
             entity_permutations = finat_element.entity_permutations
         except NotImplementedError:
             entity_permutations = None
+
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct)
@@ -462,7 +431,12 @@ class FunctionSpaceData(object):
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key))
-        self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
+
+        if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
+            self.offset = eutils.calculate_dof_offset(finat_element)
+        else:
+            self.offset = None
+
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)

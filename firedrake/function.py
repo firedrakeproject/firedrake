@@ -1,9 +1,11 @@
 import numpy as np
 import sys
 import ufl
+from ufl.formatting.ufl2unicode import ufl2unicode
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
+import numbers
 
 from pyop2 import op2
 
@@ -205,7 +207,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if self._name is not None:
             return self._name
         else:
-            return super(Function, self).__str__()
+            return ufl2unicode(self)
 
 
 class Function(ufl.Coefficient, FunctionMixin):
@@ -228,7 +230,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
@@ -240,6 +243,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
+        :param count: The :class:`ufl.Coefficient` count which creates the
+            symbolic identity of this :class:`Function`.
         """
 
         V = function_space
@@ -259,7 +264,9 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                 val=val, name=name, dtype=dtype)
 
         self._function_space = V
-        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
+        ufl.Coefficient.__init__(
+            self, self.function_space().ufl_function_space(), count=count
+        )
 
         if cachetools:
             # LRU cache for expressions assembled onto this function
@@ -386,6 +393,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
+        # Avoid generating code when assigning scalar values to the Real space
+        if (isinstance(expr, numbers.Number)
+                and self.function_space().ufl_element().family() == "Real"):
+            self.dat.data[...] = expr
+            return self
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
@@ -654,6 +667,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
+    def __str__(self):
+        return ufl2unicode(self)
+
 
 class PointNotInDomainError(Exception):
     r"""Raised when attempting to evaluate a function outside its domain,
@@ -688,11 +704,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     args = []
 
     arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    arg.position = 0
     args.append(arg)
 
     arg = function.dat(op2.READ, function.cell_node_map())
-    arg.position = 1
     args.append(arg)
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"

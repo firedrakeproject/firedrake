@@ -6,6 +6,8 @@ on:
     branches:
       - master
   pull_request:
+  schedule:
+    - cron: '0 0 * * 0'
 
 jobs:
   build:
@@ -49,19 +51,19 @@ jobs:
         run: |
           . ../build/bin/activate
           python $(which firedrake-clean)
-          python -m pip install pytest-cov pytest-xdist
+          python -m pip install pytest-cov pytest-timeout pytest-xdist
           python -m pip list
       - name: Test Firedrake
         run: |
           . ../build/bin/activate
           echo OMP_NUM_THREADS is $OMP_NUM_THREADS
           echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
-          python -m pytest --durations=200 -n 12 --cov firedrake -v tests
+          python -m pytest --durations=200 -n 12 --cov firedrake --timeout=1800 -v tests
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
           . ../build/bin/activate
-          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 -v tests/firedrake_adjoint
+          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 --timeout=600 -v tests/firedrake_adjoint
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
@@ -69,7 +71,7 @@ jobs:
           cd ..
           rm -rf build
   docker_env:
-    name: "Build Docker environment container"  
+    name: "Build Docker environment container"
     # The type of runner that the job will run on
     needs: build
     if: ${{ github.ref == 'refs/heads/master' }}

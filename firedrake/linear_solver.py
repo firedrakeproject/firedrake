@@ -1,5 +1,3 @@
-import functools
-
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.cofunction as cofunction
@@ -112,12 +110,12 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def _rhs(self):
-        from firedrake.assemble import assemble
+        from firedrake.assemble import OneFormAssembler
 
         u = function.Function(self.trial_space)
         b = function.Function(self.test_space)
         expr = -action(self.A.a, u)
-        return u, functools.partial(assemble, expr, tensor=b, assembly_type="residual"), b
+        return u, OneFormAssembler(expr, tensor=b).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
