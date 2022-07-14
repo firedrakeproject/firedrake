@@ -1,11 +1,15 @@
 import numpy
 from functools import partial, singledispatch
+import os
+import tempfile
 
 import FIAT
 import ufl
-from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms.signature import compute_expression_signature
 
 from pyop2 import op2
+from pyop2.caching import disk_cached
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -15,7 +19,7 @@ import finat
 
 import firedrake
 import firedrake.assemble
-from firedrake import utils, functionspaceimpl
+from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, action, adjoint
 from firedrake.petsc import PETSc
 
@@ -343,6 +347,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
+    cell_set = target_mesh.cell_set
+    if subset is not None:
+        assert subset.superset == cell_set
+        cell_set = subset
+
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
@@ -352,27 +361,22 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     # FIXME: for the runtime unknown point set (for cross-mesh
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression_dual_evaluation(expr, to_element,
-                                                V.ufl_element(),
-                                                domain=source_mesh,
-                                                parameters=parameters)
+    kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
+                                domain=source_mesh, parameters=parameters,
+                                log=PETSc.Log.isActive())
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
-    coefficients = kernel.coefficients
-    first_coeff_fake_coords = kernel.first_coefficient_fake_coords
+    coefficient_numbers = kernel.coefficient_numbers
+    needs_external_coords = kernel.needs_external_coords
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                        flop_count=kernel.flop_count)
-    cell_set = target_mesh.cell_set
-    if subset is not None:
-        assert subset.superset == cell_set
-        cell_set = subset
+                        flop_count=kernel.flop_count, events=(kernel.event,))
     parloop_args = [kernel, cell_set]
 
-    if first_coeff_fake_coords:
-        # Replace with real source mesh coordinates
-        coefficients[0] = source_mesh.coordinates
+    coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
+    if needs_external_coords:
+        coefficients = [source_mesh.coordinates] + coefficients
 
     if target_mesh is not source_mesh:
         # NOTE: TSFC will sometimes drop run-time arguments in generated
@@ -452,6 +456,27 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         return parloop_compute_callable, tensor.assemble
     else:
         return copyin + (parloop_compute_callable, ) + copyout
+
+
+try:
+    _expr_cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
+except KeyError:
+    _expr_cachedir = os.path.join(tempfile.gettempdir(),
+                                  f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
+
+
+def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters, log):
+    """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
+    # Since the caching is collective, this function must return a 2-tuple of
+    # the form (comm, key) where comm is the communicator the cache is collective over.
+    # FIXME FInAT elements are not safely hashable so we ignore them here
+    key = _hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
+    return comm, key
+
+
+@disk_cached({}, _expr_cachedir, key=_compile_expression_key, collective=True)
+def compile_expression(comm, *args, **kwargs):
+    return compile_expression_dual_evaluation(*args, **kwargs)
 
 
 @singledispatch
@@ -563,3 +588,14 @@ class GlobalWrapper(object):
         self.dat = glob
         self.cell_node_map = lambda *arguments: None
         self.ufl_domain = lambda: None
+
+
+def _hash_expr(expr):
+    """Return a numbering-invariant hash of a UFL expression.
+
+    :arg expr: A UFL expression.
+    :returns: A numbering-invariant hash for the expression.
+    """
+    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
+    coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
+    return compute_expression_signature(expr, {**domain_numbering, **coefficient_numbering})

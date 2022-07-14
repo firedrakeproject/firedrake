@@ -4,6 +4,7 @@ from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
+from .checkpointing import disk_checkpointing, CheckpointFunction, checkpoint_init_data
 
 
 class FunctionMixin(FloatingType):
@@ -195,7 +196,10 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     def _ad_create_checkpoint(self):
-        return self.copy(deepcopy=True)
+        if disk_checkpointing():
+            return CheckpointFunction(self)
+        else:
+            return self.copy(deepcopy=True)
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
@@ -233,7 +237,17 @@ class FunctionMixin(FloatingType):
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        return checkpoint
+        if isinstance(checkpoint, CheckpointFunction):
+            return checkpoint.restore()
+        else:
+            return checkpoint
+
+    def _ad_will_add_as_dependency(self):
+        """Method called when the object is added as a Block dependency.
+
+        """
+        with checkpoint_init_data():
+            super()._ad_will_add_as_dependency()
 
     @no_annotations
     def _ad_mul(self, other):

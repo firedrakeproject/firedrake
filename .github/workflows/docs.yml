@@ -36,6 +36,7 @@ jobs:
           python -m pip install sphinx
           python -m pip install sphinxcontrib-bibtex
           python -m pip install bibtexparser
+          python -m pip install numpydoc
           python -m pip install git+https://github.com/sphinx-contrib/youtube.git
       - name: Check bibtex
         run: |

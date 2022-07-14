@@ -341,6 +341,7 @@ def test_near_nullspace_mixed():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
+            'assembled_mg_levels_pc_type': 'sor',
             'ksp_rtol': 1e-7,
             'ksp_converged_reason': None,
         },

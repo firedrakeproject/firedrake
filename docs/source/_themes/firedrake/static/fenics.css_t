@@ -280,7 +280,10 @@ div.warning div.last {
     display: none;
 }
 
-#firedrake-package h2 {
+#firedrake-package h2,
+section#submodules h2,
+section#subpackages h2,
+section#submodules ~ section h2 {
     background-color: #fafafa;                   
     border: 2px solid #8c1b1e;
 	border-right-style: none;
@@ -288,7 +291,7 @@ div.warning div.last {
 	padding: 10px 20px 10px 60px;
 }
 
-#firedrake-package div.section>dl {
+section>dl.py {
     border: 2px solid #ddd;
 	border-right-style: none;
 	border-bottom-style: none;
@@ -670,6 +673,7 @@ display: none;
 }
 
 #the-firedrake-team td {
+  width: 25%;
   text-align: center;
 }
 

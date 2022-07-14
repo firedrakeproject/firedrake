@@ -135,7 +135,7 @@ operator instead.
    An auxiliary operator that uses piecewise-constant coefficients
    that is assembled in the basis of shape functions that diagonalize
    separable problems in the interior of each cell. Currently
-   implemented for quadilateral and hexahedral cells. The assembled
+   implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
    :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2021`.
