@@ -105,7 +105,7 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-def assemble_base_form(expr, tensor=None, bcs=None,
+def assemble_base_form(expression, tensor=None, bcs=None,
                        diagonal=False,
                        mat_type=None,
                        sub_mat_type=None,
@@ -117,7 +117,13 @@ def assemble_base_form(expr, tensor=None, bcs=None,
 
     # Preprocess and restructure the DAG
     if not preassembled_base_form:
-        expr = preprocess_base_form(expr, mat_type, form_compiler_parameters)
+        # Preprocessing the form makes a new object -> current form caching mechanism
+        # will populate `expr`'s cache which is now different than `expression`'s cache so we need
+        # to transmit the cache. All of this only holds when `expression` if a ufl.Form
+        # and therefore when `preassembled_base_form` is False.
+        expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
+        if isinstance(expression, ufl.form.Form):
+            expr._cache = expression._cache
 
     # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
     stack = [expr]
@@ -141,14 +147,19 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                                                     appctx, options_prefix,
                                                     zero_bc_nodes,
                                                     *(visited[arg] for arg in operands))
+
     # Update tensor with the assembled result value
     assembled_base_form = visited[expr]
     # Doesn't need to update `tensor` with `assembled_base_form`
     # for assembled 1-form (Cofunction) because both underlying
     # Dat objects are the same (they automatically update).
-    #if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
-        # Uses the PETSc copy method.
+    # if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
+    #     Uses the PETSc copy method.
     #    assembled_base_form.petscmat.copy(tensor.petscmat)
+
+    # What about cases where expanding derivatives produce a non-Form object ?
+    if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+        expression._cache = expr._cache
     return assembled_base_form
 
 
@@ -454,7 +465,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
                 print('\n\n adjoint\n\n')
-                #import ipdb; ipdb.set_trace()
                 output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
                 return interpolator._interpolate(v, output=output, transpose=is_adjoint)
             # Assembling the operator, or its Jacobian action.
