@@ -884,11 +884,7 @@ class LocalLoopyKernelBuilder(object):
                     max_it_crit = i_c {{dep=Aonp0, id=tempk, inames=i_c}}
                   end""",
             loopy.CInstruction("",
-                                  f"{{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence. \
-                                                                      Loop ended with %d iterations. \
-                                                                      The reached relative tolerance is %d. \
-                                                                      The reached absolute tolerance is %d\\n\", \
-                                                                      max_it_crit, rtol_crit, atol_crit); PetscFinalize(); exit(1);}}",
+                                  f"{{PetscPrintf(PETSC_COMM_WORLD, \"The local solver {name} has not run to convergence.\"); PetscFinalize(); exit(1);}}",
                                   predicates={parse(f"""(max_it_crit=={max_it} or (rtol_crit>{rtol} and atol_crit>{atol}))""")},
                                   depends_on="tempk",
                                   id="print"),
