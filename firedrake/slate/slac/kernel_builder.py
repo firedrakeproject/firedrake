@@ -827,7 +827,6 @@ class LocalLoopyKernelBuilder(object):
         stop_criterion_dep = "atol_crit_id"
         stop_criterion = self.generate_code_for_stop_criterion(rtol,
                                                                atol,
-                                                               max_it,
                                                                stop_criterion_dep,
                                                                stop_criterion_id)
         preconverged_criterion_id = "projis0"
@@ -858,7 +857,7 @@ class LocalLoopyKernelBuilder(object):
                     p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
                     <> projector_is_zero = abs(p_on_Ap) < {1e-50} {{id={preconverged_criterion_dep}, dep=ponAp}}
              """,
-            #  corner_case,
+             corner_case,
              f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_dep}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
@@ -931,14 +930,13 @@ class LocalLoopyKernelBuilder(object):
         return call, (name, knl), output_arg, ctx, coeff_arg, event
 
     def generate_code_for_converged_pre_iteration(self, dep, id):
-        if configuration["simd_width"]:
-            assert "not vectorised yet"
         return loopy.CInstruction("",
-                                  "if (projector_is_zero) break;",
+                                  "break;",
+                                  predicates={parse("projector_is_zero")},
                                   depends_on=dep,
                                   id=id)
 
-    def generate_code_for_stop_criterion(self, rtol, atol, max_it, dep, id):
+    def generate_code_for_stop_criterion(self, rtol, atol, dep, id):
         """ This method is workaround need since Loo.py does not support while loops yet.
             FIXME whenever while loops become available
 
@@ -954,12 +952,9 @@ class LocalLoopyKernelBuilder(object):
 
             Inlining and vectorisation are made available through this ugly bit of code.
         """
-        rtol_cond = " < " + str(rtol)
-        atol_cond = " < " + str(atol)
-        variable = "rtol_crit" + rtol_cond + " or " + "atol_crit"  + atol_cond
         return loopy.CInstruction("",
                                   code="break;",
-                                  predicates={parse(variable)},
+                                  predicates={parse(f"rtol_crit < {rtol} or atol_crit < {atol}")},
                                   depends_on=dep,
                                   id=id)
 
