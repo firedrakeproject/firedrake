@@ -91,11 +91,6 @@ def assemble(expr, *args, **kwargs):
     will be set to 0 and the diagonal entries to 1. If ``expr`` is a
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
-
-    .. note::
-        For 1-form assembly, the resulting object should in fact be a *cofunction*
-        instead of a :class:`.Function`. However, since cofunctions are not
-        currently supported in UFL, functions are used instead.
     """
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
