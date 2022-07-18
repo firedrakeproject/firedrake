@@ -354,7 +354,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     preamble = preamble_init+preamble if preamble else []
     slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
                                      seq_dependencies=True, target=target,
-                                     lang_version=(2018, 2), preambles=preamble)
+                                     lang_version=(2018, 2), preambles=preamble,
+                                     silenced_warnings=["insn_count_subgroups_upper_bound"])
 
     # Generate program from kernel, so that one can register kernels
     from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
