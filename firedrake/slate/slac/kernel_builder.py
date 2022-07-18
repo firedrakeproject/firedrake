@@ -907,7 +907,7 @@ class LocalLoopyKernelBuilder(object):
             target=target,
             name=name,
             lang_version=(2018, 2),
-            silenced_warnings=["single_writer_after_creation", "unused_inames"],
+            silenced_warnings=["single_writer_after_creation", "unused_inames", "insn_count_subgroups_upper_bound"],
             preambles=preamble)
 
         # set the length of the indices to the size of the temporaries

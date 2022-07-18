@@ -421,7 +421,8 @@ def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g
         # Generates the loopy wrapper kernel
         slate_wrapper = lp.make_function(domains, insns_new, args, name=wrapper_name,
                                          seq_dependencies=True, target=target,
-                                         silenced_warnings=["single_writer_after_creation", "unused_inames"],
+                                         silenced_warnings=["single_writer_after_creation", "unused_inames",
+                                                            "insn_count_subgroups_upper_bound"],
                                          preambles=preamble)
 
         # Prevent loopy interchange by loopy
