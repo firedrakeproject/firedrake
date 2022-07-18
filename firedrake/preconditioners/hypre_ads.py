@@ -4,7 +4,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
-from ufl import grad, curl, SpatialCoordinate
+from ufl import grad, curl, SpatialCoordinate, HDiv
 
 __all__ = ("HypreADS",)
 
@@ -17,16 +17,28 @@ class HypreADS(PCBase):
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())
+        sobolev_space = V.ufl_element().sobolev_space()
         degree = V.ufl_element().degree()
-        if family != 'Raviart-Thomas' or degree != 1:
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        if sobolev_space != HDiv or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        NC1 = FunctionSpace(mesh, "N1curl", 1)
-        # DiscreteGradient
-        G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
-        # DiscreteCurl
-        C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
+        if family == 'Raviart-Thomas':
+            NC1 = FunctionSpace(mesh, "N1curl", 1)
+            # DiscreteGradient
+            G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
+            # DiscreteCurl
+            C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
+        else:
+            from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+            NC1 = FunctionSpace(mesh, "NCE", 1)
+            # DiscreteGradient
+            G = prolongation_matrix_matfree(NC1, P1)
+            C = prolongation_matrix_matfree(V, NC1)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)

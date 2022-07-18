@@ -7,7 +7,7 @@ from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
-from ufl import grad
+from ufl import grad, HCurl
 import numpy as np
 
 __all__ = ("HypreAMS",)
@@ -25,22 +25,31 @@ class HypreAMS(PCBase):
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())
+        sobolev_space = V.ufl_element().sobolev_space()
         degree = V.ufl_element().degree()
-        if family != 'Nedelec 1st kind H(curl)' or degree != 1:
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        if sobolev_space != HCurl or degree != 1:
             raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        G = Interpolator(grad(TestFunction(P1)), V).callable().handle
+        if family == "Nedelec 1st kind H(curl)":
+            G = Interpolator(grad(TestFunction(P1)), V).callable().handle
 
-        # remove (near) zeros from sparsity pattern
-        ai, aj, a = G.getValuesCSR()
-        a[np.abs(a) < 1e-10] = 0
-        G2 = PETSc.Mat().create()
-        G2.setType(PETSc.Mat.Type.AIJ)
-        G2.setSizes(G.sizes)
-        G2.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-        G2.setPreallocationCSR((ai, aj, a))
-        G2.assemble()
+            # remove (near) zeros from sparsity pattern
+            ai, aj, a = G.getValuesCSR()
+            a[np.abs(a) < 1e-10] = 0
+            G2 = PETSc.Mat().create()
+            G2.setType(PETSc.Mat.Type.AIJ)
+            G2.setSizes(G.sizes)
+            G2.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+            G2.setPreallocationCSR((ai, aj, a))
+            G2.assemble()
+        else:
+            from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+            G2 = prolongation_matrix_matfree(V, P1)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
