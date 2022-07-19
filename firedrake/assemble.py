@@ -124,6 +124,8 @@ def assemble_base_form(expression, tensor=None, bcs=None,
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form):
             expr._cache = expression._cache
+    else:
+        expr = expression
 
     # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
     stack = [expr]
