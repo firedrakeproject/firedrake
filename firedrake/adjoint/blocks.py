@@ -321,7 +321,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].split()[self.idx]
+            return adj_inputs[0].split()[self.idx].vector()
         else:
             return adj_inputs[0]
 
@@ -765,7 +765,7 @@ class SupermeshProjectBlock(Block, Backend):
     def _recompute_component_transpose(self, inputs):
         if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
             raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
-        out = self.backend.Function(self.source_space)
+        out = self.backend.Cofunction(self.source_space.dual())
         tmp = self.backend.Function(self.target_space)
         self.projector.apply_massinv(tmp, inputs[0])   # Adjoint of step 2 (since mass self-adjoint)
         with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:
