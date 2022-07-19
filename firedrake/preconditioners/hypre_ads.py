@@ -38,6 +38,7 @@ class HypreADS(PCBase):
             NC1 = FunctionSpace(mesh, "NCE", 1)
             # DiscreteGradient
             G = prolongation_matrix_matfree(NC1, P1)
+            # DiscreteCurl
             C = prolongation_matrix_matfree(V, NC1)
 
         pc = PETSc.PC().create(comm=obj.comm)

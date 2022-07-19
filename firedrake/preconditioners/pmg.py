@@ -591,6 +591,8 @@ def get_line_elements(V):
 
     terms = finat_ele.elements if hasattr(finat_ele, "elements") else [finat_ele]
     for term in terms:
+        if hasattr(term, "product"):
+            term = term.product
         factors = term.factors if hasattr(term, "factors") else (term,)
         expansion = tuple(e.fiat_equivalent for e in reversed(factors))
         if not all([e.get_reference_element().shape == LINE for e in expansion]):
