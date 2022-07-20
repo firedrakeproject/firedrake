@@ -118,7 +118,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
         # to transmit the cache. All of this only holds when `expression` if a ufl.Form
         # and therefore when `preassembled_base_form` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
-        if isinstance(expression, ufl.form.Form):
+        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = expression._cache
     else:
         expr = expression
@@ -148,13 +148,13 @@ def assemble_base_form(expression, tensor=None, bcs=None,
 
     # Update tensor with the assembled result value
     assembled_base_form = visited[expr]
-    # Doesn't need to update `tensor` with `assembled_base_form`
-    # for assembled 1-form (Cofunction) because both underlying
-    # Dat objects are the same (they automatically update).
-    # if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
-    #     Uses the PETSc copy method.
-    #    assembled_base_form.petscmat.copy(tensor.petscmat)
-
+    # Copy assembled result to the tensor
+    if tensor:
+        if isinstance(assembled_base_form, firedrake.Cofunction):
+            assembled_base_form.dat.copy(tensor.dat)
+        elif isinstance(assembled_base_form, matrix.MatrixBase):
+            # Uses the PETSc copy method.
+            assembled_base_form.petscmat.copy(tensor.petscmat)
     # What about cases where expanding derivatives produce a non-Form object ?
     if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
         expression._cache = expr._cache
@@ -365,19 +365,19 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             # Substitute the base form operators by their output
             expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
 
-        res = _assemble_form(expr, tensor=tensor, bcs=bcs,
-                             diagonal=diagonal,
-                             mat_type=mat_type,
-                             sub_mat_type=sub_mat_type,
-                             appctx=appctx,
-                             options_prefix=options_prefix,
-                             form_compiler_parameters=form_compiler_parameters,
-                             zero_bc_nodes=zero_bc_nodes)
+        return _assemble_form(expr, tensor=tensor, bcs=bcs,
+                              diagonal=diagonal,
+                              mat_type=mat_type,
+                              sub_mat_type=sub_mat_type,
+                              appctx=appctx,
+                              options_prefix=options_prefix,
+                              form_compiler_parameters=form_compiler_parameters,
+                              zero_bc_nodes=zero_bc_nodes)
 
-        if isinstance(res, firedrake.Function):
-            # TODO: Remove once MatrixImplicitContext is Cofunction safe.
-            res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
-        return res
+        # if isinstance(res, firedrake.Function):
+        #     TODO: Remove once MatrixImplicitContext is Cofunction safe.
+        #     res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
+        # return res
 
     elif isinstance(expr, ufl.Adjoint):
         if (len(args) != 1):
@@ -411,7 +411,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
 
                 # REMOVE: Workaround to fix the different petsc type of
                 # ImplicitMatrix (type: python) and MatrixBase.
-                #petsc_mat.setType(rhs.M.handle.type)
+                # petsc_mat.setType(rhs.M.handle.type)
 
                 # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
@@ -1109,7 +1109,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
                                  mat_type=mat_type,
                                  preassembled_base_form=True, **kwargs)
     else:
-        raise ValueError('Expecting a BaseForm object and not %' % (form))
+        raise ValueError('Expecting a BaseForm object and not %s' % form)
 
 
 def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
