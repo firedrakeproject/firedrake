@@ -15,6 +15,7 @@ from pyop2.datatypes import ScalarType
 
 
 class RegisteringAssemblyMethods(UFLType):
+    # Subclass UFLType to avoid metaclass conflict for AbstractExternalOperator
     def __init__(cls, name, bases, attrs):
         cls._assembly_registry = {}
         # Populate assembly registry with registries from the base classes

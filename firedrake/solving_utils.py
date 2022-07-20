@@ -453,7 +453,6 @@ class _SNESContext(object):
             ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
-        #print('\n\n\t Jacobian: ', J.norm(), '\n\n')
 
         if ctx._post_jacobian_callback is not None:
             ctx._post_jacobian_callback(X, J)

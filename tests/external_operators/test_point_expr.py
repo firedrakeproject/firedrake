@@ -288,7 +288,7 @@ def test_assemble_action(mesh):
     J_action = assemble(J_action)
 
     # Numerically compute the Jacobian action from `J` and `w`
-    Jw = Cofunction(V)
+    Jw = Cofunction(V.dual())
     with w.dat.vec_ro as w_vec:
         with Jw.dat.vec as Jw_vec:
             J.petscmat.mult(w_vec, Jw_vec)
