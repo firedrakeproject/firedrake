@@ -46,6 +46,7 @@ def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
         raise ValueError("Left-hand operator must be a Slate Tensor")
 
     # Ensures field indices are in increasing order
+    id_0, id_1 = elim_fields[0], elim_fields[-1]
     elim_fields = list(as_tuple(elim_fields))
     elim_fields.sort()
 
@@ -73,8 +74,6 @@ def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
     # where subscript `e` denotes the coupling with fields
     # that will be eliminated, and `f` denotes the condensed
     # fields.
-    id_0 = e_idx0
-    id_1 = e_idx1
     outer_id_0 = slice(e_idx0, e_idx1 + 1)
     outer_id_1 = slice(f_idx0, f_idx1 + 1)
     Aff = _A[outer_id_1, outer_id_1]

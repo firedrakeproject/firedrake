@@ -4,8 +4,8 @@ from firedrake import *
 from itertools import product
 
 
-@pytest.mark.parametrize(('degree', 'nested'), list(product([1, 2], [True, False])))
-def test_lvp_equiv_hdg(degree, nested):
+@pytest.mark.parametrize(('degree', 'nested', 'elimination'), list(product([1, 2], [True, False], ['0,1', '1,0'])))
+def test_lvp_equiv_hdg(degree, nested, elimination):
     """Runs an HDG problem and checks that passing
     a Slate-defined problem into a variational problem
     produces the same result for the traces as solving
@@ -47,7 +47,7 @@ def test_lvp_equiv_hdg(degree, nested):
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': '0, 1',
+              'pc_sc_eliminate_fields': elimination,
               'condensed_field': {'ksp_type': 'preonly',
                                   'pc_type': 'lu',
                                   'pc_factor_mat_solver_type': 'mumps',
