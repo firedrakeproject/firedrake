@@ -156,8 +156,16 @@ def test_zero_form(M, f, one):
 
 
 def test_preprocess_form(M, a, f):
+    from ufl.algorithms.expand_indices import expand_indices
+
     expr = action(action(M, M), f)
-    assert preprocess_base_form(expr) == action(M, action(M, f))
+    A = preprocess_base_form(expr)
+    B = action(M, action(M, f))
+
+    assert isinstance(A, ufl.Action)
+    assert A.left() == B.left()
+    # Need to expand indices to be able to match equal (different MultiIndex used for both).
+    assert expand_indices(A.right()) == expand_indices(B.right())
 
 
 def test_cofunction_assign(a, M, f):
