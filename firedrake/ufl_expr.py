@@ -111,10 +111,6 @@ class Coargument(ufl.argument.Coargument):
     def make_dat(self):
         return self.function_space().make_dat()
 
-    def _analyze_form_arguments(self):
-        # Returns the argument found in the Coargument object
-        self._arguments = (self,)
-
     def reconstruct(self, function_space=None,
                     number=None, part=None):
         if function_space is None or function_space == self.function_space():
