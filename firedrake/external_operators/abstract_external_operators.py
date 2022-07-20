@@ -1,3 +1,4 @@
+from ufl.core.ufl_type import UFLType
 from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
 from ufl.coefficient import Coefficient
@@ -13,7 +14,7 @@ from firedrake.adjoint import ExternalOperatorsMixin
 from pyop2.datatypes import ScalarType
 
 
-class RegisteringAssemblyMethods(type):
+class RegisteringAssemblyMethods(UFLType):
     def __init__(cls, name, bases, attrs):
         cls._assembly_registry = {}
         # Populate assembly registry with registries from the base classes
