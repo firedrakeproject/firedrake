@@ -113,7 +113,7 @@ class LinearSolver(OptionsManager):
         from firedrake.assemble import OneFormAssembler
 
         u = function.Function(self.trial_space)
-        b = function.Function(self.test_space)
+        b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
         return u, OneFormAssembler(expr, tensor=b).assemble, b
 
@@ -125,8 +125,14 @@ class LinearSolver(OptionsManager):
         update()
         # blift contains -A u_bc
         blift += b
-        for bc in self.A.bcs:
-            bc.apply(blift)
+        if isinstance(blift, cofunction.Cofunction):
+            blift_func = function.Function(blift.function_space().dual(), val=blift.vector())
+            for bc in self.A.bcs:
+                bc.apply(blift_func)
+            blift.assign(cofunction.Cofunction(blift.function_space(), val=blift_func.vector()))
+        else:
+            for bc in self.A.bcs:
+                bc.apply(blift)
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 

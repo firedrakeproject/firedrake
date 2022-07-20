@@ -1,4 +1,3 @@
-import abc
 import itertools
 import ufl
 
@@ -8,7 +7,7 @@ from firedrake.petsc import PETSc
 from types import SimpleNamespace
 
 
-class MatrixBase(ufl.Matrix, metaclass=abc.ABCMeta):
+class MatrixBase(ufl.Matrix):
     """A representation of the linear operator associated with a
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this

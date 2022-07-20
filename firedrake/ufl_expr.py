@@ -1,5 +1,6 @@
 import ufl
 import ufl.argument
+import ufl.core.ufl_type
 from ufl.duals import is_dual
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
@@ -112,7 +113,7 @@ class Coargument(ufl.argument.Coargument):
 
     def _analyze_form_arguments(self):
         # Returns the argument found in the Coargument object
-        self._arguments = (Argument(self._ufl_function_space, 0),)
+        self._arguments = (self,)
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
@@ -214,11 +215,18 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
 
-    mesh = form.ufl_domain()
-    if not mesh:
-        raise ValueError("Expression to be differentiated has no ufl domain."
-                         "\nDo you need to add a domain to your Constant?")
-    is_dX = u_is_x or u is mesh.coordinates
+    try:
+        mesh = form.ufl_domain()
+        if not mesh:
+            raise ValueError("Expression to be differentiated has no ufl domain."
+                             "\nDo you need to add a domain to your Constant?")
+        is_dX = u_is_x or u is mesh.coordinates
+    except AttributeError:
+        is_dX = False
+        if isinstance(uc, firedrake.Constant):
+            raise ValueError("Expression to be differentiated has no ufl domain."
+                             "\nDo you need to add a domain to your Constant?")
+
     try:
         args = form.arguments()
     except AttributeError:

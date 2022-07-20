@@ -18,16 +18,19 @@ def annotate_assemble(assemble):
         with stop_annotating():
             output = assemble(*args, **kwargs)
 
+        from firedrake.function import Function
         form = args[0]
-        if isinstance(output, numbers.Complex):
+        if isinstance(output, (numbers.Complex, Function)):
+            # Assembling a 0-form or a BaseFormOperator (e.g. Interp)
             if not annotate:
                 return output
 
-            if not isinstance(output, float):
+            if not isinstance(output, (float, Function)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
 
             tape = get_working_tape()
 
+            """
             extops_form = form.external_operators()
             for coeff in form.coefficients():
                 extops_coeff_form = [e.result_coefficient() for e in extops_form]
@@ -38,6 +41,7 @@ def annotate_assemble(assemble):
 
                     block_variable = coeff.block_variable
                     block_extops.add_output(block_variable)
+            """
 
             output = create_overloaded_object(output)
             block = AssembleBlock(form, ad_block_tag=ad_block_tag)
@@ -45,7 +49,7 @@ def annotate_assemble(assemble):
 
             block.add_output(output.block_variable)
         else:
-            # Assembled a vector or matrix
+            # Assembled a 1-form or a 2-form
             output.form = form
 
         return output

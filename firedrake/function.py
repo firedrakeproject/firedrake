@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import ufl
+from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 import ctypes
 from collections import OrderedDict
@@ -12,6 +13,7 @@ from pyop2 import op2
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
+from firedrake.cofunction import Cofunction
 from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
@@ -228,6 +230,11 @@ class Function(ufl.Coefficient, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Cofunction(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
@@ -364,14 +371,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, subset=None, ad_block_tag=None):
+    def interpolate(self, expression, subset=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: a UFL expression to interpolate
-        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
+        return interpolation.interpolate(expression, self, subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign

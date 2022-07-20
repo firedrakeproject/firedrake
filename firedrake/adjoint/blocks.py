@@ -3,7 +3,7 @@ from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
 from pyadjoint import stop_annotating
 from pyadjoint.tape import no_annotations
-from ufl.algorithms.analysis import extract_arguments_and_coefficients, extract_coefficients
+from ufl.algorithms.analysis import extract_arguments, extract_arguments_and_coefficients, extract_coefficients
 from ufl import replace
 from .checkpointing import maybe_disk_checkpoint
 
@@ -286,8 +286,8 @@ class FunctionSplitBlock(Block, Backend):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = self.backend.Function(block_variable.output.function_space())
-        if type(adj_inputs[0]) is self.backend.Function:
+        eval_adj = self.backend.Cofunction(block_variable.output.function_space().dual())
+        if type(adj_inputs[0]) is self.backend.Cofunction:
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:
             eval_adj.sub(self.idx).assign(adj_inputs[0].function)
@@ -300,7 +300,7 @@ class FunctionSplitBlock(Block, Backend):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = self.backend.Function(block_variable.output.function_space())
+        eval_hessian = self.backend.Cofunction(block_variable.output.function_space().dual())
         eval_hessian.sub(self.idx).assign(hessian_inputs[0].function)
         return eval_hessian.vector()
 
@@ -324,7 +324,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].split()[self.idx]
+            return adj_inputs[0].split()[self.idx].vector()
         else:
             return adj_inputs[0]
 
@@ -612,8 +612,13 @@ class InterpolateBlock(Block, Backend):
         """
         if len(adj_inputs) > 1:
             raise(NotImplementedError("Interpolate block must have a single output"))
-        dJdm = self.backend.derivative(prepared, inputs[idx])
-        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True).vector()
+        input = inputs[idx]
+        dJdm = self.backend.derivative(prepared, input)
+        # Get the function space from `dJdm` argument
+        arg, = extract_arguments(dJdm)
+        # Make sure to have a cofunction output
+        output = self.backend.Cofunction(arg.function_space().dual())
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True).vector()
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -874,7 +879,7 @@ class SupermeshProjectBlock(Block, Backend):
     def _recompute_component_transpose(self, inputs):
         if not isinstance(inputs[0], (self.backend.Function, self.backend.Vector)):
             raise NotImplementedError(f"Source function must be a Function, not {type(inputs[0])}.")
-        out = self.backend.Function(self.source_space)
+        out = self.backend.Cofunction(self.source_space.dual())
         tmp = self.backend.Function(self.target_space)
         self.projector.apply_massinv(tmp, inputs[0])   # Adjoint of step 2 (since mass self-adjoint)
         with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:

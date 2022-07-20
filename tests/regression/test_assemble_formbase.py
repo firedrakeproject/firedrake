@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import preassemble_base_form
+from firedrake.assemble import preprocess_base_form
 from firedrake.utils import ScalarType
 import ufl
 
@@ -117,8 +117,8 @@ def test_assemble_action(M, f):
     res2 = assemble(action(assembledM, f))
     assert isinstance(res2, Cofunction)
     assert isinstance(res, Cofunction)
-    assert abs(res.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
-    for f in res2.split():
+    for f, f2 in zip(res.split(), res2.split()):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
@@ -134,7 +134,8 @@ def test_vector_formsum(a):
     assert isinstance(formsum, ufl.form.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
-    assert abs(preassemble.dat.data.sum() - res2.dat.data.sum()) < 1.0e-12
+    for f, f2 in zip(preassemble.split(), res2.split()):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
 
 def test_matrix_formsum(M):
@@ -154,10 +155,28 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
-def test_preassemble_form(M, a, f):
-
+def test_preprocess_form(M, a, f):
     expr = action(action(M, M), f)
-    assert preassemble_base_form(expr) == action(M, action(M, f))
+    assert preprocess_base_form(expr) == action(M, action(M, f))
+
+
+def test_cofunction_assign(a, M, f):
+    c1 = assemble(a)
+    # Scale the action to obtain a different value than c1
+    c2 = assemble(2 * action(M, f))
+    assert isinstance(c1, Cofunction)
+    assert isinstance(c2, Cofunction)
+
+    # Assign Cofunction to Cofunction
+    c1.assign(c2)
+    for a, b in zip(c1.split(), c2.split()):
+        assert np.allclose(a.dat.data, b.dat.data)
+
+    # Assign BaseForm to Cofunction
+    c1.assign(action(M, f))
+    for a, b in zip(c1.split(), c2.split()):
+        assert np.allclose(a.dat.data, 0.5 * b.dat.data)
+
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space

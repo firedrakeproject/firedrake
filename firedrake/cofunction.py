@@ -1,8 +1,10 @@
+import numpy as np
 import ufl
+from ufl.form import BaseForm
 from pyop2 import op2
+import firedrake.assemble
 from firedrake.logging import warning
-from firedrake import utils
-from firedrake import vector
+from firedrake import utils, vector
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -30,11 +32,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
-    def __new__(cls, *args, **kwargs):
-        new_args = [args[i].dual()
-                    if i == 0 else args[i] for i in range(len(args))]
-        return ufl.Cofunction.__new__(cls, *new_args, **kwargs)
-
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
@@ -51,7 +48,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
 
         ufl.Cofunction.__init__(self,
-                                function_space._ufl_function_space.dual())
+                                function_space.ufl_function_space())
 
         self.comm = function_space.comm
         self._function_space = function_space
@@ -86,7 +83,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @utils.cached_property
     def _split(self):
-        return (type(self)(self.function_space(), self.dat),)
+        return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
     @FunctionMixin._ad_annotate_split
     def split(self):
@@ -99,7 +96,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if self.function_space().value_size == 1:
             return (self, )
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+            return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
     def sub(self, i):
@@ -123,10 +120,104 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self._function_space
 
+    @FunctionMixin._ad_annotate_assign
+    @utils.known_pyop2_safe
+    def assign(self, expr, subset=None):
+        r"""Set the :class:`Cofunction` value to the pointwise value of
+        expr. expr may only contain :class:`Cofunction`\s on the same
+        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`.FunctionSpace` then::
+
+          f += 2 * g
+
+        will add twice `g` to `f`.
+
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
+        """
+        expr = ufl.as_ufl(expr)
+        if isinstance(expr, ufl.classes.Zero):
+            self.dat.zero(subset=subset)
+            return self
+        elif isinstance(expr, ufl.classes.ConstantValue):
+            from firedrake.function import Function
+            # Workaround to avoid using `assemble_expressions` directly
+            # since cofunctions are not `ufl.Expr`.
+            f = Function(self.function_space().dual()).assign(expr)
+            f.dat.copy(self.dat, subset=subset)
+            return self
+        elif (isinstance(expr, Cofunction)
+              and expr.function_space() == self.function_space()):
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+        elif isinstance(expr, BaseForm):
+            # Enable to write down c += B where c is a Cofunction
+            # and B an appropriate BaseForm object
+            assembled_expr = firedrake.assemble(expr)
+            return self.assign(assembled_expr)
+
+        raise ValueError('Cannot assign %s' % expr)
+
+    @FunctionMixin._ad_annotate_iadd
+    @utils.known_pyop2_safe
+    def __iadd__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat += expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat += expr.dat
+            return self
+        # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    @FunctionMixin._ad_annotate_isub
+    @utils.known_pyop2_safe
+    def __isub__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat -= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat -= expr.dat
+            return self
+
+        # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    def interpolate(self, expression):
+        r"""Interpolate an expression onto this :class:`Cofunction`.
+
+        :param expression: a UFL expression to interpolate
+        :returns: this :class:`Function` object"""
+        from firedrake.ufl_expr import Argument
+        from firedrake import interpolation
+        interp = interpolation.Interp(Argument(self.function_space().dual(), 0), expression)
+        return firedrake.assemble(interp)
+
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
         :class:`Function`"""
         return vector.Vector(self)
+
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.Set` containing the nodes of this
+        :class:`Cofunction`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
+        """
+        return self.function_space().node_set
 
     def ufl_id(self):
         return self.uid
@@ -155,3 +246,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self._name
         else:
             return super(Cofunction, self).__str__()
+
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
