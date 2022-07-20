@@ -1,6 +1,5 @@
-import functools
-
 import firedrake.dmhooks as dmhooks
+import numpy as np
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -28,11 +27,12 @@ class SCPC(SCBase):
         variables are recovered via back-substitution.
         """
 
-        from firedrake import assemble
-        from firedrake.assemble import allocate_matrix
+        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
+        from firedrake.parloops import par_loop, INC
+        from ufl import dx
 
         prefix = pc.getOptionsPrefix() + "condensed_field_"
         A, P = pc.getOperators()
@@ -71,7 +71,7 @@ class SCPC(SCBase):
         for bc in cxt_bcs:
             if bc.function_space().index != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            bcs.append(DirichletBC(Vc, bc.function_arg, bc.sub_domain))
+            bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
@@ -80,18 +80,30 @@ class SCPC(SCBase):
         self.residual = Function(W)
         self.solution = Function(W)
 
+        shapes = (Vc.finat_element.space_dimension(),
+                  np.prod(Vc.shape))
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        self.weight = Function(Vc)
+        par_loop((domain, instructions), dx, {"w": (self.weight, INC)},
+                 is_loopy_kernel=True)
+        with self.weight.dat.vec as wc:
+            wc.reciprocal()
+
         # Get expressions for the condensed linear system
         A_tensor = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
+        reduced_sys, schur_builder = self.condensed_system(A_tensor, self.residual, elim_fields, prefix, pc)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = functools.partial(assemble,
-                                                r_expr,
-                                                tensor=self.condensed_rhs,
-                                                form_compiler_parameters=self.cxt.fc_params,
-                                                assembly_type="residual")
+        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs,
+                                               bcs=bcs, zero_bc_nodes=True,
+                                               form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
         self.S = allocate_matrix(S_expr,
@@ -101,13 +113,8 @@ class SCPC(SCBase):
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
 
-        self._assemble_S = functools.partial(assemble,
-                                             S_expr,
-                                             tensor=self.S,
-                                             bcs=bcs,
-                                             form_compiler_parameters=self.cxt.fc_params,
-                                             mat_type=mat_type,
-                                             assembly_type="residual")
+        self._assemble_S = TwoFormAssembler(S_expr, tensor=self.S, bcs=bcs,
+                                            form_compiler_parameters=self.cxt.fc_params).assemble
 
         self._assemble_S()
         Smat = self.S.petscmat
@@ -117,9 +124,9 @@ class SCPC(SCBase):
         if A != P:
             self.cxt_pc = P.getPythonContext()
             P_tensor = Tensor(self.cxt_pc.a)
-            P_reduced_sys = self.condensed_system(P_tensor,
-                                                  self.residual,
-                                                  elim_fields)
+            P_reduced_sys, _ = self.condensed_system(P_tensor,
+                                                     self.residual,
+                                                     elim_fields)
             S_pc_expr = P_reduced_sys.lhs
             self.S_pc_expr = S_pc_expr
 
@@ -131,13 +138,8 @@ class SCPC(SCBase):
                                         options_prefix=prefix,
                                         appctx=self.get_appctx(pc))
 
-            self._assemble_S_pc = functools.partial(assemble,
-                                                    S_pc_expr,
-                                                    tensor=self.S_pc,
-                                                    bcs=bcs,
-                                                    form_compiler_parameters=self.cxt.fc_params,
-                                                    mat_type=mat_type,
-                                                    assembly_type="residual")
+            self._assemble_S_pc = TwoFormAssembler(S_pc_expr, tensor=self.S_pc, bcs=bcs,
+                                                   form_compiler_parameters=self.cxt.fc_params).assemble
 
             self._assemble_S_pc()
             Smat_pc = self.S_pc.petscmat
@@ -185,22 +187,25 @@ class SCPC(SCBase):
         self.local_solvers = self.local_solver_calls(A_tensor,
                                                      self.residual,
                                                      self.solution,
-                                                     elim_fields)
+                                                     elim_fields,
+                                                     schur_builder)
 
-    def condensed_system(self, A, rhs, elim_fields):
+    def condensed_system(self, A, rhs, elim_fields, prefix, pc):
         """Forms the condensed linear system by eliminating
         specified unknowns.
 
         :arg A: A Slate Tensor containing the mixed bilinear form.
         :arg rhs: A firedrake function for the right-hand side.
         :arg elim_fields: An iterable of field indices to eliminate.
+        :arg prefix: an option prefix for the condensed field.
+        :arg pc: a Preconditioner instance.
         """
 
         from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
 
-        return condense_and_forward_eliminate(A, rhs, elim_fields)
+        return condense_and_forward_eliminate(A, rhs, elim_fields, prefix, pc)
 
-    def local_solver_calls(self, A, rhs, x, elim_fields):
+    def local_solver_calls(self, A, rhs, x, elim_fields, schur_builder):
         """Provides solver callbacks for inverting local operators
         and reconstructing eliminated fields.
 
@@ -209,24 +214,22 @@ class SCPC(SCBase):
         :arg x: A firedrake function for the solution.
         :arg elim_fields: An iterable of eliminated field indices
                           to recover.
+        :arg schur_builder: a `SchurComplementBuilder`.
         """
-        from firedrake import assemble
+        from firedrake.assemble import OneFormAssembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
         fields = x.split()
-        systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
+        systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
-            Ae = local_system.lhs
+            Aeinv = local_system.lhs
             be = local_system.rhs
             i, = local_system.field_idx
-            local_solve = Ae.solve(be, decomposition="PartialPivLU")
-            solve_call = functools.partial(assemble,
-                                           local_solve,
-                                           tensor=fields[i],
-                                           form_compiler_parameters=self.cxt.fc_params,
-                                           assembly_type="residual")
+            local_solve = Aeinv * be
+            solve_call = OneFormAssembler(local_solve, tensor=fields[i],
+                                          form_compiler_parameters=self.cxt.fc_params).assemble
             local_solvers.append(solve_call)
 
         return local_solvers
@@ -255,6 +258,10 @@ class SCPC(SCBase):
 
         with self.residual.dat.vec_wo as v:
             x.copy(v)
+
+        # Disassemble the incoming right-hand side
+        with self.residual.split()[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+            vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
         self._assemble_Srhs()

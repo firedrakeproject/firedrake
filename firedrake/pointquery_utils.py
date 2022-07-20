@@ -23,7 +23,6 @@ from coffee.base import ArrayInit
 
 def make_args(function):
     arg = function.dat(op2.READ, function.cell_node_map())
-    arg.position = 0
     return (arg,)
 
 

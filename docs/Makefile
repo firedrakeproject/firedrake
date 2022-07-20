@@ -55,8 +55,8 @@ scp:
 # Imperial's ICT department are doing.
 	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
 
-livehtml: html
-	python server.py
+livehtml:
+	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 serve: html
 	cd $(BUILDDIR)/html; python -m SimpleHTTPServer $(PORT)

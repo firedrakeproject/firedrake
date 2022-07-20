@@ -6,11 +6,11 @@ import collections
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from pyop2 import READ, WRITE, RW, INC, MIN, MAX
-import pyop2
+from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 import coffee.base as ast
+from firedrake.parameters import target
 
 from firedrake.logging import warning
 from firedrake import constant
@@ -128,9 +128,9 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             raise KeyError("No cache")
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=loopy.CTarget(),
+        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
                                   seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-        knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
+        knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
         if kernel_cache is not None:
             return kernel_cache.setdefault(key, knl)
         else:
@@ -168,10 +168,9 @@ def _form_string_kernel(body, measure, args, **kwargs):
             kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
         body = body.replace(var+".dofs", str(ndof))
 
-    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,
-                                    ast.FlatBlock(body),
-                                    pred=["static"]),
-                        "par_loop_kernel", **kwargs)
+    return op2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,
+                                  ast.FlatBlock(body),
+                                  pred=["static"]), "par_loop_kernel", **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -374,4 +373,4 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         return f.dat(intent, _map['nodes'](f))
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
-    return pyop2.par_loop(*op2args, **kwargs)
+    return op2.parloop(*op2args, **kwargs)
