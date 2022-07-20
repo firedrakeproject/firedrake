@@ -107,9 +107,12 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
-        from firedrake import function
+        from firedrake import function, cofunction
+        # Need a cofunction since y receives the assembled result of Ax
+        self._ystar = cofunction.Cofunction(test_space.dual())
         self._y = function.Function(test_space)
         self._x = function.Function(trial_space)
+        self._xstar = cofunction.Cofunction(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
@@ -138,7 +141,7 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = get_form_assembler(self.action, tensor=self._y,
+        self._assemble_action = get_form_assembler(self.action, tensor=self._ystar,
                                                    bcs=self.bcs_action,
                                                    form_compiler_parameters=self.fc_params,
                                                    zero_bc_nodes=True)
@@ -160,7 +163,7 @@ class ImplicitMatrixContext(object):
         # Domain last
         self._assemble_actionT.append(
             get_form_assembler(self.actionT,
-                               tensor=self._x if len(self.bcs) == 0 else self._xbc,
+                               tensor=self._xstar if len(self.bcs) == 0 else self._xbc,
                                form_compiler_parameters=self.fc_params))
 
     @cached_property
@@ -213,12 +216,12 @@ class ImplicitMatrixContext(object):
                 with self._xbc.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
-                bc.set(self._y, self._xbc)
+                bc.set(self._ystar, self._xbc)
         else:
             for bc in self.row_bcs:
-                bc.zero(self._y)
+                bc.zero(self._ystar)
 
-        with self._y.dat.vec_ro as v:
+        with self._ystar.dat.vec_ro as v:
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
@@ -263,14 +266,14 @@ class ImplicitMatrixContext(object):
 
         if len(self.bcs) > 0:
             # Accumulate values in self._x
-            self._x.dat.zero()
+            self._xstar.dat.zero()
             # Apply actionTs in sorted order
             for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
                 for obc in obj.bcs:
                     obc.zero(self._y)
                 aT()
-                self._x += self._xbc
+                self._xstar += self._xbc
         else:
             # No DirichletBC/EquationBC
             # There is only a single element in the list (for the domain equation).
@@ -284,12 +287,12 @@ class ImplicitMatrixContext(object):
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
-                    bc.set(self._x, self._ybc)
+                    bc.set(self._xstar, self._ybc)
         else:
             for bc in self.col_bcs:
-                bc.zero(self._x)
+                bc.zero(self._xstar)
 
-        with self._x.dat.vec_ro as v:
+        with self._xstar.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):
