@@ -126,6 +126,10 @@ if sys.version_info >= (3, 11):
 Some wheels are not yet available for Python 3.11 for some required package(s).
 Please install with Python 3.10 (or an earlier version >= 3.6).""")
     sys.exit(1)
+elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
+    print("""
+Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
+some required package(s) are not available for earlier Python versions.""")
 elif sys.version_info < (3, 6):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
