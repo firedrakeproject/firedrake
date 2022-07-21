@@ -790,6 +790,22 @@ class MatrixFreeAssembler:
         return self._tensor
 
 
+def get_form_assembler(form, tensor, *args, **kwargs):
+    """Provide the assemble method for `form`"""
+
+    if isinstance(form, ufl.Form) and not base_form_operands(form):
+        if len(form.arguments()) == 1:
+            return OneFormAssembler(form, tensor, *args, **kwargs).assemble
+        elif len(form.arguments()) == 2:
+            return TwoFormAssembler(form, tensor, *args, **kwargs).assemble
+        else:
+            raise ValueError('Expecting a 1-form or 2-form and not %s' % (form))
+    elif isinstance(form, ufl.form.BaseForm):
+        return functools.partial(assemble_base_form, form, *args, tensor=tensor, **kwargs)
+    else:
+        raise ValueError('Expecting a BaseForm object and not %s' % form)
+
+
 def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
     # N.B. Generating the global kernel is not a collective operation so the
     # communicator does not need to be a part of this cache key.
