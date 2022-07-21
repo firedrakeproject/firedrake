@@ -409,10 +409,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 (row, col) = lhs.arguments()
                 res = PETSc.Mat().create()
 
-                # REMOVE: Workaround to fix the different petsc type of
-                # ImplicitMatrix (type: python) and MatrixBase.
-                # petsc_mat.setType(rhs.M.handle.type)
-
                 # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
                 return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
