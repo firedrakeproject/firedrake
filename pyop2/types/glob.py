@@ -51,6 +51,9 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_#x%x" % id(self)
         self.comm = comm
+        # Object versioning setup
+        petsc_counter = (self.comm and self.dtype == PETSc.ScalarType)
+        VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -104,6 +107,7 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
     @property
     def data(self):
         """Data array."""
+        self.increment_dat_version()
         if len(self._data) == 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
@@ -115,12 +119,13 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
     @property
     def data_ro(self):
         """Data array."""
-        view = self.data.view()
+        view = self._data.view()
         view.setflags(write=False)
         return view
 
     @data.setter
     def data(self, value):
+        self.increment_dat_version()
         self._data[:] = utils.verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -153,6 +158,7 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
     @mpi.collective
     def zero(self, subset=None):
         assert subset is None
+        self.increment_dat_version()
         self._data[...] = 0
 
     @mpi.collective
@@ -282,11 +288,6 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
-        # PETSc Vecs have a state counter and cache norm computations
-        # to return immediately if the state counter is unchanged.
-        # Since we've updated the data behind their back, we need to
-        # change that state counter.
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             data = self._data

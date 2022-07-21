@@ -832,8 +832,8 @@ class TestDatAPI:
         dset = set**0
         d = op2.Dat(dset)
         assert d.shape == (set.total_size, 0)
-        assert d.data.size == 0
-        assert d.data.shape == (set.total_size, 0)
+        assert d._data.size == 0
+        assert d._data.shape == (set.total_size, 0)
 
 
 class TestMixedDatAPI:

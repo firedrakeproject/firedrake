@@ -44,6 +44,9 @@ class DataCarrier(abc.ABC):
         the product of the dim tuple."""
         return self._cdim
 
+    def increment_dat_version(self):
+        pass
+
 
 class EmptyDataMixin(abc.ABC):
     """A mixin for :class:`Dat` and :class:`Global` objects that takes
@@ -75,6 +78,27 @@ class EmptyDataMixin(abc.ABC):
 
 
 class VecAccessMixin(abc.ABC):
+
+    def __init__(self, petsc_counter=None):
+        if petsc_counter:
+            # Use lambda since `_vec` allocates the data buffer
+            # -> Dat/Global should not allocate storage until accessed
+            self._dat_version = lambda: self._vec.stateGet()
+            self.increment_dat_version = lambda: self._vec.stateIncrease()
+        else:
+            # No associated PETSc Vec if incompatible type:
+            # -> Equip Dat/Global with their own counter.
+            self._version = 0
+            self._dat_version = lambda: self._version
+
+            def _inc():
+                self._version += 1
+            self.increment_dat_version = _inc
+
+    @property
+    def dat_version(self):
+        return self._dat_version()
+
     @abc.abstractmethod
     def vec_context(self, access):
         pass

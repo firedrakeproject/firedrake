@@ -824,6 +824,12 @@ class Mat(AbstractMat):
         """Iterate over all :class:`Mat` blocks by row and then by column."""
         yield from itertools.chain(*self.blocks)
 
+    @property
+    def dat_version(self):
+        if self.assembly_state != Mat.ASSEMBLED:
+            raise RuntimeError("Should not ask for state counter if the matrix is not assembled.")
+        return self.handle.stateGet()
+
     @mpi.collective
     def zero(self):
         """Zero the matrix."""
@@ -935,6 +941,10 @@ class MatBlock(AbstractMat):
                                                       iscol=colis)
         self.comm = parent.comm
         self.local_to_global_maps = self.handle.getLGMap()
+
+    @property
+    def dat_version(self):
+        return self.handle.stateGet()
 
     @utils.cached_property
     def _kernel_args_(self):

@@ -145,6 +145,8 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         :meth:`data_with_halos`.
 
         """
+        # Increment dat_version since this accessor assumes data modification
+        self.increment_dat_version()
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         self.halo_valid = False
@@ -255,6 +257,8 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         """Zero the data associated with this :class:`Dat`
 
         :arg subset: A :class:`Subset` of entries to zero (optional)."""
+        # Data modification
+        self.increment_dat_version()
         # If there is no subset we can safely zero the halo values.
         if subset is None:
             self._data[:] = 0
@@ -668,6 +672,12 @@ class DatView(AbstractDat):
 
 class Dat(AbstractDat, VecAccessMixin):
 
+    def __init__(self, *args, **kwargs):
+        AbstractDat.__init__(self, *args, **kwargs)
+        # Determine if we can rely on PETSc state counter
+        petsc_counter = (self.dtype == PETSc.ScalarType)
+        VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
+
     @utils.cached_property
     def _vec(self):
         assert self.dtype == PETSc.ScalarType, \
@@ -685,11 +695,6 @@ class Dat(AbstractDat, VecAccessMixin):
         r"""A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
-        # PETSc Vecs have a state counter and cache norm computations
-        # to return immediately if the state counter is unchanged.
-        # Since we've updated the data behind their back, we need to
-        # change that state counter.
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             self.halo_valid = False
@@ -728,6 +733,10 @@ class MixedDat(AbstractDat, VecAccessMixin):
             raise ex.DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
         self.comm = self._dats[0].comm
+
+    @property
+    def dat_version(self):
+        return sum(d.dat_version for d in self._dats)
 
     def __call__(self, access, path=None):
         from pyop2.parloop import MixedDatLegacyArg
@@ -1012,7 +1021,6 @@ class MixedDat(AbstractDat, VecAccessMixin):
                     size = v.local_size
                     array[offset:offset+size] = v.array_r[:]
                     offset += size
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             # Reverse scatter to get the values back to their original locations
