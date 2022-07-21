@@ -209,8 +209,8 @@ If not, feel free to ask for more help in our
 .. graphviz:: install-debug.dot
 
 If you don't see the issue you're experiencing in this chart, please
-ask us on Slack or report a bug by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
+ask us on Slack or report a bug by creating a new `github discussion
+<https://github.com/firedrakeproject/firedrake/discussions>`__. To help us
 diagnose what's going wrong, **please include the following log files**:
 
 * ``firedrake-install.log`` from Firedrake, which you can find in the
