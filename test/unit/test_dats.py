@@ -161,6 +161,28 @@ class TestDat:
         assert d1.dat_version == 3
         assert d2.dat_version == 1
 
+        # Context managers (without changing d1 and d2)
+        with d1.vec_wo as _:
+            pass
+
+        with d2.vec as _:
+            pass
+
+        # Dat version shouldn't change as we are just calling the context manager
+        # and not changing the Dat objects.
+        assert d1.dat_version == 3
+        assert d2.dat_version == 1
+
+        # Context managers (modify d1 and d2)
+        with d1.vec_wo as x:
+            x += 1
+
+        with d2.vec as x:
+            x += 1
+
+        assert d1.dat_version == 4
+        assert d2.dat_version == 2
+
     def test_mixed_dat_version(self, s, d1, mdat):
         """Check object versioning for MixedDat"""
         d2 = op2.Dat(s)
