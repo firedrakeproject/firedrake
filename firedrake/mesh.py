@@ -232,7 +232,7 @@ def _from_netgen(ngmesh,comm=None):
     :arg ngmesh: NetGen Mesh
     """
     if len(ngmesh.Elements3D()) != 0:
-        raise "Only 2D meshes are implemented at the moment."
+        raise RuntimeError("Only 2D meshes are implemented at the moment.")
     else:
         V = [];
         T = [];
@@ -1872,7 +1872,7 @@ def make_mesh_from_mesh_topology(topology, name):
     return mesh
 
 
-#@PETSc.Log.EventDecorator("CreateMesh")
+@PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
