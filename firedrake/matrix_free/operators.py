@@ -118,9 +118,9 @@ class ImplicitMatrixContext(object):
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = function.Function(trial_space)
+            self._xbc = cofunction.Cofunction(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = function.Function(test_space)
+            self._ybc = cofunction.Cofunction(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
