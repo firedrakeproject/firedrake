@@ -168,9 +168,9 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _diagonal(self):
-        from firedrake import Function
+        from firedrake import Cofunction
         assert self.on_diag
-        return Function(self._x.function_space())
+        return Cofunction(self._x.function_space().dual())
 
     @cached_property
     def _assemble_diagonal(self):

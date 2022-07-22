@@ -30,6 +30,7 @@ class SCPC(SCBase):
         from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
+        from firedrake.cofunction import Cofunction
         from firedrake.functionspace import FunctionSpace
         from firedrake.parloops import par_loop, INC
         from ufl import dx
@@ -76,9 +77,9 @@ class SCPC(SCBase):
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
         self.c_field = c_field
-        self.condensed_rhs = Function(Vc)
+        self.condensed_rhs = Cofunction(Vc.dual())
         self.residual = Function(W)
-        self.solution = Function(W)
+        self.solution = Cofunction(W.dual())
 
         shapes = (Vc.finat_element.space_dimension(),
                   np.prod(Vc.shape))

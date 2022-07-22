@@ -793,9 +793,10 @@ class MatrixFreeAssembler:
 def get_form_assembler(form, tensor, *args, **kwargs):
     """Provide the assemble method for `form`"""
 
-    if isinstance(form, ufl.Form) and not base_form_operands(form):
-        if len(form.arguments()) == 1:
-            return OneFormAssembler(form, tensor, *args, **kwargs).assemble
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
+        diagonal = kwargs.pop('diagonal', False)
+        if len(form.arguments()) == 1 or diagonal:
+            return OneFormAssembler(form, tensor, *args, diagonal=diagonal, **kwargs).assemble
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, tensor, *args, **kwargs).assemble
         else:
@@ -803,7 +804,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     elif isinstance(form, ufl.form.BaseForm):
         return functools.partial(assemble_base_form, form, *args, tensor=tensor, **kwargs)
     else:
-        raise ValueError('Expecting a BaseForm object and not %s' % form)
+        raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
 
 def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
