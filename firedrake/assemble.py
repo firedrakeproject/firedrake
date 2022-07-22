@@ -1176,7 +1176,7 @@ class ParloopBuilder:
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, ufl.FunctionSpace)
+        assert isinstance(V, ufl.functionspace.BaseFunctionSpace)
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
