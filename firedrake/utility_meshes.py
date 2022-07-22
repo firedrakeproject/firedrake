@@ -1559,6 +1559,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
     :kwarg name: Optional name of the mesh.
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
+                           distribution_parameters=distribution_parameters,
                            degree=degree, reorder=reorder, comm=comm, name=name)
 
 
