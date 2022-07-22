@@ -514,7 +514,7 @@ def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     """
-    if ele.cell() == ufl.quadrilateral:
+    if ele.cell().cellname().startswith("quadrilateral"):
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
         return expand_element(ele.reconstruct(cell=quadrilateral_tpc))
     elif ele.cell() == ufl.hexahedron:
@@ -591,8 +591,6 @@ def get_line_elements(V):
 
     terms = finat_ele.elements if hasattr(finat_ele, "elements") else [finat_ele]
     for term in terms:
-        if hasattr(term, "product"):
-            term = term.product
         factors = term.factors if hasattr(term, "factors") else (term,)
         expansion = tuple(e.fiat_equivalent for e in reversed(factors))
         if not all([e.get_reference_element().shape == LINE for e in expansion]):
