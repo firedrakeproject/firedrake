@@ -225,6 +225,29 @@ class _Facets(object):
 
 
 @PETSc.Log.EventDecorator()
+def _from_netgen(ngmesh,comm=None):
+    """
+    Create a DMPlex from an Netgen mesh
+
+    :arg ngmesh: NetGen Mesh
+    """
+    if len(ngmesh.Elements3D()) != 0:
+        raise "Only 2D meshes are implemented at the moment."
+    else:
+        V = [];
+        T = [];
+        for v in list(ngmesh.Points()):
+            V = V + [[float(v[0].__repr__()),float(v[1].__repr__())]]
+        for t in ngmesh.Elements2D():
+            T = T + [[int(v.__repr__())-1 for v in t.vertices]]
+    plex = _from_cell_list(2, T, V, comm, name=None)
+    for e in ngmesh.Elements1D():
+        vStart, vEnd = plex.getDepthStratum(0)   # vertices
+        join = plex.getJoin([vStart+int(v.__repr__())-1 for v in e.vertices])
+        plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+    return plex
+
+@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -1849,7 +1872,7 @@ def make_mesh_from_mesh_topology(topology, name):
     return mesh
 
 
-@PETSc.Log.EventDecorator("CreateMesh")
+#@PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1906,7 +1929,7 @@ def Mesh(meshfile, **kwargs):
 
     """
     import firedrake.function as function
-
+    
     name = kwargs.get("name", DEFAULT_MESH_NAME)
     comm = kwargs.get("comm", COMM_WORLD)
     reorder = kwargs.get("reorder", None)
@@ -1936,6 +1959,9 @@ def Mesh(meshfile, **kwargs):
     geometric_dim = kwargs.get("dim", None)
     if isinstance(meshfile, PETSc.DMPlex):
         plex = meshfile
+    elif type(meshfile).__name__ == "Mesh":
+        print("NetGen Mesh !")
+        plex = _from_netgen(meshfile,comm);
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
