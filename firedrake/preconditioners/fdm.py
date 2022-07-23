@@ -206,14 +206,16 @@ class FDMPC(PCBase):
 
         Ve = V
         e = Ve.ufl_element()
+        self.idofs = None
+        self.fdofs = None
         self.condense_element_mat = lambda Ae: Ae
         if isinstance(e, ufl.RestrictedElement):
             if e.restriction_domain() == "facet":
                 Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
                 isplit = interior_facet_decomposition(Ve)
-                idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
-                fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
-                self.condense_element_mat = lambda Ae: condense_element_mat(Ae, idofs, fdofs)
+                self.idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
+                self.fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
+                self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Ve, appctx)
 
@@ -884,22 +886,31 @@ def get_weak_bc_flags(J):
     return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
 
 
+def invert_bjacobi(A):
+    indptr, indices, data = A.getValuesCSR()
+    degree = numpy.diff(indptr)
+
+    imats, = numpy.where(degree == 1)
+    data[imats] = 1.0/data[imats]
+    offset = 0
+    for k in range(2, degree[-1]+1):
+        offset += imats.size
+        imats = numpy.arange(offset, offset + k*sum(degree == k))
+        imats = imats.reshape((-1, k, k))
+        data[imats] = list(map(numpy.linalg.inv, data[imats]))
+
+    A.setValuesCSR(indptr, indices, data)
+    A.assemble()
+
+
 def condense_element_mat(A, i0, i1):
-    A01 = A.createSubMatrix(i0, i1)
-    A10 = A.createSubMatrix(i1, i0)
     A11 = A.createSubMatrix(i1, i1)
-
-    adiag = A.getDiagonal()
-    adiag0 = adiag.getSubVector(i0)
-    adiag0.sqrtabs()
-    adiag0.reciprocal()
-
-    A01.diagonalScale(L=adiag0)
-    A10.diagonalScale(R=adiag0)
-    A11 -= A10.matMult(A01)
-
-    adiag.destroy()
-    adiag0.destroy()
+    A10 = A.createSubMatrix(i1, i0)
+    A01 = A.createSubMatrix(i0, i1)
+    A00 = A.createSubMatrix(i0, i0)
+    invert_bjacobi(A00)
+    A11 -= A10.matMult(A00.matMult(A01))
+    A00.destroy()
     A01.destroy()
     A10.destroy()
     return A11
@@ -925,7 +936,7 @@ def interior_facet_decomposition(V):
             pass
         split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
         for r in range(len(split)-1):
-            v = sum([vals[k] for k in range(split[r], split[r+1])], [])
+            v = sum([vals[k] for k in range(*split[r:r+2])], [])
             edofs[edim].extend(sorted(v))
 
     return edofs[-1], sum(reversed(edofs[:-1]), [])
