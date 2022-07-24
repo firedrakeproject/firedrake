@@ -158,12 +158,9 @@ class Interpolator(object):
             # Passing in a function is equivalent to taking the action.
             interp = action(interp, f)
 
-        from pyadjoint.tape import get_working_tape, annotate_tape
-        annotate = annotate_tape()
-        tape = get_working_tape()
-        print('\n annotate: ', annotate)
+        from pyadjoint.tape import get_working_tape
+        get_working_tape()
         res = firedrake.assemble(interp, tensor=output)
-        #import ipdb; ipdb.set_trace()
         return res
 
     def _interpolate(self, *function, output=None, transpose=False):
