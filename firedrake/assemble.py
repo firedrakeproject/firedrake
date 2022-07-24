@@ -1064,9 +1064,10 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     fc_params = kwargs.get('form_compiler_parameters')
     # Pre-process form
     form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if isinstance(form, ufl.Form) and not base_form_operands(form):
-        if len(form.arguments()) == 1:
-            return OneFormAssembler(form, tensor, *args, **kwargs).assemble
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
+        diagonal = kwargs.pop('diagonal', False)
+        if len(form.arguments()) == 1 or diagonal:
+            return OneFormAssembler(form, tensor, *args, diagonal=diagonal, **kwargs).assemble
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, tensor, *args, **kwargs).assemble
         else:
@@ -1075,6 +1076,8 @@ def get_form_assembler(form, tensor, *args, **kwargs):
         return functools.partial(assemble_base_form, form, *args, tensor=tensor,
                                  mat_type=mat_type,
                                  preassembled_base_form=True, **kwargs)
+    else:
+        raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
 
 def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
@@ -1447,7 +1450,7 @@ class ParloopBuilder:
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, ufl.FunctionSpace)
+        assert isinstance(V, ufl.functionspace.BaseFunctionSpace)
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
