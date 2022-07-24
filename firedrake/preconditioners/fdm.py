@@ -638,6 +638,7 @@ def pull_axis(x, pshape, idir):
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
 
+@PETSc.Log.EventDecorator("FDMSetSubMat")
 def set_submat_csr(A_global, A_local, global_indices, imode):
     """insert values from A_local to A_global on the diagonal block with indices global_indices"""
     indptr, indices, data = A_local.getValuesCSR()
@@ -886,29 +887,27 @@ def get_weak_bc_flags(J):
     return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
 
 
-def invert_bjacobi(A):
-    indptr, indices, data = A.getValuesCSR()
-    degree = numpy.diff(indptr)
-
-    imats, = numpy.where(degree == 1)
-    data[imats] = 1.0/data[imats]
-    offset = 0
-    for k in range(2, degree[-1]+1):
-        offset += imats.size
-        imats = numpy.arange(offset, offset + k*sum(degree == k))
-        imats = imats.reshape((-1, k, k))
-        data[imats] = list(map(numpy.linalg.inv, data[imats]))
-
-    A.setValuesCSR(indptr, indices, data)
-    A.assemble()
-
-
+@PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_mat(A, i0, i1):
     A11 = A.createSubMatrix(i1, i1)
     A10 = A.createSubMatrix(i1, i0)
     A01 = A.createSubMatrix(i0, i1)
     A00 = A.createSubMatrix(i0, i0)
-    invert_bjacobi(A00)
+
+    # Assume that interior DOF ordering is such that A00 is block diagonal
+    # with blocks of increasing dimension
+    indptr, indices, data = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+
+    zlice = slice(0, numpy.count_nonzero(degree == 1))
+    data[zlice] = 1.0/data[zlice]
+    for k in range(2, degree[-1]+1):
+        zlice = slice(zlice.stop, zlice.stop + k*numpy.count_nonzero(degree == k))
+        data[zlice] = numpy.linalg.inv(data[zlice].reshape((-1, k, k))).reshape((-1,))
+
+    A00.setValuesCSR(indptr, indices, data)
+    A00.assemble()
+
     A11 -= A10.matMult(A00.matMult(A01))
     A00.destroy()
     A01.destroy()
