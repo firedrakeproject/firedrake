@@ -29,7 +29,7 @@ parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2",
 # Firedrake application installation shortcuts.
 firedrake_apps = {
     "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
-              "git+ssh://github.com/firedrakeproject/gusto#egg=gusto"),
+              "git+ssh://github.com/firedrakeproject/gusto.git@main#egg=gusto"),
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
