@@ -620,6 +620,60 @@ class FDMPC(PCBase):
         return coefficients, assembly_callables
 
 
+@PETSc.Log.EventDecorator("FDMCondense")
+def condense_element_mat(A, i0, i1):
+    A11 = A.createSubMatrix(i1, i1)
+    A10 = A.createSubMatrix(i1, i0)
+    A01 = A.createSubMatrix(i0, i1)
+    A00 = A.createSubMatrix(i0, i0)
+
+    # Assume that interior DOF list i0 is ordered such that A00 is block diagonal
+    # with blocks of increasing dimension
+    indptr, indices, data = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+
+    zlice = slice(0, numpy.count_nonzero(degree == 1))
+    data[zlice] = 1.0E0/data[zlice]
+    for k in range(2, degree[-1]+1):
+        zlice = slice(zlice.stop, zlice.stop + k*numpy.count_nonzero(degree == k))
+        data[zlice] = numpy.linalg.inv(data[zlice].reshape((-1, k, k))).reshape((-1,))
+
+    A00.setValuesCSR(indptr, indices, data)
+    A00.assemble()
+
+    A11 -= A10.matMult(A00.matMult(A01))
+    A00.destroy()
+    A01.destroy()
+    A10.destroy()
+    return A11
+
+
+def interior_facet_decomposition(V):
+    """
+    Split DOFs into interior and facet
+
+    :arg V: a :class:`FunctionSpace`
+
+    :returns: a tuple with the interior and facet indices
+    """
+    entity_dofs = V.finat_element.entity_dofs()
+    ndim = V.mesh().topological_dimension()
+    edofs = [[] for k in range(ndim+1)]
+    for key in entity_dofs:
+        vals = entity_dofs[key]
+        edim = key
+        try:
+            edim = sum(edim)
+        except TypeError:
+            pass
+        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
+        for r in range(len(split)-1):
+            v = sum([vals[k] for k in range(*split[r:r+2])], [])
+            edofs[edim].extend(sorted(v))
+
+    return edofs[-1], sum(reversed(edofs[:-1]), [])
+
+
 def get_piola_tensor(mapping, domain):
     tdim = domain.topological_dimension()
     if mapping == 'identity':
@@ -885,79 +939,3 @@ def get_weak_bc_flags(J):
             fbc = bq.dat.data_with_halos[glonum(Q.cell_node_map())]
             return (abs(fbc) > tol).astype(PETSc.IntType)
     return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
-
-
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(A, i0, i1):
-    A11 = A.createSubMatrix(i1, i1)
-    A10 = A.createSubMatrix(i1, i0)
-    A01 = A.createSubMatrix(i0, i1)
-    A00 = A.createSubMatrix(i0, i0)
-
-    # Assume that interior DOF ordering is such that A00 is block diagonal
-    # with blocks of increasing dimension
-    indptr, indices, data = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
-
-    zlice = slice(0, numpy.count_nonzero(degree == 1))
-    data[zlice] = 1.0/data[zlice]
-    for k in range(2, degree[-1]+1):
-        zlice = slice(zlice.stop, zlice.stop + k*numpy.count_nonzero(degree == k))
-        data[zlice] = numpy.linalg.inv(data[zlice].reshape((-1, k, k))).reshape((-1,))
-
-    A00.setValuesCSR(indptr, indices, data)
-    A00.assemble()
-
-    A11 -= A10.matMult(A00.matMult(A01))
-    A00.destroy()
-    A01.destroy()
-    A10.destroy()
-    return A11
-
-
-def interior_facet_decomposition(V):
-    """
-    Split DOFs into interior and facet
-
-    :arg V: a :class:`FunctionSpace`
-
-    :returns: a tuple with the interior and facet indices
-    """
-    entity_dofs = V.finat_element.entity_dofs()
-    ndim = V.mesh().topological_dimension()
-    edofs = [[] for k in range(ndim+1)]
-    for key in entity_dofs:
-        vals = entity_dofs[key]
-        edim = key
-        try:
-            edim = sum(edim)
-        except TypeError:
-            pass
-        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
-        for r in range(len(split)-1):
-            v = sum([vals[k] for k in range(*split[r:r+2])], [])
-            edofs[edim].extend(sorted(v))
-
-    return edofs[-1], sum(reversed(edofs[:-1]), [])
-
-
-def interior_facet_decomposition_old(pshape):
-    """
-    Split DOFs into interior and facet
-
-    :arg pshape: tuple with value size and space dimension along each axis
-
-    :returns: a tuple with the interior and facet indices
-    """
-    def hamming_weight(n):
-        t1 = n - ((n >> 1) & 0x55555555)
-        t2 = (t1 & 0x33333333) + ((t1 >> 2) & 0x33333333)
-        return ((((t2 + (t2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24, n)
-
-    isplit = ([], [])
-    order = [x[1] for x in sorted(map(hamming_weight, range(1 << len(pshape[1:]))))]
-    p = numpy.reshape(numpy.arange(numpy.prod(pshape), dtype=PETSc.IntType), pshape)
-    for k in order:
-        zlice = (Ellipsis,) + tuple(slice(0, N, N-1) if k & 1 << j else slice(1, -1) for j, N in enumerate(pshape[1:]))
-        isplit[k != 0].extend(p[zlice].flat)
-    return isplit
