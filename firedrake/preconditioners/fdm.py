@@ -229,8 +229,9 @@ class FDMPC(PCBase):
                     self.is_interior_element = False
 
         if self.is_facet_element:
-            Ve = firedrake.FunctionSpace(V.mesh(), unrestrict_element(e))
-            isplit = interior_facet_decomposition(Ve)
+            ebig = unrestrict_element(e)
+            Ve = firedrake.FunctionSpace(V.mesh(), ebig)
+            isplit = interior_facet_decomposition(e, ebig)
             self.idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
             self.fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
@@ -687,16 +688,29 @@ def unrestrict_element(ele):
         return ele
 
 
-def interior_facet_decomposition(V):
+def interior_facet_decomposition(esmall, ebig):
     """
     Split DOFs into interior and facet
 
-    :arg V: a :class:`FunctionSpace`
+    :arg esmall: the restricted :class:`FiniteElement`
+    :arg ebig: the unrestricted :class:`FiniteElement`
 
     :returns: a tuple with the interior and facet indices
     """
-    entity_dofs = V.finat_element.entity_dofs()
-    ndim = V.mesh().topological_dimension()
+    from firedrake.preconditioners.pmg import ref_prolongator
+    from tsfc.finatinterface import create_element
+
+    felem = create_element(ebig.reconstruct(variant="spectral"))
+    celem = create_element(esmall.reconstruct(variant="spectral"))
+    # The prolongation between these two elements gives inclusion of DOFS
+    I = ref_prolongator(felem.fiat_equivalent, celem.fiat_equivalent)
+    fdofs = numpy.where(abs(I) > 1E-12)[1].astype(PETSc.IntType)
+    idofs = numpy.setdiff1d(numpy.arange(felem.space_dimension(), dtype=PETSc.IntType), fdofs)
+    return idofs, fdofs
+
+    # Old code that was doing the right thing for Q and NCF
+    entity_dofs = felem.entity_dofs()
+    ndim = felem.cell.get_spatial_dimension()
     edofs = [[] for k in range(ndim+1)]
     for key in entity_dofs:
         vals = entity_dofs[key]

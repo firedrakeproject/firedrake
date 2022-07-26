@@ -611,30 +611,37 @@ def get_line_elements(V):
 
 
 @lru_cache(maxsize=10)
-def get_line_interpolator(felem, celem, hodgedecomp):
+def ref_prolongator(felem, celem, hodgedecomp=False):
     from FIAT import functional, make_quadrature, RestrictedElement
-
+    from FIAT.reference_element import flatten_reference_cube
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
     if compare_dual(fdual, cdual):
         return numpy.array([])
-
+    tdim = felem.ref_el.get_spatial_dimension()
     kf = felem.formdegree if hodgedecomp else 0
     kc = celem.formdegree if hodgedecomp else 0
     if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(kf, pts)[(kf,)]
+        return celem.tabulate(kf, pts)[(kf,)*tdim]
     else:
         findices = slice(0, felem.space_dimension())
         if isinstance(felem, RestrictedElement):
             findices = felem._indices
             felem = felem._element
 
-        pts = make_quadrature(felem.get_reference_element(),
-                              felem.space_dimension()).get_points()
-
-        return numpy.dot(celem.tabulate(kf, pts)[(kf,)],
-                         numpy.linalg.inv(felem.tabulate(kc, pts)[(kc,)])[:, findices])
+        ref_el = flatten_reference_cube(felem.get_reference_element())
+        quadrature = make_quadrature(ref_el, felem.degree()+1)
+        pts = quadrature.get_points()
+        wts = quadrature.get_weights()
+        cphi = celem.tabulate(kf, pts)[(kf,)*tdim]
+        fphi = felem.tabulate(kc, pts)[(kc,)*tdim]
+        if len(pts) != felem.space_dimension():
+            cshape = (cphi.shape[0], -1)
+            fshape = (fphi.shape[0], -1)
+            cphi = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
+            fphi = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+        return numpy.dot(cphi, numpy.linalg.inv(fphi)[:, findices])
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -779,7 +786,6 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-
     felems, fshifts = get_line_elements(Vf)
     celems, cshifts = get_line_elements(Vc)
 
@@ -846,7 +852,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [get_line_interpolator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
+        J = [ref_prolongator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
         if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
             fskip += nscal*numpy.prod(fshape)
             cskip += nscal*numpy.prod(cshape)
