@@ -209,13 +209,31 @@ class FDMPC(PCBase):
         self.idofs = None
         self.fdofs = None
         self.condense_element_mat = lambda Ae: Ae
-        if isinstance(e, ufl.RestrictedElement):
-            if e.restriction_domain() == "facet":
-                Ve = firedrake.FunctionSpace(V.mesh(), e.restricted_sub_elements()[0])
-                isplit = interior_facet_decomposition(Ve)
-                self.idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
-                self.fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
-                self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
+
+        self.is_interior_element = True
+        self.is_facet_element = True
+        entity_dofs = V.finat_element.entity_dofs()
+        ndim = V.mesh().topological_dimension()
+
+        for key in entity_dofs:
+            v = sum(list(entity_dofs[key].values()), [])
+            if len(v):
+                edim = key
+                try:
+                    edim = sum(edim)
+                except TypeError:
+                    pass
+                if edim == ndim:
+                    self.is_facet_element = False
+                else:
+                    self.is_interior_element = False
+
+        if self.is_facet_element:
+            Ve = firedrake.FunctionSpace(V.mesh(), unrestrict_element(e))
+            isplit = interior_facet_decomposition(Ve)
+            self.idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
+            self.fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
+            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Ve, appctx)
 
@@ -646,6 +664,27 @@ def condense_element_mat(A, i0, i1):
     A01.destroy()
     A10.destroy()
     return A11
+
+
+def unrestrict_element(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.EnrichedElement):
+        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
+    elif isinstance(ele, ufl.TensorProductElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.WithMapping):
+        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
+    elif isinstance(ele, ufl.RestrictedElement):
+        return unrestrict_element(ele._element)
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        return type(ele)(unrestrict_element(ele._element))
+    else:
+        return ele
 
 
 def interior_facet_decomposition(V):

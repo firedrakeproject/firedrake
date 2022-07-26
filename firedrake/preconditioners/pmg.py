@@ -399,10 +399,10 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele.sub_elements()))
         elif isinstance(ele, ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, degree), ele.mapping())
-        elif isinstance(ele, ufl.RestrictedElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._element, degree), restriction_domain=ele._restriction_domain)
         elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
             return type(ele)(PMGBase.reconstruct_degree(ele._element, degree))
+        elif isinstance(ele, ufl.RestrictedElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._element, degree), restriction_domain=ele._restriction_domain)
         else:
             return ele.reconstruct(degree=degree)
 
