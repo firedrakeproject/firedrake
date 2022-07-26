@@ -614,17 +614,19 @@ def get_line_elements(V):
 def ref_prolongator(felem, celem, hodgedecomp=False):
     from FIAT import functional, make_quadrature, RestrictedElement
     from FIAT.reference_element import flatten_reference_cube
-    fdual = felem.dual_basis()
-    cdual = celem.dual_basis()
-    if compare_dual(fdual, cdual):
-        return numpy.array([])
-    tdim = felem.ref_el.get_spatial_dimension()
-    kf = felem.formdegree if hodgedecomp else 0
-    kc = celem.formdegree if hodgedecomp else 0
-    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
-        pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(kf, pts)[(kf,)*tdim]
-    else:
+
+    try:
+        fdual = felem.dual_basis()
+        cdual = celem.dual_basis()
+        if compare_dual(fdual, cdual):
+            return numpy.array([])
+        tdim = felem.ref_el.get_spatial_dimension()
+        kf = felem.formdegree if hodgedecomp else 0
+        kc = celem.formdegree if hodgedecomp else 0
+        if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
+            pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
+            return celem.tabulate(kf, pts)[(kf,)*tdim]
+
         findices = slice(0, felem.space_dimension())
         if isinstance(felem, RestrictedElement):
             findices = felem._indices
@@ -636,12 +638,28 @@ def ref_prolongator(felem, celem, hodgedecomp=False):
         wts = quadrature.get_weights()
         cphi = celem.tabulate(kf, pts)[(kf,)*tdim]
         fphi = felem.tabulate(kc, pts)[(kc,)*tdim]
-        if len(pts) != felem.space_dimension():
-            cshape = (cphi.shape[0], -1)
-            fshape = (fphi.shape[0], -1)
-            cphi = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
-            fphi = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
-        return numpy.dot(cphi, numpy.linalg.inv(fphi)[:, findices])
+    except NotImplementedError:
+        import finat
+        from gem.interpreter import evaluate
+        findices = slice(0, felem.space_dimension())
+        degree = felem.degree
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        ref_el = flatten_reference_cube(felem.cell)
+        quadrature = finat.quadrature.make_quadrature(ref_el, 2*degree+1)
+        pts = quadrature.point_set
+        wts = quadrature.weights
+        cphi = numpy.moveaxis(evaluate(celem.basis_evaluation(0, pts).values())[0].arr, 0, -1)
+        fphi = numpy.moveaxis(evaluate(felem.basis_evaluation(0, pts).values())[0].arr, 0, -1)
+
+    if len(fphi.shape) != 2 or fphi.shape[0] != fphi.shape[1]:
+        cshape = (celem.space_dimension(), -1)
+        fshape = (felem.space_dimension(), -1)
+        cphi = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
+        fphi = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+    return numpy.dot(cphi, numpy.linalg.inv(fphi)[:, findices])
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -1256,30 +1274,58 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
-        # The way we transpose the prolongation kernel is suboptimal.
-        # A local matrix is generated each time the kernel is executed.
-        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
-        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         dimc = Vc.finat_element.space_dimension() * Vc.value_size
         dimf = Vf.finat_element.space_dimension() * Vf.value_size
+        try:
+            prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
+            matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+            # The way we transpose the prolongation kernel is suboptimal.
+            # A local matrix is generated each time the kernel is executed.
+            element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+            element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
+            coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
+            coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+            restrict_code = f"""
+            {element_kernel}
 
-        coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
-        coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
-        restrict_code = f"""
-        {element_kernel}
+            void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w{coef_decl})
+            {{
+                {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
+                expression_kernel(Afc{coef_args});
+                for ({IntType_c} i = 0; i < {dimf}; i++)
+                   for ({IntType_c} j = 0; j < {dimc}; j++)
+                       Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
+            }}
+            """
+            restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
+        except NotImplementedError:
+            assert Vc.ufl_element().mapping() == Vf.ufl_element().mapping()
+            assert Vc.finat_element.formdegree == Vf.finat_element.formdegree
+            Jmat = ref_prolongator(Vf.finat_element, Vc.finat_element).T
+            Jdata = ", ".join(map(float.hex, Jmat.flat))
+            kernel_code = f"""
+            void prolongation({ScalarType_c} *restrict uf, const {ScalarType_c} *restrict uc)
+            {{
+                {ScalarType_c} Afc[{dimf}*{dimc}] = {{ {Jdata} }};
+                for ({IntType_c} i = 0; i < {dimf}; i++)
+                   uf[i] = 0.0E0;
+                for ({IntType_c} i = 0; i < {dimf}; i++)
+                    for ({IntType_c} j = 0; j < {dimc}; j++)
+                       uf[i] += Afc[i*{dimc} + j] * uc[j];
+            }}
 
-        void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w{coef_decl})
-        {{
-            {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
-            expression_kernel(Afc{coef_args});
-            for ({IntType_c} i = 0; i < {dimf}; i++)
-               for ({IntType_c} j = 0; j < {dimc}; j++)
-                   Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
-        }}
-        """
-        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
+            void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w)
+            {{
+                {ScalarType_c} Afc[{dimf}*{dimc}] = {{ {Jdata} }};
+                for ({IntType_c} i = 0; i < {dimf}; i++)
+                   for ({IntType_c} j = 0; j < {dimc}; j++)
+                       Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
+            }}
+            """
+            prolong_kernel = op2.Kernel(kernel_code, "prolongation", requires_zeroed_output_arguments=True)
+            restrict_kernel = op2.Kernel(kernel_code, "restriction", requires_zeroed_output_arguments=True)
+            coefficients = []
+
         return prolong_kernel, restrict_kernel, coefficients
 
     @staticmethod
