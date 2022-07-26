@@ -165,8 +165,8 @@ log = logging.getLogger()
 
 cwd = os.getcwd()
 
-venv = os.environ.get("VIRTUAL_ENV", None)
-if venv:
+firedrake_env = os.environ.get("VIRTUAL_ENV", None)
+if firedrake_env:
     src = os.path.join(firedrake_env, "src")
     component_directories = components
     optional_component_directories = optional_components
