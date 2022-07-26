@@ -215,8 +215,8 @@ class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
         n = FacetNormal(W.mesh())
-        alpha = Constant(3**5)
-        gamma = Constant(4**5)
+        alpha = Constant(6)
+        gamma = Constant(8)
         h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
@@ -645,3 +645,71 @@ def test_slate_hybridization_global_matfree_jacobi():
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
+
+
+class RieszMap(AuxiliaryOperatorPC):
+    def form(self, pc, s, t):
+        from ufl.split_functions import split
+        sigma, u = split(s)
+        tau, v = split(t)
+        a = (dot(sigma, tau) + div(sigma)*div(tau) + u*v)*dx
+        return (a, [])
+
+
+def test_mixed_poisson_nonnested():
+    """A test, which compares a solution to a 2D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system where
+    the a user supplied operator is used as preconditioner to the
+    Schur solver to a solution where the user supplied operator is replaced
+    with the jacobi preconditioning operator.
+    """
+    # setup FEM
+    a, L, W = setup_poisson(0, True)
+
+    # setup first solver
+    w = Function(W)
+    params = {'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'mat_type': 'matfree',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'ksp_rtol': 1e-8,
+                                'mat_type': 'matfree',
+                                'localsolve': {'mat_type': 'matfree',
+                                               'fieldsplit_0': {'ksp_type': 'default',
+                                                                 'pc_type': 'python',
+                                                                 'pc_python_type': __name__ + '.RieszMap',
+                                                                 'aux_ksp_type': 'preonly',
+                                                                 'aux_pc_type': 'jacobi',
+                                                                 'ksp_rtol': 1e-8,
+                                                                 'ksp_atol': 1e-8
+                                                                 }}}}
+
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    sigma_h, u_h = w.split()
+
+    # setup second solver
+    w2 = Function(W)
+    aij_params = {'ksp_type': 'preonly',
+                  'pc_type': 'python',
+                  'mat_type': 'matfree',
+                  'pc_python_type': 'firedrake.HybridizationPC',
+                  'hybridization': {'ksp_type': 'cg',
+                                    'pc_type': 'none',
+                                    'ksp_rtol': 1e-8,
+                                    'mat_type': 'matfree'}}
+    solve(a == L, w2, solver_parameters=aij_params)
+    _sigma, _u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, _sigma)
+    u_err = errornorm(u_h, _u)
+
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+

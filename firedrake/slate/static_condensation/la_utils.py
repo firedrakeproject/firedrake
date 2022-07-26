@@ -314,6 +314,11 @@ class SchurComplementBuilder(object):
         
         # build all inverses
         self.A00_inv_hat = self.build_A00_inv()
+
+        self.Atilde_approx = self.retrieve_user_Atilde_approx(pc, self.Atilde_approx) if self.Atilde_approx else None
+        self.Atilde_approx_inv_hat = self.build_Atildeapprox_inv()
+        self.Atilde_inv_hat = self.build_Atilde_inv()
+            
         if self.nfields > 1:
             self.schur_approx = self.retrieve_user_S_approx(pc, self.schur_approx) if self.schur_approx else None
             self.inner_S = self.build_inner_S()
@@ -381,15 +386,25 @@ class SchurComplementBuilder(object):
         self.atol_S = get_option(fs1+"_ksp_atol") or default_atol
         self.max_it_S = get_option(fs1+"_ksp_max_it") or default_max_it
 
-        # Get user supplied operator and its options
+        # Get user supplied operator and its options for schur complement
         self.schur_approx = (get_option(fs1+"_pc_python_type") if get_option(fs1+"_pc_type") == "python" else False)
         self._check_options([(fs1+"aux_ksp_type", {"preonly", "default"}), (fs1+"aux_pc_type", {"jacobi"})])
         self.preonly_Shat = get_option(fs1+"_aux_ksp_type") == "preonly"
         self.jacobi_Shat = get_option(fs1+"_aux_pc_type") == "jacobi"
-        self.rtol_Shat = get_option(fs1+"_aux_ksp_rtol") or default_rtol
-        self.atol_Shat = get_option(fs1+"_aux_ksp_atol") or default_atol
-        self.max_it_Shat = get_option(fs1+"_aux_ksp_max_it") or default_max_it
-
+        self.rtol_Shat = get_option(fs1+"_aux_ksp_rtol") or self.rtol_S
+        self.atol_Shat = get_option(fs1+"_aux_ksp_atol") or self.atol_S
+        self.max_it_Shat = get_option(fs1+"_aux_ksp_max_it") or self.max_it_S
+  
+        # Get user supplied operator and its options for mixed matrix
+        self.Atilde_approx = ((get_option(fs0+"_pc_python_type") if get_option(fs0+"_pc_type") == "python" else False)
+                               if not self.nested else None)
+        self._check_options([(fs0+"aux_ksp_type", {"preonly", "default"}), (fs0+"aux_pc_type", {"jacobi"})])
+        self.preonly_Atildehat = get_option(fs0+"_aux_ksp_type") == "preonly"
+        self.jacobi_Atildehat = get_option(fs0+"_aux_pc_type") == "jacobi"
+        self.rtol_Atildehat = get_option(fs0+"_aux_ksp_rtol") or self.rtol_A00
+        self.atol_Atildehat = get_option(fs0+"_aux_ksp_atol") or self.atol_A00
+        self.max_it_Atildehat = get_option(fs0+"_aux_ksp_max_it") or self.max_it_A00
+        
         if self.jacobi_Shat or self.jacobi_A00:
             assert parameters["slate_compiler"]["optimise"], ("Local systems should only get preconditioned with "
                                                               "a preconditioning matrix if the Slate optimiser replaces "
@@ -414,6 +429,27 @@ class SchurComplementBuilder(object):
         return (P if prec and preonly else
                 (P*A).inverse(rtol, atol, max_it) * P if prec else
                 A.inverse(rtol, atol, max_it))
+        
+    def build_Atilde_inv(self):
+        """ Calculates the inverse of the schur complement.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with the preconditioner P.
+        """
+        A = self.Atilde
+        P = self.Atilde_approx_inv_hat
+        prec = bool(self.Atilde_approx) or self.jacobi_A00
+        return self.inverse(A, P, prec, self.preonly_A00, self.preonly_A00, self.atol_A00, self.max_it_A00)
+
+    def build_Atildeapprox_inv(self):
+        """ Calculates the inverse of the schur complement.
+            The inverse is potentially approximated through a solve
+            which is potentially preconditioned with the preconditioner P.
+        """
+        prec = (bool(self.Atilde_approx) and self.jacobi_Atildehat) or self.jacobi_A00
+        A = self.Atilde_approx if self.Atilde_approx else self.Atilde
+        P = DiagonalTensor(A).inverse(self.rtol_Atildehat, self.atol_Atildehat, self.max_it_Atildehat)
+        preonly = self.preonly_Atildehat if self.Atilde_approx else True
+        return self.inverse(A, P, prec, preonly, self.rtol_Atildehat, self.atol_Atildehat, self.max_it_Atildehat)
 
     def build_inner_S_inv(self):
         """ Calculates the inverse of the schur complement.
@@ -464,6 +500,22 @@ class SchurComplementBuilder(object):
             return Tensor(fun.form(pc, test, trial)[0])
         else:
             return None
+    
+    def retrieve_user_Atilde_approx(self, pc, usercode):
+        """Retrieve a user-defined :class:firedrake.preconditioners.AuxiliaryOperator from the PETSc Options,
+        which is an approximation to the mixed matrix and its inverse is used
+        to precondition the local solve in the reconstruction calls (e.g.).
+        """
+        test, trial = self.Atilde.arguments()
+        if usercode != "":
+            (modname, funname) = usercode.rsplit('.', 1)
+            mod = __import__(modname)
+            fun = getattr(mod, funname)
+            if isinstance(fun, type):
+                fun = fun()
+            return Tensor(fun.form(pc, test, trial)[0])
+        else:
+            return None
 
     def build_schur(self, rhs, non_zero_saddle_rhs=None):
         """The Schur complement in the operators of the trace solve contains
@@ -502,10 +554,8 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
-            P = DiagonalTensor(self.Atilde).inverse(self.rtol_A00, self.atol_A00, self.max_it_A00)
-            Atildeinv = self.inverse(self.Atilde, P, self.jacobi_A00, self.preonly_A00, self.rtol_A00, self.atol_A00, self.max_it_A00)
-            schur_rhs = self.K * Atildeinv * rhs
-            schur_comp = self.K * Atildeinv * self.KT
+            schur_rhs = self.K * self.Atilde_inv_hat * rhs
+            schur_comp = self.K * self.Atilde_inv_hat * self.KT
         if self.non_zero_saddle_mat or non_zero_saddle_rhs:
             assert self.non_zero_saddle_mat and non_zero_saddle_rhs, "The problem is not a saddle point system and you missed to pass either A11 or the corresponding part in the rhs."
             # problem is not a saddle point problem
