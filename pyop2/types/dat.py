@@ -1021,8 +1021,8 @@ class MixedDat(AbstractDat, VecAccessMixin):
                     size = v.local_size
                     array[offset:offset+size] = v.array_r[:]
                     offset += size
+            del array
 
-        self._vec.stateIncrease()
         yield self._vec
         if access is not Access.READ:
             # Reverse scatter to get the values back to their original locations
