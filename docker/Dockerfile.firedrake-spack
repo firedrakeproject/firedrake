@@ -22,8 +22,9 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
         ^firedrake.petsc@develop+fftw cflags=\"-O3 -march=native -mtune=native\" cxxflags=\"-O3 -march=native -mtune=native\" fflags=\"-O3 -march=native -mtune=native -ffree-line-length-512\" \
     '
 # Basic functionality test
-RUN bash -c 'spack env activate firedrake; \
-    python -c \"from firedrake import *\" \
+RUN bash -c 'source spack/share/spack/setup-env.sh; \
+    spack env activate firedrake; \
+    python -c "from firedrake import *"; \
     cd firedrake/py-firedrake; \
-    pytest tests/regression/ -k \"poisson_strong or stokes_mini or dg_advection\" \
+    pytest tests/regression/ -k "poisson_strong or stokes_mini or dg_advection" \
    '
