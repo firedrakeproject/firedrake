@@ -206,7 +206,7 @@ jobs:
           file: docker/Dockerfile.complex
           tags: firedrakeproject/firedrake-complex:latest
   docker_spack:
-    name: "Build Docker spack environment container"
+    name: "Build Docker Spack environment container"
     # The type of runner that the job will run on
     if: ${{ github.head_ref == 'JDBetteridge/spack_changes' }}
     runs-on: self-hosted
@@ -227,3 +227,25 @@ jobs:
           push: true
           file: docker/Dockerfile.spack
           tags: firedrakeproject/firedrake-test:latest
+  docker_firedrake_spack:
+    name: "Spack install Firedrake inside container"
+    # The type of runner that the job will run on
+    needs: docker_spack
+    runs-on: self-hosted
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build firedrake-spack
+        uses: docker/build-push-action@v2
+        with:
+          push: false
+          file: docker/Dockerfile.firedrake-spack
+          tags: firedrakeproject/firedrake-spack:latest

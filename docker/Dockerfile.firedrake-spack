@@ -1,0 +1,29 @@
+# DockerFile for a plain Firedrake installed using Spack
+
+FROM firedrakeproject/firedrake-test:latest
+
+# This DockerFile is looked after by
+MAINTAINER Jack Betteridge <j.betteridge@imperial.ac.uk>
+
+USER firedrake
+WORKDIR /home/firedrake
+
+# Add Firedrake repo
+RUN git clone https://github.com/firedrakeproject/firedrake-spack.git
+RUN bash -c "source spack/share/spack/setup-env.sh; \
+    spack repo add firedrake-spack"
+# Install Firedrake
+RUN bash -c 'source spack/share/spack/setup-env.sh; \
+    ./firedrake-spack/spack_install_firedrake.sh firedrake py-firedrake@develop \
+        %gcc \
+        ^python@3.10: \
+        ^mpich  \
+        ^openblas \
+        ^firedrake.petsc@develop+fftw cflags=\"-O3 -march=native -mtune=native\" cxxflags=\"-O3 -march=native -mtune=native\" fflags=\"-O3 -march=native -mtune=native -ffree-line-length-512\" \
+    '
+# Basic functionality test
+RUN bash -c 'spack env activate firedrake; \
+    python -c \"from firedrake import *\" \
+    cd firedrake/py-firedrake; \
+    pytest tests/regression/ -k \"poisson_strong or stokes_mini or dg_advection\" \
+   '
