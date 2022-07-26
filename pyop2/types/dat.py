@@ -1015,13 +1015,12 @@ class MixedDat(AbstractDat, VecAccessMixin):
         # values
         if access is not Access.WRITE:
             offset = 0
-            array = self._vec.array
-            for d in self:
-                with d.vec_ro as v:
-                    size = v.local_size
-                    array[offset:offset+size] = v.array_r[:]
-                    offset += size
-            del array
+            with self._vec as array:
+                for d in self:
+                    with d.vec_ro as v:
+                        size = v.local_size
+                        array[offset:offset+size] = v.array_r[:]
+                        offset += size
 
         yield self._vec
         if access is not Access.READ:
