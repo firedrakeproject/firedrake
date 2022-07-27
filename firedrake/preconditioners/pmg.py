@@ -643,7 +643,6 @@ def fiat_reference_prolongator(felem, celem, hodgedecomp=False):
 def finat_reference_prolongator(felem, celem):
     from finat.quadrature import make_quadrature
     from gem.interpreter import evaluate
-    from FIAT.reference_element import flatten_reference_cube
 
     degree = felem.degree
     try:

@@ -710,6 +710,7 @@ def restricted_dofs(celem, felem):
     # return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
     return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
 
+
 def sort_entity_dofs(elem):
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
