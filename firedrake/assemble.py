@@ -454,7 +454,8 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
     elif isinstance(expr, ufl.ExternalOperator):
         opts = {'form_compiler_parameters': form_compiler_parameters,
                 'mat_type': mat_type, 'sub_mat_type': sub_mat_type,
-                'appctx': appctx, 'options_prefix': options_prefix}
+                'appctx': appctx, 'options_prefix': options_prefix,
+                'diagonal': diagonal}
         # Replace external operators in the operands of the external operator expr by their result
         if args:
             children = base_form_operands(expr)
