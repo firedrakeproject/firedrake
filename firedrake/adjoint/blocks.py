@@ -321,7 +321,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].split()[self.idx]
+            return adj_inputs[0].split()[self.idx].vector()
         else:
             return adj_inputs[0]
 
