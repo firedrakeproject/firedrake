@@ -45,13 +45,13 @@ def adjoint_example(mesh):
 
     with stop_annotating():
         m_new = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
-    checkpointer = get_working_tape()._checkpoint_metadata
-    init_file_timestamp = os.stat(checkpointer.init_checkpoint_file).st_mtime
-    current_file_timestamp = os.stat(checkpointer.current_checkpoint_file).st_mtime
+    checkpointer = get_working_tape()._package_data["firedrake"]
+    init_file_timestamp = os.stat(checkpointer.init_checkpoint_file.name).st_mtime
+    current_file_timestamp = os.stat(checkpointer.current_checkpoint_file.name).st_mtime
     Jnew = Jhat(m_new)
     # Check that any new disk checkpoints are written to the correct file.
-    assert init_file_timestamp == os.stat(checkpointer.init_checkpoint_file).st_mtime
-    assert current_file_timestamp < os.stat(checkpointer.current_checkpoint_file).st_mtime
+    assert init_file_timestamp == os.stat(checkpointer.init_checkpoint_file.name).st_mtime
+    assert current_file_timestamp < os.stat(checkpointer.current_checkpoint_file.name).st_mtime
 
     assert np.allclose(J, Jnew)
 
@@ -61,8 +61,6 @@ def adjoint_example(mesh):
 
 
 @pytest.mark.skipcomplex
-# Waiting on stable parallel decompositions through disk checkpointing.
-@pytest.mark.xfail
 # A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
