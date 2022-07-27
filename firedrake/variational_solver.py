@@ -18,16 +18,16 @@ __all__ = ["LinearVariationalProblem",
 
 
 def check_pde_args(F, J, Jp):
-    if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
+    if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
-    if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+    if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
     if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
-    if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and not isinstance(Jp, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
 
