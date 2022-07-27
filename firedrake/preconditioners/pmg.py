@@ -611,55 +611,55 @@ def get_line_elements(V):
 
 
 @lru_cache(maxsize=10)
-def ref_prolongator(felem, celem, hodgedecomp=False):
-    from FIAT import functional, make_quadrature, RestrictedElement
+def fiat_reference_prolongator(felem, celem, hodgedecomp=False):
+    from FIAT import functional, make_quadrature
     from FIAT.reference_element import flatten_reference_cube
 
+    fdual = felem.dual_basis()
+    cdual = celem.dual_basis()
+    if compare_dual(fdual, cdual):
+        return numpy.array([])
+    kf = felem.formdegree if hodgedecomp else 0
+    kc = celem.formdegree if hodgedecomp else 0
+    tdim = felem.ref_el.get_spatial_dimension()
+    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
+        pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
+        return celem.tabulate(kf, pts)[(kf,)*tdim]
+
+    ref_el = flatten_reference_cube(felem.get_reference_element())
+    quadrature = make_quadrature(ref_el, felem.degree()+1)
+    pts = quadrature.get_points()
+    wts = quadrature.get_weights()
+    cphi = celem.tabulate(kf, pts)[(kf,)*tdim]
+    fphi = felem.tabulate(kc, pts)[(kc,)*tdim]
+    cshape = (celem.space_dimension(), -1)
+    fshape = (felem.space_dimension(), -1)
+    Ac = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
+    Af = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+    return numpy.dot(Ac, numpy.linalg.inv(Af))
+
+
+@lru_cache(maxsize=10)
+def finat_reference_prolongator(felem, celem):
+    from finat.quadrature import make_quadrature
+    from gem.interpreter import evaluate
+    from FIAT.reference_element import flatten_reference_cube
+
+    degree = felem.degree
     try:
-        fdual = felem.dual_basis()
-        cdual = celem.dual_basis()
-        if compare_dual(fdual, cdual):
-            return numpy.array([])
-        tdim = felem.ref_el.get_spatial_dimension()
-        kf = felem.formdegree if hodgedecomp else 0
-        kc = celem.formdegree if hodgedecomp else 0
-        if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
-            pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-            return celem.tabulate(kf, pts)[(kf,)*tdim]
-
-        findices = slice(0, felem.space_dimension())
-        if isinstance(felem, RestrictedElement):
-            findices = felem._indices
-            felem = felem._element
-
-        ref_el = flatten_reference_cube(felem.get_reference_element())
-        quadrature = make_quadrature(ref_el, felem.degree()+1)
-        pts = quadrature.get_points()
-        wts = quadrature.get_weights()
-        cphi = celem.tabulate(kf, pts)[(kf,)*tdim]
-        fphi = felem.tabulate(kc, pts)[(kc,)*tdim]
-    except NotImplementedError:
-        import finat
-        from gem.interpreter import evaluate
-        findices = slice(0, felem.space_dimension())
-        degree = felem.degree
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
-        ref_el = flatten_reference_cube(felem.cell)
-        quadrature = finat.quadrature.make_quadrature(ref_el, 2*degree+1)
-        pts = quadrature.point_set
-        wts = quadrature.weights
-        cphi = numpy.moveaxis(evaluate(celem.basis_evaluation(0, pts).values())[0].arr, 0, -1)
-        fphi = numpy.moveaxis(evaluate(felem.basis_evaluation(0, pts).values())[0].arr, 0, -1)
-
-    if len(fphi.shape) != 2 or fphi.shape[0] != fphi.shape[1]:
-        cshape = (celem.space_dimension(), -1)
-        fshape = (felem.space_dimension(), -1)
-        cphi = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
-        fphi = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
-    return numpy.dot(cphi, numpy.linalg.inv(fphi)[:, findices])
+        degree = max(degree)
+    except TypeError:
+        pass
+    quadrature = make_quadrature(felem.cell, 2*degree+1)
+    tabulate = lambda e, ps: evaluate(e.basis_evaluation(0, ps).values())[0].arr.reshape((len(ps.points), -1))
+    wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
+    cphi = tabulate(celem, quadrature.point_set).T
+    fphi = tabulate(felem, quadrature.point_set).T
+    cshape = (celem.space_dimension(), -1)
+    fshape = (felem.space_dimension(), -1)
+    Ac = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
+    Af = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+    return numpy.dot(Ac, numpy.linalg.inv(Af))
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -870,7 +870,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [ref_prolongator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
+        J = [fiat_reference_prolongator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
         if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
             fskip += nscal*numpy.prod(fshape)
             cskip += nscal*numpy.prod(cshape)
@@ -1274,8 +1274,6 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        dimc = Vc.finat_element.space_dimension() * Vc.value_size
-        dimf = Vf.finat_element.space_dimension() * Vf.value_size
         try:
             prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
             matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
@@ -1285,6 +1283,8 @@ class StandaloneInterpolationMatrix(object):
             element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
             coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
             coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
+            dimc = Vc.finat_element.space_dimension() * Vc.value_size
+            dimf = Vf.finat_element.space_dimension() * Vf.value_size
             restrict_code = f"""
             {element_kernel}
 
@@ -1299,27 +1299,33 @@ class StandaloneInterpolationMatrix(object):
             """
             restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
         except NotImplementedError:
-            assert Vc.ufl_element().mapping() == Vf.ufl_element().mapping()
-            assert Vc.finat_element.formdegree == Vf.finat_element.formdegree
-            Jmat = ref_prolongator(Vf.finat_element, Vc.finat_element).T
+            if Vc.ufl_element().mapping() != Vf.ufl_element().mapping():
+                raise NotImplementedError("Prolongation not supported from %s to %s" % (Vc.ufl_element(), Vf.ufl_element()))
+            Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element).T
             Jdata = ", ".join(map(float.hex, Jmat.flat))
+            dimc = Vc.finat_element.space_dimension()
+            dimf = Vf.finat_element.space_dimension()
+            vsize = Vc.value_size
             kernel_code = f"""
             void prolongation({ScalarType_c} *restrict uf, const {ScalarType_c} *restrict uc)
             {{
                 {ScalarType_c} Afc[{dimf}*{dimc}] = {{ {Jdata} }};
-                for ({IntType_c} i = 0; i < {dimf}; i++)
+                for ({IntType_c} i = 0; i < {vsize}*{dimf}; i++)
                    uf[i] = 0.0E0;
+
                 for ({IntType_c} i = 0; i < {dimf}; i++)
                     for ({IntType_c} j = 0; j < {dimc}; j++)
-                       uf[i] += Afc[i*{dimc} + j] * uc[j];
+                        for ({IntType_c} k = 0; k < {vsize}; k++)
+                            uf[i*{vsize}+k] += Afc[i*{dimc} + j] * uc[j*{vsize}+k];
             }}
 
             void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w)
             {{
                 {ScalarType_c} Afc[{dimf}*{dimc}] = {{ {Jdata} }};
                 for ({IntType_c} i = 0; i < {dimf}; i++)
-                   for ({IntType_c} j = 0; j < {dimc}; j++)
-                       Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
+                    for ({IntType_c} j = 0; j < {dimc}; j++)
+                        for ({IntType_c} k = 0; k < {vsize}; k++)
+                            Rc[j*{vsize}+k] += Afc[i*{dimc} + j] * Rf[i*{vsize}+k] * w[i*{vsize}+k];
             }}
             """
             prolong_kernel = op2.Kernel(kernel_code, "prolongation", requires_zeroed_output_arguments=True)

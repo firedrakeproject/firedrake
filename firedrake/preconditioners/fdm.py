@@ -204,17 +204,10 @@ class FDMPC(PCBase):
         """
         from pyop2.sparsity import get_preallocation
 
-        Ve = V
-        e = Ve.ufl_element()
-        self.idofs = None
-        self.fdofs = None
-        self.condense_element_mat = lambda Ae: Ae
-
         self.is_interior_element = True
         self.is_facet_element = True
         entity_dofs = V.finat_element.entity_dofs()
         ndim = V.mesh().topological_dimension()
-
         for key in entity_dofs:
             v = sum(list(entity_dofs[key].values()), [])
             if len(v):
@@ -229,14 +222,24 @@ class FDMPC(PCBase):
                     self.is_interior_element = False
 
         if self.is_facet_element:
-            ebig = unrestrict_element(e)
-            Ve = firedrake.FunctionSpace(V.mesh(), ebig)
-            isplit = interior_facet_decomposition(e, ebig)
-            self.idofs = PETSc.IS().createGeneral(isplit[0], comm=PETSc.COMM_SELF)
-            self.fdofs = PETSc.IS().createGeneral(isplit[1], comm=PETSc.COMM_SELF)
-            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
+            Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
 
-        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Ve, appctx)
+            fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
+            fdofs = V.value_size*fdofs.reshape((-1, 1))
+            fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
+            fdofs = fdofs.reshape((-1,))
+            idofs = numpy.setdiff1d(numpy.arange(V.value_size*Vbig.finat_element.space_dimension(),
+                                                 dtype=fdofs.dtype), fdofs)
+            self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
+            self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
+        else:
+            Vbig = V
+            self.fdofs = None
+            self.idofs = None
+            self.condense_element_mat = lambda Ae: Ae
+
+        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -688,29 +691,28 @@ def unrestrict_element(ele):
         return ele
 
 
-def interior_facet_decomposition(esmall, ebig):
+def restricted_dofs(celem, felem):
     """
-    Split DOFs into interior and facet
+    find which DOFs from felem are on celem
 
-    :arg esmall: the restricted :class:`FiniteElement`
-    :arg ebig: the unrestricted :class:`FiniteElement`
+    :arg celem: the restricted :class:`finat.FiniteElement`
+    :arg felem: the unrestricted :class:`finat.FiniteElement`
 
-    :returns: a tuple with the interior and facet indices
+    :returns: an integer array with indices of felem that correspond to celem
     """
-    from firedrake.preconditioners.pmg import ref_prolongator
-    from tsfc.finatinterface import create_element
+    from firedrake.preconditioners.pmg import finat_reference_prolongator
 
-    felem = create_element(ebig.reconstruct(variant="spectral"))
-    celem = create_element(esmall.reconstruct(variant="spectral"))
-    # The prolongation between these two elements gives inclusion of DOFS
-    I = ref_prolongator(felem.fiat_equivalent, celem.fiat_equivalent)
-    fdofs = numpy.where(abs(I) > 1E-12)[1].astype(PETSc.IntType)
-    idofs = numpy.setdiff1d(numpy.arange(felem.space_dimension(), dtype=PETSc.IntType), fdofs)
-    return idofs, fdofs
+    fdofs = sort_entity_dofs(felem)
+    Icf = finat_reference_prolongator(celem, felem)
+    Icf[fdofs[-1]] = 0
 
-    # Old code that was doing the right thing for Q and NCF
-    entity_dofs = felem.entity_dofs()
-    ndim = felem.cell.get_spatial_dimension()
+    # Ifc = finat_reference_prolongator(felem, celem)
+    # return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
+    return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
+
+def sort_entity_dofs(elem):
+    entity_dofs = elem.entity_dofs()
+    ndim = elem.cell.get_spatial_dimension()
     edofs = [[] for k in range(ndim+1)]
     for key in entity_dofs:
         vals = entity_dofs[key]
@@ -723,8 +725,7 @@ def interior_facet_decomposition(esmall, ebig):
         for r in range(len(split)-1):
             v = sum([vals[k] for k in range(*split[r:r+2])], [])
             edofs[edim].extend(sorted(v))
-
-    return edofs[-1], sum(reversed(edofs[:-1]), [])
+    return edofs
 
 
 def get_piola_tensor(mapping, domain):
