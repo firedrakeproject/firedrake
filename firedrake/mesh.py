@@ -26,6 +26,11 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
+try:
+    import netgen
+except ImportError:
+    netgen = None
+
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME']
@@ -225,34 +230,35 @@ class _Facets(object):
 
 
 @PETSc.Log.EventDecorator()
-def _from_netgen(ngmesh,comm=None):
+def _from_netgen(ngmesh, comm=None):
     """
     Create a DMPlex from an Netgen mesh
 
     :arg ngmesh: NetGen Mesh
     """
-    if len(ngmesh.Elements3D()) != 0:
+    if ngmesh.dim == 3:
         raise RuntimeError("Only 2D meshes are implemented at the moment.")
     else:
-        V = [];
-        T = [];
-        for v in list(ngmesh.Points()):
-            V = V + [[float(v[0].__repr__()),float(v[1].__repr__())]]
+        V = list(ngmesh.Coordinates())
+        T = []
         for t in ngmesh.Elements2D():
-            T = T + [[int(v.__repr__())-1 for v in t.vertices]]
+            T = T + [[v.nr-1 for v in t.vertices]]
     plex = _from_cell_list(2, T, V, comm, name=None)
     for e in ngmesh.Elements1D():
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        join = plex.getJoin([vStart+int(v.__repr__())-1 for v in e.vertices])
+        join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
         plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
     return plex
+
+
 @PETSc.Log.EventDecorator()
-def ngLabels(ngmesh,labels):
-    BID = [];
+def ngLabels(ngmesh, labels):
+    BID = []
     for e in ngmesh.Elements1D():
         if ngmesh.GetBCName(int(e.index)-1) in labels:
-            BID = BID + [int(e.index)];
-    return BID;
+            BID = BID + [int(e.index)]
+    return BID
+
 
 @PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
@@ -1886,7 +1892,7 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: Mesh file name (or DMPlex object) defining
+    :param meshfile: Colud be the mesh file name, a DMPlex object or a Netgen mesh object defining
            mesh topology.  See below for details on supported mesh
            formats.
     :param name: optional name of the mesh object.
@@ -1930,13 +1936,12 @@ def Mesh(meshfile, **kwargs):
 
     .. note::
 
-        When the mesh is created directly from a DMPlex object,
-        the ``dim`` parameter is ignored (the DMPlex already
+        When the mesh is created directly from a DMPlex object or a Netgen,
+        mesh obhect the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
     import firedrake.function as function
-    
     name = kwargs.get("name", DEFAULT_MESH_NAME)
     comm = kwargs.get("comm", COMM_WORLD)
     reorder = kwargs.get("reorder", None)
@@ -1966,9 +1971,8 @@ def Mesh(meshfile, **kwargs):
     geometric_dim = kwargs.get("dim", None)
     if isinstance(meshfile, PETSc.DMPlex):
         plex = meshfile
-    elif type(meshfile).__name__ == "Mesh":
-        print("NetGen Mesh !")
-        plex = _from_netgen(meshfile,comm);
+    elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        plex = _from_netgen(meshfile, comm)
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
