@@ -514,6 +514,7 @@ def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     """
+
     if ele.cell().cellname().startswith("quadrilateral"):
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
         return expand_element(ele.reconstruct(cell=quadrilateral_tpc))
@@ -538,6 +539,7 @@ def expand_element(ele):
                 terms.extend(ee._elements)
             else:
                 terms.append(ee)
+        cell, = set([t.cell() for t in terms])
         return ufl.EnrichedElement(*terms)
     elif isinstance(ele, ufl.TensorProductElement):
         factors = [expand_element(e) for e in ele.sub_elements()]
@@ -548,10 +550,13 @@ def expand_element(ele):
                 f_factors = f.sub_elements() if isinstance(f, ufl.TensorProductElement) else (f,)
                 new_terms.extend([t_factors + f_factors for t_factors in terms])
             terms = new_terms
+
         if len(terms) == 1:
             return ufl.TensorProductElement(*terms[0])
         else:
-            return ufl.EnrichedElement(*[ufl.TensorProductElement(*k) for k in terms])
+            terms = [ufl.TensorProductElement(*k) for k in terms]
+            cell, = set([t.cell() for t in terms])
+            return ufl.EnrichedElement(*terms)
     else:
         return ele
 
@@ -611,7 +616,7 @@ def get_line_elements(V):
 
 
 @lru_cache(maxsize=10)
-def fiat_reference_prolongator(felem, celem, hodgedecomp=False):
+def fiat_reference_prolongator(felem, celem):
     from FIAT import functional, make_quadrature
     from FIAT.reference_element import flatten_reference_cube
 
@@ -619,19 +624,17 @@ def fiat_reference_prolongator(felem, celem, hodgedecomp=False):
     cdual = celem.dual_basis()
     if compare_dual(fdual, cdual):
         return numpy.array([])
-    kf = felem.formdegree if hodgedecomp else 0
-    kc = celem.formdegree if hodgedecomp else 0
     tdim = felem.ref_el.get_spatial_dimension()
-    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual) and kc == 0:
+    if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(kf, pts)[(kf,)*tdim]
+        return celem.tabulate(0, pts)[(0,)*tdim]
 
     ref_el = flatten_reference_cube(felem.get_reference_element())
     quadrature = make_quadrature(ref_el, felem.degree()+1)
     pts = quadrature.get_points()
     wts = quadrature.get_weights()
-    cphi = celem.tabulate(kf, pts)[(kf,)*tdim]
-    fphi = felem.tabulate(kc, pts)[(kc,)*tdim]
+    cphi = celem.tabulate(0, pts)[(0,)*tdim]
+    fphi = felem.tabulate(0, pts)[(0,)*tdim]
     cshape = (celem.space_dimension(), -1)
     fshape = (felem.space_dimension(), -1)
     Ac = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
@@ -650,10 +653,14 @@ def finat_reference_prolongator(felem, celem):
     except TypeError:
         pass
     quadrature = make_quadrature(felem.cell, 2*degree+1)
-    tabulate = lambda e, ps: evaluate(e.basis_evaluation(0, ps).values())[0].arr.reshape((len(ps.points), -1))
+
+    def tabulate(e, ps):
+        results = evaluate(e.basis_evaluation(0, ps).values())
+        return results[0].arr.reshape((len(ps.points), -1)).T
+
     wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
-    cphi = tabulate(celem, quadrature.point_set).T
-    fphi = tabulate(felem, quadrature.point_set).T
+    cphi = tabulate(celem, quadrature.point_set)
+    fphi = tabulate(felem, quadrature.point_set)
     cshape = (celem.space_dimension(), -1)
     fshape = (felem.space_dimension(), -1)
     Ac = numpy.dot(numpy.multiply(cphi, wts).reshape(cshape), fphi.reshape(fshape).T)
@@ -799,7 +806,7 @@ static inline void ipermute_axis(PetscBLASInt axis,
 """
 
 
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
+def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
@@ -869,7 +876,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch, hodgedecomp=False):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [fiat_reference_prolongator(fe, ce, hodgedecomp) for fe, ce in zip(felem, celem)]
+        J = [fiat_reference_prolongator(fe, ce) for fe, ce in zip(felem, celem)]
         if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
             fskip += nscal*numpy.prod(fshape)
             cskip += nscal*numpy.prod(cshape)
@@ -1149,10 +1156,9 @@ class StandaloneInterpolationMatrix(object):
         mapping_code = ""
         coef_decl = ""
 
-        hodgedecomp = felem.value_shape() != celem.value_shape()
-        if fmapping == cmapping or hodgedecomp:
+        if fmapping == cmapping:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2", hodgedecomp=hodgedecomp)
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2")
         else:
             decl = [""]*4
             prolong = [""]*5

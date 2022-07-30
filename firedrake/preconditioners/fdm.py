@@ -360,7 +360,7 @@ class FDMPC(PCBase):
                 ie = index_cell(e)
                 ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=ie.dtype), len(ie))
                 rows = lgmap.apply(ie)
-                set_submat_csr(A, Ae, rows, imode)
+                set_submat_csr(A, Ae, rows, addv=imode)
                 Ae.destroy()
             Be.destroy()
             Bq = None
@@ -418,7 +418,7 @@ class FDMPC(PCBase):
 
                 Ae = self.condense_element_mat(Ae)
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
-                set_submat_csr(A, Ae, rows, imode)
+                set_submat_csr(A, Ae, rows, addv=imode)
                 Ae.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
@@ -506,7 +506,7 @@ class FDMPC(PCBase):
                         rows[0] = pull_axis(icell[0][k0], pshape[k0], idir[0])
                         rows[1] = pull_axis(icell[1][k1], pshape[k1], idir[1])
 
-                    set_submat_csr(A, Ae, rows, imode)
+                    set_submat_csr(A, Ae, rows, addv=imode)
                     Ae.destroy()
         A.assemble()
 
@@ -703,12 +703,12 @@ def restricted_dofs(celem, felem):
     from firedrake.preconditioners.pmg import finat_reference_prolongator
 
     fdofs = sort_entity_dofs(felem)
-    Icf = finat_reference_prolongator(celem, felem)
-    Icf[fdofs[-1]] = 0
+    #Icf = finat_reference_prolongator(celem, felem)
+    #Icf[fdofs[-1]] = 0
+    #return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
 
-    # Ifc = finat_reference_prolongator(felem, celem)
-    # return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
-    return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
+    Ifc = finat_reference_prolongator(felem, celem)
+    return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
 
 
 def sort_entity_dofs(elem):
@@ -748,13 +748,14 @@ def pull_axis(x, pshape, idir):
 
 
 @PETSc.Log.EventDecorator("FDMSetSubMat")
-def set_submat_csr(A_global, A_local, global_indices, imode):
-    """insert values from A_local to A_global on the diagonal block with indices global_indices"""
+def set_submat_csr(A_global, A_local, rindices, cindices=None, addv=None):
+    """insert values from A_local to A_global on the (rindices, cindices) block"""
+    if cindices is None:
+        cindices = rindices
     indptr, indices, data = A_local.getValuesCSR()
-    for i, row in enumerate(global_indices.flat):
-        i0 = indptr[i]
-        i1 = indptr[i+1]
-        A_global.setValues(row, global_indices.flat[indices[i0:i1]], data[i0:i1], imode)
+    cols = cindices.flat[indices]
+    for i, row in enumerate(rindices.flat):
+        A_global.setValues(row, cols[slice(*indptr[i:i+2])], data[slice(*indptr[i:i+2])], addv=addv)
 
 
 def numpy_to_petsc(A_numpy, dense_indices, diag=True):

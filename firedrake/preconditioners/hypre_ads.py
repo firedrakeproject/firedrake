@@ -12,6 +12,7 @@ __all__ = ("HypreADS",)
 class HypreADS(PCBase):
     def initialize(self, obj):
         A, P = obj.getOperators()
+        appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
@@ -27,19 +28,17 @@ class HypreADS(PCBase):
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        if family == 'Raviart-Thomas':
-            NC1 = FunctionSpace(mesh, "N1curl", 1)
-            # DiscreteGradient
+        NC1 = FunctionSpace(mesh, "N1curl" if cell.is_simplex() else "NCE", 1)
+        G_callback = appctx.get("get_gradient", None)
+        if G_callback is None:
             G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
-            # DiscreteCurl
+        else:
+            G = G_callback(NC1, P1)
+        C_callback = appctx.get("get_curl", None)
+        if C_callback is None:
             C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
         else:
-            from firedrake.preconditioners.pmg import prolongation_matrix_matfree
-            NC1 = FunctionSpace(mesh, "NCE", 1)
-            # DiscreteGradient
-            G = prolongation_matrix_matfree(NC1, P1)
-            # DiscreteCurl
-            C = prolongation_matrix_matfree(V, NC1)
+            C = C_callback(V, NC1)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)

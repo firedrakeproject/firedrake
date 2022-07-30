@@ -20,6 +20,7 @@ class HypreAMS(PCBase):
 
         Citations().register("Kolev2009")
         A, P = obj.getOperators()
+        appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
@@ -35,7 +36,8 @@ class HypreAMS(PCBase):
             raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        if family == "Nedelec 1st kind H(curl)":
+        G_callback = appctx.get("get_gradient", None)
+        if G_callback is None:
             G = Interpolator(grad(TestFunction(P1)), V).callable().handle
 
             # remove (near) zeros from sparsity pattern
@@ -48,8 +50,7 @@ class HypreAMS(PCBase):
             G2.setPreallocationCSR((ai, aj, a))
             G2.assemble()
         else:
-            from firedrake.preconditioners.pmg import prolongation_matrix_matfree
-            G2 = prolongation_matrix_matfree(V, P1)
+            G2 = G_callback(V, P1)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
