@@ -63,7 +63,7 @@ def test_poisson_inverse_conductivity():
     point_cloud = VertexOnlyMesh(m, xs)
 
     # Prove the the point cloud coordinates are correct
-    assert((point_cloud.coordinates.dat.data_ro == xs).all())
+    assert (point_cloud.coordinates.dat.data_ro == xs).all()
 
     # Generate "observed" data
     generator = np.random.default_rng(0)
