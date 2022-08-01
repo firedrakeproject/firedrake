@@ -14,9 +14,9 @@ def test_equation_bcs_direct_assemble_one_form():
     bc = EquationBC(F1 == 0, u, 1)
 
     g = assemble(F, bcs=bc.extract_form('F'))
-    assert(np.allclose(g.dat.data, [0.5, 0.5, 0, 0]))
+    assert np.allclose(g.dat.data, [0.5, 0.5, 0, 0])
     g = assemble(F, bcs=bc)
-    assert(np.allclose(g.dat.data, [0.5, 0.5, 0, 0]))
+    assert np.allclose(g.dat.data, [0.5, 0.5, 0, 0])
 
 
 def test_equation_bcs_direct_assemble_two_form():
@@ -33,15 +33,15 @@ def test_equation_bcs_direct_assemble_two_form():
     # Must preprocess bc to extract appropriate
     # `EquationBCSplit` object.
     A = assemble(a, bcs=bc.extract_form('J'))
-    assert(np.allclose(A.M.values, [[1 / 3, 1 / 6, 0, 0],
+    assert np.allclose(A.M.values, [[1 / 3, 1 / 6, 0, 0],
                                     [1 / 6, 1 / 3, 0, 0],
                                     [-1 / 3, -1 / 6, 2 / 3, -1 / 6],
-                                    [-1 / 6, -1 / 3, -1 / 6, 2 / 3]]))
+                                    [-1 / 6, -1 / 3, -1 / 6, 2 / 3]])
     A = assemble(a, bcs=bc.extract_form('Jp'))
-    assert(np.allclose(A.M.values, [[2 / 3, 2 / 6, 0, 0],
+    assert np.allclose(A.M.values, [[2 / 3, 2 / 6, 0, 0],
                                     [2 / 6, 2 / 3, 0, 0],
                                     [-1 / 3, -1 / 6, 2 / 3, -1 / 6],
-                                    [-1 / 6, -1 / 3, -1 / 6, 2 / 3]]))
+                                    [-1 / 6, -1 / 3, -1 / 6, 2 / 3]])
     with pytest.raises(TypeError) as excinfo:
         # Unable to use raw `EquationBC` object, as
         # assembler can not infer merely from the rank
