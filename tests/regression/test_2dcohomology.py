@@ -39,7 +39,7 @@ def test_betti0(space, mesh):
     """
     V0tag, V1tag, V2tag = space
 
-    if(len(V0tag) == 2):
+    if len(V0tag) == 2:
         V0 = FunctionSpace(mesh, V0tag[0], V0tag[1])
     else:
         V0a = FiniteElement(V0tag[0], "triangle", V0tag[1])
@@ -56,11 +56,11 @@ def test_betti0(space, mesh):
 
     u, s, v = linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
     u, s, v = linalg.svd(L0.M.values)
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 0)
+    assert nharmonic == 0
 
 
 @pytest.mark.parametrize(('space'),
@@ -79,7 +79,7 @@ def test_betti1(space, mesh):
     """
     V0tag, V1tag, V2tag = space
 
-    if(len(V0tag) == 2):
+    if len(V0tag) == 2:
         V0 = FunctionSpace(mesh, V0tag[0], V0tag[1])
     else:
         V0a = FiniteElement(V0tag[0], "triangle", V0tag[1])
@@ -111,7 +111,7 @@ def test_betti1(space, mesh):
     u, s, v = linalg.svd(A)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
     dV0 = V0.dof_count
     dV1 = V1.dof_count
@@ -125,7 +125,7 @@ def test_betti1(space, mesh):
     u, s, v = linalg.svd(A0)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
 
 @pytest.mark.parametrize(('space'),
@@ -171,7 +171,7 @@ def test_betti2(space, mesh):
 
     nharmonic = sum(s < 1.0e-5)
     print(nharmonic, V1tag[0])
-    assert(nharmonic == 0)
+    assert nharmonic == 0
 
     A0 = numpy.zeros((dV1+dV2, dV1+dV2), dtype=utils.ScalarType)
     A0[:dV1, :dV1] = L0.M[0, 0].values
@@ -182,4 +182,4 @@ def test_betti2(space, mesh):
     u, s, v = linalg.svd(A0)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1

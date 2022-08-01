@@ -208,14 +208,14 @@ def test_projector():
     P.project()
 
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
 
 def test_trivial_projector():
@@ -232,14 +232,14 @@ def test_trivial_projector():
     P.project()
 
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
