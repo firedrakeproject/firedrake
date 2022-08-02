@@ -654,16 +654,19 @@ def condense_element_mat(A, i0, i1):
     indptr, indices, data = A00.getValuesCSR()
     degree = numpy.diff(indptr)
 
+    # TODO handle non-symmetric case with LU, requires scipy
+    invchol = lambda X: numpy.linalg.inv(numpy.linalg.cholesky(X))
     zlice = slice(0, numpy.count_nonzero(degree == 1))
-    data[zlice] = 1.0E0/data[zlice]
+    numpy.sqrt(data[zlice], out=data[zlice])
+    numpy.reciprocal(data[zlice], out=data[zlice])
     for k in range(2, degree[-1]+1):
         zlice = slice(zlice.stop, zlice.stop + k*numpy.count_nonzero(degree == k))
-        data[zlice] = numpy.linalg.inv(data[zlice].reshape((-1, k, k))).reshape((-1,))
+        data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
 
     A00.setValuesCSR(indptr, indices, data)
     A00.assemble()
 
-    A11 -= A10.matMult(A00.matMult(A01))
+    A11 -= (A10.matTransposeMult(A00)).matMult(A00.matMult(A01))
     A00.destroy()
     A01.destroy()
     A10.destroy()
