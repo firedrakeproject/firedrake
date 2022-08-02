@@ -679,8 +679,9 @@ def condense_element_mat(A, i0, i1):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_pattern(A, i0, i1):
-    A10 = A.createSubMatrix(i1, i0)
-    A01 = A.createSubMatrix(i0, i1)
+    ii = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType))
+    A10 = A.createSubMatrix(ii, i0)
+    A01 = A.createSubMatrix(i0, ii)
     A00 = A.createSubMatrix(i0, i0)
     Z = A10.matMult(A00.matMult(A01))
     Z.zeroEntries()
@@ -688,6 +689,7 @@ def condense_element_pattern(A, i0, i1):
     A00.destroy()
     A01.destroy()
     A10.destroy()
+    ii.destroy()
     return Z
 
 
