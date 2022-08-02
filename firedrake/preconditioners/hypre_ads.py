@@ -28,7 +28,7 @@ class HypreADS(PCBase):
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        NC1 = FunctionSpace(mesh, "N1curl" if cell.is_simplex() else "NCE", 1)
+        NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
             G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle

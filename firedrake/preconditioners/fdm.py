@@ -223,21 +223,25 @@ class FDMPC(PCBase):
 
         if self.is_facet_element:
             Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
-
             fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
-            fdofs = V.value_size*fdofs.reshape((-1, 1))
-            fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
-            fdofs = fdofs.reshape((-1,))
-            idofs = numpy.setdiff1d(numpy.arange(V.value_size*Vbig.finat_element.space_dimension(),
-                                                 dtype=fdofs.dtype), fdofs)
-            self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
-            self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             Vbig = V
-            self.fdofs = None
-            self.idofs = None
+            fdofs = facet_dofs(V.finat_element)
+
+        fdofs = V.value_size*fdofs.reshape((-1, 1))
+        fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
+        fdofs = fdofs.reshape((-1,))
+        idofs = numpy.setdiff1d(numpy.arange(V.value_size*Vbig.finat_element.space_dimension(),
+                                             dtype=fdofs.dtype), fdofs)
+        self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
+        self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+
+        if self.is_facet_element:
+            self.condense_element_pattern = None
+            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
+        else:
             self.condense_element_mat = lambda Ae: Ae
+            self.condense_element_pattern = lambda Ae: condense_element_pattern(Ae, self.idofs, self.fdofs)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -673,6 +677,20 @@ def condense_element_mat(A, i0, i1):
     return A11
 
 
+@PETSc.Log.EventDecorator("FDMCondense")
+def condense_element_pattern(A, i0, i1):
+    A10 = A.createSubMatrix(i1, i0)
+    A01 = A.createSubMatrix(i0, i1)
+    A00 = A.createSubMatrix(i0, i0)
+    Z = A10.matMult(A00.matMult(A01))
+    Z.zeroEntries()
+    Z.assemble()
+    A00.destroy()
+    A01.destroy()
+    A10.destroy()
+    return Z
+
+
 def unrestrict_element(ele):
     if isinstance(ele, ufl.VectorElement):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
@@ -694,6 +712,11 @@ def unrestrict_element(ele):
         return ele
 
 
+def facet_dofs(elem):
+    edofs = sort_entity_dofs(elem)
+    return numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
+
+
 def restricted_dofs(celem, felem):
     """
     find which DOFs from felem are on celem
@@ -705,10 +728,10 @@ def restricted_dofs(celem, felem):
     """
     from firedrake.preconditioners.pmg import finat_reference_prolongator
 
-    fdofs = sort_entity_dofs(felem)
-    #Icf = finat_reference_prolongator(celem, felem)
-    #Icf[fdofs[-1]] = 0
-    #return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
+    # fdofs = sort_entity_dofs(felem)
+    # Icf = finat_reference_prolongator(celem, felem)
+    # Icf[fdofs[-1]] = 0
+    # return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
 
     Ifc = finat_reference_prolongator(felem, celem)
     return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
