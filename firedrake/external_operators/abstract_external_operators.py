@@ -254,6 +254,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
 
     # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
+        # Remove `diagonal` keyword argument
+        opts.pop('diagonal', None)
         # TODO: Add doc (especialy for integral_types)
         return allocate_matrix(self, bcs=bcs, integral_types=integral_types, **opts)
 
