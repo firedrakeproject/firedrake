@@ -603,7 +603,6 @@ def fiat_to_ufl(fiat_dict, order):
         tensor = gem.Indexed(gem.ListTensor(tensor), delta)
     else:
         tensor = tensor[()]
-    tensor, = constant_fold_zero([tensor])
     return gem.ComponentTensor(tensor, sigma + delta)
 
 
