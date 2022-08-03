@@ -2,6 +2,8 @@ from collections import OrderedDict
 
 import numpy as np
 
+from ufl.form import ZeroBaseForm
+
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.matrix import MatrixBase
@@ -91,7 +93,10 @@ class Vector(object):
         :arg a: a scalar (or something that contains a dat)
         """
         try:
-            self.dat *= a.dat
+            if isinstance(a, ZeroBaseForm):
+                self.dat.zero()
+            else:
+                self.dat *= a.dat
         except AttributeError:
             self.dat *= a
         return self
