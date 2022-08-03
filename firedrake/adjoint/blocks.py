@@ -497,7 +497,7 @@ class InterpolateBlock(Block, Backend):
             ghat_q = I^T([dexpr/dg|_u]_q)_p vhat_p.
         """
         if len(adj_inputs) > 1:
-            raise(NotImplementedError("Interpolate block must have a single output"))
+            raise NotImplementedError("Interpolate block must have a single output")
         input = inputs[idx]
         dJdm = self.backend.derivative(prepared, input)
         # Get the function space from `dJdm` argument
@@ -659,7 +659,7 @@ class InterpolateBlock(Block, Backend):
         """
 
         if len(hessian_inputs) > 1 or len(adj_inputs) > 1:
-            raise(NotImplementedError("Interpolate block must have a single output"))
+            raise NotImplementedError("Interpolate block must have a single output")
 
         component = self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx, prepared)
 
