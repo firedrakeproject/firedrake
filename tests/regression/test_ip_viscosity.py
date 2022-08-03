@@ -126,9 +126,9 @@ def test_indexed_interior_facet_gradients():
     M2 = assemble(derivative(F2, uv)).M.values
     M0 = assemble(derivative(F0, uv)).M.values
     err = numpy.abs(M-(M1+M2)).max()
-    assert(err < 1e-12)
+    assert err < 1e-12
     err = numpy.abs(M-M0).max()
-    assert(err < 1e-12)
+    assert err < 1e-12
 
 
 @pytest.mark.parametrize(('space'),
@@ -159,6 +159,6 @@ def test_stress_form_ip_penalty_term(space):
     M = assemble(derivative(F, u)).M.values
 
     err = numpy.abs(M-(M1+M2)).max()
-    assert(err < 1e-12)
+    assert err < 1e-12
     err = numpy.abs(M-Ms).max()
-    assert(err < 1e-12)
+    assert err < 1e-12
