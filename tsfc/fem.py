@@ -27,7 +27,7 @@ from FIAT.reference_element import UFCSimplex
 
 import gem
 from gem.node import traversal
-from gem.optimise import ffc_rounding, constant_fold_zero
+from gem.optimise import ffc_rounding
 from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
@@ -603,7 +603,6 @@ def fiat_to_ufl(fiat_dict, order):
         tensor = gem.Indexed(gem.ListTensor(tensor), delta)
     else:
         tensor = tensor[()]
-    tensor, = constant_fold_zero([tensor])
     return gem.ComponentTensor(tensor, sigma + delta)
 
 
@@ -719,4 +718,4 @@ def compile_ufl(expression, context, interior_facet=False, point_sum=False):
     result = map_expr_dags(context.translator, expressions)
     if point_sum:
         result = [gem.index_sum(expr, context.point_indices) for expr in result]
-    return constant_fold_zero(result)
+    return result
