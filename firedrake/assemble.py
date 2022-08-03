@@ -446,7 +446,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 else:
                     res = petsc_mat
                     is_set = True
-            return matrix.AssembledMatrix(expr.arguments()[0], bcs, res,
+            return matrix.AssembledMatrix(expr.arguments(), bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:

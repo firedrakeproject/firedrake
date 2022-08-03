@@ -123,7 +123,7 @@ def solve(*args, **kwargs):
     ``near_nullspace`` keyword argument.
     """
 
-    assert(len(args) > 0)
+    assert len(args) > 0
 
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
