@@ -236,12 +236,12 @@ class FDMPC(PCBase):
         self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
 
-        if self.is_facet_element:
-            self.condense_element_pattern = None
+        if self.is_interior_element:
+            self.condense_element_mat = lambda Ae: Ae
+        elif self.is_facet_element:
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
-            self.condense_element_mat = lambda Ae: Ae
-            self.condense_element_pattern = lambda Ae: condense_element_pattern(Ae, self.idofs, self.fdofs)
+            self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -678,19 +678,19 @@ def condense_element_mat(A, i0, i1):
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_pattern(A, i0, i1):
-    ii = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType))
-    A10 = A.createSubMatrix(ii, i0)
-    A01 = A.createSubMatrix(i0, ii)
+def condense_element_pattern(A, i0):
+    i1 = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType))
+    A10 = A.createSubMatrix(i1, i0)
+    A01 = A.createSubMatrix(i0, i1)
     A00 = A.createSubMatrix(i0, i0)
-    Z = A10.matMult(A00.matMult(A01))
-    Z.zeroEntries()
-    Z.assemble()
+    A00.zeroEntries()
+    A00.assemble()
+    S = A - A10.matMult(A00.matMult(A01))
     A00.destroy()
     A01.destroy()
     A10.destroy()
-    ii.destroy()
-    return Z
+    i1.destroy()
+    return S
 
 
 def unrestrict_element(ele):
