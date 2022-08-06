@@ -120,6 +120,10 @@ def assemble_base_form(expression, tensor=None, bcs=None,
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = expression._cache
+        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
+        if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+            # FIXME: Directly call assemble_expressions once sum of BaseFormOperator has been lifted
+            return assemble(expr)
     else:
         expr = expression
 
@@ -212,6 +216,18 @@ def restructure_base_form(expr, visited=None):
            /    \                    /    \                                                                  dNdu(u; w, v*)
          dFdN    dNdu              dNdu    w
 
+        (6) ufl.FormSum(dN1du(u; w, v*), dN2du(u; w, v*)) -> ufl.Sum(dN1du(u; w, v*), dN2du(u; w, v*))
+
+          Let's consider `Action(dN1du, w) + Action(dN2du, w)`, we have:
+
+                      FormSum                 (2)         FormSum                    (6)                     Sum
+                      /     \                ---->        /     \                   ---->                    /  \
+                     /       \                           /       \                                          /    \
+          Action(dN1du, w)  Action(dN2du, w)    dN1du(u; w, v*) dN2du(u; w, v*)                 dN1du(u; w, v*)  dN2du(u; w, v*)
+
+        This case arises as a consequence of (2) which turns sum of `Action`s (i.e. ufl.FormSum since Action is a BaseForm)
+        into sum of `BaseFormOperator`s (i.e. ufl.Sum since BaseFormOperator is an Expr as well).
+
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     various dag rotations/manipulations in expr.
     """
@@ -257,6 +273,11 @@ def restructure_base_form(expr, visited=None):
         vstar = firedrake.Argument(ustar.function_space(), 0)
         expr = ufl.replace(expr, {ustar: vstar})
         return ufl.action(expr, ustar)
+
+    # -- Case (6) -- #
+    if isinstance(expr, ufl.FormSum) and all(isinstance(c, ufl.core.base_form_operator.BaseFormOperator) for c in expr.components()):
+        # Return ufl.Sum
+        return sum([c for c in expr.components()])
     return expr
 
 
@@ -293,13 +314,13 @@ def restructure_base_form_preorder(expr, visited=None):
 def reconstruct_node_from_operands(expr, operands):
     if isinstance(expr, (ufl.Adjoint, ufl.Action)):
         return expr._ufl_expr_reconstruct_(*operands)
-    elif isinstance(expr, ufl.form.FormSum):
+    elif isinstance(expr, ufl.FormSum):
         return ufl.FormSum(*[(op, 1) for op in operands])
     return expr
 
 
 def base_form_operands(expr):
-    if isinstance(expr, (ufl.form.FormSum, ufl.Adjoint, ufl.Action)):
+    if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
         return expr.ufl_operands
     if isinstance(expr, ufl.Form):
         # Use reversed to treat base form operators
