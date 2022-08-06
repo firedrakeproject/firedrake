@@ -221,12 +221,11 @@ class FDMPC(PCBase):
                 else:
                     self.is_interior_element = False
 
+        Vbig = V
+        _, fdofs = split_dofs(V.finat_element)
         if self.is_facet_element:
             Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
             fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
-        else:
-            Vbig = V
-            fdofs = facet_dofs(V.finat_element)
 
         fdofs = V.value_size*fdofs.reshape((-1, 1))
         fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
@@ -714,11 +713,6 @@ def unrestrict_element(ele):
         return ele
 
 
-def facet_dofs(elem):
-    edofs = sort_entity_dofs(elem)
-    return numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
-
-
 def restricted_dofs(celem, felem):
     """
     find which DOFs from felem are on celem
@@ -728,18 +722,16 @@ def restricted_dofs(celem, felem):
 
     :returns: an integer array with indices of felem that correspond to celem
     """
-    from firedrake.preconditioners.pmg import finat_reference_prolongator
-
-    # fdofs = sort_entity_dofs(felem)
-    # Icf = finat_reference_prolongator(celem, felem)
-    # Icf[fdofs[-1]] = 0
-    # return numpy.where(abs(Icf.T) > 1E-12)[1].astype(PETSc.IntType)
-
-    Ifc = finat_reference_prolongator(felem, celem)
-    return numpy.where(abs(Ifc) > 1E-12)[1].astype(PETSc.IntType)
+    csplit = split_dofs(celem)
+    if len(csplit[0]) and len(csplit[1]):
+        raise ValueError("The element %s is not restricted" % celem)
+    k = len(csplit[0]) == 0
+    perm = numpy.empty_like(csplit[k])
+    perm[csplit[k]] = numpy.arange(len(perm))
+    return split_dofs(felem)[k][perm]
 
 
-def sort_entity_dofs(elem):
+def split_dofs(elem):
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
     edofs = [[] for k in range(ndim+1)]
@@ -754,7 +746,8 @@ def sort_entity_dofs(elem):
         for r in range(len(split)-1):
             v = sum([vals[k] for k in range(*split[r:r+2])], [])
             edofs[edim].extend(sorted(v))
-    return edofs
+
+    return numpy.array(edofs[-1], dtype=PETSc.IntType), numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
 
 
 def get_piola_tensor(mapping, domain):
