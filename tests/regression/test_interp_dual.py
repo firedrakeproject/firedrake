@@ -86,6 +86,40 @@ def test_assemble_interp(mesh):
     assert np.abs(a - res) < 1e-9
 
 
+def test_assemble_base_form_operator_expressions(mesh):
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+
+    x, y = SpatialCoordinate(mesh)
+    f1 = Function(V1).interpolate(cos(2*pi*x)*sin(2*pi*y))
+    f2 = Function(V1).interpolate(sin(2*pi*y))
+    f3 = Function(V1).interpolate(cos(2*pi*x))
+
+    If1 = Interp(f1, V2)
+    If2 = Interp(f2, V2)
+    If3 = Interp(f3, V2)
+
+    # Sum of BaseFormOperators (1-form)
+    res = assemble(If1 + If2 + If3)
+    res2 = assemble(assemble(If1) + assemble(If2) + assemble(If3))
+    assert np.allclose(res.dat.data, res2.dat.data)
+
+    # Sum of BaseFormOperator and Coefficients (1-form)
+    u = Function(V2).interpolate(x**2 + y**2)
+    res = assemble(u + If1)
+    res2 = assemble(assemble(If1) + assemble(u))
+    assert np.allclose(res.dat.data, res2.dat.data)
+
+    # Sum of BaseFormOperator (2-form)
+    v1 = TrialFunction(V1)
+    Iv1 = Interp(v1, V2)
+    Iv2 = Interp(v1, V2)
+    res = assemble(Iv1 + Iv2)
+    mat_Iv1 = assemble(Iv1)
+    mat_Iv2 = assemble(Iv2)
+    import ipdb; ipdb.set_trace()
+    assert np.allclose(res.dat.data, res2.dat.data)
+
 def test_check_identity(mesh):
     V2 = FunctionSpace(mesh, "CG", 2)
     V1 = FunctionSpace(mesh, "CG", 1)

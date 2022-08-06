@@ -95,7 +95,17 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        return assemble_expressions.assemble_expression(expr)
+        from ufl.algorithms.analysis import extract_base_form_operators
+        if isinstance(expr, ufl.algebra.Sum) and len(extract_base_form_operators(expr)):
+            # Assemble components to produce Coefficient or Matrix objects
+            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
+            # or `assemble_expressions` (e.g. expr -> Coefficient)
+            assembled_expr = [assemble(e) for e in expr.ufl_operands]
+            # Assemble the sum: call `assemble` as the sum of matrices is a FormSum (call `assemble_base_form`)
+            # and the sum of Coefficients is a ufl.Sum (call `assemble_expressions`).
+            return assemble(sum(assembled_expr))
+        else:
+            return assemble_expressions.assemble_expression(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
 
