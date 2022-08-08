@@ -624,12 +624,13 @@ def fiat_reference_prolongator(felem, celem):
     cdual = celem.dual_basis()
     if compare_dual(fdual, cdual):
         return numpy.array([])
-    tdim = felem.ref_el.get_spatial_dimension()
+
+    ref_el = flatten_reference_cube(felem.get_reference_element())
+    tdim = ref_el.get_spatial_dimension()
     if all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
         return celem.tabulate(0, pts)[(0,)*tdim]
 
-    ref_el = flatten_reference_cube(felem.get_reference_element())
     quadrature = make_quadrature(ref_el, felem.degree()+1)
     pts = quadrature.get_points()
     wts = quadrature.get_weights()
