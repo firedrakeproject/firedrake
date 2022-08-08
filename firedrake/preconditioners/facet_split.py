@@ -19,6 +19,7 @@ class FacetSplitPC(PCBase):
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
         from functools import partial
+        from mpi4py import MPI
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -72,13 +73,13 @@ class FacetSplitPC(PCBase):
                       "pc_type": "jacobi", })
 
         indices = numpy.rint((end-start-1)*v.dat.data_ro+start).astype(PETSc.IntType)
-        rindices = numpy.empty_like(indices)
-        rindices[indices-start] = numpy.arange(start, end, dtype=PETSc.IntType)
-
-        if numpy.array_equal(indices, rindices):
+        isorted = numpy.arange(start, end, dtype=PETSc.IntType)
+        if V.comm.allreduce(numpy.array_equal(indices, isorted), MPI.PROD):
             self.perm = None
             self.iperm = None
         else:
+            rindices = numpy.empty_like(indices)
+            rindices[indices-start] = isorted
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
 

@@ -202,7 +202,7 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
-            self.condense_element_mat = lambda Ae: Ae
+            #self.condense_element_mat = lambda Ae: Ae
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -218,6 +218,7 @@ class FDMPC(PCBase):
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
+        prealloc.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
 
@@ -724,8 +725,8 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    ndim = Vf.mesh().topological_dimension()
-    degree = Vf.ufl_element().degree()
+    ndim = Vc.mesh().topological_dimension()
+    degree = Vc.ufl_element().degree()
     try:
         degree = max(degree)
     except TypeError:
@@ -749,6 +750,7 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     cdofs = restricted_dofs(ec, create_element(unrestrict_element(Vc.ufl_element())))
     fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
     cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
+
     Dhat = Dhat.createSubMatrix(fises, cises)
     if Vf.value_size > 1:
         Dhat = Dhat.kron(petsc_sparse(numpy.eye(Vf.value_size)))
