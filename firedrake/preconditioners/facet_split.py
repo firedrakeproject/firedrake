@@ -83,6 +83,14 @@ class FacetSplitPC(PCBase):
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
 
+        def _permute_nullspace(nsp):
+            if nsp is None or self.iperm is None:
+                return nsp
+            vecs = [vec.duplicate() for vec in nsp.getVecs()]
+            for vec in vecs:
+                vec.permute(self.iperm)
+            return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
+
         if P.getType() == "python":
             self.mixed_op = allocate_matrix(mixed_operator,
                                             bcs=mixed_bcs,
@@ -95,15 +103,8 @@ class FacetSplitPC(PCBase):
             self._assemble_mixed_op()
             mixed_opmat = self.mixed_op.petscmat
 
-            def _permute_nullspace(nsp):
-                if nsp is None:
-                    return nsp
-                vecs = [vec.duplicate() for vec in nsp.getVecs()]
-                for vec in vecs:
-                    vec.permute(self.iperm)
-                return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
-
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
+            mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         elif self.iperm:
             self._permute_op = partial(P.permute, self.iperm, self.iperm)

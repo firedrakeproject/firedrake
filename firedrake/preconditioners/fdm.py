@@ -124,7 +124,7 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-
+        
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx)
         self._assemble_P()
@@ -202,7 +202,7 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
-            #self.condense_element_mat = lambda Ae: Ae
+            # self.condense_element_mat = lambda Ae: Ae
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -542,7 +542,7 @@ def condense_element_mat(A, i0, i1):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_pattern(A, i0):
-    i1 = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType))
+    i1 = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType), comm=PETSc.COMM_SELF)
     A10 = A.createSubMatrix(i1, i0)
     A01 = A.createSubMatrix(i0, i1)
     A00 = A.createSubMatrix(i0, i0)
