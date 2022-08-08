@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+from ufl.formatting.ufl2unicode import ufl2unicode
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -143,3 +144,6 @@ class Constant(ufl.Coefficient, ConstantMixin):
 
     def __idiv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __str__(self):
+        return ufl2unicode(self)
