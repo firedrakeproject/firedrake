@@ -18,7 +18,6 @@ class FacetSplitPC(PCBase):
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions, Function, split
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
-        from firedrake.matrix_free.operators import ImplicitMatrixContext
         from functools import partial
 
         _, P = pc.getOperators()
@@ -36,7 +35,6 @@ class FacetSplitPC(PCBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        opts = PETSc.Options()
 
         mat_type = ctx.mat_type
         problem = ctx._problem
@@ -71,15 +69,18 @@ class FacetSplitPC(PCBase):
                       "ksp_type": "cg",
                       "ksp_atol": 0,
                       "ksp_rtol": rtol,
-                      "ksp_norm_type": "natural",
-                      "pc_type": "jacobi",})
+                      "pc_type": "jacobi", })
 
         indices = numpy.rint((end-start-1)*v.dat.data_ro+start).astype(PETSc.IntType)
         rindices = numpy.empty_like(indices)
         rindices[indices-start] = numpy.arange(start, end, dtype=PETSc.IntType)
 
-        self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
-        self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
+        if numpy.array_equal(indices, rindices):
+            self.perm = None
+            self.iperm = None
+        else:
+            self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
+            self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
 
         if P.getType() == "python":
             self.mixed_op = allocate_matrix(mixed_operator,
@@ -103,9 +104,11 @@ class FacetSplitPC(PCBase):
 
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
+        elif self.iperm:
+            self._permute_op = partial(P.permute, self.iperm, self.iperm)
+            mixed_opmat = self._permute_op()
         else:
-            self._get_operator = partial(P.permute, self.iperm, self.iperm)
-            mixed_opmat = self._get_operator()
+            mixed_opmat = P
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -139,29 +142,33 @@ class FacetSplitPC(PCBase):
     def update(self, pc):
         if hasattr(self, "mixed_op"):
             self._assemble_mixed_op()
-        else:
-            P = self._get_operator()
+        elif hasattr(self, "_permute_op"):
+            P = self._permute_op()
             self.pc.setOperators(A=P, P=P)
         self.pc.setUp()
 
     def apply(self, pc, x, y):
+        if self.iperm:
+            x.permute(self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            x.permute(self.iperm)
             self.pc.apply(x, y)
+        if self.perm:
             x.permute(self.perm)
             y.permute(self.perm)
 
     def applyTranspose(self, pc, x, y):
+        if self.iperm:
+            x.permute(self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            x.permute(self.iperm)
             self.pc.applyTranspose(x, y)
+        if self.perm:
             x.permute(self.perm)
             y.permute(self.perm)
 
     def view(self, pc, viewer=None):
-        super(StaticCondensationPC, self).view(pc, viewer)
+        super(FacetSplitPC, self).view(pc, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC using interior-facet decomposition\n")
             self.pc.view(viewer)
