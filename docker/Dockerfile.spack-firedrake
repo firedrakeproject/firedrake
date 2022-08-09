@@ -25,13 +25,13 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
 # Install Firedrake applications
 RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack env activate firedrake; \
-    spack develop py-femlium@develop; spack add py-femlium@develop; \
-    spack develop py-gusto@develop; spack add py-gusto@develop; \
-    spack develop py-icepack@develop; spack add py-icepack@develop; \
-    spack develop py-irksome@develop; spack add py-irksome@develop; \
-    spack develop py-thetis@develop; spack add py-thetis@develop; \
-    spack develop py-tinyasm@develop; spack add py-tinyasm@develop; \
-    spack install; \
+    spack develop py-femlium@develop; spack add py-femlium@develop ^python@3.10:; \
+    spack develop py-gusto@develop;   spack add py-gusto@develop ^python@3.10:; \
+    spack develop py-icepack@develop; spack add py-icepack@develop ^python@3.10:; \
+    spack develop py-irksome@develop; spack add py-irksome@develop ^python@3.10:; \
+    spack develop py-thetis@develop;  spack add py-thetis@develop ^python@3.10:; \
+    spack develop py-tinyasm@develop; spack add py-tinyasm@develop ^python@3.10:; \
+    spack install --fail-fast --show-log-on-error; \
     '
 # Basic functionality test
 RUN bash -c 'source spack/share/spack/setup-env.sh; \
