@@ -5,6 +5,7 @@ import firedrake.dmhooks as dmhooks
 import firedrake
 import numpy
 import ufl
+import ctypes
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
@@ -124,7 +125,7 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-        
+
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx)
         self._assemble_P()
@@ -202,7 +203,10 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
-            # self.condense_element_mat = lambda Ae: Ae
+            self.condense_element_mat = lambda Ae: Ae
+
+        petsc_function = load_assemble_csr()
+        self.update_A = lambda A, B, rindices: petsc_function(A.handle, B.handle, rindices.ctypes.data, rindices.ctypes.data, PETSc.InsertMode.ADD_VALUES)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -402,8 +406,8 @@ class FDMPC(PCBase):
                               assembly_callable(aform(*make_args(W[1])), alpha)]
         return coefficients, assembly_callables
 
+    @PETSc.Log.EventDecorator("FDMAssemble")
     def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Bfdm, bcflags):
-        imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(bcs)
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
@@ -411,7 +415,7 @@ class FDMPC(PCBase):
 
         # insert the identity in the Dirichlet rows and columns
         for row in V.dof_dset.lgmap.indices[lgmap.indices < 0]:
-            A.setValue(row, row, 1.0E0, imode)
+            A.setValue(row, row, 1.0E0, PETSc.InsertMode.ADD_VALUES)
 
         bsize = V.value_size
         nrows = Afdm[0].getSize()[0]
@@ -433,7 +437,8 @@ class FDMPC(PCBase):
                 assemble_coef()
             for e in range(nel):
                 Ae = self.element_mat(local_coefs(e), Afdm, work_mat, Ae=Ae)
-                set_submat_csr(A, self.condense_element_mat(Ae), lgmap.apply(index_cell(e)), addv=imode)
+                self.update_A(A, self.condense_element_mat(Ae), lgmap.apply(index_cell(e)))
+
         elif nel:
             shape = local_coefs(0).shape
             if len(shape) > 2:
@@ -447,7 +452,7 @@ class FDMPC(PCBase):
                 sort_interior_dofs(self.idofs, Ae)
             Ae = self.condense_element_mat(Ae)
             for e in range(nel):
-                set_submat_csr(A, Ae, lgmap.apply(index_cell(e)), addv=imode)
+                self.update_A(A, Ae, lgmap.apply(index_cell(e)))
 
         A.assemble()
 
@@ -462,6 +467,62 @@ class FDMPC(PCBase):
         work_mat.assemble()
         Ae = work_mat.PtAP(Afdm[0], result=Ae)
         return Ae
+
+
+def load_assemble_csr():
+    from pyop2.compilation import load
+    from pyop2.utils import get_petsc_dir
+    code = """
+#include <petsc.h>
+
+PetscErrorCode setSubMatCSR(Mat A,
+                            Mat B,
+                            PetscInt *rindices,
+                            PetscInt *cindices,
+                            InsertMode addv)
+{{
+    PetscInt ncols;
+    PetscInt *cols, *indices;
+    PetscScalar *vals;
+
+    PetscInt m, n;
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    MatGetSize(B, &m, NULL);
+
+    n = 0;
+    for (PetscInt i = 0; i < m; i++) {{
+        ierr = MatGetRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
+        n = ncols > n ? ncols : n;
+        ierr = MatRestoreRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
+    }}
+    PetscMalloc1(n, &indices);
+    for (PetscInt i = 0; i < m; i++) {{
+        ierr = MatGetRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
+        for (PetscInt j = 0; j < ncols; j++) {{
+            indices[j] = cindices[cols[j]];
+        }}
+        ierr = MatSetValues(A, 1, &rindices[i], ncols, indices, vals, addv);CHKERRQ(ierr);
+        ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
+    }}
+    PetscFree(indices);
+    PetscFunctionReturn(0);
+}}
+"""
+    name = "setSubMatCSR"
+    comm = PETSc.COMM_SELF
+    comm = PETSc.COMM_WORLD
+    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
+    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
+              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
+              + ["-lpetsc", "-lm"])
+
+    return load(code, "c", name,
+                argtypes=[
+                    ctypes.c_voidp, ctypes.c_voidp,
+                    ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int],
+                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
+                comm=comm)
 
 
 def petsc_sparse(A_numpy, rtol=1E-10):
@@ -498,17 +559,6 @@ def block_mat(A_blocks):
     return PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=PETSc.COMM_SELF)
 
 
-@PETSc.Log.EventDecorator("FDMSetSubMat")
-def set_submat_csr(A_global, A_local, rindices, cindices=None, addv=None):
-    """insert values from A_local to A_global on the (rindices, cindices) block"""
-    if cindices is None:
-        cindices = rindices
-    indptr, indices, data = A_local.getValuesCSR()
-    cols = cindices.flat[indices]
-    for i, row in enumerate(rindices.flat):
-        A_global.setValues(row, cols[slice(*indptr[i:i+2])], data[slice(*indptr[i:i+2])], addv=addv)
-
-
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_mat(A, i0, i1):
     A11 = A.createSubMatrix(i1, i1)
@@ -521,6 +571,7 @@ def condense_element_mat(A, i0, i1):
     indptr, indices, data = A00.getValuesCSR()
     degree = numpy.diff(indptr)
 
+    # TODO log flops
     # TODO handle non-symmetric case with LU, requires scipy
     invchol = lambda X: numpy.linalg.inv(numpy.linalg.cholesky(X))
     zlice = slice(0, numpy.count_nonzero(degree == 1))
@@ -700,6 +751,9 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
 
 
 def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
+    if addv is None:
+        addv = PETSc.InsertMode.INSERT_VALUES
+
     rindices, nel = glonum_fun(Vrows.cell_node_map())
     cindices, nel = glonum_fun(Vcols.cell_node_map())
     bsize = Vrows.value_size
@@ -710,8 +764,10 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
         rindices = lambda e: numpy.reshape(_rindices(e)*bsize, (-1, 1)) + ibase
         cindices = lambda e: numpy.reshape(_cindices(e)*bsize, (-1, 1)) + ibase
 
+    petsc_function = load_assemble_csr()
+    update_A = lambda rows, cols: petsc_function(A.handle, Ahat.handle, rows.ctypes.data, cols.ctypes.data, addv)
     for e in range(nel):
-        set_submat_csr(A, Ahat, rmap.apply(rindices(e)), cindices=cmap.apply(cindices(e)), addv=addv)
+        update_A(rmap.apply(rindices(e)), cmap.apply(cindices(e)))
     A.assemble()
 
 
@@ -894,7 +950,7 @@ class PoissonFDMPC(FDMPC):
                 ie = index_cell(e)
                 ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=ie.dtype), len(ie))
                 rows = lgmap.apply(ie)
-                set_submat_csr(A, Ae, rows, addv=imode)
+                self.update_A(A, Ae, rows)
                 Ae.destroy()
             Be.destroy()
             Bq = None
@@ -952,7 +1008,7 @@ class PoissonFDMPC(FDMPC):
 
                 Ae = self.condense_element_mat(Ae)
                 rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
-                set_submat_csr(A, Ae, rows, addv=imode)
+                self.update_A(A, Ae, rows)
                 Ae.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
@@ -1040,7 +1096,7 @@ class PoissonFDMPC(FDMPC):
                         rows[0] = pull_axis(icell[0][k0], pshape[k0], idir[0])
                         rows[1] = pull_axis(icell[1][k1], pshape[k1], idir[1])
 
-                    set_submat_csr(A, Ae, rows, addv=imode)
+                    self.update_A(A, Ae, rows)
                     Ae.destroy()
         A.assemble()
 
