@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from numpy.random import rand
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation, annotate_tape, stop_annotating
+from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
 
 
 @pytest.fixture(autouse=True)
@@ -13,7 +13,10 @@ def handle_taping():
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_exit_annotation():
+def handle_annotation():
+    from firedrake_adjoint import annotate_tape, continue_annotation
+    if not annotate_tape():
+        continue_annotation()
     yield
     # Since importing firedrake_adjoint modifies a global variable, we need to
     # pause annotations at the end of the module

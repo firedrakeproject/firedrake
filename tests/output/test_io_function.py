@@ -39,6 +39,10 @@ def _get_mesh(cell_type, comm):
     elif cell_type == "quad_small":
         # Sanity check
         mesh = UnitSquareMesh(2, 2, quadrilateral=True, name=mesh_name)
+    elif cell_type == "triangle_periodic":
+        mesh = PeriodicUnitSquareMesh(20, 20, name=mesh_name)
+    elif cell_type == "tetrahedra_periodic":
+        mesh = PeriodicUnitCubeMesh(10, 10, 10, name=mesh_name)
     return mesh
 
 
@@ -52,7 +56,8 @@ def _get_expr(V):
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
     if shape == ():
-        return x * y * z + z * z * z
+        # For PeriodicUnitSquareMesh and PeriodicUnitCubeMesh
+        return cos(2 * pi * x) + sin(4 * pi * y)
     elif shape == (2, ):
         return as_vector([2 + x * z, 3 + y * z])
     elif shape == (3, ):
@@ -153,7 +158,9 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
                                                 ("quadrilateral", "DQ", 0),
                                                 ("quadrilateral", "DQ", 7),
                                                 ("quadrilateral", "S", 5),
-                                                ("quadrilateral", "DPC", 5)])
+                                                ("quadrilateral", "DPC", 5),
+                                                ("triangle_periodic", "P", 4),
+                                                ("tetrahedra_periodic", "P", 4)])
 def test_io_function_base(cell_family_degree, tmpdir):
     # Parameters
     cell_type, family, degree = cell_family_degree

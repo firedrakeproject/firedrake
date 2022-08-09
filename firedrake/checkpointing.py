@@ -8,7 +8,7 @@ from pyop2.mpi import COMM_WORLD, dup_comm, free_comm, MPI
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, make_mesh_from_mesh_topology
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
 from firedrake.functionspacedata import get_global_numbering, create_element
@@ -603,12 +603,13 @@ class CheckpointFile(object):
             if mesh.name not in self.require_group(path):
                 path = self._path_to_mesh(tmesh.name, mesh.name)
                 self.require_group(path)
-                # Firedrake coodinates are saved here, but never loaded at the moment.
-                # We load plex coordinates instead.
+                # Save Firedrake coodinates.
                 mesh.init()
                 self.set_attr(path, PREFIX + "_coordinate_element", self._pickle(mesh._coordinates.function_space().ufl_element()))
                 self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
                 self._save_function_topology(mesh._coordinates)
+                # Save DMPlex coordinates for a complete representation of the plex.
+                # Practically, plex coordinates will be needed when we checkpoint MeshHierarchy in the future.
                 with self.opts.inserted_options():
                     tmesh.topology_dm.coordinatesView(viewer=self.viewer)
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
@@ -776,7 +777,10 @@ class CheckpointFile(object):
             dm = self._get_dm_for_checkpointing(tV)
             path = self._path_to_vec(tmesh.name, dm.name, tf.name())
             if path in self.h5pyfile:
-                timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
+                try:
+                    timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
+                except KeyError:
+                    timestepping = False
                 if timestepping:
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
@@ -861,9 +865,17 @@ class CheckpointFile(object):
             tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
             # -- Load coordinates --
             # tmesh.topology_dm has already been redistributed.
-            sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
-            tmesh.topology_dm.coordinatesLoad(self.viewer, sfXCtemp)
-            mesh = make_mesh_from_mesh_topology(tmesh, name)
+            path = self._path_to_mesh(tmesh_name, name)
+            # Load firedrake coordinates directly.
+            # When implementing checkpointing for MeshHierarchy in the future,
+            # we will need to postpone calling tmesh.init().
+            tmesh.init()
+            coord_element = self._unpickle(self.get_attr(path, PREFIX + "_coordinate_element"))
+            coord_name = self.get_attr(path, PREFIX + "_coordinates")
+            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
+            mesh = make_mesh_from_coordinates(coordinates, name)
+            # Load plex coordinates for a complete representation of plex.
+            tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
         self._mesh_cache[mesh_key] = mesh
         return mesh
 
