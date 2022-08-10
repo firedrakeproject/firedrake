@@ -149,11 +149,10 @@ def DG1_f(DG1, mymesh):
 def HMP_f(HMP_fs):
     return AssembledVector(Function(HMP_fs[0]))
 
-
 @pytest.fixture(params=["A+A", "A-A", "A+A+A2", "A+A2+A", "A+A2-A", "A-A+A2",
                         "A*A.inv", "A.inv", "A.inv*A", "A2*A.inv", "A.inv*A2",
                         "A2*A.inv*A", "A-A.inv*A", "A+A-A2*A.inv*A",
-                        "advection", "advectionT", "tensorshell", "facet"])
+                        "advection", "advectionT", "tensorshell", "facet", "A.inv.inv"])
 def expr(request, helmholtz_tensor, mass_tensor, advection_tensor, HMP_tensor, CG3_f, DG1_f, HMP_f):
     A = helmholtz_tensor
     A2 = mass_tensor
@@ -175,23 +174,25 @@ def expr(request, helmholtz_tensor, mass_tensor, advection_tensor, HMP_tensor, C
     elif request.param == "A-A+A2":
         return (A-A+A2)*f
     elif request.param == "A*A.inv":
-        return (A*A.inv)*f
+        return (A*A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
     elif request.param == "A.inv":
-        return (A.inv)*f
+        return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
+    elif request.param == "A.inv.inv":
+        return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20).inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
     elif request.param == "A.inv*A":
-        return (A.inv*A)*f
+        return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A)*f
     elif request.param == "A2*A.inv":
-        return (A2*A.inv)*f
+        return (A2*A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
     elif request.param == "A.inv*A2":
-        return (A.inv*A2)*f
+        return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A2)*f
     elif request.param == "A2*A.inv*A":
-        return (A2*A.inv*A)*f
+        return (A2*A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A)*f
     elif request.param == "A-A.inv*A":
-        return (A-A.inv*A)*f
+        return (A-A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A)*f
     elif request.param == "A+A-A2*A.inv*A":
-        return (A+A-A2*A.inv*A)*f
+        return (A+A-A2*A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A)*f
     elif request.param == "tensorshell":
-        return (A+A).inv*f
+        return (A+A).inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*f
     elif request.param == "advection":
         return A3*f3
     elif request.param == "advectionT":
@@ -200,6 +201,7 @@ def expr(request, helmholtz_tensor, mass_tensor, advection_tensor, HMP_tensor, C
         return A4*f4
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_simple_expressions(expr):
     print("Test is running for expresion " + str(expr))
     tmp = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
@@ -238,6 +240,7 @@ def block_expr(request, HMP_tensor, HMP_fs):
 
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_blocks(block_expr):
     tmp_opt = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": True, "replace_mul": False, "visual_debug": False}})
     tmp = assemble(block_expr, form_compiler_parameters={"slate_compiler": {"optimise": False, "replace_mul": False, "visual_debug": False}})
@@ -245,6 +248,7 @@ def test_blocks(block_expr):
         assert np.allclose(sub0, sub1, rtol=1e-6)
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_full_hybridisation(MP_forms, MP_fs):
     a, L = MP_forms
     W = MP_fs[0]
@@ -276,6 +280,7 @@ def test_full_hybridisation(MP_forms, MP_fs):
         assert np.allclose(sub0, sub1, rtol=1e-6)
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_schur_complements(HMP_tensor, HMP_fs):
     _A, _ = HMP_tensor
     A = _A.blocks
@@ -325,6 +330,7 @@ class DGLaplacian(AuxiliaryOperatorPC):
         return (a_dg, bcs)
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_preconditioning_like():
     mymesh = UnitSquareMesh(6, 6, quadrilateral=True)
     U = FunctionSpace(mymesh, "RTCF", 1)
@@ -421,6 +427,7 @@ def test_preconditioning_like():
     # TODO maybe check if diagonal Laplacian preconditioning in reconstruction is garbage
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_hyb_with_GTMGPC(MP_forms, MP_fs, mymesh):
     a, L = MP_forms
     W = MP_fs[0]
