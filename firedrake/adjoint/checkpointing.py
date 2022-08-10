@@ -278,7 +278,7 @@ class CheckpointFunction:
         with CheckpointFile(self.file.name, 'r') as infile:
             function = infile.load_function(self.mesh, self.stored_name)
         return type(function)(function.function_space(),
-                              function.dat, name=self.name, count=self.count)
+                              function.dat, name=self.name(), count=self.count)
 
 
 def maybe_disk_checkpoint(function):
