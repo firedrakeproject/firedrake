@@ -22,6 +22,13 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
         ^openblas \
         ^firedrake.petsc@develop+fftw cflags=\"-O3 -march=native -mtune=native\" cxxflags=\"-O3 -march=native -mtune=native\" fflags=\"-O3 -march=native -mtune=native -ffree-line-length-512\" \
     '
+# Basic functionality test
+RUN bash -c 'source spack/share/spack/setup-env.sh; \
+    spack env activate firedrake; \
+    python -c "from firedrake import *"; \
+    cd firedrake/py-firedrake; \
+    pytest tests/regression/ -s -v -k "poisson_strong or stokes_mini or dg_advection" \
+   '
 # Install Firedrake applications
 RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack env activate firedrake; \
@@ -33,7 +40,7 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack develop py-tinyasm@develop; spack add py-tinyasm@develop ^python@3.10:; \
     spack install --fail-fast --show-log-on-error; \
     '
-# Basic functionality test
+# Basic functionality test again
 RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack env activate firedrake; \
     python -c "from firedrake import *"; \
