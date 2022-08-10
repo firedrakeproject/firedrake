@@ -5,19 +5,31 @@
    they are increased within the same step.
 """
 
-loopy_kernel_counter = 0
-loopy_indexset_counter = 0
-
+from pyop2.mpi import COMM_WORLD
+if COMM_WORLD.rank == 0:
+    loopy_kernel_counter = COMM_WORLD.bcast(0, root=0)
+    loopy_indexset_counter = COMM_WORLD.bcast(0, root=0)
+else:
+    loopy_kernel_counter = COMM_WORLD.bcast(None, root=0)
+    loopy_indexset_counter = COMM_WORLD.bcast(None, root=0)
 
 def knl_counter():
     global loopy_kernel_counter
     c = loopy_kernel_counter
-    loopy_kernel_counter += 1
+    COMM_WORLD.Barrier()
+    if COMM_WORLD.rank == 0:
+        loopy_kernel_counter = COMM_WORLD.bcast(c+1, root=0)
+    else:
+        loopy_kernel_counter = COMM_WORLD.bcast(None, root=0)
     return c
 
 
 def indexset_counter():
     global loopy_indexset_counter
     c = loopy_indexset_counter
-    loopy_indexset_counter += 1
+    COMM_WORLD.Barrier()
+    if COMM_WORLD.rank == 0:
+        loopy_indexset_counter = COMM_WORLD.bcast(c+1, root=0)
+    else:
+        loopy_indexset_counter = COMM_WORLD.bcast(None, root=0)
     return c
