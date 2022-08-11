@@ -27,7 +27,7 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack env activate firedrake; \
     python -c "from firedrake import *"; \
     cd firedrake/py-firedrake; \
-    pytest tests/regression/ -s -v -k "poisson_strong or stokes_mini or dg_advection" \
+    pytest tests/regression/ -s -v -m "not parallel" -k "poisson_strong or stokes_mini or dg_advection" \
    '
 # Install Firedrake applications
 RUN bash -c 'source spack/share/spack/setup-env.sh; \
@@ -45,5 +45,5 @@ RUN bash -c 'source spack/share/spack/setup-env.sh; \
     spack env activate firedrake; \
     python -c "from firedrake import *"; \
     cd firedrake/py-firedrake; \
-    pytest tests/regression/ -s -v -k "poisson_strong or stokes_mini or dg_advection" \
+    pytest tests/regression/ -s -v -m "not parallel" -k "poisson_strong or stokes_mini or dg_advection" \
    '
