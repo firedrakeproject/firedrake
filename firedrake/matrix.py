@@ -24,16 +24,18 @@ class MatrixBase(ufl.Matrix):
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
-            self._arguments = a
+            arguments = a
         else:
             self.a = a
             test, trial = a.arguments()
-            self._arguments = None
+            arguments = None
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
         ufl.Matrix.__init__(self, test.function_space(), trial.function_space())
+        # Define arguments after `Matrix.__init__` since BaseForm sets `self._arguments` to None
+        self._arguments = arguments
         self.bcs = bcs
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
