@@ -311,7 +311,7 @@ def reconstruct_node_from_operands(expr, operands):
     if isinstance(expr, (ufl.Adjoint, ufl.Action)):
         return expr._ufl_expr_reconstruct_(*operands)
     elif isinstance(expr, ufl.FormSum):
-        return ufl.FormSum(*[(op, 1) for op in operands])
+        return ufl.FormSum(*[(op, w) for op, w in zip(operands, expr.weights())])
     return expr
 
 
