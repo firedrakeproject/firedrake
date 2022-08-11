@@ -203,10 +203,10 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
-            self.condense_element_mat = lambda Ae: Ae
+            #self.condense_element_mat = lambda Ae: Ae
 
-        petsc_function = load_assemble_csr()
-        self.update_A = lambda A, B, rindices: petsc_function(A.handle, B.handle, rindices.ctypes.data, rindices.ctypes.data, PETSc.InsertMode.ADD_VALUES)
+        petsc_function = load_assemble_csr(V.comm)
+        self.update_A = lambda A, B, rows: petsc_function(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, PETSc.InsertMode.ADD_VALUES)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
@@ -469,7 +469,7 @@ class FDMPC(PCBase):
         return Ae
 
 
-def load_assemble_csr():
+def load_assemble_csr(comm):
     from pyop2.compilation import load
     from pyop2.utils import get_petsc_dir
     code = """
@@ -510,17 +510,13 @@ PetscErrorCode setSubMatCSR(Mat A,
 }}
 """
     name = "setSubMatCSR"
-    comm = PETSc.COMM_SELF
-    comm = PETSc.COMM_WORLD
     cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
               + ["-lpetsc", "-lm"])
-
     return load(code, "c", name,
-                argtypes=[
-                    ctypes.c_voidp, ctypes.c_voidp,
-                    ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int],
+                argtypes=[ctypes.c_voidp, ctypes.c_voidp,
+                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int],
                 restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
                 comm=comm)
 
@@ -764,11 +760,29 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
         rindices = lambda e: numpy.reshape(_rindices(e)*bsize, (-1, 1)) + ibase
         cindices = lambda e: numpy.reshape(_cindices(e)*bsize, (-1, 1)) + ibase
 
-    petsc_function = load_assemble_csr()
+    petsc_function = load_assemble_csr(A.comm)
     update_A = lambda rows, cols: petsc_function(A.handle, Ahat.handle, rows.ctypes.data, cols.ctypes.data, addv)
     for e in range(nel):
         update_A(rmap.apply(rindices(e)), cmap.apply(cindices(e)))
     A.assemble()
+
+
+def get_base_elements(e):
+    import finat
+    import FIAT
+    if isinstance(e, finat.EnrichedElement):
+        return sum(list(map(get_base_elements, e.elements)), [])
+    elif isinstance(e, finat.TensorProductElement):
+        return sum(list(map(get_base_elements, e.factors)), [])
+    elif isinstance(e, finat.cube.FlattenedDimensions):
+        return get_base_elements(e.product)
+    elif isinstance(e, (finat.HCurlElement, finat.HDivElement)):
+        return get_base_elements(e.wrappee)
+    elif isinstance(e, finat.finiteelementbase.FiniteElementBase):
+        return get_base_elements(e.fiat_equivalent)
+    elif isinstance(e, FIAT.RestrictedElement):
+        return get_base_elements(e._element)
+    return [e]
 
 
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
@@ -781,25 +795,25 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    ndim = Vc.mesh().topological_dimension()
-    degree = Vc.ufl_element().degree()
-    try:
-        degree = max(degree)
-    except TypeError:
-        pass
+    elements = list(set(get_base_elements(ec) + get_base_elements(ef)))
+    elements = sorted(elements, key=lambda e: e.formdegree)
+    e0, e1 = elements[::len(elements)-1]
 
-    cell = FIAT.reference_element.UFCInterval()
-    e0 = FIAT.FDMLagrange(cell, degree)
-    e1 = FIAT.FDMDiscontinuousLagrange(cell, degree-1)
-    rule = FIAT.make_quadrature(cell, degree+1)
+    degree = e0.degree()
+    rule = FIAT.make_quadrature(e0.get_reference_element(), degree+1)
     pts = rule.get_points()
     wts = rule.get_weights()
     phi0 = e0.tabulate(1, pts)
     phi1 = e1.tabulate(0, pts)
     moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-    A10 = petsc_sparse(moments(phi1[(0, )], phi0[(1, )]))
+
+    B = moments(phi1[(0, )], phi1[(0, )])
+    C = moments(phi1[(0, )], phi0[(1, )])
+    A10 = petsc_sparse(numpy.linalg.solve(B, C))
     B11 = petsc_sparse(numpy.eye(degree))
     B00 = petsc_sparse(numpy.eye(degree+1))
+
+    ndim = Vc.mesh().topological_dimension()
     Dhat = diff_matrix(ndim, ec.formdegree, B00, B11, A10)
 
     fdofs = restricted_dofs(ef, create_element(unrestrict_element(Vf.ufl_element())))
