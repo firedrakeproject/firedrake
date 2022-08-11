@@ -323,8 +323,9 @@ def base_form_operands(expr):
         # in the order in which they have been made.
         return list(reversed(expr.base_form_operators()))
     if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-        children = set(e for e in (expr.argument_slots() + expr.ufl_operands)
-                       if isinstance(e, ufl.form.BaseForm))
+        # Conserve order
+        children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
+                                 if isinstance(e, ufl.form.BaseForm))
         return list(children)
     return []
 
