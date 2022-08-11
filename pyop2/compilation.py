@@ -225,9 +225,9 @@ class Compiler(ABC):
     _optflags = ()
     _debugflags = ()
 
-    def __init__(self, extra_compiler_flags=None, extra_linker_flags=None, cpp=False, comm=None):
-        self._extra_compiler_flags = tuple(extra_compiler_flags) or ()
-        self._extra_linker_flags = tuple(extra_linker_flags) or ()
+    def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), cpp=False, comm=None):
+        self._extra_compiler_flags = tuple(extra_compiler_flags)
+        self._extra_linker_flags = tuple(extra_linker_flags)
 
         self._cpp = cpp
         self._debug = configuration["debug"]

@@ -221,7 +221,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         # The np.save method appends a .npy extension to the file name
         # if the user has not supplied it. However, np.load does not,
         # so we need to handle this ourselves here.
-        if(filename[-4:] != ".npy"):
+        if filename[-4:] != ".npy":
             filename = filename + ".npy"
 
         if isinstance(self.data, tuple):

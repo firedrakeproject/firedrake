@@ -237,7 +237,7 @@ def verify_reshape(data, dtype, shape, allow_none=False):
             a = np.asarray(data, dtype=t)
         except ValueError:
             raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
-        except(TypeError):
+        except TypeError:
             raise DataTypeError("Invalid data type: %s" % dtype)
         try:
             # Destructively modify shape.  Fails if data are not

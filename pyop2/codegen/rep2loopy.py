@@ -91,7 +91,7 @@ class PetscCallable(loopy.ScalarCallable):
 
     def generate_preambles(self, target):
         assert isinstance(target, type(target))
-        yield("00_petsc", "#include <petsc.h>")
+        yield ("00_petsc", "#include <petsc.h>")
         return
 
 
