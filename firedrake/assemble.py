@@ -95,19 +95,66 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        from ufl.algorithms.analysis import extract_base_form_operators
-        if isinstance(expr, ufl.algebra.Sum) and len(extract_base_form_operators(expr)):
+        return assemble_expression(expr)
+    else:
+        raise TypeError(f"Unable to assemble: {expr}")
+
+
+"""
+def assemble_expression(expr):
+    from ufl.algorithms.analysis import extract_base_form_operators
+    if len(extract_base_form_operators(expr)):
+        if isinstance(expr, ufl.algebra.Sum):
             # Assemble components to produce Coefficient or Matrix objects
             # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
             # or `assemble_expressions` (e.g. expr -> Coefficient)
-            assembled_expr = [assemble(e) for e in expr.ufl_operands]
-            # Assemble the sum: call `assemble` as the sum of matrices is a FormSum (call `assemble_base_form`)
-            # and the sum of Coefficients is a ufl.Sum (call `assemble_expressions`).
-            return assemble(sum(assembled_expr))
-        else:
-            return assemble_expressions.assemble_expression(expr)
+            assembled_ops = [assemble(e) for e in expr.ufl_operands]
+            if all(isinstance(op, firedrake.Function) for op in assembled_ops):
+                return assemble_expressions.assemble_expression(sum(assembled_ops))
+            elif all(isinstance(op, matrix.AssembledMatrix) for op in assembled_ops):
+                a, b = assembled_ops
+                res = a + b
+                return matrix.AssembledMatrix(a.arguments(), a.bcs, res)
+            else:
+                raise TypeError("Mismatching sum shapes")
+        elif isinstance(expr, ufl.algebra.Product):
+            # Assemble components to produce Coefficient or Matrix objects
+            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
+            # or `assemble_expressions` (e.g. expr -> Coefficient)
+            a, b = expr.ufl_operands
+            if not len(assemble_expressions.extract_coefficients(a)):
+                return assemble(a * assemble(b))
+            if not len(assemble_expressions.extract_coefficients(b)):
+                return assemble(b * assemble(a))
+            return assemble(ufl.action(a, b))
     else:
-        raise TypeError(f"Unable to assemble: {expr}")
+        return assemble_expressions.assemble_expression(expr)
+"""
+
+
+def assemble_expression(expr):
+    from ufl.algorithms.analysis import extract_base_form_operators
+    from ufl.checks import is_scalar_constant_expression
+
+    base_form_operators = extract_base_form_operators(expr)
+    if len(base_form_operators) and any(len(e.arguments()) > 1 for e in base_form_operators):
+        if isinstance(expr, ufl.algebra.Sum):
+            a, b = [assemble(e) for e in expr.ufl_operands]
+            # Only Expr resulting in a Matrix if assembled are BaseFormOperator
+            if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                raise TypeError('Mismatching Sum shapes')
+            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
+        elif isinstance(expr, ufl.algebra.Product):
+            a, b = expr.ufl_operands
+            scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
+            if scalar:
+                base_form = a if a is scalar else b
+                assembled_mat = assemble(base_form)
+                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
+            a, b = [assemble(e) for e in (a, b)]
+            return assemble_base_form(ufl.action(a, b))
+    else:
+        return assemble_expressions.assemble_expression(expr)
 
 
 def assemble_base_form(expression, tensor=None, bcs=None,
