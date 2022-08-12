@@ -203,7 +203,7 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
         else:
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
-            #self.condense_element_mat = lambda Ae: Ae
+            # self.condense_element_mat = lambda Ae: Ae
 
         petsc_function = load_assemble_csr(V.comm)
         self.update_A = lambda A, B, rows: petsc_function(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, PETSc.InsertMode.ADD_VALUES)
@@ -789,7 +789,6 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     from tsfc.finatinterface import create_element
     from pyop2.sparsity import get_preallocation
     from firedrake.preconditioners.pmg import fiat_reference_prolongator
-    import FIAT
 
     ef = Vf.finat_element
     ec = Vc.finat_element
