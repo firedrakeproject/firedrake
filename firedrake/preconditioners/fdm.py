@@ -788,6 +788,7 @@ def get_base_elements(e):
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     from tsfc.finatinterface import create_element
     from pyop2.sparsity import get_preallocation
+    from firedrake.preconditioners.pmg import fiat_reference_prolongator
     import FIAT
 
     ef = Vf.finat_element
@@ -800,27 +801,17 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     e0, e1 = elements[::len(elements)-1]
 
     degree = e0.degree()
-    rule = FIAT.make_quadrature(e0.get_reference_element(), degree+1)
-    pts = rule.get_points()
-    wts = rule.get_weights()
-    phi0 = e0.tabulate(1, pts)
-    phi1 = e1.tabulate(0, pts)
-    moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-
-    B = moments(phi1[(0, )], phi1[(0, )])
-    C = moments(phi1[(0, )], phi0[(1, )])
-    A10 = petsc_sparse(numpy.linalg.solve(B, C))
-    B11 = petsc_sparse(numpy.eye(degree))
-    B00 = petsc_sparse(numpy.eye(degree+1))
+    I11 = petsc_sparse(numpy.eye(degree))
+    I00 = petsc_sparse(numpy.eye(degree+1))
+    D10 = petsc_sparse(fiat_reference_prolongator(e1, e0, derivative=True))
 
     ndim = Vc.mesh().topological_dimension()
-    Dhat = diff_matrix(ndim, ec.formdegree, B00, B11, A10)
+    Dhat = diff_matrix(ndim, ec.formdegree, I00, I11, D10)
 
     fdofs = restricted_dofs(ef, create_element(unrestrict_element(Vf.ufl_element())))
     cdofs = restricted_dofs(ec, create_element(unrestrict_element(Vc.ufl_element())))
     fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
     cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
-
     Dhat = Dhat.createSubMatrix(fises, cises)
     if Vf.value_size > 1:
         Dhat = Dhat.kron(petsc_sparse(numpy.eye(Vf.value_size)))
