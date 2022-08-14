@@ -2,6 +2,8 @@ from collections import OrderedDict
 
 import numpy as np
 
+from ufl.form import ZeroBaseForm
+
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.matrix import MatrixBase
@@ -111,6 +113,8 @@ class Vector(object):
     def __add__(self, other):
         """Add other to self"""
         sum = self.copy()
+        if isinstance(other, ZeroBaseForm):
+            return sum
         try:
             sum.dat += other.dat
         except AttributeError:
@@ -122,6 +126,8 @@ class Vector(object):
 
     def __iadd__(self, other):
         """Add other to self"""
+        if isinstance(other, ZeroBaseForm):
+            return self
         try:
             self.dat += other.dat
         except AttributeError:
