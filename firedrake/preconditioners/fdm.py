@@ -192,28 +192,35 @@ class FDMPC(PCBase):
         fdofs = V.value_size*fdofs.reshape((-1, 1))
         fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
         fdofs = fdofs.reshape((-1,))
-        idofs = numpy.setdiff1d(numpy.arange(V.value_size*Vbig.finat_element.space_dimension(),
-                                             dtype=fdofs.dtype), fdofs)
+        dofs = numpy.arange(V.value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
+        idofs = numpy.setdiff1d(dofs, fdofs)
         self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        self.submats = [None for _ in range(7)]
 
         if self.is_interior_element:
             self.condense_element_mat = lambda Ae: Ae
         elif self.is_facet_element:
-            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs)
+            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.submats)
         else:
-            self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs)
+            i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
+            self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs, i1, self.submats)
             # self.condense_element_mat = lambda Ae: Ae
 
-        petsc_function = load_assemble_csr(V.comm)
-        self.update_A = lambda A, B, rows: petsc_function(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, PETSc.InsertMode.ADD_VALUES)
+        addv = PETSc.InsertMode.ADD_VALUES
+        _update_A = load_assemble_csr(V.comm)
+        _set_bc_values = load_set_bc_values(V.comm)
+        self.update_A = lambda A, B, rows: _update_A(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, addv)
+        self.set_bc_values = lambda A, rows: _set_bc_values(A.handle, rows.size, rows.ctypes.data, addv)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
-
-        bcflags = get_weak_bc_flags(J)
+        bcflags = None
+        if eta:
+            coefficients["eta"] = eta
+            bcflags = get_weak_bc_flags(J)
 
         # preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = (V.dof_dset.layout_vec.getSizes(),)*2
@@ -223,12 +230,12 @@ class FDMPC(PCBase):
         prealloc.setSizes(sizes)
         prealloc.setUp()
         prealloc.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
+        self.assemble_kron(prealloc, V, bcs, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
 
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-        assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
+        assemble_P = partial(self.assemble_kron, Pmat, V, bcs,
                              coefficients, Afdm, Dfdm, bcflags)
         prealloc.destroy()
         return Pmat, assemble_P
@@ -407,15 +414,13 @@ class FDMPC(PCBase):
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")
-    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Bfdm, bcflags):
+    def assemble_kron(self, A, V, bcs, coefficients, Afdm, Bfdm, bcflags):
         lgmap = V.local_to_global_map(bcs)
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
 
-        # insert the identity in the Dirichlet rows and columns
-        for row in V.dof_dset.lgmap.indices[lgmap.indices < 0]:
-            A.setValue(row, row, 1.0E0, PETSc.InsertMode.ADD_VALUES)
+        self.set_bc_values(A, V.dof_dset.lgmap.indices[lgmap.indices < 0])
 
         bsize = V.value_size
         nrows = Afdm[0].getSize()[0]
@@ -469,9 +474,74 @@ class FDMPC(PCBase):
         return Ae
 
 
-def load_assemble_csr(comm):
+@PETSc.Log.EventDecorator("FDMCondense")
+def condense_element_mat(A, i0, i1, submats):
+    isrows = [i0, i0, i1, i1]
+    iscols = [i0, i1, i0, i1]
+    submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
+    A00, A01, A10, A11 = submats[:4]
+
+    # Assume that interior DOF list i0 is ordered such that A00 is block diagonal
+    # with blocks of increasing dimension
+    indptr, indices, data = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+
+    # TODO handle non-symmetric case with LU, requires scipy
+    invchol = lambda X: numpy.linalg.inv(numpy.linalg.cholesky(X))
+    nblocks = numpy.count_nonzero(degree == 1)
+    zlice = slice(0, nblocks)
+    numpy.sqrt(data[zlice], out=data[zlice])
+    numpy.reciprocal(data[zlice], out=data[zlice])
+    PETSc.Log.logFlops(2*nblocks)
+    for k in range(2, degree[-1]+1):
+        nblocks = numpy.count_nonzero(degree == k)
+        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
+        data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
+        flops = ((k+1)**3 + 5*(k+1)-12)//3 + k**3
+        PETSc.Log.logFlops(flops*nblocks)
+
+    A00.setValuesCSR(indptr, indices, data)
+    A00.assemble()
+    submats[4] = A10.matTransposeMult(A00, result=submats[4])
+    submats[5] = A00.matMult(A01, result=submats[5])
+    submats[6] = submats[4].matMult(submats[5], result=submats[6])
+    submats[6].aypx(-1, A11)
+    return submats[6]
+
+
+@PETSc.Log.EventDecorator("FDMCondense")
+def condense_element_pattern(A, i0, i1, submats):
+    isrows = [i0, i0, i1]
+    iscols = [i0, i1, i0]
+    submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
+    A00, A01, A10 = submats[:3]
+    A00.zeroEntries()
+    A00.assemble()
+    submats[4] = A10.matTransposeMult(A00, result=submats[4])
+    submats[5] = A00.matMult(A01, result=submats[5])
+    submats[6] = submats[4].matMult(submats[5], result=submats[6])
+    submats[6].aypx(-1, A)
+    return submats[6]
+
+
+def load_c_code(code, name, argtypes, comm):
     from pyop2.compilation import load
     from pyop2.utils import get_petsc_dir
+    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
+    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
+              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
+              + ["-lpetsc", "-lm"])
+    funptr = load(code, "c", name, argtypes=argtypes,
+                  restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
+                  comm=comm)
+
+    @PETSc.Log.EventDecorator(name)
+    def wrapped_fun(*args):
+        return funptr(*args)
+    return wrapped_fun
+
+
+def load_assemble_csr(comm):
     code = """
 #include <petsc.h>
 
@@ -510,15 +580,32 @@ PetscErrorCode setSubMatCSR(Mat A,
 }}
 """
     name = "setSubMatCSR"
-    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
-    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
-              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
-              + ["-lpetsc", "-lm"])
-    return load(code, "c", name,
-                argtypes=[ctypes.c_voidp, ctypes.c_voidp,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
-                comm=comm)
+    argtypes = [ctypes.c_voidp, ctypes.c_voidp,
+                ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
+    return load_c_code(code, name, argtypes, comm)
+
+
+def load_set_bc_values(comm):
+    code = """
+#include <petsc.h>
+
+PetscErrorCode setSubDiagonal(Mat A,
+                              PetscInt n,
+                              PetscInt *indices,
+                              InsertMode addv)
+{{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    for (PetscInt i = 0; i < n; i++) {{
+        ierr = MatSetValue(A, indices[i], indices[i], 1.0E0, addv);CHKERRQ(ierr);
+    }}
+    PetscFunctionReturn(0);
+}}
+"""
+    name = "setSubDiagonal"
+    argtypes = [ctypes.c_voidp, ctypes.c_voidp,
+                ctypes.c_voidp, ctypes.c_int]
+    return load_c_code(code, name, argtypes, comm)
 
 
 def petsc_sparse(A_numpy, rtol=1E-10):
@@ -553,54 +640,6 @@ def block_mat(A_blocks):
                 indices.extend(csr[1][zlice]+shift)
                 data.extend(csr[2][zlice])
     return PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=PETSc.COMM_SELF)
-
-
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(A, i0, i1):
-    A11 = A.createSubMatrix(i1, i1)
-    A10 = A.createSubMatrix(i1, i0)
-    A01 = A.createSubMatrix(i0, i1)
-    A00 = A.createSubMatrix(i0, i0)
-
-    # Assume that interior DOF list i0 is ordered such that A00 is block diagonal
-    # with blocks of increasing dimension
-    indptr, indices, data = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
-
-    # TODO log flops
-    # TODO handle non-symmetric case with LU, requires scipy
-    invchol = lambda X: numpy.linalg.inv(numpy.linalg.cholesky(X))
-    zlice = slice(0, numpy.count_nonzero(degree == 1))
-    numpy.sqrt(data[zlice], out=data[zlice])
-    numpy.reciprocal(data[zlice], out=data[zlice])
-    for k in range(2, degree[-1]+1):
-        zlice = slice(zlice.stop, zlice.stop + k*numpy.count_nonzero(degree == k))
-        data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
-
-    A00.setValuesCSR(indptr, indices, data)
-    A00.assemble()
-
-    A11 -= (A10.matTransposeMult(A00)).matMult(A00.matMult(A01))
-    A00.destroy()
-    A01.destroy()
-    A10.destroy()
-    return A11
-
-
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_pattern(A, i0):
-    i1 = PETSc.IS().createGeneral(numpy.arange(A.getSize()[0], dtype=PETSc.IntType), comm=PETSc.COMM_SELF)
-    A10 = A.createSubMatrix(i1, i0)
-    A01 = A.createSubMatrix(i0, i1)
-    A00 = A.createSubMatrix(i0, i0)
-    A00.zeroEntries()
-    A00.assemble()
-    S = A - A10.matMult(A00.matMult(A01))
-    A00.destroy()
-    A01.destroy()
-    A10.destroy()
-    i1.destroy()
-    return S
 
 
 def unrestrict_element(ele):
@@ -882,14 +921,13 @@ class PoissonFDMPC(FDMPC):
 
         return Afdm, Dfdm, quad_degree, eta
 
-    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags):
+    def assemble_kron(self, A, V, bcs, coefficients, Afdm, Dfdm, bcflags):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
         :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
         :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
-        :arg eta: a ``float`` penalty parameter for the symmetric interior penalty method
         :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
         :arg Afdm: the list with sparse interval matrices
         :arg Dfdm: the list with normal derivatives matrices
@@ -900,9 +938,7 @@ class PoissonFDMPC(FDMPC):
         Gq_facet = coefficients.get("Gq_facet")
         PT_facet = coefficients.get("PT_facet")
 
-        imode = PETSc.InsertMode.ADD_VALUES
         lgmap = V.local_to_global_map(bcs)
-
         bsize = V.value_size
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
@@ -928,9 +964,7 @@ class PoissonFDMPC(FDMPC):
             for assemble_coef in self.assembly_callables:
                 assemble_coef()
 
-        # insert the identity in the Dirichlet rows and columns
-        for row in V.dof_dset.lgmap.indices[lgmap.indices < 0]:
-            A.setValue(row, row, 1.0E0, imode)
+        self.set_bc_values(A, V.dof_dset.lgmap.indices[lgmap.indices < 0])
 
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
@@ -1021,6 +1055,7 @@ class PoissonFDMPC(FDMPC):
                 raise NotImplementedError("Static condensation for SIPG not implemented")
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
+            eta = float(coefficients.get("eta"))
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)

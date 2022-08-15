@@ -643,8 +643,9 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
     wts = quadrature.get_weights()
     cphi = celem.tabulate(sum(ckey), pts)[ckey]
     fphi = felem.tabulate(sum(fkey), pts)[fkey]
-    Ac = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), cphi.reshape(cshape).T)
-    Af = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+    fphi_wts = numpy.multiply(fphi, wts).reshape(fshape)
+    Ac = numpy.dot(fphi_wts, cphi.reshape(cshape).T)
+    Af = numpy.dot(fphi_wts, fphi.reshape(fshape).T)
     return numpy.linalg.solve(Af, Ac)
 
 
@@ -658,19 +659,20 @@ def finat_reference_prolongator(felem, celem):
         degree = max(degree)
     except TypeError:
         pass
-    quadrature = make_quadrature(felem.cell, 2*degree+1)
 
     def tabulate(e, ps):
         results = evaluate(e.basis_evaluation(0, ps).values())
         return results[0].arr.reshape((len(ps.points), -1)).T
 
+    cshape = (celem.space_dimension(), -1)
+    fshape = (felem.space_dimension(), -1)
+    quadrature = make_quadrature(felem.cell, 2*degree+1)
     wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
     cphi = tabulate(celem, quadrature.point_set)
     fphi = tabulate(felem, quadrature.point_set)
-    cshape = (celem.space_dimension(), -1)
-    fshape = (felem.space_dimension(), -1)
-    Ac = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), cphi.reshape(cshape).T)
-    Af = numpy.dot(numpy.multiply(fphi, wts).reshape(fshape), fphi.reshape(fshape).T)
+    fphi_wts = numpy.multiply(fphi, wts).reshape(fshape)
+    Ac = numpy.dot(fphi_wts, cphi.reshape(cshape).T)
+    Af = numpy.dot(fphi_wts, fphi.reshape(fshape).T)
     return numpy.linalg.solve(Af, Ac)
 
 
