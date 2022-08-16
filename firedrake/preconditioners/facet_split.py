@@ -120,13 +120,8 @@ class FacetSplitPC(PCBase):
 
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. fieldsplit.
-        dm = W.dm
-        self._dm = dm
-
-        scpc.setDM(dm)
-        scpc.setOptionsPrefix(options_prefix)
-        scpc.setOperators(A=mixed_opmat, P=mixed_opmat)
-        self.pc = scpc
+        mixed_dm = W.dm
+        self._dm = mixed_dm
 
         # Create new appctx
         self._ctx_ref = self.new_snes_ctx(pc,
@@ -136,10 +131,12 @@ class FacetSplitPC(PCBase):
                                           fcp,
                                           options_prefix=options_prefix)
 
-        with dmhooks.add_hooks(dm, self,
-                               appctx=self._ctx_ref,
-                               save=False):
+        scpc.setDM(mixed_dm)
+        scpc.setOptionsPrefix(options_prefix)
+        scpc.setOperators(A=mixed_opmat, P=mixed_opmat)
+        with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=False):
             scpc.setFromOptions()
+        self.pc = scpc
 
     def update(self, pc):
         if hasattr(self, "mixed_op"):

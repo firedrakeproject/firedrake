@@ -205,7 +205,7 @@ class FDMPC(PCBase):
         else:
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs, i1, self.submats)
-            # self.condense_element_mat = lambda Ae: Ae
+            self.condense_element_mat = lambda Ae: Ae
 
         addv = PETSc.InsertMode.ADD_VALUES
         _update_A = load_assemble_csr(V.comm)

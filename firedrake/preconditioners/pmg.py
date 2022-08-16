@@ -80,6 +80,10 @@ class PMGBase(PCSNESBase):
 
         odm = pc.getDM()
         ctx = get_appctx(odm)
+        if ctx is None:
+            raise ValueError("No context found.")
+        if not isinstance(ctx, _SNESContext):
+            raise ValueError("Don't know how to get form from %r", ctx)
 
         test, trial = ctx.J.arguments()
         if test.function_space() != trial.function_space():
@@ -654,26 +658,72 @@ def finat_reference_prolongator(felem, celem):
     from finat.quadrature import make_quadrature
     from gem.interpreter import evaluate
 
+    ref_el = felem.cell
+    ndim = ref_el.get_spatial_dimension()
     degree = felem.degree
     try:
         degree = max(degree)
     except TypeError:
         pass
+    quad_degree = 2*degree+1
 
-    def tabulate(e, ps):
-        results = evaluate(e.basis_evaluation(0, ps).values())
-        return results[0].arr.reshape((len(ps.points), -1)).T
+    def tabulate(e, ps, entity=None):
+        results = evaluate(e.basis_evaluation(0, ps, entity).values())
+        return results[0].arr.reshape((len(ps.points), -1))
 
+    is_facet_element = True
+    entity_dofs = felem.entity_dofs()
+    for key in entity_dofs:
+        v = sum(list(entity_dofs[key].values()), [])
+        if len(v):
+            edim = key
+            try:
+                edim = sum(edim)
+            except TypeError:
+                pass
+            if edim == ndim:
+                is_facet_element = False
+                
+    if is_facet_element:
+        entities = []
+        quadratures = []
+        for key in entity_dofs:
+            edim = key
+            try:
+                edim = sum(edim)
+            except TypeError:
+                pass
+            if edim == ndim-1:
+                sub_entities = ref_el.sub_entities[key]
+                entities.extend([(key, f) for f in sub_entities])
+                quadratures.extend([make_quadrature(ref_el.construct_subelement(key), quad_degree)]*len(sub_entities))
+       
+        wts = numpy.concatenate([evaluate([q.weight_expression])[0].arr.reshape((-1,)) for q in quadratures])
+        cphi = numpy.concatenate([tabulate(celem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
+        fphi = numpy.concatenate([tabulate(felem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
+    else:
+        quadrature = make_quadrature(felem.cell, quad_degree)
+        wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
+        cphi = tabulate(celem, quadrature.point_set).T
+        fphi = tabulate(felem, quadrature.point_set).T
+    
+    from time import time
     cshape = (celem.space_dimension(), -1)
     fshape = (felem.space_dimension(), -1)
-    quadrature = make_quadrature(felem.cell, 2*degree+1)
-    wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
-    cphi = tabulate(celem, quadrature.point_set)
-    fphi = tabulate(felem, quadrature.point_set)
     fphi_wts = numpy.multiply(fphi, wts).reshape(fshape)
+    
+    dt = time()
     Ac = numpy.dot(fphi_wts, cphi.reshape(cshape).T)
+    print("Ac", time()-dt, flush=True)
+    
+    dt = time()
     Af = numpy.dot(fphi_wts, fphi.reshape(fshape).T)
-    return numpy.linalg.solve(Af, Ac)
+    print("Af", time()-dt, flush=True)
+    
+    dt = time()
+    result = numpy.linalg.solve(Af, Ac)
+    print("Solve", time()-dt, flush=True)
+    return result
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
