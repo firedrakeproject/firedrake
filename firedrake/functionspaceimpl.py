@@ -29,9 +29,16 @@ class WithGeometry(ufl.FunctionSpace):
     Users should not instantiate a :class:`WithGeometry` object
     explicitly except in a small number of cases.
 
-    :arg function_space: The topological function space to attach
-        geometry to.
+    When instantiating a :class:`WithGeometry`, users should call
+    :func:`create` rather than :func:`__init__`.
+
     :arg mesh: The mesh with geometric information to use.
+    :arg element: The UFL element.
+    :arg component: The component of this space in a parent vector
+        element space, or ``None``.
+    :arg cargo: :class:`FunctionSpaceCargo` instance carrying
+        Firedrake-specific data that is not required for code
+        generation.
     """
     def __init__(self, mesh, element, component=None, cargo=None):
         assert component is None or isinstance(component, int)
@@ -43,6 +50,12 @@ class WithGeometry(ufl.FunctionSpace):
 
     @classmethod
     def create(cls, function_space, mesh):
+        """Create a :class:`WithGeometry`.
+
+        :arg function_space: The topological function space to attach
+            geometry to.
+        :arg mesh: The mesh with geometric information to use.
+        """
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh

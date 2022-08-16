@@ -103,7 +103,7 @@ def run_one_element_advection():
                                        })
     t = 0.
     T = 1.0
-    while(t < (T-Dt/2)):
+    while t < (T-Dt/2):
         q1.assign(q0)
         q_solver.solve()
         q1.assign(dq1)
@@ -112,7 +112,7 @@ def run_one_element_advection():
         q_solver.solve()
         q0.assign(q0/3 + 2*dq1/3)
         t += Dt
-    assert(assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005)
+    assert assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005
 
 
 def test_one_element_advection():
@@ -137,20 +137,20 @@ def run_one_element_mesh():
     # then check if projecting to CG returns the same DG function.
     r.interpolate(sin(2*pi*x[0]))
     u.project(r)
-    assert(assemble(inner(u-r, u-r)*dx) < 1.0e-4)
+    assert assemble(inner(u-r, u-r)*dx) < 1.0e-4
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[1])
     u.project(r)
-    assert(assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4)
+    assert assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[0])
     u.project(r)
     err = assemble(inner(u-r, u-r)*dx)
-    assert(err > 1.0e-3)
+    assert err > 1.0e-3
 
 
 def test_one_element_mesh():

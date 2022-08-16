@@ -272,8 +272,10 @@ class LocalKernelBuilder(object):
                 kint_type = kinfo.integral_type
                 needs_cell_sizes = needs_cell_sizes or kinfo.needs_cell_sizes
 
-                args = [c for i, _ in kinfo.coefficient_map
-                        for c in self.coefficient(local_coefficients[i])]
+                args = []
+                for i, indices in kinfo.coefficient_map:
+                    ast_symbols = self.coefficient(local_coefficients[i])
+                    args.extend([ast_symbols[ind] for ind in indices])
 
                 if kinfo.oriented:
                     args.insert(0, self.cell_orientations_sym)
@@ -488,14 +490,19 @@ class LocalLoopyKernelBuilder(object):
             kernel_data.append((mesh.cell_sizes, self.cell_sizes_arg_name))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = [tsfc_coefficients[i] for i, _ in kinfo.coefficient_map]
+        tsfc_coefficients = {tsfc_coefficients[i]: indices for i, indices in kinfo.coefficient_map}
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):
-                    kernel_data.extend([(c, cinfo[0])])
+                    if tsfc_coefficients[c]:
+                        ind, = tsfc_coefficients[c]
+                        if ind != 0:
+                            raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
+                        kernel_data.extend([(c, cinfo[0])])
                 else:
-                    for c_, info in cinfo.items():
-                        kernel_data.extend([(c_, info[0])])
+                    for ind, (c_, info) in enumerate(cinfo.items()):
+                        if ind in tsfc_coefficients[c]:
+                            kernel_data.extend([(c_, info[0])])
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):

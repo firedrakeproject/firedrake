@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation, continue_annotation, annotate_tape, set_working_tape
+from pyadjoint.tape import get_working_tape, pause_annotation, continue_annotation, set_working_tape
 
 
 @pytest.fixture(autouse=True)
@@ -12,7 +12,10 @@ def handle_taping():
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_exit_annotation():
+def handle_annotation():
+    from firedrake_adjoint import annotate_tape, continue_annotation
+    if not annotate_tape():
+        continue_annotation()
     yield
     # Since importing firedrake_adjoint modifies a global variable, we need to
     # pause annotations at the end of the module
@@ -60,7 +63,7 @@ def test_poisson_inverse_conductivity():
     point_cloud = VertexOnlyMesh(m, xs)
 
     # Prove the the point cloud coordinates are correct
-    assert((point_cloud.coordinates.dat.data_ro == xs).all())
+    assert (point_cloud.coordinates.dat.data_ro == xs).all()
 
     # Generate "observed" data
     generator = np.random.default_rng(0)

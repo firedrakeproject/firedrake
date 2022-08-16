@@ -45,6 +45,15 @@ DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
 """The default name of the mesh."""
 
 
+def _generate_default_mesh_coordinates_name(name):
+    """Generate the default mesh coordinates name from the mesh name.
+
+    :arg name: the mesh name.
+    :returns: the default mesh coordinates name.
+    """
+    return "_".join([name, "coordinates"])
+
+
 def _generate_default_mesh_topology_name(name):
     """Generate the default mesh topology name from the mesh name.
 
@@ -223,9 +232,21 @@ def _from_gmsh(filename, comm=None):
         COMM_WORLD).
     """
     comm = comm or COMM_WORLD
+    # check the filetype of the gmsh file
+    filetype = None
+    if comm.rank == 0:
+        with open(filename, 'rb') as fid:
+            header = fid.readline().rstrip(b'\n\r')
+            version = fid.readline().rstrip(b'\n\r')
+        assert header == b'$MeshFormat'
+        if version.split(b' ')[1] == b'1':
+            filetype = "binary"
+        else:
+            filetype = "ascii"
+    filetype = comm.bcast(filetype, root=0)
     # Create a read-only PETSc.Viewer
     gmsh_viewer = PETSc.Viewer().create(comm=comm)
-    gmsh_viewer.setType("ascii")
+    gmsh_viewer.setType(filetype)
     gmsh_viewer.setFileMode("r")
     gmsh_viewer.setFileName(filename)
     gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
@@ -1496,7 +1517,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
                                                          (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
-                                                          name=self.name + "_coordinates")
+                                                          name=_generate_default_mesh_coordinates_name(self.name))
             self.__init__(coordinates)
         self._callback = callback
 
@@ -2073,7 +2094,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
     coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
-    coordinates = function.CoordinatelessFunction(coordinates_fs, name=name + "_coordinates")
+    coordinates = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
 
     eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
                                 layer_height, extrusion_type=extrusion_type, kernel=kernel)

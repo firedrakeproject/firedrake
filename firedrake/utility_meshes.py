@@ -119,7 +119,7 @@ cells are not currently supported")
     m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm, name=name)
     coord_fs = VectorFunctionSpace(m, FiniteElement('DG', interval, 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
-    new_coordinates = Function(coord_fs)
+    new_coordinates = Function(coord_fs, name=mesh._generate_default_mesh_coordinates_name(name))
 
     domain = "{ [i, j] : 0 <= i, j < 2 }"
     instructions = f"""
@@ -208,14 +208,14 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         row = cell_numbering.getOffset(e)
 
         # run some checks
-        assert(closure[0] == e)
+        assert closure[0] == e
         assert len(closure) == 6, closure
         edge_range = plex.getHeightStratum(1)
-        assert(all(closure[1:4] >= edge_range[0]))
-        assert(all(closure[1:4] < edge_range[1]))
+        assert all(closure[1:4] >= edge_range[0])
+        assert all(closure[1:4] < edge_range[1])
         vertex_range = plex.getHeightStratum(2)
-        assert(all(closure[4:] >= vertex_range[0]))
-        assert(all(closure[4:] < vertex_range[1]))
+        assert all(closure[4:] >= vertex_range[0])
+        assert all(closure[4:] < vertex_range[1])
 
         # enter the cell number
         cell_closure[row][8] = e
@@ -246,10 +246,10 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                if(cell_X.min() < dx/2):
+                if cell_X.min() < dx/2:
                     if cell_X.max() < 3*dx/2:
                         # We are in the first cell
-                        if(edge_X.min() < dx/2):
+                        if edge_X.min() < dx/2:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                         else:
@@ -257,14 +257,14 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                             cell_closure[row][5] = edge_set[i]
                     else:
                         # We are in the last cell
-                        if(edge_X.min() < dx/2):
+                        if edge_X.min() < dx/2:
                             # we are on right hand edge
                             cell_closure[row][5] = edge_set[i]
                         else:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                 else:
-                    if(abs(cell_X.min()-edge_X.min()) < dx/2):
+                    if abs(cell_X.min()-edge_X.min()) < dx/2:
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
                     else:
@@ -278,11 +278,11 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         x1 = coords[coords_sec.getOffset(v1)]
         x2 = coords[coords_sec.getOffset(v2)]
         # Fix orientations
-        if(x1 > x2):
-            if(x1 - x2 < dx*1.5):
+        if x1 > x2:
+            if x1 - x2 < dx*1.5:
                 # we are not on the rightmost cell and need to swap
                 v1, v2 = v2, v1
-        elif(x2 - x1 > dx*1.5):
+        elif x2 - x1 > dx*1.5:
             # we are on the rightmost cell and need to swap
             v1, v2 = v2, v1
 
@@ -294,7 +294,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
     fe_dg = FiniteElement('DQ', mesh1.ufl_cell(), 1, variant="equispaced")
     Vc = VectorFunctionSpace(mesh1, fe_dg)
-    fc = Function(Vc).interpolate(mesh1.coordinates)
+    fc = Function(Vc, name=mesh._generate_default_mesh_coordinates_name(name)).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc, name=name)
     topverts = Vc.cell_node_list[:, 1::2].flatten()
@@ -585,7 +585,7 @@ cells in each direction are not currently supported")
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
-    new_coordinates = Function(coord_fs)
+    new_coordinates = Function(coord_fs, name=mesh._generate_default_mesh_coordinates_name(name))
 
     domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
     instructions = f"""
@@ -1064,7 +1064,7 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
 
     old_coordinates = m.coordinates
-    new_coordinates = Function(VectorFunctionSpace(m, FiniteElement('DG', tetrahedron, 1, variant="equispaced")))
+    new_coordinates = Function(VectorFunctionSpace(m, FiniteElement('DG', tetrahedron, 1, variant="equispaced")), name=mesh._generate_default_mesh_coordinates_name(name))
 
     domain = ""
     instructions = f"""
@@ -1791,7 +1791,7 @@ cells in each direction are not currently supported")
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
     old_coordinates = m.coordinates
-    new_coordinates = Function(coord_fs)
+    new_coordinates = Function(coord_fs, name=mesh._generate_default_mesh_coordinates_name(name))
 
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
