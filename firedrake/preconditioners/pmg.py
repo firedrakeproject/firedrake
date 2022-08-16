@@ -647,10 +647,13 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
     wts = quadrature.get_weights()
     cphi = celem.tabulate(sum(ckey), pts)[ckey]
     fphi = felem.tabulate(sum(fkey), pts)[fkey]
-    fphi_wts = numpy.multiply(fphi, wts).reshape(fshape)
-    Ac = numpy.dot(fphi_wts, cphi.reshape(cshape).T)
-    Af = numpy.dot(fphi_wts, fphi.reshape(fshape).T)
-    return numpy.linalg.solve(Af, Ac)
+
+    numpy.sqrt(wts, out=wts)
+    numpy.multiply(fphi, wts, out=fphi)
+    numpy.multiply(cphi, wts, out=cphi)
+    cphi = cphi.reshape(cshape)
+    fphi = fphi.reshape(fshape)
+    return numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
 
 
 @lru_cache(maxsize=10)
@@ -683,7 +686,7 @@ def finat_reference_prolongator(felem, celem):
                 pass
             if edim == ndim:
                 is_facet_element = False
-                
+
     if is_facet_element:
         entities = []
         quadratures = []
@@ -697,7 +700,7 @@ def finat_reference_prolongator(felem, celem):
                 sub_entities = ref_el.sub_entities[key]
                 entities.extend([(key, f) for f in sub_entities])
                 quadratures.extend([make_quadrature(ref_el.construct_subelement(key), quad_degree)]*len(sub_entities))
-       
+
         wts = numpy.concatenate([evaluate([q.weight_expression])[0].arr.reshape((-1,)) for q in quadratures])
         cphi = numpy.concatenate([tabulate(celem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
         fphi = numpy.concatenate([tabulate(felem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
@@ -706,24 +709,13 @@ def finat_reference_prolongator(felem, celem):
         wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
         cphi = tabulate(celem, quadrature.point_set).T
         fphi = tabulate(felem, quadrature.point_set).T
-    
-    from time import time
-    cshape = (celem.space_dimension(), -1)
-    fshape = (felem.space_dimension(), -1)
-    fphi_wts = numpy.multiply(fphi, wts).reshape(fshape)
-    
-    dt = time()
-    Ac = numpy.dot(fphi_wts, cphi.reshape(cshape).T)
-    print("Ac", time()-dt, flush=True)
-    
-    dt = time()
-    Af = numpy.dot(fphi_wts, fphi.reshape(fshape).T)
-    print("Af", time()-dt, flush=True)
-    
-    dt = time()
-    result = numpy.linalg.solve(Af, Ac)
-    print("Solve", time()-dt, flush=True)
-    return result
+
+    numpy.sqrt(wts, out=wts)
+    numpy.multiply(fphi, wts, out=fphi)
+    numpy.multiply(cphi, wts, out=cphi)
+    cphi = cphi.reshape((celem.space_dimension(), -1))
+    fphi = fphi.reshape((felem.space_dimension(), -1))
+    return numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
