@@ -513,49 +513,56 @@ def load_c_code(code, name, argtypes, comm):
 def reference_moments(*args):
     import ctypes
     from tsfc import compile_form
-
-    form = ufl.inner(*args)*ufl.dx
+    quad_degree = 1+sum([PMGBase.max_degree(t.ufl_element()) for t in args])
+    form = ufl.inner(*args)*ufl.dx(degree=quad_degree)
+    mesh = form.ufl_domain()
     kernel, = compile_form(form, parameters=dict(mode="spectral"))
     op2kernel = op2.Kernel(kernel.ast, kernel.name,
                            requires_zeroed_output_arguments=True,
                            flop_count=kernel.flop_count,
                            events=(kernel.event,))
-
     code = op2kernel.code.gencode().replace("static inline void", "void")
+    coords = None
+    if len(kernel.arguments) > 3-len(form.arguments()):
+        mesh_element = mesh.coordinates.function_space().finat_element
+        nodes = mesh_element.fiat_equivalent.dual.get_nodes()
+        points = [list(node.get_point_dict().keys())[0] for node in nodes]
+        coords = numpy.array(points, dtype=PETSc.ScalarType)
+    
     argtypes = [ctypes.c_voidp]*len(kernel.arguments)
-    V = form.arguments()[0].function_space()
-    funptr = load_c_code(code, op2kernel.code.name, argtypes, V.comm)
-    return lambda *args: funptr(*[a.ctypes.data for a in args])
+    funptr = load_c_code(code, op2kernel.code.name, argtypes, mesh.comm)
+    
+    def _wrapper(*args):
+        _args = list(args)
+        if coords is not None:
+            _args.insert(1, coords)
+        return funptr(*[a.ctypes.data for a in _args])
+
+    return _wrapper
 
 
+@lru_cache(maxsize=10)
 def matfree_reference_prolongator(Vf, Vc):
     from scipy.sparse.linalg import cg, LinearOperator
 
     dtype = PETSc.ScalarType
-    mesh = Vf.mesh()
-    mesh_element = mesh.coordinates.function_space().finat_element
-    nodes = mesh_element.fiat_equivalent.dual.get_nodes()
-    points = [list(node.get_point_dict().keys())[0] for node in nodes]
-    coords = numpy.array(points, dtype=dtype)
-
     dimf = Vf.value_size * Vf.finat_element.space_dimension()
     dimc = Vc.value_size * Vc.finat_element.space_dimension()
 
     rhs = numpy.zeros((dimf, dimc), dtype=dtype)
-    build_rhs = reference_moments(firedrake.TestFunction(Vf), firedrake.TrialFunction(Vc))
-    build_rhs(rhs, coords)
+    build_rhs = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
+    build_rhs(rhs)
 
-    apply_mat = reference_moments(firedrake.TestFunction(Vf), ufl.Coefficient(Vf))
+    apply_mat = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
     Ax = numpy.zeros((dimf,), dtype=dtype)
-    ashape = (dimf, dimf)
-
+    
     def afun(x):
         nonlocal Ax
         Ax.fill(0.0E0)
-        apply_mat(Ax, coords, x)
+        apply_mat(Ax, x)
         return Ax
 
-    A = LinearOperator(ashape, afun, dtype=dtype)
+    A = LinearOperator((dimf, dimf), afun, dtype=dtype)
     rhs = rhs.T
     for k in range(dimc):
         rhs[k], _ = cg(A, rhs[k], tol=1E-12)
@@ -748,7 +755,7 @@ def finat_reference_prolongator(felem, celem):
             if edim == ndim:
                 is_facet_element = False
 
-    if is_facet_element:
+    if is_facet_element and degree > 5:
         entities = []
         quadratures = []
         for key in ref_el.sub_entities:
@@ -772,22 +779,6 @@ def finat_reference_prolongator(felem, celem):
     numpy.multiply(cphi, wts, out=cphi)
     cphi = cphi.reshape((celem.space_dimension(), -1))
     fphi = fphi.reshape((felem.space_dimension(), -1))
-
-    if fphi.shape[-1] > 1000:
-        try:
-            from scipy.sparse.linalg import cg, LinearOperator
-            from numpy.core.umath_tests import inner1d
-            rnorms = inner1d(fphi, fphi).reshape(((-1, 1)))
-            numpy.sqrt(rnorms, out=rnorms)
-            numpy.reciprocal(rnorms, out=rnorms)
-            numpy.multiply(rnorms, fphi, out=fphi)
-            result = cphi.dot(fphi.T)
-            afun = LinearOperator((fphi.shape[0],)*2, lambda x: fphi.dot(x.dot(fphi)), dtype=fphi.dtype)
-            for k in range(cphi.shape[0]):
-                result[k], _ = cg(afun, result[k], tol=1E-12)
-            return numpy.multiply(rnorms, result.T)
-        except ImportError:
-            pass
     return numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
 
 
@@ -1431,9 +1422,10 @@ class StandaloneInterpolationMatrix(object):
         except NotImplementedError:
             if Vc.ufl_element().mapping() != Vf.ufl_element().mapping():
                 raise NotImplementedError("Prolongation not supported from %s to %s" % (Vc.ufl_element(), Vf.ufl_element()))
-
-            # Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element)
-            Jmat = matfree_reference_prolongator(Vf, Vc)
+            if Vf.finat_element.space_dimension() < 500:
+                Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element)
+            else:
+                Jmat = matfree_reference_prolongator(Vf, Vc)
             dimf, dimc = Jmat.shape
             vsize = (Vc.value_size*Vc.finat_element.space_dimension())//dimc
             Jdata = ", ".join(map(float.hex, Jmat.flat))
