@@ -498,6 +498,71 @@ class PMGSNES(SNESBase, PMGBase):
         return coarse
 
 
+def load_c_code(code, name, argtypes, comm):
+    from pyop2.compilation import load
+    from pyop2.utils import get_petsc_dir
+    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
+    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
+              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
+              + ["-lpetsc", "-lm"])
+    return load(code, "c", name, argtypes=argtypes,
+                cppargs=cppargs, ldargs=ldargs,
+                comm=comm)
+
+
+def reference_moments(*args):
+    import ctypes
+    from tsfc import compile_form
+
+    form = ufl.inner(*args)*ufl.dx
+    kernel, = compile_form(form, parameters=dict(mode="spectral"))
+    op2kernel = op2.Kernel(kernel.ast, kernel.name,
+                           requires_zeroed_output_arguments=True,
+                           flop_count=kernel.flop_count,
+                           events=(kernel.event,))
+
+    code = op2kernel.code.gencode().replace("static inline void", "void")
+    argtypes = [ctypes.c_voidp]*len(kernel.arguments)
+    V = form.arguments()[0].function_space()
+    funptr = load_c_code(code, op2kernel.code.name, argtypes, V.comm)
+    return lambda *args: funptr(*[a.ctypes.data for a in args])
+
+
+def matfree_reference_prolongator(Vf, Vc):
+    from scipy.sparse.linalg import cg, LinearOperator
+
+    dtype = PETSc.ScalarType
+    mesh = Vf.mesh()
+    mesh_element = mesh.coordinates.function_space().finat_element
+    nodes = mesh_element.fiat_equivalent.dual.get_nodes()
+    points = [list(node.get_point_dict().keys())[0] for node in nodes]
+    coords = numpy.array(points, dtype=dtype)
+
+    dimf = Vf.value_size * Vf.finat_element.space_dimension()
+    dimc = Vc.value_size * Vc.finat_element.space_dimension()
+
+    rhs = numpy.zeros((dimf, dimc), dtype=dtype)
+    build_rhs = reference_moments(firedrake.TestFunction(Vf), firedrake.TrialFunction(Vc))
+    build_rhs(rhs, coords)
+
+    apply_mat = reference_moments(firedrake.TestFunction(Vf), ufl.Coefficient(Vf))
+    Ax = numpy.zeros((dimf,), dtype=dtype)
+    ashape = (dimf, dimf)
+
+    def afun(x):
+        nonlocal Ax
+        Ax.fill(0.0E0)
+        apply_mat(Ax, coords, x)
+        return Ax
+
+    A = LinearOperator(ashape, afun, dtype=dtype)
+    rhs = rhs.T
+    for k in range(dimc):
+        rhs[k], _ = cg(A, rhs[k], tol=1E-12)
+    rhs = rhs.T
+    return rhs
+
+
 def prolongation_transfer_kernel_action(Vf, expr):
     from tsfc import compile_expression_dual_evaluation
     from tsfc.finatinterface import create_element
@@ -707,6 +772,7 @@ def finat_reference_prolongator(felem, celem):
     numpy.multiply(cphi, wts, out=cphi)
     cphi = cphi.reshape((celem.space_dimension(), -1))
     fphi = fphi.reshape((felem.space_dimension(), -1))
+
     if fphi.shape[-1] > 1000:
         try:
             from scipy.sparse.linalg import cg, LinearOperator
@@ -718,7 +784,7 @@ def finat_reference_prolongator(felem, celem):
             result = cphi.dot(fphi.T)
             afun = LinearOperator((fphi.shape[0],)*2, lambda x: fphi.dot(x.dot(fphi)), dtype=fphi.dtype)
             for k in range(cphi.shape[0]):
-                result[k], info = cg(afun, result[k], tol=1E-12)
+                result[k], _ = cg(afun, result[k], tol=1E-12)
             return numpy.multiply(rnorms, result.T)
         except ImportError:
             pass
@@ -1365,11 +1431,12 @@ class StandaloneInterpolationMatrix(object):
         except NotImplementedError:
             if Vc.ufl_element().mapping() != Vf.ufl_element().mapping():
                 raise NotImplementedError("Prolongation not supported from %s to %s" % (Vc.ufl_element(), Vf.ufl_element()))
-            Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element)
+
+            # Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element)
+            Jmat = matfree_reference_prolongator(Vf, Vc)
+            dimf, dimc = Jmat.shape
+            vsize = (Vc.value_size*Vc.finat_element.space_dimension())//dimc
             Jdata = ", ".join(map(float.hex, Jmat.flat))
-            dimc = Vc.finat_element.space_dimension()
-            dimf = Vf.finat_element.space_dimension()
-            vsize = Vc.value_size
             kernel_code = f"""
             void prolongation({ScalarType_c} *restrict uf, const {ScalarType_c} *restrict uc)
             {{
