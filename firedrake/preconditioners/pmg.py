@@ -670,7 +670,7 @@ def finat_reference_prolongator(felem, celem):
         pass
     quad_degree = 2*degree+1
 
-    def tabulate(e, ps, entity=None):
+    def _tabulate(e, ps, entity=None):
         results = evaluate(e.basis_evaluation(0, ps, entity).values())
         return results[0].arr.reshape((len(ps.points), -1))
 
@@ -679,42 +679,49 @@ def finat_reference_prolongator(felem, celem):
     for key in entity_dofs:
         v = sum(list(entity_dofs[key].values()), [])
         if len(v):
-            edim = key
-            try:
-                edim = sum(edim)
-            except TypeError:
-                pass
+            edim = sum(key) if type(key) == tuple else key
             if edim == ndim:
                 is_facet_element = False
 
     if is_facet_element:
         entities = []
         quadratures = []
-        for key in entity_dofs:
-            edim = key
-            try:
-                edim = sum(edim)
-            except TypeError:
-                pass
+        for key in ref_el.sub_entities:
+            edim = sum(key) if type(key) == tuple else key
             if edim == ndim-1:
                 sub_entities = ref_el.sub_entities[key]
                 entities.extend([(key, f) for f in sub_entities])
                 quadratures.extend([make_quadrature(ref_el.construct_subelement(key), quad_degree)]*len(sub_entities))
 
         wts = numpy.concatenate([evaluate([q.weight_expression])[0].arr.reshape((-1,)) for q in quadratures])
-        cphi = numpy.concatenate([tabulate(celem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
-        fphi = numpy.concatenate([tabulate(felem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
+        cphi = numpy.concatenate([_tabulate(celem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
+        fphi = numpy.concatenate([_tabulate(felem, q.point_set, entity=e) for q, e in zip(quadratures, entities)]).T
     else:
-        quadrature = make_quadrature(felem.cell, quad_degree)
+        quadrature = make_quadrature(ref_el, quad_degree)
         wts = evaluate([quadrature.weight_expression])[0].arr.reshape((-1,))
-        cphi = tabulate(celem, quadrature.point_set).T
-        fphi = tabulate(felem, quadrature.point_set).T
+        cphi = _tabulate(celem, quadrature.point_set).T
+        fphi = _tabulate(felem, quadrature.point_set).T
 
     numpy.sqrt(wts, out=wts)
     numpy.multiply(fphi, wts, out=fphi)
     numpy.multiply(cphi, wts, out=cphi)
     cphi = cphi.reshape((celem.space_dimension(), -1))
     fphi = fphi.reshape((felem.space_dimension(), -1))
+    if fphi.shape[-1] > 1000:
+        try:
+            from scipy.sparse.linalg import cg, LinearOperator
+            from numpy.core.umath_tests import inner1d
+            rnorms = inner1d(fphi, fphi).reshape(((-1, 1)))
+            numpy.sqrt(rnorms, out=rnorms)
+            numpy.reciprocal(rnorms, out=rnorms)
+            numpy.multiply(rnorms, fphi, out=fphi)
+            result = cphi.dot(fphi.T)
+            afun = LinearOperator((fphi.shape[0],)*2, lambda x: fphi.dot(x.dot(fphi)), dtype=fphi.dtype)
+            for k in range(cphi.shape[0]):
+                result[k], info = cg(afun, result[k], tol=1E-12)
+            return numpy.multiply(rnorms, result.T)
+        except ImportError:
+            pass
     return numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
 
 

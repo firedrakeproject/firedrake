@@ -1,4 +1,4 @@
-from functools import lru_cache, partial
+from functools import partial, lru_cache
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -189,12 +189,10 @@ class FDMPC(PCBase):
             Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
             fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
 
-        fdofs = V.value_size*fdofs.reshape((-1, 1))
-        fdofs = fdofs + numpy.arange(V.value_size, dtype=fdofs.dtype).reshape((1, -1))
-        fdofs = fdofs.reshape((-1,))
+        outer_sum = lambda x, y: (x.reshape((-1, 1)) + y.reshape((1, -1))).reshape((-1,))
+        fdofs = outer_sum(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype))
         dofs = numpy.arange(V.value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
-        idofs = numpy.setdiff1d(dofs, fdofs)
-        self.idofs = PETSc.IS().createGeneral(idofs, comm=PETSc.COMM_SELF)
+        self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs), comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
         self.submats = [None for _ in range(7)]
 
@@ -213,7 +211,7 @@ class FDMPC(PCBase):
         self.update_A = lambda A, B, rows: _update_A(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, addv)
         self.set_bc_values = lambda A, rows: _set_bc_values(A.handle, rows.size, rows.ctypes.data, addv)
 
-        Afdm, Dfdm, quad_degree, eta = self.assemble_fdm_interval(Vbig, appctx)
+        Afdm, Dfdm, quad_degree, eta = self.assemble_reference_cell(Vbig, appctx)
 
         # coefficients w.r.t. the reference values
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -274,7 +272,7 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
-    def assemble_fdm_interval(self, V, appctx):
+    def assemble_reference_cell(self, V, appctx):
         import FIAT
         ndim = V.mesh().topological_dimension()
         degree = V.ufl_element().degree()
@@ -303,15 +301,13 @@ class FDMPC(PCBase):
         phi1 = e1.tabulate(0, pts)
         phiq = eq.tabulate(0, pts)
         moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-
-        # Sparse interval matrices
-        A10 = petsc_sparse(moments(phi1[(0, )], phi0[(1, )]))
-        B11 = petsc_sparse(moments(phi1[(0, )], phi1[(0, )]))
-        B00 = petsc_sparse(moments(phiq[(0, )], phi0[(0, )]))
+        A10 = moments(phi1[(0, )], phi0[(1, )])
+        A11 = moments(phi1[(0, )], phi1[(0, )])
+        A00 = moments(phiq[(0, )], phi0[(0, )])
 
         # Reference element tensors
-        Qhat = mass_matrix(ndim, formdegree, B00, B11)
-        Dhat = diff_matrix(ndim, formdegree, B00, B11, A10)
+        Qhat = mass_matrix(ndim, formdegree, A00, A11)
+        Dhat = diff_matrix(ndim, formdegree, A00, A11, A10)
         Afdm = [block_mat([[Qhat], [Dhat]]).kron(petsc_sparse(numpy.eye(V.value_size)))]
         return Afdm, [], quad_degree, None
 
@@ -725,6 +721,8 @@ def sort_interior_dofs(idofs, A):
 
 
 def mass_matrix(ndim, formdegree, B00, B11):
+    B00 = petsc_sparse(B00)
+    B11 = petsc_sparse(B11)
     if ndim == 1:
         return B11 if formdegree else B00
     elif ndim == 2:
@@ -756,6 +754,9 @@ def mass_matrix(ndim, formdegree, B00, B11):
 
 
 def diff_matrix(ndim, formdegree, A00, A11, A10):
+    A00 = petsc_sparse(A00)
+    A11 = petsc_sparse(A11)
+    A10 = petsc_sparse(A10)
     if formdegree == ndim:
         ncols = A10.size[0]**ndim
         A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=([0],)*2, comm=PETSc.COMM_SELF)
@@ -839,12 +840,12 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     e0, e1 = elements[::len(elements)-1]
 
     degree = e0.degree()
-    I11 = petsc_sparse(numpy.eye(degree))
-    I00 = petsc_sparse(numpy.eye(degree+1))
-    D10 = petsc_sparse(fiat_reference_prolongator(e1, e0, derivative=True))
+    A11 = numpy.eye(degree)
+    A00 = numpy.eye(degree+1)
+    A10 = fiat_reference_prolongator(e1, e0, derivative=True)
 
     ndim = Vc.mesh().topological_dimension()
-    Dhat = diff_matrix(ndim, ec.formdegree, I00, I11, D10)
+    Dhat = diff_matrix(ndim, ec.formdegree, A00, A11, A10)
 
     fdofs = restricted_dofs(ef, create_element(unrestrict_element(Vf.ufl_element())))
     cdofs = restricted_dofs(ec, create_element(unrestrict_element(Vc.ufl_element())))
@@ -896,7 +897,7 @@ class PoissonFDMPC(FDMPC):
 
     _variant = "fdm"
 
-    def assemble_fdm_interval(self, V, appctx):
+    def assemble_reference_cell(self, V, appctx):
         from firedrake.preconditioners.pmg import get_line_elements
         try:
             line_elements, shifts = get_line_elements(V)
