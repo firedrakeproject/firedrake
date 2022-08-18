@@ -528,11 +528,12 @@ def reference_moments(*args):
         nodes = mesh_element.fiat_equivalent.dual.get_nodes()
         points = [list(node.get_point_dict().keys())[0] for node in nodes]
         coords = numpy.array(points, dtype=PETSc.ScalarType)
-    
+
     argtypes = [ctypes.c_voidp]*len(kernel.arguments)
     funptr = load_c_code(code, op2kernel.code.name, argtypes, mesh.comm)
-    
+
     def _wrapper(*args):
+        args[0].fill(0.0E0)
         _args = list(args)
         if coords is not None:
             _args.insert(1, coords)
@@ -543,31 +544,28 @@ def reference_moments(*args):
 
 @lru_cache(maxsize=10)
 def matfree_reference_prolongator(Vf, Vc):
-    from scipy.sparse.linalg import cg, LinearOperator
-
     dtype = PETSc.ScalarType
     dimf = Vf.value_size * Vf.finat_element.space_dimension()
     dimc = Vc.value_size * Vc.finat_element.space_dimension()
+    apply_Aff = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
+    build_Afc = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
+    Ax = numpy.empty((dimf,), dtype=dtype)
+    result = numpy.empty((dimf, dimc), dtype=dtype)
 
-    rhs = numpy.zeros((dimf, dimc), dtype=dtype)
-    build_rhs = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
-    build_rhs(rhs)
-
-    apply_mat = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
-    Ax = numpy.zeros((dimf,), dtype=dtype)
-    
-    def afun(x):
+    def _afun(x):
         nonlocal Ax
-        Ax.fill(0.0E0)
-        apply_mat(Ax, x)
+        apply_Aff(Ax, x)
         return Ax
 
-    A = LinearOperator((dimf, dimf), afun, dtype=dtype)
-    rhs = rhs.T
-    for k in range(dimc):
-        rhs[k], _ = cg(A, rhs[k], tol=1E-12)
-    rhs = rhs.T
-    return rhs
+    if Vf.comm.rank == 0:
+        from scipy.sparse.linalg import cg, LinearOperator
+        build_Afc(result)
+        A = LinearOperator((dimf, dimf), _afun, dtype=dtype)
+        for k in range(dimc):
+            result[:, k], _ = cg(A, result[:, k], tol=1E-12)
+
+    result = Vf.comm.bcast(result, root=0)
+    return result
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
