@@ -544,13 +544,12 @@ def reference_moments(*args):
 
 @lru_cache(maxsize=10)
 def matfree_reference_prolongator(Vf, Vc):
-    dtype = PETSc.ScalarType
     dimf = Vf.value_size * Vf.finat_element.space_dimension()
     dimc = Vc.value_size * Vc.finat_element.space_dimension()
     apply_Aff = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
     build_Afc = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
-    Ax = numpy.empty((dimf,), dtype=dtype)
-    result = numpy.empty((dimf, dimc), dtype=dtype)
+    Ax = numpy.empty((dimf,), dtype=PETSc.ScalarType)
+    result = numpy.empty((dimf, dimc), dtype=PETSc.ScalarType)
 
     def _afun(x):
         nonlocal Ax
@@ -560,7 +559,7 @@ def matfree_reference_prolongator(Vf, Vc):
     if Vf.comm.rank == 0:
         from scipy.sparse.linalg import cg, LinearOperator
         build_Afc(result)
-        A = LinearOperator((dimf, dimf), _afun, dtype=dtype)
+        A = LinearOperator((dimf, dimf), _afun, dtype=result.dtype)
         for k in range(dimc):
             result[:, k], _ = cg(A, result[:, k], tol=1E-12)
 
