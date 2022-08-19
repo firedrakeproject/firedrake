@@ -56,7 +56,6 @@ from pyop2.parloop import (GlobalParloopArg, DatParloopArg, MixedDatParloopArg, 
 from pyop2.parloop import (GlobalLegacyArg, DatLegacyArg, MixedDatLegacyArg,  # noqa: F401
                            MatLegacyArg, MixedMatLegacyArg, LegacyParloop, ParLoop)
 
-import loopy
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
@@ -69,9 +68,6 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
 
 
 _initialised = False
-
-# turn off loopy caching because pyop2 kernels are cached already
-loopy.set_caching_enabled(False)
 
 
 def initialised():
