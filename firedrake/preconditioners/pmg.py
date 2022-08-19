@@ -510,19 +510,20 @@ def load_c_code(code, name, argtypes, comm):
                 comm=comm)
 
 
-def reference_moments(*args):
+def reference_moments(*args, **kwargs):
     import ctypes
     from tsfc import compile_form
     quad_degree = 1+sum([PMGBase.max_degree(t.ufl_element()) for t in args])
     form = ufl.inner(*args)*ufl.dx(degree=quad_degree)
-    mesh = form.ufl_domain()
-    kernel, = compile_form(form, parameters=dict(mode="spectral"))
+    kernel, = compile_form(form, parameters=dict(mode="spectral"),
+                           log=PETSc.Log.isActive(), **kwargs)
     op2kernel = op2.Kernel(kernel.ast, kernel.name,
                            requires_zeroed_output_arguments=True,
                            flop_count=kernel.flop_count,
                            events=(kernel.event,))
     code = op2kernel.code.gencode().replace("static inline void", "void")
     coords = None
+    mesh = form.ufl_domain()
     if len(kernel.arguments) > 3-len(form.arguments()):
         mesh_element = mesh.coordinates.function_space().finat_element
         nodes = mesh_element.fiat_equivalent.dual.get_nodes()
@@ -546,22 +547,32 @@ def reference_moments(*args):
 def matfree_reference_prolongator(Vf, Vc):
     dimf = Vf.value_size * Vf.finat_element.space_dimension()
     dimc = Vc.value_size * Vc.finat_element.space_dimension()
-    apply_Aff = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
     build_Afc = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
+    apply_Aff = reference_moments(ufl.TestFunction(Vf), ufl.Coefficient(Vf))
+    diag_Aff = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vf), diagonal=True)
     Ax = numpy.empty((dimf,), dtype=PETSc.ScalarType)
+    Dx = numpy.empty((dimf,), dtype=PETSc.ScalarType)
+    diagonal = numpy.empty((dimf,), dtype=PETSc.ScalarType)
     result = numpy.empty((dimf, dimc), dtype=PETSc.ScalarType)
 
     def _afun(x):
-        nonlocal Ax
-        apply_Aff(Ax, x)
+        nonlocal Ax, Dx, diagonal
+        numpy.multiply(x, diagonal, out=Dx)
+        apply_Aff(Ax, Dx)
+        numpy.multiply(Ax, diagonal, out=Ax)
         return Ax
 
     if Vf.comm.rank == 0:
         from scipy.sparse.linalg import cg, LinearOperator
         build_Afc(result)
+        diag_Aff(diagonal)
+        numpy.sqrt(diagonal, out=diagonal)
+        numpy.reciprocal(diagonal, out=diagonal)
         A = LinearOperator((dimf, dimf), _afun, dtype=result.dtype)
         for k in range(dimc):
+            numpy.multiply(result[:, k], diagonal, out=result[:, k])
             result[:, k], _ = cg(A, result[:, k], tol=1E-12)
+            numpy.multiply(result[:, k], diagonal, out=result[:, k])
 
     result = Vf.comm.bcast(result, root=0)
     return result
