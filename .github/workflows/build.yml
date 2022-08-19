@@ -74,7 +74,6 @@ jobs:
     name: "Build Docker environment container"
     # The type of runner that the job will run on
     needs: build
-    if: ${{ github.ref == 'refs/heads/master' }}
     runs-on: self-hosted
     steps:
       - name: Check out the repo
@@ -90,7 +89,7 @@ jobs:
       - name: Build and push firedrake-env
         uses: docker/build-push-action@v2
         with:
-          push: true
+          push: false
           file: docker/Dockerfile.env
           tags: firedrakeproject/firedrake-env:latest
   docker_vanilla:
@@ -115,7 +114,7 @@ jobs:
       - name: Build and push firedrake-vanilla
         uses: docker/build-push-action@v2
         with:
-          push: true
+          push: false
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.vanilla
@@ -142,7 +141,7 @@ jobs:
       - name: Build and push firedrake
         uses: docker/build-push-action@v2
         with:
-          push: true
+          push: false
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.firedrake
@@ -167,7 +166,7 @@ jobs:
       - name: Build and push firedrake
         uses: docker/build-push-action@v2
         with:
-          push: true
+          push: false
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.jupyter
@@ -194,7 +193,7 @@ jobs:
       - name: Build and push firedrake-complex
         uses: docker/build-push-action@v2
         with:
-          push: true
+          push: false
           no-cache: true
           build-args: PETSC_CONFIGURE_OPTIONS
           file: docker/Dockerfile.complex
