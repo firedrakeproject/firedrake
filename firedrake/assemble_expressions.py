@@ -19,6 +19,7 @@ from tsfc import ufl2gem
 from tsfc.loopy import generate
 from tsfc.ufl_utils import ufl_reuse_if_untouched
 from ufl.algorithms.apply_algebra_lowering import LowerCompoundAlgebra
+from ufl.algorithms.analysis import extract_base_form_operators
 from ufl.classes import (Coefficient, ComponentTensor, Expr,
                          Index, Indexed, MultiIndex, Terminal)
 from ufl.corealg.map_dag import map_expr_dags
@@ -552,6 +553,14 @@ def assemble_expression(expr, subset=None):
     :arg expr: The UFL expression.
     :arg subset: Optional subset to apply the expression on.
     :returns: A new function."""
+    base_form_operators = extract_base_form_operators(expr)
+    assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
+    # Substitute base form operators with their output before examining the expression
+    # which avoids conflict when determining function space, for example:
+    # extract_coefficients(Interp(u, V2)) with u \in V1 will result in an output function space V1
+    # instead of V2.
+    if base_form_operators:
+        expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
     try:
         coefficients = extract_coefficients(expr)
         V, = set(c.function_space() for c in coefficients) - {None}

@@ -111,6 +111,11 @@ class Coargument(ufl.argument.Coargument):
     def make_dat(self):
         return self.function_space().make_dat()
 
+    def _analyze_form_arguments(self):
+        # Returns the argument found in the Coargument object
+        self._arguments = (self,)
+        self._coefficients = ()
+
     def reconstruct(self, function_space=None,
                     number=None, part=None):
         if function_space is None or function_space == self.function_space():
@@ -128,6 +133,14 @@ class Coargument(ufl.argument.Coargument):
                    == self.ufl_element().value_shape(),
                    "Cannot reconstruct a Coargument with a different value shape.")
         return Coargument(function_space, number, part=part)
+
+    def equals(self, other):
+        if type(other) is not Coargument:
+            return False
+        if self is other:
+            return True
+        return (self._function_space == other._function_space
+                and self._number == other._number and self._part == other._part)
 
 
 @PETSc.Log.EventDecorator()
