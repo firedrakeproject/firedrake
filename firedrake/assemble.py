@@ -707,6 +707,9 @@ class ExplicitMatrixAssembler(FormAssembler):
         return False
 
     def collect_lgmaps(self, knl, bcs):
+        if not bcs:
+            return None
+
         lgmaps = []
         for i, j in self.get_indicess(knl):
             row_bcs, col_bcs = self._filter_bcs(bcs, i, j)
