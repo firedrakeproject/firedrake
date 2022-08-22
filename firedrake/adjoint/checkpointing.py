@@ -110,7 +110,7 @@ class CheckPointFileReference:
 
 
 class DiskCheckpointer(TapePackageData):
-    """Manger for the disk checkpointing process.
+    """Manager for the disk checkpointing process.
 
     Parameters
     ----------
@@ -180,6 +180,16 @@ class DiskCheckpointer(TapePackageData):
             self.init_checkpoint_file = self.new_checkpoint_file()
         self.current_checkpoint_file = self.new_checkpoint_file()
 
+    def configure_checkpointing(self, location):
+        if location == "RAM":
+            if disk_checkpointing():
+                pause_disk_checkpointing()
+        elif location == "disk":
+            continue_disk_checkpointing()
+            self.clear()  # New checkpoint file.
+        else:
+            raise ValueError(f"Unknown checkpoint location {location}.")
+
     def reset(self):
         self.clear(init=False)
 
@@ -188,13 +198,13 @@ class DiskCheckpointer(TapePackageData):
         # what we should do about it.
         raise NotImplementedError()
 
-    def checkpoint(self):
+    def checkpoint_tape(self):
         return {
             "init": self.init_checkpoint_file,
             "current": self.current_checkpoint_file
         }
 
-    def restore_from_checkpoint(self, state):
+    def restore_tape_from_checkpoint(self, state):
         self.init_checkpoint_file = state["init"]
         self.current_checkpoint_file = state["current"]
 
