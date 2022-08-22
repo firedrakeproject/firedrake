@@ -1215,26 +1215,36 @@ class CheckpointFile(object):
         return pickle.loads(obj.tobytes())
 
     def _write_pickled_dict(self, path, name, the_dict):
-        """Pickle a dict and write it as attribute.
+        """Pickle a dict and write it as dataset.
 
         :arg path: the path at which the attribute is to be written.
         :arg name: the name of the attribute.
         :arg the_dict: the dict to pickle and write.
+
+        We save large meta data as dataset instead of as attribute
+        to avoid issues like https://github.com/firedrakeproject/firedrake/issues/2528.
         """
         self.require_group(path)
-        self.set_attr(path, name, self._pickle(the_dict))
+        if name in self.h5pyfile[path]:
+            del self.h5pyfile[path][name]
+        data = self._pickle(the_dict)
+        self.h5pyfile[path][name] = data.astype(h5py.opaque_dtype(data.dtype))
 
     def _read_pickled_dict(self, path, name):
-        """Read attribute and unpickle it to get a dict.
+        """Read dataset and unpickle it to get a dict.
 
         :arg path: the path at which the attribute is found.
         :arg name: the name of the attribute.
         :returns: the unpickled dict
         """
-        if path in self.h5pyfile and self.has_attr(path, name):
-            return self._unpickle(self.get_attr(path, name))
-        else:
-            return {}
+        if path in self.h5pyfile:
+            if name in self.h5pyfile[path]:
+                # Read dataset
+                return self._unpickle(np.void(self.h5pyfile[path][name]))
+            elif self.has_attr(path, name):
+                # Read attribute (backward compat)
+                return self._unpickle(self.get_attr(path, name))
+        return {}
 
     def _update_pickled_dict(self, name, new_item, *args):
         the_dict = getattr(self, "_get_" + name)(*args)
