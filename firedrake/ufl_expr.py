@@ -138,8 +138,8 @@ class Coargument(ufl.argument.Coargument):
             return False
         if self is other:
             return True
-        return (self._function_space == other._function_space and
-                self._number == other._number and self._part == other._part)
+        return (self._function_space == other._function_space
+                and self._number == other._number and self._part == other._part)
 
 
 @PETSc.Log.EventDecorator()
