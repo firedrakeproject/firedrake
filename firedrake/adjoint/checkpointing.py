@@ -246,37 +246,43 @@ class CheckpointFunction:
     ----------
     function : firedrake.Function
         The Function to be stored.
-    stored_name : str
-        The name under which the Function is stored in the file.
     """
     _checkpoint_index = 0
+    _checkpoint_indices = {}
 
-    def __init__(self, function, stored_name=None):
+    def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
         self.name = function.name
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
-        self.count = function.count()
-        if stored_name:
-            self.stored_name = stored_name
-        else:
-            CheckpointFunction._checkpoint_index += 1
-            self.stored_name = self.name() \
-                + "_" + str(self._checkpoint_index)
 
         if not self.file:
             raise ValueError(
                 "No current checkpoint file. Call enable_disk_checkpointing()."
             )
 
+        stored_names = CheckpointFunction._checkpoint_indices
+        if self.file.name not in stored_names:
+            stored_names[self.file.name] = {}
+
+        self.count = function.count()
         with CheckpointFile(self.file.name, 'a') as outfile:
-            outfile.save_function(function, name=self.stored_name)
+            self.stored_name = outfile._generate_function_space_name(
+                function.function_space()
+            )
+            indices = stored_names[self.file.name]
+            indices.setdefault(self.stored_name, 0)
+            indices[self.stored_name] += 1
+            self.stored_index = indices[self.stored_name]
+            outfile.save_function(function, name=self.stored_name,
+                                  idx=self.stored_index)
 
     def restore(self):
         """Read and return this Function from the checkpoint."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'r') as infile:
-            function = infile.load_function(self.mesh, self.stored_name)
+            function = infile.load_function(self.mesh, self.stored_name,
+                                            idx=self.stored_index)
         return type(function)(function.function_space(),
                               function.dat, name=self.name(), count=self.count)
 
