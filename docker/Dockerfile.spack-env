@@ -20,6 +20,9 @@ USER firedrake
 WORKDIR /home/firedrake
 
 RUN git clone -c feature.manyFiles=true https://github.com/spack/spack.git
+RUN cd spack && \
+    curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake-spack/main/.github/workflows/docker/spack_rename.patch && \
+    git apply spack_rename.patch
 RUN bash -c "source spack/share/spack/setup-env.sh; \
     spack compiler find; \
     spack external find -p /usr"
