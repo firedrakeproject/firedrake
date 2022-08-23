@@ -28,7 +28,7 @@ __all__ = ("interpolate", "Interpolator", "Interp")
 
 class Interp(ufl.Interp):
 
-    def __init__(self, expr, v, result_coefficient=None):
+    def __init__(self, expr, v, result_coefficient=None, interp_data=None):
         r""" Symbolic representation of the interpolation operator.
 
         :arg expr: a UFL expression to interpolate.
@@ -54,8 +54,16 @@ class Interp(ufl.Interp):
         self._function_space = vv.function_space().dual()
         ufl.Interp.__init__(self, expr, v)
 
+        # Interp data (e.g. subset or access)
+        self.interp_data = interp_data if interp_data else {}
+
     def function_space(self):
         return self._function_space
+
+    def _ufl_expr_reconstruct_(self, expr, v=None, result_coefficient=None, interp_data=None):
+        return ufl.Interp._ufl_expr_reconstruct_(self, expr, v=v,
+                                                 result_coefficient=result_coefficient,
+                                                 interp_data=interp_data or self.interp_data)
 
 
 @PETSc.Log.EventDecorator()
@@ -125,6 +133,8 @@ class Interpolator(object):
         self.freeze_expr = freeze_expr
         self.expr = expr
         self.V = V
+        self.subset = subset
+        self.access = access
 
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False):
@@ -149,7 +159,8 @@ class Interpolator(object):
                 # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
                 output = V
             V = V.function_space()
-        interp = Interp(self.expr, V)
+        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr, 'access': self.access}
+        interp = Interp(self.expr, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)
 
