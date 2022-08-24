@@ -487,8 +487,13 @@ class SchurComplementBuilder(object):
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
             KT0, KT1 = self.list_split_trace_ops_transpose
-            R = [rhs.blocks[self.vidx],
-                 rhs.blocks[self.pidx]]
+            if isinstance(rhs, AssembledVector):
+                R = [rhs.blocks[self.vidx],
+                    rhs.blocks[self.pidx]]
+            else:
+                broken_residual = rhs.split()
+                R = [AssembledVector(broken_residual[self.vidx]),
+                     AssembledVector(broken_residual[self.pidx])]
             # K * block1
             K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
             # K * block1 * block2
@@ -502,6 +507,8 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
+            if not isinstance(rhs, AssembledVector):
+                rhs = AssembledVector(rhs)
             P = DiagonalTensor(self.Atilde).inverse(self.rtol_A00, self.atol_A00, self.max_it_A00)
             Atildeinv = self.inverse(self.Atilde, P, self.jacobi_A00, self.preonly_A00, self.rtol_A00, self.atol_A00, self.max_it_A00)
             schur_rhs = self.K * Atildeinv * rhs

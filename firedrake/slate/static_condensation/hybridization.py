@@ -204,7 +204,7 @@ class HybridizationPC(SCBase):
 
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, KT, pc, self.vidx, self.pidx)
-        schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
+        schur_rhs, schur_comp = self.schur_builder.build_schur(self.broken_residual)
         self.schur_builder.total_local_shape = Tensor(self.ctx.a).shape
 
         # Set ctx params to drive optimisations if local solves are matrix-free
