@@ -275,15 +275,6 @@ def _from_netgen(ngmesh, comm=None):
 
 
 @PETSc.Log.EventDecorator()
-def ngLabels(ngmesh, labels):
-    BID = []
-    for e in ngmesh.Elements1D():
-        if ngmesh.GetBCName(int(e.index)-1) in labels:
-            BID = BID + [int(e.index)]
-    return BID
-
-
-@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 

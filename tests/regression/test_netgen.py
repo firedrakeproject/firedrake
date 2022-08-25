@@ -21,7 +21,7 @@ def poisson(h, degree=2):
     a = inner(grad(u), grad(v))*dx
     l = inner(f, v) * dx
     u = Function(V)
-    bc = DirichletBC(V, 0.0, [1, 2, 3, 4])
+    bc = DirichletBC(V, 0.0, ngmesh.GetBCIDs("rect"))
 
     # Assembling matrix
     A = assemble(a, bcs=bc)
