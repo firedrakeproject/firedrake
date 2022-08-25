@@ -264,10 +264,8 @@ def _from_netgen(ngmesh, comm=None):
     if ngmesh.dim == 3:
         raise RuntimeError("Only 2D meshes are implemented at the moment.")
     else:
-        V = list(ngmesh.Coordinates())
-        T = []
-        for t in ngmesh.Elements2D():
-            T = T + [[v.nr-1 for v in t.vertices]]
+        V = ngmesh.Coordinates()
+        T = ngmesh.Indices2D
     plex = _from_cell_list(2, T, V, comm, name=None)
     for e in ngmesh.Elements1D():
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
@@ -2076,7 +2074,7 @@ def Mesh(meshfile, **kwargs):
     .. note::
 
         When the mesh is created directly from a DMPlex object or a Netgen,
-        mesh obhect the ``dim`` parameter is ignored (the DMPlex already
+        mesh object the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
