@@ -523,6 +523,7 @@ def condense_element_pattern(A, i0, i1, submats):
     return submats[6]
 
 
+@lru_cache(maxsize=10)
 @PETSc.Log.EventDecorator("LoadCode")
 def load_c_code(code, name, argtypes, comm):
     from pyop2.compilation import load
