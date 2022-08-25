@@ -206,8 +206,8 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: Ae
 
         addv = PETSc.InsertMode.ADD_VALUES
-        _update_A = load_assemble_csr(V.comm)
-        _set_bc_values = load_set_bc_values(V.comm)
+        _update_A = load_assemble_csr()
+        _set_bc_values = load_set_bc_values()
         self.update_A = lambda A, B, rows: _update_A(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, addv)
         self.set_bc_values = lambda A, rows: _set_bc_values(A.handle, rows.size, rows.ctypes.data, addv)
 
@@ -523,18 +523,17 @@ def condense_element_pattern(A, i0, i1, submats):
     return submats[6]
 
 
-@lru_cache(maxsize=10)
 @PETSc.Log.EventDecorator("LoadCode")
-def load_c_code(code, name, argtypes, comm):
+def load_c_code(code, name, **kwargs):
     from pyop2.compilation import load
     from pyop2.utils import get_petsc_dir
     cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
               + ["-lpetsc", "-lm"])
-    funptr = load(code, "c", name, argtypes=argtypes,
-                  restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
-                  comm=comm)
+    funptr = load(code, "c", name,
+                  cppargs=cppargs, ldargs=ldargs,
+                  **kwargs)
 
     @PETSc.Log.EventDecorator(name)
     def wrapped_fun(*args):
@@ -542,7 +541,9 @@ def load_c_code(code, name, argtypes, comm):
     return wrapped_fun
 
 
-def load_assemble_csr(comm):
+@lru_cache(maxsize=1)
+def load_assemble_csr():
+    comm = PETSc.COMM_SELF
     code = """
 #include <petsc.h>
 
@@ -583,10 +584,14 @@ PetscErrorCode setSubMatCSR(Mat A,
     name = "setSubMatCSR"
     argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                 ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-    return load_c_code(code, name, argtypes, comm)
+    return load_c_code(code, name, comm=comm, argtypes=argtypes,
+                       restype=ctypes.c_int)
 
 
-def load_set_bc_values(comm):
+
+@lru_cache(maxsize=1)
+def load_set_bc_values():
+    comm = PETSc.COMM_SELF
     code = """
 #include <petsc.h>
 
@@ -606,7 +611,9 @@ PetscErrorCode setSubDiagonal(Mat A,
     name = "setSubDiagonal"
     argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                 ctypes.c_voidp, ctypes.c_int]
-    return load_c_code(code, name, argtypes, comm)
+    return load_c_code(code, name, comm=comm, argtypes=argtypes,
+                       restype=ctypes.c_int)
+
 
 
 def petsc_sparse(A_numpy, rtol=1E-10):
@@ -631,7 +638,7 @@ def block_mat(A_blocks):
     nnz = numpy.concatenate([sum([numpy.diff(Aij.getValuesCSR()[0]) for Aij in Arow]) for Arow in A_blocks])
     A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
     imode = PETSc.InsertMode.INSERT
-    funptr = load_assemble_csr(A.comm)
+    funptr = load_assemble_csr()
     insert_block = lambda Aij, i, j: funptr(A.handle, Aij.handle, i.ctypes.data, j.ctypes.data, imode)
     iend = 0
     for Ai in A_blocks:
@@ -811,7 +818,7 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
         rindices = lambda e: numpy.reshape(_rindices(e)*bsize, (-1, 1)) + ibase
         cindices = lambda e: numpy.reshape(_cindices(e)*bsize, (-1, 1)) + ibase
 
-    petsc_function = load_assemble_csr(A.comm)
+    petsc_function = load_assemble_csr()
     update_A = lambda rows, cols: petsc_function(A.handle, Ahat.handle, rows.ctypes.data, cols.ctypes.data, addv)
     for e in range(nel):
         update_A(rmap.apply(rindices(e)), cmap.apply(cindices(e)))
