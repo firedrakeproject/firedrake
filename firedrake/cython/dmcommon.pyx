@@ -20,6 +20,7 @@ np.import_array()
 
 include "petschdr.pxi"
 
+EDGE_SETS_LABEL = "Edge Sets"
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
 
