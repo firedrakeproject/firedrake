@@ -237,16 +237,30 @@ def _from_netgen(ngmesh, comm=None):
     :arg ngmesh: NetGen Mesh
     """
     if ngmesh.dim == 3:
-        raise RuntimeError("Only 2D meshes are implemented at the moment.")
-    else:
+        V = ngmesh.Coordinates()
+        T = ngmesh.Indices3D
+        plex = _from_cell_list(3, T, V, comm, name=None)
+        plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
+        vStart, vEnd = plex.getDepthStratum(0)   # vertices
+        for e in ngmesh.Elements2D():
+            join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+        for e in ngmesh.Elements1D():
+            join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+            plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
+        return plex
+    elif ngmesh.dim == 2:
         V = ngmesh.Coordinates()
         T = ngmesh.Indices2D
-    plex = _from_cell_list(2, T, V, comm, name=None)
-    for e in ngmesh.Elements1D():
+        plex = _from_cell_list(2, T, V, comm, name=None)
+        plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-        plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-    return plex
+        for e in ngmesh.Elements1D():
+            join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+        return plex
+    else:
+        raise Exception("Mesh of dimension {} are not supported.".format(ngmesh.dim))
 
 
 @PETSc.Log.EventDecorator()
