@@ -786,9 +786,9 @@ class LocalLoopyKernelBuilder(object):
         max_it = int(getattr(expr.ctx, "max_it")) if getattr(expr.ctx, "max_it") else 2*shape[0]
         preconditioned = bool(prec)
 
-        if max_it:
-            assert int(max_it)<=2*shape[0], f"Your max_it value is higher than 2 times the shape of the local solution vector." \
-                                             "If you actually want to achieve good performance consider choosing a lower max_it."
+        # if max_it:
+        #     assert int(max_it)<=2*shape[0], f"Your max_it value is higher than 2 times the shape of the local solution vector." \
+        #                                      "If you actually want to achieve good performance consider choosing a lower max_it."
 
         # Generate the arguments for the kernel from the loopy expression
         args, reads, output_loopy_arg = self.generate_kernel_args_and_call_reads(expr, insn, dtype)
