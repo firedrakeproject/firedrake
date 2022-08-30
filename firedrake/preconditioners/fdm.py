@@ -207,8 +207,8 @@ class FDMPC(PCBase):
         addv = PETSc.InsertMode.ADD_VALUES
         _update_A = load_assemble_csr()
         _set_bc_values = load_set_bc_values()
-        self.update_A = lambda A, B, rows: _update_A(A.handle, B.handle, rows.ctypes.data, rows.ctypes.data, addv)
-        self.set_bc_values = lambda A, rows: _set_bc_values(A.handle, rows.size, rows.ctypes.data, addv)
+        self.update_A = lambda A, B, rows: _update_A(A, B, rows, rows, addv)
+        self.set_bc_values = lambda A, rows: _set_bc_values(A, rows.size, rows, addv)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_reference_tensors(Vbig, appctx)
 
@@ -534,10 +534,17 @@ def load_c_code(code, name, **kwargs):
                   cppargs=cppargs, ldargs=ldargs,
                   **kwargs)
 
+    def get_pointer(obj):
+        if isinstance(obj, (PETSc.Mat, PETSc.Vec)):
+            return obj.handle
+        elif isinstance(obj, numpy.ndarray):
+            return obj.ctypes.data
+        return obj
+
     @PETSc.Log.EventDecorator(name)
-    def wrapped_fun(*args):
-        return funptr(*args)
-    return wrapped_fun
+    def wrapper(*args):
+        return funptr(*list(map(get_pointer, args)))
+    return wrapper
 
 
 @lru_cache(maxsize=1)
@@ -636,7 +643,7 @@ def block_mat(A_blocks):
     A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
     imode = PETSc.InsertMode.INSERT
     funptr = load_assemble_csr()
-    insert_block = lambda Aij, i, j: funptr(A.handle, Aij.handle, i.ctypes.data, j.ctypes.data, imode)
+    insert_block = lambda Aij, i, j: funptr(A, Aij, i, j, imode)
     iend = 0
     for Ai in A_blocks:
         istart = iend
@@ -816,7 +823,7 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
         cindices = lambda e: numpy.add.outer(_cindices(e)*bsize, ibase)
 
     petsc_function = load_assemble_csr()
-    update_A = lambda rows, cols: petsc_function(A.handle, Ahat.handle, rows.ctypes.data, cols.ctypes.data, addv)
+    update_A = lambda rows, cols: petsc_function(A, Ahat, rows, cols, addv)
     for e in range(nel):
         update_A(rmap.apply(rindices(e)), cmap.apply(cindices(e)))
     A.assemble()
