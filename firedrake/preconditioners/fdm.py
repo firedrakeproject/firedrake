@@ -189,8 +189,7 @@ class FDMPC(PCBase):
             Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
             fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
 
-        outer_sum = lambda x, y: (x.reshape((-1, 1)) + y.reshape((1, -1))).reshape((-1,))
-        fdofs = outer_sum(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype))
+        fdofs = numpy.add.outer(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype)).reshape((-1,))
         dofs = numpy.arange(V.value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs), comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
@@ -427,8 +426,8 @@ class FDMPC(PCBase):
         index_cell, nel = glonum_fun(V.cell_node_map())
         if bsize > 1:
             _index_cell = index_cell
-            ibase = numpy.reshape(numpy.arange(bsize, dtype=PETSc.IntType), (1, -1))
-            index_cell = lambda e: _index_cell(e).reshape((-1, 1))*bsize + ibase
+            ibase = numpy.arange(bsize, dtype=PETSc.IntType)
+            index_cell = lambda e: numpy.add.outer(_index_cell(e)*bsize, ibase)
 
         Ae = None
         coefs_array = None
@@ -447,8 +446,8 @@ class FDMPC(PCBase):
         elif nel:
             coefs_array = get_coefs(0, coefs_array)
             shape = coefs_array.shape
-            if len(coefs_array.shape) > 2:
-                numpy.tile(numpy.eye(shape[1]), shape[:1] + (1,)*(len(shape)-1), out=coefs_array)
+            if len(shape) > 2:
+                coefs_array = numpy.tile(numpy.eye(shape[1]), shape[:1] + (1,)*(len(shape)-1))
             else:
                 coefs_array.fill(1.0E0)
             Ae = self.element_mat(coefs_array, Afdm, work_mat, Ae=Ae)
@@ -812,11 +811,11 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
     cindices, nel = glonum_fun(Vcols.cell_node_map())
     bsize = Vrows.value_size
     if bsize > 1:
-        ibase = numpy.reshape(numpy.arange(bsize, dtype=PETSc.IntType), (1, -1))
+        ibase = numpy.arange(bsize, dtype=PETSc.IntType)
         _rindices = rindices
         _cindices = cindices
-        rindices = lambda e: numpy.reshape(_rindices(e)*bsize, (-1, 1)) + ibase
-        cindices = lambda e: numpy.reshape(_cindices(e)*bsize, (-1, 1)) + ibase
+        rindices = lambda e: numpy.add.outer(_rindices(e)*bsize, ibase)
+        cindices = lambda e: numpy.add.outer(_cindices(e)*bsize, ibase)
 
     petsc_function = load_assemble_csr()
     update_A = lambda rows, cols: petsc_function(A.handle, Ahat.handle, rows.ctypes.data, cols.ctypes.data, addv)
