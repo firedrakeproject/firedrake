@@ -982,7 +982,11 @@ def clean(package):
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
-            check_call([python, "setup.py", "clean"])
+            if os.path.isfile("setup.py"):
+                check_call([python, "setup.py", "clean"])
+            else:  # PEP 518 build system
+                if os.path.exists("build") and os.path.isdir("build"):
+                    shutil.rmtree("build")
 
 
 def pip_uninstall(package):

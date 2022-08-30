@@ -587,7 +587,6 @@ PetscErrorCode setSubMatCSR(Mat A,
                        restype=ctypes.c_int)
 
 
-
 @lru_cache(maxsize=1)
 def load_set_bc_values():
     comm = PETSc.COMM_SELF
@@ -612,7 +611,6 @@ PetscErrorCode setSubDiagonal(Mat A,
                 ctypes.c_voidp, ctypes.c_int]
     return load_c_code(code, name, comm=comm, argtypes=argtypes,
                        restype=ctypes.c_int)
-
 
 
 def petsc_sparse(A_numpy, rtol=1E-10):
