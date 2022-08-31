@@ -854,11 +854,10 @@ class LocalLoopyKernelBuilder(object):
                   for i_c
                     {A_on_p}[:] = action_A_on_p({A}[:,:], {p}[:]) {{dep=rk_norm1, id=Aonp, inames=i_c}}
                     <> p_on_Ap = 0. {{dep=Aonp, id=ponAp0}}
-                    p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id=ponAp}}
-                    <> projector_is_zero = abs(p_on_Ap) < {1e-50} {{id={preconverged_criterion_dep}, dep=ponAp}}
+                    p_on_Ap = p_on_Ap + {p}[i_2]*{A_on_p}[i_2] {{dep=ponAp0, id={preconverged_criterion_dep}}}
              """,
              corner_case,
-             f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_dep}, id=alpha}}
+             f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
                     {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
                     
@@ -932,7 +931,7 @@ class LocalLoopyKernelBuilder(object):
     def generate_code_for_converged_pre_iteration(self, dep, id):
         return loopy.CInstruction("",
                                   "break;",
-                                  predicates={parse("projector_is_zero")},
+                                  predicates={parse(f"abs(p_on_Ap) < {1e-90}")},
                                   depends_on=dep,
                                   id=id)
 
