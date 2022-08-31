@@ -155,11 +155,19 @@ class RiemannianMetric(ffunc.Function):
         )
         plex.setCoordinatesLocal(coords_local)
 
+    @futils.cached_property
+    def vec(self):
+        """
+        Get the local vec.
+        """
+        size = self.dat.dataset.layout_vec.getSizes()
+        data = self.dat._data[:size[0]]
+        return PETSc.Vec().createWithArray(data, size=size, bsize=self.dat.cdim, comm=self._mesh.comm)
+
     @property
-    @PETSc.Log.EventDecorator("RiemannianMetric.reorder_metric")
-    def _reordered(self):
-        with self.dat.vec_ro as v:
-            return dmcommon.to_petsc_local_numbering(v, self.function_space())
+    @PETSc.Log.EventDecorator()
+    def reordered_vec(self):
+        return dmcommon.to_petsc_local_numbering(self.vec, self.function_space())
 
     @PETSc.Log.EventDecorator()
     def enforce_spd(self, restrict_sizes=False, restrict_anisotropy=False):
@@ -176,11 +184,10 @@ class RiemannianMetric(ffunc.Function):
             "restrictAnisotropy": restrict_anisotropy,
         }
         plex = self._plex
-        with ffunc.Function(self.function_space()).dat.vec as met:
-            det = plex.metricDeterminantCreate()
-            with self.dat.vec as v:
-                plex.metricEnforceSPD(v, met, det, **kw)
-                met.copy(v)
+        met = self.copy().vec
+        det = plex.metricDeterminantCreate()
+        plex.metricEnforceSPD(self.vec, met, det, **kw)
+        met.copy(self.vec)
         return self
 
     @PETSc.Log.EventDecorator()
@@ -247,19 +254,18 @@ class RiemannianMetric(ffunc.Function):
         if num_metrics == 1:
             return self
         plex = self._plex
-        with ffunc.Function(self.function_space()).dat.vec as met:
-            with self.dat.vec as v1:
-                with metrics[0].dat.vec_ro as v2:
-                    if num_metrics == 2:
-                        plex.metricIntersection2(v1, v2, met)
-                    elif num_metrics == 3:
-                        with metrics[1].dat.vec_ro as v3:
-                            plex.metricIntersection3(v1, v2, v3, met)
-                    else:
-                        raise NotImplementedError(
-                            f"Can only intersect 1, 2 or 3 metrics, not {num_metrics+1}"
-                        )
-                met.copy(v1)
+        met = self.copy().vec
+        v1 = metrics[0].vec
+        if num_metrics == 2:
+            plex.metricIntersection2(self.vec, v1, met)
+        elif num_metrics == 3:
+            v2 = metrics[1].vec
+            plex.metricIntersection3(self.vec, v1, v2, met)
+        else:
+            raise NotImplementedError(
+                f"Can only intersect 1, 2 or 3 metrics, not {num_metrics+1}"
+            )
+        met.copy(self.vec)
         return self
 
     @PETSc.Log.EventDecorator()
