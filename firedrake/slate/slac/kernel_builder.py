@@ -858,7 +858,7 @@ class LocalLoopyKernelBuilder(object):
              """,
              corner_case,
              f"""   <> alpha = rk_norm / p_on_Ap {{dep={preconverged_criterion_id}, id=alpha}}
-                    {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=ponAp, id=xk}}
+                    {x}[i_7] = {x}[i_7] + alpha*{p}[i_7] {{dep=alpha, id=xk}}
                     r[i_8] = r[i_8] + alpha*{A_on_p}[i_8] {{dep=xk,id=rk}}
                     
              """,
