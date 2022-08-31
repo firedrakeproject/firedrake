@@ -72,6 +72,7 @@ def dim(request):
     return request.param
 
 
+@pytest.mark.skipcomplex
 def test_copy(dim):
     """
     Test that the copy method works as expected.
@@ -86,6 +87,7 @@ def test_copy(dim):
     assert np.isclose(newmetric._plex.metricGetMaximumMagnitude(), hmax)
 
 
+@pytest.mark.skipcomplex
 def test_enforce_spd(dim):
     """
     Tests for the :meth:`enforce_spd` method:
@@ -107,6 +109,7 @@ def test_enforce_spd(dim):
     assert np.isclose(errornorm(metric, expected), 0.0)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=2)
 def test_intersection(dim):
     """
@@ -121,6 +124,7 @@ def test_intersection(dim):
     assert np.isclose(errornorm(metric2, expected), 0.0)
 
 
+@pytest.mark.skipcomplex
 def test_no_adapt(dim):
     """
     Test that we can turn off all of Mmg's
@@ -141,6 +145,7 @@ def test_no_adapt(dim):
     assert newmesh.coordinates.vector().gather().shape == dofs
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=2)
 def test_no_adapt_parallel():
     """
@@ -150,6 +155,7 @@ def test_no_adapt_parallel():
     test_no_adapt(3)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=2)
 def test_normalise(dim):
     """
@@ -171,6 +177,7 @@ def test_normalise(dim):
     assert np.isclose(errornorm(metric, expected), 0.0)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize(
     "meshname",
     [
@@ -199,6 +206,7 @@ def test_preserve_cell_tags_2d(meshname):
         assert np.isclose(bnd, newbnd), f"Area of region {tag} not preserved"
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize(
     "meshname",
     [
@@ -227,6 +235,7 @@ def test_preserve_facet_tags_2d(meshname):
         assert np.isclose(bnd, newbnd), f"Length of arc {tag} not preserved"
 
 
+@pytest.mark.skipcomplex
 def test_adapt_3d():
     """
     Test that we can successfully invoke
@@ -245,6 +254,7 @@ def test_adapt_3d():
     assert newmesh.coordinates.vector().gather().shape != dofs
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=2)
 def test_adapt_parallel_3d():
     """
