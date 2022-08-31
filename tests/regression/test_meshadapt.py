@@ -252,3 +252,10 @@ def test_adapt_parallel_3d():
     ParMmg and that it changes the DoF count.
     """
     test_adapt_3d()
+
+
+# TODO: DROP BEFORE MERGE (debug)
+if __name__ == "__main__":
+    # test_no_adapt(3)
+    test_adapt_3d()
+    # test_intersection(3)
