@@ -356,7 +356,7 @@ class MetricBasedAdaptor(AdaptorBase):
         :return: a new :class:`MeshGeometry`.
         """
         self.metric.enforce_spd(restrict_sizes=True, restrict_anisotropy=True)
-        metric = self.metric._reordered
+        metric = self.metric.reordered_vec
         newplex = self.mesh.topology_dm.adaptMetric(metric, "Face Sets", "Cell Sets")
         return fmesh.Mesh(newplex, distribution_parameters={"partition": False})
 
