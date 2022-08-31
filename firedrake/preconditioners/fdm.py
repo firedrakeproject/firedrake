@@ -189,9 +189,9 @@ class FDMPC(PCBase):
             Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
             fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
 
-        fdofs = numpy.add.outer(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype)).reshape((-1,))
+        fdofs = numpy.add.outer(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype))
         dofs = numpy.arange(V.value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
-        self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs), comm=PETSc.COMM_SELF)
+        self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs, assume_unique=True), comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
         self.submats = [None for _ in range(7)]
 
@@ -431,9 +431,9 @@ class FDMPC(PCBase):
 
         Ae = None
         coefs_array = None
-        coefs = [coefficients[k] for k in ("beta", "alpha")]
-        cmaps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
-        get_coefs = lambda e, out: numpy.concatenate([ck.dat.data_ro[mapk(e)] for ck, mapk in zip(coefs, cmaps)], out=out)
+        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
+        dof_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
+        get_coefs = lambda e, out: numpy.concatenate([coef.dat.data_ro[dof_map(e)] for coef, dof_map in zip(coefs, dof_maps)], out=out)
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             for assemble_coef in self.assembly_callables:
@@ -642,8 +642,7 @@ def block_mat(A_blocks):
     nnz = numpy.concatenate([sum([numpy.diff(Aij.getValuesCSR()[0]) for Aij in Arow]) for Arow in A_blocks])
     A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
     imode = PETSc.InsertMode.INSERT
-    funptr = load_assemble_csr()
-    insert_block = lambda Aij, i, j: funptr(A, Aij, i, j, imode)
+    insert_block = load_assemble_csr()
     iend = 0
     for Ai in A_blocks:
         istart = iend
@@ -654,7 +653,7 @@ def block_mat(A_blocks):
             jstart = jend
             jend += Aij.size[1]
             cols = numpy.arange(jstart, jend, dtype=PETSc.IntType)
-            insert_block(Aij, rows, cols)
+            insert_block(A, Aij, rows, cols, imode)
 
     A.assemble()
     return A
@@ -822,10 +821,9 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
         rindices = lambda e: numpy.add.outer(_rindices(e)*bsize, ibase)
         cindices = lambda e: numpy.add.outer(_cindices(e)*bsize, ibase)
 
-    petsc_function = load_assemble_csr()
-    update_A = lambda rows, cols: petsc_function(A, Ahat, rows, cols, addv)
+    update_A = load_assemble_csr()
     for e in range(nel):
-        update_A(rmap.apply(rindices(e)), cmap.apply(cindices(e)))
+        update_A(A, Ahat, rmap.apply(rindices(e)), cmap.apply(cindices(e)), addv)
     A.assemble()
 
 
