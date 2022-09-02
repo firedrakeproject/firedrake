@@ -151,34 +151,29 @@ Windows Subsystem for Linux. There are more detailed
 `instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
 Installation on previous versions of Windows is unlikely to work.
 
+
+Anaconda
+~~~~~~~~
+
+.. warning::
+    The following is recent as of Sept 2022 and still highly experimental.
+
+Firedrake was incompatible with the Anaconda Python distribution for a
+long time. This limitation has been lifted, but for the time being,
+installing with Anaconda will require either using this special
+`shell script <https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install-conda.sh>`_
+or executing the commands in that script manually. If installation under
+Anaconda with that script fails, please
+`raise an issue <https://github.com/firedrakeproject/firedrake/issues`_
+and we will try to fix it as soon as possible, but please bear with us
+as we iron out the wrinkles on supporting Anaconda.
+
+
 System anti-requirements
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 We strive to make Firedrake work on as many platforms as we can. Some
 tools, however, make this challenging or impossible for end users.
-
-**Anaconda.** The Anaconda Python distribution and package manager are
-often recommended in introductory data science courses because it does
-effectively handle many aggravating problems of dependency management.
-Unfortunately, Anaconda does a poor job of isolating itself from the
-rest of your system and assumes that it will be both the only Python
-installation and the only supplier of any dependent packages. Anaconda
-will install compilers and MPI compiler wrappers and put its compilers
-right at the top of your ``PATH``. This is a problem because Firedrake
-needs to build and use its own MPI. (We keep our MPI isolated from the
-rest of your system through virtual environments.) When installed on a
-platform with Anaconda, Firedrake can accidentally try to link to the
-incompatible Anaconda installation of MPI.
-
-There are three ways to work around this problem.
-
-1. Remove Anaconda entirely.
-2. Modify your ``PATH`` environment variable to remove any traces of
-   Anaconda, then install Firedrake. If you need Anaconda later, you
-   can re-enable it with a shell script that will add those directories
-   back onto your path.
-3. Use a `Docker image <https://hub.docker.com/r/firedrakeproject/firedrake>`_
-   that we've built with Firedrake and its dependencies already installed.
 
 **MacOS system Python.** The official MacOS installer on the Python
 website does not have a working SSL by default. A working SSL is

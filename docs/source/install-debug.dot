@@ -15,7 +15,7 @@ digraph triage {
     which_python [label="<which python3> points\nat <$(brew --prefix)/bin/python3>?"];
 
     activate_venv [label="Activate the\nvenv first."];
-    uninstall_anaconda [label="Deactivate\nAnaconda."];
+    conda_script [label="Use our special\nAnaconda install."];
     update_python [label="Get Python 3.6-3.10"];
     update_install_script [label="Fetch new\ninstall script"];
     get_homebrew [label="Use Homebrew."];
@@ -31,7 +31,7 @@ digraph triage {
     install_failed -> {install_script_up_to_date, using_anaconda, python_version, using_macos};
     install_script_up_to_date -> update_install_script [label="no"];
     python_version -> update_python [label="yes"];
-    using_anaconda -> uninstall_anaconda [label="yes"];
+    using_anaconda -> conda_script [label="yes"];
     using_macos -> using_homebrew [label="yes"];
     using_homebrew -> get_homebrew [label="no"];
     using_homebrew -> brew_doctor [label="yes"];
