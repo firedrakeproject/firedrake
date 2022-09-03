@@ -1907,7 +1907,7 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: Colud be the mesh file name, a DMPlex object or a Netgen mesh object defining
+    :param meshfile: the mesh file name, a DMPlex object or a Netgen mesh object defining
            mesh topology.  See below for details on supported mesh
            formats.
     :param name: optional name of the mesh object.
