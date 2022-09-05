@@ -55,7 +55,19 @@ def solve_init_params(self, args, kwargs, varform):
         self.adj_args = self.forward_args
 
     if len(self.adj_kwargs) <= 0:
-        self.adj_kwargs = self.forward_kwargs.copy()
+        la_kwargs = [
+            "bcs",
+            "solver_parameters",
+            "nullspace",
+            "transpose_nullspace",
+            "near_nullspace",
+            "options_prefix",
+        ]
+        self.adj_kwargs = dict(
+            (key, value)
+            for key, value in self.forward_kwargs.items()
+            if key in la_kwargs
+        )
 
         if varform:
             if "J" in self.forward_kwargs:
