@@ -5,6 +5,7 @@ from pyadjoint import stop_annotating
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
 from .checkpointing import maybe_disk_checkpoint
+from firedrake.logging import warning
 
 import firedrake
 import firedrake.utils as utils
@@ -63,6 +64,19 @@ def solve_init_params(self, args, kwargs, varform):
             "near_nullspace",
             "options_prefix",
         ]
+        var_solver_kwargs = [
+            "appctx",
+            "pre_jacobian_callback",
+            "post_jacobian_callback",
+            "pre_function_callback",
+            "post_function_callback",
+        ]
+        for kwarg in var_solver_kwargs:
+            if kwarg in self.forward_kwargs:
+                warning(
+                    f"Keyword argument {kwarg} is not supported by the adjoint solver. Please consider subclassing pyadjoint.block.Block to implement your own adjoint solver if your gradients are wrong."
+                )
+
         self.adj_kwargs = dict(
             (key, value)
             for key, value in self.forward_kwargs.items()
