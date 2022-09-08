@@ -20,7 +20,7 @@ import gem
 from gem.node import traversal
 from gem.utils import cached_property
 import gem.impero_utils as impero_utils
-from gem.optimise import remove_componenttensors as prune
+from gem.optimise import remove_componenttensors as prune, constant_fold_zero
 
 from tsfc import fem, ufl_utils
 from tsfc.kernel_interface import KernelInterface
@@ -213,6 +213,7 @@ class KernelBuilderMixin(object):
         else:
             return_variables = []
             expressions = []
+        expressions = constant_fold_zero(expressions)
 
         # Need optimised roots
         options = dict(reduce(operator.and_,
