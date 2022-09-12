@@ -51,8 +51,9 @@ class FDMPC(PCBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        use_amat = PETSc.Options(options_prefix).getBool("pc_use_amat", True)
-        use_ainv = PETSc.Options(options_prefix).getString("pc_type", "") == "mat"
+        options = PETSc.Options(options_prefix)
+        use_amat = options.getBool("pc_use_amat", True)
+        use_ainv = options.getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
 
         appctx = self.get_appctx(pc)
@@ -199,9 +200,10 @@ class FDMPC(PCBase):
             self.condense_element_mat = lambda Ae: Ae
         elif self.is_facet_element:
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.submats)
-        else:
+        elif V.finat_element.formdegree == 0:
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
             self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs, i1, self.submats)
+        else:
             self.condense_element_mat = lambda Ae: Ae
 
         addv = PETSc.InsertMode.ADD_VALUES
@@ -614,7 +616,7 @@ PetscErrorCode setSubDiagonal(Mat A,
 }}
 """
     name = "setSubDiagonal"
-    argtypes = [ctypes.c_voidp, ctypes.c_voidp,
+    argtypes = [ctypes.c_voidp, ctypes.c_int,
                 ctypes.c_voidp, ctypes.c_int]
     return load_c_code(code, name, comm=comm, argtypes=argtypes,
                        restype=ctypes.c_int)
