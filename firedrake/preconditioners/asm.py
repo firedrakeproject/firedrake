@@ -294,7 +294,7 @@ class ASMLinesmoothPC(ASMPatchPC):
 
 
 def order_points(mesh_dm, points, ordering_type, prefix):
-    '''Order a the points (topological entities) of a patch based
+    '''Order the points (topological entities) of a patch based
     on the adjacency graph of the mesh.
 
     :arg mesh_dm: the `mesh.topology_dm`
