@@ -4,8 +4,8 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.interpolation import Interpolator
 from firedrake.dmhooks import get_function_space, get_appctx
-# from firedrake_citations import Citations
-from ufl import grad, curl, HCurl, HDiv
+from firedrake_citations import Citations
+from ufl import grad, curl, HCurl, HDiv, FiniteElement, TensorElement
 import firedrake
 import numpy as np
 
@@ -15,7 +15,7 @@ __all__ = ("HiptmairPC",)
 class HiptmairPC(PCBase):
     def initialize(self, obj):
 
-        # Citations().register("Hiptmair1998"
+        Citations().register("Hiptmair1998")
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         # prefix = obj.getOptionsPrefix()
@@ -30,18 +30,22 @@ class HiptmairPC(PCBase):
             pass
 
         if sobolev_space == HCurl:
-            cfamily = "Lagrange"
             dminus = grad
+            cfamily = "Lagrange"
             G_callback = appctx.get("get_gradient", None)
         elif sobolev_space == HDiv:
-            cfamily = "N1curl" if mesh.ufl_cell().is_simplex() else "NCE"
             dminus = curl
+            cfamily = "N1curl" if mesh.ufl_cell().is_simplex() else "NCE"
             G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available in", sobolev_space)
 
-        # TODO support value_shape with TensorElement
-        Vc = FunctionSpace(mesh, cfamily, degree)
+        celement = FiniteElement(cfamily, cell=mesh.ufl_cell(), degree=degree)
+        if V.shape:
+            celement = TensorElement(element, shape=V.shape)
+
+        Vc = FunctionSpace(mesh, celement)
+
         ctx = get_appctx(obj.getDM())
         a = ctx.J
         bcs = ctx._problem.bcs
@@ -64,6 +68,7 @@ class HiptmairPC(PCBase):
             G2 = G_callback(V, Vc, bcs, cbcs)
         self.interp = G2
         self.xc = G2.createVecRight()
+        self.yc = G2.createVecRight()
 
         # TODO create PC objects to replace Jacobi and give them options
         def get_jacobi_smoother(a, bcs, tensor=None):
@@ -72,6 +77,10 @@ class HiptmairPC(PCBase):
                 diag.reciprocal()
             return tensor
 
+        def apply_jacobi(diag, x, y):
+            with diag.dat.vec as d:
+                y.pointwiseMult(x, d)
+
         self.fdiag = None
         self.cdiag = None
         self._update_fdiag = lambda: get_jacobi_smoother(a, bcs, tensor=self.fdiag)
@@ -79,18 +88,19 @@ class HiptmairPC(PCBase):
         self.fdiag = self._update_fdiag()
         self.cdiag = self._update_cdiag()
 
+        self.fine_apply = lambda x, y: apply_jacobi(self.fdiag, x, y)
+        self.coarse_apply = lambda x, y: apply_jacobi(self.cdiag, x, y)
+
     def update(self, pc):
         self._update_fdiag()
         self._update_cdiag()
 
     def apply(self, pc, x, y):
-        with self.fdiag.dat.vec_ro as diag:
-            y.pointwiseMult(x, diag)
+        self.fine_apply(x, y)
 
         self.interp.multTranspose(x, self.xc)
-        with self.cdiag.dat.vec_ro as diag:
-            self.xc.pointwiseMult(self.xc, diag)
-        self.interp.multAdd(self.xc, y, y)
+        self.coarse_apply(self.xc, self.yc)
+        self.interp.multAdd(self.yc, y, y)
 
     def applyTranspose(self, pc, x, y):
         self.apply(pc, x, y)
