@@ -39,10 +39,10 @@ def poisson(h, degree=2):
 
 def poisson3D(h, degree=2):
     # Setting up Netgen geometry and mesh
-    box = Box(Pnt(0,0,0), Pnt(np.pi,np.pi,np.pi))
+    box = Box(Pnt(0, 0, 0), Pnt(np.pi, np.pi, np.pi))
     box.bc("bcs")
     geo = OCCGeometry(box)
-    ngmesh = geo.GenerateMesh(maxh=h);
+    ngmesh = geo.GenerateMesh(maxh=h)
 
     msh = mesh.Mesh(ngmesh)
 
@@ -70,12 +70,15 @@ def poisson3D(h, degree=2):
     f.interpolate(sin(x)*sin(y)*sin(z))
     return sqrt(assemble(inner(u - f, u - f) * dx)), u, f
 
+
 def test_firedrake_Poisson_netgen():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
+
+
 def test_firedrake_Poisson3D_netgen():
     diff = np.array([poisson3D(h)[0] for h in [2, 1, 1/2]])
     print("l2 error norms:", diff)
