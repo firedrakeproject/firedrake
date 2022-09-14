@@ -516,6 +516,7 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
+    _storage_version = "2.0.0"
     # Cache for loaded meshes.
     _mesh_cache = weakref.WeakValueDictionary()
     _tmesh_cache = weakref.WeakValueDictionary()
@@ -529,7 +530,7 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.0.0"}, "")
+        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": CheckpointFile._storage_version}, "")
         r"""DMPlex HDF5 version options."""
 
     def __enter__(self):
