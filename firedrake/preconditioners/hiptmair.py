@@ -2,10 +2,8 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
 from firedrake_citations import Citations
-from ufl import (grad, curl, div, zero, inner, dx, replace,
-                 FiniteElement, TensorElement, FacetElement)
-
 import numpy as np
+
 
 __all__ = ("HiptmairPC",)
 
@@ -17,12 +15,12 @@ class HiptmairPC(PCBase):
 
     def initialize(self, pc):
 
-        from firedrake import TestFunction, TrialFunction, FunctionSpace, parameters, Constant
+        from firedrake import TestFunction, TrialFunction, FunctionSpace, parameters
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.interpolation import Interpolator
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.matrix_free.operators import ImplicitMatrixContext
         from ufl.algorithms.ad import expand_derivatives
+        from ufl import (grad, curl, zero, inner, dx, replace,
+                         FiniteElement, TensorElement, FacetElement)
 
         Citations().register("Hiptmair1998")
         A, P = pc.getOperators()
