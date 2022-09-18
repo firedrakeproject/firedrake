@@ -196,6 +196,7 @@ class PMGBase(PCSNESBase):
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
 
+
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
         for key in cappctx:
@@ -315,9 +316,8 @@ class PMGBase(PCSNESBase):
             for index in bc._indices:
                 cV_ = cV_.sub(index)
             cbc_value = self.coarsen_bc_value(bc, cV_)
-            if type(bc) == firedrake.DirichletBC:
-                cbcs.append(firedrake.DirichletBC(cV_, cbc_value,
-                                                  bc.sub_domain))
+            if isinstance(bc, firedrake.DirichletBC):
+                cbcs.append(bc.reconstruct(V=cV, g=cbc_value))
             else:
                 raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
         return cbcs
