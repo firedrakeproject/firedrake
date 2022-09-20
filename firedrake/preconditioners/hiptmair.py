@@ -63,22 +63,20 @@ class HiptmairPC(PCBase):
         Vc = FunctionSpace(mesh, celement)
         ctx = dmhooks.get_appctx(pc.getDM())
         bcs = ctx._problem.bcs
-        a = ctx._problem.J
+        J = ctx._problem.J
 
         coarse_space = Vc
         coarse_space_bcs = [bc.reconstruct(V=Vc, g=0) for bc in bcs]
         test = TestFunction(Vc)
         trial = TrialFunction(Vc)
-        coarse_operator = a(dminus(test), dminus(trial), coefficients={})
 
-        # FIXME
-        b = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
-        coarse_operator = replace(b, {t: dminus(s) for t, s in zip(a.arguments(), [test, trial])})
+        # Get only the zero-th order term of the form
+        beta = replace(expand_derivatives(J), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
+        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                quad_degree = 2*(degree+1)-1
-                coarse_operator += inner(test, shift*trial)*dx(degree=quad_degree)
+                coarse_operator += beta(test, shift*trial, coefficients={})
 
         # Handle the coarse operator
         coarse_options_prefix = options_prefix + "mg_coarse_"

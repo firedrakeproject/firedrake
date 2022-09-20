@@ -4,7 +4,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
-from ufl import grad, curl, SpatialCoordinate, HDiv
+from ufl import grad, curl, SpatialCoordinate
 
 __all__ = ("HypreADS",)
 
@@ -18,13 +18,13 @@ class HypreADS(PCBase):
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())
-        sobolev_space = V.ufl_element().sobolev_space()
+        formdegree = V.finat_element.formdegree
         degree = V.ufl_element().degree()
         try:
             degree = max(degree)
         except TypeError:
             pass
-        if sobolev_space != HDiv or degree != 1:
+        if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
