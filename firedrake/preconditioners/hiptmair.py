@@ -71,7 +71,7 @@ class HiptmairPC(PCBase):
         trial = TrialFunction(Vc)
 
         # Get only the zero-th order term of the form
-        beta = replace(expand_derivatives(J), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
+        beta = replace(expand_derivatives(J), {grad(t): zero(grad(t).ufl_shape) for t in J.arguments()})
         coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
