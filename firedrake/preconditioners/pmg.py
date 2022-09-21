@@ -196,7 +196,6 @@ class PMGBase(PCSNESBase):
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
 
-
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
         for key in cappctx:

@@ -26,17 +26,14 @@ class TransferManager(object):
         :arg element: The element to use for the caching."""
         def __init__(self, element):
             self.embedding_element = get_embedding_dg_element(element)
-            self._V_DG_mass = {}
-            self._DG_inv_mass = {}
-            self._V_approx_inv_mass = {}
-            self._V_inv_mass_ksp = {}
             self._DG_work = {}
             self._work_vec = {}
             self._V_dof_weights = {}
             self._V_coarse_jacobian = {}
-            self._V_DG_mass_piola = {}
-            self._V_DG_mass_inv_piola = {}
             self._V_approx_inv_mass_piola = {}
+            self._V_DG_inv_mass_inv_piola = {}
+            self._V_inv_mass_ksp = {}
+            self._V_DG_mass_piola = {}
 
     def __init__(self, *, native_transfers=None, use_averaging=True):
         """
@@ -101,17 +98,50 @@ class TransferManager(object):
             with f.dat.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
 
-    def V_coarse_jacobian(self, Vc, Vf):
+    def piola_tensor(self, mapping, F):
+        if mapping.lower() == "identity":
+            return 1
+        elif mapping.lower() == "covariant piola":
+            return ufl.inv(F).T
+        elif mapping.lower() == "contravariant piola":
+            return (1/abs(ufl.det(F))) * F
+        elif mapping.lower() == "l2 piola":
+            return 1/abs(ufl.det(F))
+        else:
+            raise ValueError("Unrecognized mapping", mapping)
 
-        cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim(), Vc.dim())
+    def inverse_piola_tensor(self, mapping, F):
+        if mapping.lower() == "identity":
+            return 1
+        elif mapping.lower() == "covariant piola":
+            return F.T
+        elif mapping.lower() == "contravariant piola":
+            return abs(ufl.det(F)) * ufl.inv(F)
+        elif mapping.lower() == "l2 piola":
+            return abs(ufl.det(F))
+        else:
+            raise ValueError("Unrecognized mapping", mapping)
+
+    def dx(self, V):
+        degree = V.ufl_element().degree()
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        return firedrake.dx(degree=2*degree, domain=V.mesh())
+
+    def V_coarse_jacobian(self, Vc, Vf):
+        cmesh = Vc.mesh()
+        Fc = firedrake.Jacobian(cmesh)
+        vector_element = get_embedding_dg_element(cmesh.coordinates.function_space().ufl_element())
+        element = ufl.TensorElement(vector_element.sub_elements()[0], shape=Fc.ufl_shape)
+
+        cache = self.cache(element)
+        key = (Vc.ufl_domain(), Vf.ufl_domain())
         try:
             return cache._V_coarse_jacobian[key]
         except KeyError:
-            cmesh = Vc.mesh()
-            Fc = firedrake.Jacobian(cmesh)
-            vector_element = get_embedding_dg_element(cmesh.coordinates.function_space().ufl_element())
-            element = ufl.TensorElement(vector_element.sub_elements()[0], shape=Fc.ufl_shape)
+
             Qc = firedrake.FunctionSpace(Vc.mesh(), element)
             Qf = firedrake.FunctionSpace(Vf.mesh(), element)
             qc = firedrake.Function(Qc)
@@ -124,174 +154,106 @@ class TransferManager(object):
 
             return cache._V_coarse_jacobian.setdefault(key, qf)
 
-    def V_DG_mass_inv_piola(self, Vc, DG):
-        mapping = Vc.ufl_element().mapping().lower()
+    def V_DG_inv_mass_inv_piola(self, Vc, DG):
+        """
+        Approximate inverse mass.  Computes (cellwise) (DG, DG)^{-1} (DG, Piola(Vc)^{-1} * Vc).
+        :arg Vc: a function space
+        :arg DG: the DG space
+        :returns: A PETSc Mat mapping from Vc -> DG.
+        """
         cache = self.cache(Vc.ufl_element())
-        key = (Vc.dim(), mapping)
+        key = Vc.dim()
         try:
-            return cache._V_DG_mass_inv_piola[key]
+            return cache._V_DG_inv_mass_inv_piola[key]
         except KeyError:
-            if mapping == "identity":
-                inv_piola = 1
-            elif mapping == "covariant piola":
-                Fc = firedrake.Jacobian(Vc.mesh())
-                inv_piola = Fc.T
-            elif mapping == "contravariant piola":
-                Fc = firedrake.Jacobian(Vc.mesh())
-                inv_piola = abs(ufl.det(Fc)) * ufl.inv(Fc)
-            elif mapping == "l2 piola":
-                Fc = firedrake.Jacobian(Vc.mesh())
-                inv_piola = abs(ufl.det(Fc))
-            else:
-                raise ValueError("Unrecognized mapping", mapping)
-            
-            degree = DG.ufl_element().degree()
-            try:
-                degree = max(degree)
-            except TypeError:
-                pass
-            dx = firedrake.dx(degree=4*(degree+1)-1)
-            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
-                                                   inv_piola*firedrake.TrialFunction(Vc))*dx)
-            return cache._V_DG_mass_inv_piola.setdefault(key, M.petscmat)
-
-    def V_DG_mass_piola(self, Vc, Vf, DG):
-        mapping = Vc.ufl_element().mapping().lower()
-        cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim(), Vc.dim(), mapping)
-        try:
-            return cache._V_DG_mass_piola[key]
-        except KeyError:
-            if mapping == "identity":
-                piola = 1
-            elif mapping == "covariant piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = ufl.inv(Fc).T
-            elif mapping == "contravariant piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = (1/abs(ufl.det(Fc))) * Fc
-            elif mapping == "l2 piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = 1/abs(ufl.det(Fc))
-            else:
-                raise ValueError("Unrecognized mapping", mapping)
-            
-            degree = DG.ufl_element().degree()
-            try:
-                degree = max(degree)
-            except TypeError:
-                pass
-            dx = firedrake.dx(degree=4*(degree+1)-1)
-            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(Vf),
-                                                   piola*firedrake.TestFunction(DG))*dx)
-            return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
+            mapping = Vc.ufl_element().mapping().lower()
+            idet = 1/abs(ufl.JacobianDeterminant(Vc.mesh()))
+            ipiola = self.inverse_piola_tensor(mapping, ufl.Jacobian(Vc.mesh()))
+            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
+                                                 firedrake.TestFunction(DG))*idet*self.dx(DG))
+            b = firedrake.Tensor(firedrake.inner(ipiola*firedrake.TrialFunction(Vc),
+                                                 firedrake.TestFunction(DG))*idet*self.dx(DG))
+            M = firedrake.assemble(a.inv * b)
+            return cache._V_DG_inv_mass_inv_piola.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass_piola(self, Vc, Vf, DG):
-        mapping = Vc.ufl_element().mapping().lower()
+        """
+        Approximate inverse mass.  Computes (cellwise) (Vf, Vf)^{-1} (Vf, Piola(Vc) * DG).
+        :arg Vc: a function space to extract the piola transform
+        :arg Vf: a function space
+        :arg DG: the DG space
+        :returns: A PETSc Mat mapping from Vf -> DG.
+        """
         cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim(), Vc.dim(), mapping)
+        key = (Vf.dim(), Vc.dim())
         try:
             return cache._V_approx_inv_mass_piola[key]
         except KeyError:
+            mapping = Vc.ufl_element().mapping().lower()
             if mapping == "identity":
-                piola = 1
-            elif mapping == "covariant piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = ufl.inv(Fc).T
-            elif mapping == "contravariant piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = (1/abs(ufl.det(Fc))) * Fc
-            elif mapping == "l2 piola":
-                Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = 1/abs(ufl.det(Fc))
+                cpiola = 1
             else:
-                raise ValueError("Unrecognized mapping", mapping)
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                cpiola = self.piola_tensor(mapping, Fc)
 
-            degree = DG.ufl_element().degree()
-            try:
-                degree = max(degree)
-            except TypeError:
-                pass
-            dx = firedrake.dx(degree=4*(degree+1)-1)
-            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(Vf),
-                                                 firedrake.TestFunction(Vf))*dx)
-            b = firedrake.Tensor(firedrake.inner(piola*firedrake.TrialFunction(DG),
-                                                 firedrake.TestFunction(Vf))*dx)
+            idet = 1/abs(ufl.JacobianDeterminant(Vf.mesh()))
+            ipiola = self.inverse_piola_tensor(mapping, ufl.Jacobian(Vf.mesh()))
+            a = firedrake.Tensor(firedrake.inner(ipiola*firedrake.TrialFunction(Vf),
+                                                 ipiola*firedrake.TestFunction(Vf))*idet*self.dx(Vf))
+            b = firedrake.Tensor(firedrake.inner((ipiola*cpiola)*firedrake.TrialFunction(DG),
+                                                 ipiola*firedrake.TestFunction(Vf))*idet*self.dx(Vf))
             M = firedrake.assemble(a.inv * b)
             return cache._V_approx_inv_mass_piola.setdefault(key, M.petscmat)
 
-    def V_DG_mass(self, V, DG):
+    def V_DG_mass_piola(self, Vc, Vf, DG):
         """
-        Mass matrix from between V and DG spaces.
-        :arg V: a function space
+        Computes (Vf, Piola(Vc) * DG).
+        :arg Vc: a function space to extract the piola transform
+        :arg Vf: a function space
         :arg DG: the DG space
-        :returns: A PETSc Mat mapping from V -> DG
+        :returns: A PETSc Mat mapping from Vf -> DG.
         """
-        cache = self.cache(V.ufl_element())
-        key = V.dim()
+        cache = self.cache(Vf.ufl_element())
+        key = (Vf.dim(), Vc.dim())
         try:
-            return cache._V_DG_mass[key]
+            return cache._V_DG_mass_piola[key]
         except KeyError:
-            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
-                                                   firedrake.TestFunction(DG))*firedrake.dx)
-            return cache._V_DG_mass.setdefault(key, M.petscmat)
+            mapping = Vc.ufl_element().mapping().lower()
+            if mapping == "identity":
+                cpiola = 1
+            else:
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                cpiola = self.piola_tensor(mapping, Fc)
 
-    def DG_inv_mass(self, DG):
-        """
-        Inverse DG mass matrix
-        :arg DG: the DG space
-        :returns: A PETSc Mat.
-        """
-        cache = self.caches[DG.ufl_element()]
-        key = DG.dim()
-        try:
-            return cache._DG_inv_mass[key]
-        except KeyError:
-            M = firedrake.assemble(firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
-                                                                    firedrake.TestFunction(DG))*firedrake.dx).inv)
-            return cache._DG_inv_mass.setdefault(key, M.petscmat)
-
-    def V_approx_inv_mass(self, V, DG):
-        """
-        Approximate inverse mass.  Computes (cellwise) (V, V)^{-1} (V, DG).
-        :arg V: a function space
-        :arg DG: the DG space
-        :returns: A PETSc Mat mapping from V -> DG.
-        """
-        cache = self.cache(V.ufl_element())
-        key = V.dim()
-        try:
-            return cache._V_approx_inv_mass[key]
-        except KeyError:
-            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
-                                                 firedrake.TestFunction(V))*firedrake.dx)
-            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG),
-                                                 firedrake.TestFunction(V))*firedrake.dx)
-            M = firedrake.assemble(a.inv * b)
-            return cache._V_approx_inv_mass.setdefault(key, M.petscmat)
+            idet = 1/abs(ufl.JacobianDeterminant(Vf.mesh()))
+            ipiola = self.inverse_piola_tensor(mapping, ufl.Jacobian(Vf.mesh()))
+            b = firedrake.Tensor(firedrake.inner((ipiola*cpiola)*firedrake.TrialFunction(DG),
+                                                 ipiola*firedrake.TestFunction(Vf))*idet*self.dx(Vf))
+            M = firedrake.assemble(b)
+            return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
 
     def V_inv_mass_ksp(self, V):
         """
-        A KSP inverting a mass matrix
+        A KSP inverting a reference mass matrix
         :arg V: a function space.
-        :returns: A PETSc KSP for inverting (V, V).
+        :returns: A PETSc KSP for inverting (V, V)_hat{K}.
         """
         cache = self.cache(V.ufl_element())
         key = V.dim()
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
-            degree = V.ufl_element().degree()
-            try:
-                degree = max(degree)
-            except TypeError:
-                pass
-            dx = firedrake.dx(degree=4*(degree+1)-1)
-            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
-                                                   firedrake.TestFunction(V))*dx)
+            idet = 1/abs(ufl.JacobianDeterminant(V.mesh()))
+            ipiola = self.inverse_piola_tensor(V.ufl_element().mapping(), ufl.Jacobian(V.mesh()))
+            M = firedrake.assemble(firedrake.inner(ipiola*firedrake.TrialFunction(V),
+                                                   ipiola*firedrake.TestFunction(V))*idet*self.dx(V))
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
-            ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
+            try:
+                short_name = V.ufl_element()._short_name
+            except AttributeError:
+                short_name = str(V.ufl_element())
+            ksp.setOptionsPrefix("{}_prolongation_mass_".format(short_name))
             ksp.setType("preonly")
             ksp.pc.setType("cholesky")
             ksp.setFromOptions()
@@ -348,13 +310,11 @@ class TransferManager(object):
         dgtarget = self.DG_work(Vt)
         VDGs = dgsource.function_space()
         VDGt = dgtarget.function_space()
-        dgwork = self.work_vec(VDGs)
 
         # Project into DG space
         # u \in Vs -> u \in VDGs
         with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
-            self.V_DG_mass_inv_piola(Vs, VDGs).mult(sv, dgwork)
-            self.DG_inv_mass(VDGs).mult(dgwork, dgv)
+            self.V_DG_inv_mass_inv_piola(Vs, VDGs).mult(sv, dgv)
 
         # Transfer
         # u \in VDGs -> u \in VDGt
@@ -368,7 +328,7 @@ class TransferManager(object):
                 t.pointwiseDivide(t, self.V_dof_weights(Vt))
             else:
                 work = self.work_vec(Vt)
-                self.V_DG_mass_piola(Vs, Vt, VDGt).multTranspose(dgv, work)
+                self.V_DG_mass_piola(Vs, Vt, VDGt).mult(dgv, work)
                 self.V_inv_mass_ksp(Vt).solve(work, t)
 
     def prolong(self, uc, uf):
@@ -410,7 +370,6 @@ class TransferManager(object):
         VDGf = dgf.function_space()
         VDGc = dgc.function_space()
         work = self.work_vec(Vf)
-        dgwork = self.work_vec(VDGc)
 
         # g \in Vf^* -> g \in VDGf^*
         with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
@@ -419,13 +378,12 @@ class TransferManager(object):
                 self.V_approx_inv_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
             else:
                 self.V_inv_mass_ksp(Vf).solve(gfv, work)
-                self.V_DG_mass_piola(Vc, Vf, VDGf).mult(work, dgscratch)
+                self.V_DG_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
 
         # g \in VDGf^* -> g \in VDGc^*
         self.restrict(dgf, dgc)
 
         # g \in VDGc^* -> g \in Vc^*
         with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
-            self.DG_inv_mass(VDGc).mult(dgscratch, dgwork)
-            self.V_DG_mass_inv_piola(Vc, VDGc).multTranspose(dgwork, gcv)
+            self.V_DG_inv_mass_inv_piola(Vc, VDGc).multTranspose(dgscratch, gcv)
         return gc

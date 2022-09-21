@@ -19,7 +19,7 @@ class HiptmairPC(PCBase):
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.interpolation import Interpolator
         from ufl.algorithms.ad import expand_derivatives
-        from ufl import (grad, curl, zero, inner, dx, replace,
+        from ufl import (grad, curl, zero, replace,
                          FiniteElement, TensorElement, FacetElement)
 
         Citations().register("Hiptmair1998")
