@@ -138,15 +138,21 @@ class TransferManager(object):
                 inv_piola = Fc.T
             elif mapping == "contravariant piola":
                 Fc = firedrake.Jacobian(Vc.mesh())
-                inv_piola = ufl.det(Fc) * ufl.inv(Fc)
+                inv_piola = ufl.abs(ufl.det(Fc)) * ufl.inv(Fc)
             elif mapping == "l2 piola":
                 Fc = firedrake.Jacobian(Vc.mesh())
-                inv_piola = ufl.det(Fc)
+                inv_piola = ufl.abs(ufl.det(Fc))
             else:
                 raise ValueError("Unrecognized mapping", mapping)
             
+            degree = DG.ufl_element().degree()
+            try:
+                degree = max(degree)
+            except TypeError:
+                pass
+            dx = firedrake.dx(degree=4*(degree+1)-1)
             M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
-                                                   inv_piola*firedrake.TrialFunction(Vc))*firedrake.dx)
+                                                   inv_piola*firedrake.TrialFunction(Vc))*dx)
             return cache._V_DG_mass_inv_piola.setdefault(key, M.petscmat)
 
     def V_DG_mass_piola(self, Vc, Vf, DG):
@@ -163,15 +169,21 @@ class TransferManager(object):
                 piola = ufl.inv(Fc).T
             elif mapping == "contravariant piola":
                 Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = (1/ufl.det(Fc)) * Fc
+                piola = (1/ufl.abs(ufl.det(Fc))) * Fc
             elif mapping == "l2 piola":
                 Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = 1/ufl.det(Fc)
+                piola = 1/ufl.abs(ufl.det(Fc))
             else:
                 raise ValueError("Unrecognized mapping", mapping)
             
+            degree = DG.ufl_element().degree()
+            try:
+                degree = max(degree)
+            except TypeError:
+                pass
+            dx = firedrake.dx(degree=4*(degree+1)-1)
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(Vf),
-                                                   piola*firedrake.TestFunction(DG))*firedrake.dx)
+                                                   piola*firedrake.TestFunction(DG))*dx)
             return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
 
     def V_approx_inv_mass_piola(self, Vc, Vf, DG):
@@ -188,17 +200,23 @@ class TransferManager(object):
                 piola = ufl.inv(Fc).T
             elif mapping == "contravariant piola":
                 Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = (1/ufl.det(Fc)) * Fc
+                piola = (1/ufl.abs(ufl.det(Fc))) * Fc
             elif mapping == "l2 piola":
                 Fc = self.V_coarse_jacobian(Vc, Vf)
-                piola = 1/ufl.det(Fc)
+                piola = 1/ufl.abs(ufl.det(Fc))
             else:
                 raise ValueError("Unrecognized mapping", mapping)
 
+            degree = DG.ufl_element().degree()
+            try:
+                degree = max(degree)
+            except TypeError:
+                pass
+            dx = firedrake.dx(degree=4*(degree+1)-1)
             a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(Vf),
-                                                 firedrake.TestFunction(Vf))*firedrake.dx)
+                                                 firedrake.TestFunction(Vf))*dx)
             b = firedrake.Tensor(firedrake.inner(piola*firedrake.TrialFunction(DG),
-                                                 firedrake.TestFunction(Vf))*firedrake.dx)
+                                                 firedrake.TestFunction(Vf))*dx)
             M = firedrake.assemble(a.inv * b)
             return cache._V_approx_inv_mass_piola.setdefault(key, M.petscmat)
 
