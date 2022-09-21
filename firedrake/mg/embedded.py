@@ -33,6 +33,10 @@ class TransferManager(object):
             self._DG_work = {}
             self._work_vec = {}
             self._V_dof_weights = {}
+            self._V_coarse_jacobian = {}
+            self._V_DG_mass_piola = {}
+            self._V_DG_mass_inv_piola = {}
+            self._V_approx_inv_mass_piola = {}
 
     def __init__(self, *, native_transfers=None, use_averaging=True):
         """
@@ -96,6 +100,107 @@ class TransferManager(object):
                                is_loopy_kernel=True)
             with f.dat.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
+
+    def V_coarse_jacobian(self, Vc, Vf):
+
+        cache = self.cache(Vf.ufl_element())
+        key = Vf.dim()
+        try:
+            return cache._V_coarse_jacobian[key]
+        except KeyError:
+            cmesh = Vc.mesh()
+            Fc = firedrake.Jacobian(cmesh)
+            vector_element = get_embedding_dg_element(cmesh.coordinates.function_space().ufl_element())
+            element = ufl.TensorElement(vector_element.sub_elements()[0], shape=Fc.ufl_shape)
+            Qc = firedrake.FunctionSpace(Vc.mesh(), element)
+            Qf = firedrake.FunctionSpace(Vf.mesh(), element)
+            qc = firedrake.Function(Qc)
+            qf = firedrake.Function(Qf)
+            qc.interpolate(Fc)
+            if Qc.dim() < Qf.dim():
+                self.prolong(qc, qf)
+            else:
+                self.inject(qc, qf)
+
+            return cache._V_coarse_jacobian.setdefault(key, qf)
+
+    def V_DG_mass_inv_piola(self, Vc, DG):
+        mapping = Vc.ufl_element().mapping().lower()
+        cache = self.cache(Vc.ufl_element())
+        key = (Vc.dim(), mapping)
+        try:
+            return cache._V_DG_mass_inv_piola[key]
+        except KeyError:
+            if mapping == "identity":
+                inv_piola = 1
+            elif mapping == "covariant piola":
+                Fc = firedrake.Jacobian(Vc.mesh())
+                inv_piola = Fc.T
+            elif mapping == "contravariant piola":
+                Fc = firedrake.Jacobian(Vc.mesh())
+                inv_piola = ufl.det(Fc) * ufl.inv(Fc)
+            elif mapping == "l2 piola":
+                Fc = firedrake.Jacobian(Vc.mesh())
+                inv_piola = ufl.det(Fc)
+            else:
+                raise ValueError("Unrecognized mapping", mapping)
+            
+            M = firedrake.assemble(firedrake.inner(firedrake.TestFunction(DG),
+                                                   inv_piola*firedrake.TrialFunction(Vc))*firedrake.dx)
+            return cache._V_DG_mass_inv_piola.setdefault(key, M.petscmat)
+
+    def V_DG_mass_piola(self, Vc, Vf, DG):
+        mapping = Vc.ufl_element().mapping().lower()
+        cache = self.cache(Vf.ufl_element())
+        key = (Vf.dim(), mapping)
+        try:
+            return cache._V_DG_mass_piola[key]
+        except KeyError:
+            if mapping == "identity":
+                piola = 1
+            elif mapping == "covariant piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = ufl.inv(Fc).T
+            elif mapping == "contravariant piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = (1/ufl.det(Fc)) * Fc
+            elif mapping == "l2 piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = 1/ufl.det(Fc)
+            else:
+                raise ValueError("Unrecognized mapping", mapping)
+            
+            M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(Vf),
+                                                   piola*firedrake.TestFunction(DG))*firedrake.dx)
+            return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
+
+    def V_approx_inv_mass_piola(self, Vc, Vf, DG):
+        mapping = Vc.ufl_element().mapping().lower()
+        cache = self.cache(Vf.ufl_element())
+        key = (Vf.dim(), mapping)
+        try:
+            return cache._V_approx_inv_mass_piola[key]
+        except KeyError:
+            if mapping == "identity":
+                piola = 1
+            elif mapping == "covariant piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = ufl.inv(Fc).T
+            elif mapping == "contravariant piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = (1/ufl.det(Fc)) * Fc
+            elif mapping == "l2 piola":
+                Fc = self.V_coarse_jacobian(Vc, Vf)
+                piola = 1/ufl.det(Fc)
+            else:
+                raise ValueError("Unrecognized mapping", mapping)
+
+            a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(Vf),
+                                                 firedrake.TestFunction(Vf))*firedrake.dx)
+            b = firedrake.Tensor(firedrake.inner(piola*firedrake.TrialFunction(DG),
+                                                 firedrake.TestFunction(Vf))*firedrake.dx)
+            M = firedrake.assemble(a.inv * b)
+            return cache._V_approx_inv_mass_piola.setdefault(key, M.petscmat)
 
     def V_DG_mass(self, V, DG):
         """
@@ -224,7 +329,7 @@ class TransferManager(object):
         # Project into DG space
         # u \in Vs -> u \in VDGs
         with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
-            self.V_DG_mass(Vs, VDGs).mult(sv, dgwork)
+            self.V_DG_mass_inv_piola(Vs, VDGs).mult(sv, dgwork)
             self.DG_inv_mass(VDGs).mult(dgwork, dgv)
 
         # Transfer
@@ -235,11 +340,11 @@ class TransferManager(object):
         # u \in VDGt -> u \in Vt
         with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
             if self.use_averaging:
-                self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
+                self.V_approx_inv_mass_piola(Vs, Vt, VDGt).mult(dgv, t)
                 t.pointwiseDivide(t, self.V_dof_weights(Vt))
             else:
                 work = self.work_vec(Vt)
-                self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
+                self.V_DG_mass_piola(Vs, Vt, VDGt).multTranspose(dgv, work)
                 self.V_inv_mass_ksp(Vt).solve(work, t)
 
     def prolong(self, uc, uf):
@@ -287,10 +392,10 @@ class TransferManager(object):
         with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
             if self.use_averaging:
                 work.pointwiseDivide(gfv, self.V_dof_weights(Vf))
-                self.V_approx_inv_mass(Vf, VDGf).multTranspose(work, dgscratch)
+                self.V_approx_inv_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
             else:
                 self.V_inv_mass_ksp(Vf).solve(gfv, work)
-                self.V_DG_mass(Vf, VDGf).mult(work, dgscratch)
+                self.V_DG_mass_piola(Vc, Vf, VDGf).mult(work, dgscratch)
 
         # g \in VDGf^* -> g \in VDGc^*
         self.restrict(dgf, dgc)
@@ -298,5 +403,5 @@ class TransferManager(object):
         # g \in VDGc^* -> g \in Vc^*
         with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
             self.DG_inv_mass(VDGc).mult(dgscratch, dgwork)
-            self.V_DG_mass(Vc, VDGc).multTranspose(dgwork, gcv)
+            self.V_DG_mass_inv_piola(Vc, VDGc).multTranspose(dgwork, gcv)
         return gc
