@@ -104,7 +104,7 @@ class TransferManager(object):
     def V_coarse_jacobian(self, Vc, Vf):
 
         cache = self.cache(Vf.ufl_element())
-        key = Vf.dim() - Vc.dim()
+        key = (Vf.dim(), Vc.dim())
         try:
             return cache._V_coarse_jacobian[key]
         except KeyError:
@@ -158,7 +158,7 @@ class TransferManager(object):
     def V_DG_mass_piola(self, Vc, Vf, DG):
         mapping = Vc.ufl_element().mapping().lower()
         cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim() - Vc.dim(), mapping)
+        key = (Vf.dim(), Vc.dim(), mapping)
         try:
             return cache._V_DG_mass_piola[key]
         except KeyError:
@@ -189,7 +189,7 @@ class TransferManager(object):
     def V_approx_inv_mass_piola(self, Vc, Vf, DG):
         mapping = Vc.ufl_element().mapping().lower()
         cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim() - Vc.dim(), mapping)
+        key = (Vf.dim(), Vc.dim(), mapping)
         try:
             return cache._V_approx_inv_mass_piola[key]
         except KeyError:
