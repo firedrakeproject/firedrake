@@ -141,7 +141,6 @@ class TransferManager(object):
         try:
             return cache._V_coarse_jacobian[key]
         except KeyError:
-
             Qc = firedrake.FunctionSpace(Vc.mesh(), element)
             Qf = firedrake.FunctionSpace(Vf.mesh(), element)
             qc = firedrake.Function(Qc)
@@ -151,7 +150,6 @@ class TransferManager(object):
                 self.prolong(qc, qf)
             else:
                 self.inject(qc, qf)
-
             return cache._V_coarse_jacobian.setdefault(key, qf)
 
     def V_DG_inv_mass_inv_piola(self, Vc, DG):
