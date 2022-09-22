@@ -1,0 +1,45 @@
+#! /usr/bin/env python3
+import nbformat
+import os
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
+
+parser = ArgumentParser(description="""Copy Jupyter notebooks to the current directory with the following changes:
+
+    * Any output is stripped.
+    * A first cell is added with the FEM on Colab download code.
+    * Any %matplotlib magics are removed.
+    """,
+                        formatter_class=RawDescriptionHelpFormatter)
+parser.add_argument("files", nargs='+',
+                    help="The notebook file to be copied and modified.")
+
+
+args = parser.parse_args()
+
+colab_cell = nbformat.notebooknode.NotebookNode({
+    'cell_type': 'code',
+    'execution_count': None,
+    'metadata': {},
+    'outputs': [],
+    'source': '''try:
+    import firedrake
+except ImportError:
+    !wget "https://fem-on-colab.github.io/releases/firedrake-install-real.sh" -O "/tmp/firedrake-install.sh" && bash "/tmp/firedrake-install.sh"
+    import firedrake'''
+})
+
+for filename in args.files:
+
+    notebook = nbformat.read(filename, nbformat.NO_CONVERT)
+    notebook['cells'] = [colab_cell] + notebook['cells']
+
+    for cell in notebook['cells']:
+        if "%matplotlib" in cell['source']:
+            cell["source"] = "\n".join(
+                line for line in cell["source"].split('\n')
+                if not line.startswith("%matplotlib")
+            )
+
+    _, notebook = nbformat.validator.normalize(notebook)
+    nbformat.write(notebook, os.path.basename(filename))
