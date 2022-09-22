@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import ufl
 from ufl.formatting.ufl2unicode import ufl2unicode
+import cachetools
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -17,11 +18,6 @@ from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
 from firedrake.petsc import PETSc
-try:
-    import cachetools
-except ImportError:
-    warning("cachetools not available, expression assembly will be slowed down")
-    cachetools = None
 
 
 __all__ = ['Function', 'PointNotInDomainError']
@@ -268,11 +264,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        if cachetools:
-            # LRU cache for expressions assembled onto this function
-            self._expression_cache = cachetools.LRUCache(maxsize=50)
-        else:
-            self._expression_cache = None
+        # LRU cache for expressions assembled onto this function
+        self._expression_cache = cachetools.LRUCache(maxsize=50)
 
         if isinstance(function_space, Function):
             self.assign(function_space)
