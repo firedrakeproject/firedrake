@@ -122,6 +122,9 @@ class HiptmairPC(PCBase):
         pcmg.setMGType(pc.MGType.ADDITIVE)
         pcmg.setMGCycleType(pc.MGCycleType.V)
         pcmg.setMGInterpolation(1, interp_petscmat)
+        # The injection operator is not available
+        # Defaults to restriction of the solution times a zero vector
+        pcmg.setMGRScale(1, interp_petscmat.createVecRight())
         pcmg.setOperators(A=A, P=P)
 
         coarse_solver = pcmg.getMGCoarseSolve()
