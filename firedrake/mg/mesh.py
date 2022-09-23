@@ -168,6 +168,7 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
             # TODO: configuration for setting partitioner
             part = rdmredist.getPartitioner()
             part.setType(part.Type.PARMETIS)
+            part.setFromOptions()
             rdmredist.removeLabel("pyop2_ghost")
             rdmredist.removeLabel("pyop2_owned")
             rdmredist.removeLabel("pyop2_core")
