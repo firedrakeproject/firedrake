@@ -321,7 +321,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].split()[self.idx]
+            return adj_inputs[0].split()[self.idx].vector()
         else:
             return adj_inputs[0]
 
@@ -497,7 +497,7 @@ class InterpolateBlock(Block, Backend):
             ghat_q = I^T([dexpr/dg|_u]_q)_p vhat_p.
         """
         if len(adj_inputs) > 1:
-            raise(NotImplementedError("Interpolate block must have a single output"))
+            raise NotImplementedError("Interpolate block must have a single output")
         dJdm = self.backend.derivative(prepared, inputs[idx])
         return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], transpose=True).vector()
 
@@ -654,7 +654,7 @@ class InterpolateBlock(Block, Backend):
         """
 
         if len(hessian_inputs) > 1 or len(adj_inputs) > 1:
-            raise(NotImplementedError("Interpolate block must have a single output"))
+            raise NotImplementedError("Interpolate block must have a single output")
 
         component = self.evaluate_adj_component(inputs, hessian_inputs, block_variable, idx, prepared)
 

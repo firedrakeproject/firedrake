@@ -397,7 +397,7 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
     # Since the caching is collective, this function must return a 2-tuple of
     # the form (comm, key) where comm is the communicator the cache is collective over.
     # FIXME FInAT elements are not safely hashable so we ignore them here
-    key = _hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
+    key = hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
     return comm, key
 
 
@@ -517,7 +517,7 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
-def _hash_expr(expr):
+def hash_expr(expr):
     """Return a numbering-invariant hash of a UFL expression.
 
     :arg expr: A UFL expression.

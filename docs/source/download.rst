@@ -48,22 +48,6 @@ configure MPI for the installation process are `found here
 <https://www.firedrakeproject.org/parallelism.html>`_.
 
 
-Installing SciPy
-----------------
-
-If you want to install the ``scipy`` package alongside Firedrake you
-must ensure that the package is built against the same libraries as the
-rest of the Firedrake toolchain. To do this at install time simply add
-``scipy`` to the ``firedrake-install`` command line arguments::
-
-  python3 firedrake-install --pip-install scipy
-
-If you want to add ``scipy`` to your environment after installing
-Firedrake, first activate the virtual environment, then run::
-
-  firedrake-update --pip-install scipy
-
-
 Testing the installation
 ------------------------
 
@@ -118,11 +102,12 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.6.x to 3.8.x (many externally managed
-dependencies such as VTK have yet to create binary wheels for 3.9.x).
-The installation script is tested on Ubuntu and MacOS X. On Ubuntu 18.04
-or later, the system installed Python 3 is supported and tested. On
-MacOS, the homebrew_ installed Python 3 is supported and tested::
+Firedrake requires Python 3.6.x to 3.10.x. On MacOS Arm (M1 or M2) Python 3.9.x
+or 3.10.x are required since these are the only versions for which VTK binary
+packages are currently available. The installation script is tested on Ubuntu
+and MacOS X. On Ubuntu 18.04 or later, the system installed Python 3 is
+supported and tested. On MacOS, the homebrew_ installed Python 3 is supported
+and tested::
 
   brew install python3
 
@@ -138,7 +123,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.8.x-3.6.x
+* Python version 3.6.x-3.10.x (3.9.x-3.10.x on MacOS Arm)
 * The Python headers
 * autoconf, automake, libtool
 * CMake
@@ -208,8 +193,8 @@ If not, feel free to ask for more help in our
 .. graphviz:: install-debug.dot
 
 If you don't see the issue you're experiencing in this chart, please
-ask us on Slack or report a bug by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
+ask us on Slack or report a bug by creating a new `github discussion
+<https://github.com/firedrakeproject/firedrake/discussions>`__. To help us
 diagnose what's going wrong, **please include the following log files**:
 
 * ``firedrake-install.log`` from Firedrake, which you can find in the

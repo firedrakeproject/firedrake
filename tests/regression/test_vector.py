@@ -21,7 +21,7 @@ def test_vector_setitem(f):
     v = f.vector()
     v[:] = 2.0
 
-    assert(v.array() == 2.0).all()
+    assert (v.array() == 2.0).all()
 
 
 def test_vector_getitem(f):
