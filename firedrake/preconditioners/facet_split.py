@@ -14,7 +14,7 @@ class FacetSplitPC(PCBase):
 
     def initialize(self, pc):
 
-        from ufl import InteriorElement, FacetElement, MixedElement
+        from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions, Function, split
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
@@ -42,8 +42,12 @@ class FacetSplitPC(PCBase):
         V = problem.J.arguments()[-1].function_space()
 
         # W = V_interior * V_facet
-        elements = [appctx.get("interior_element", InteriorElement(V.ufl_element())),
-                    appctx.get("facet_element", FacetElement(V.ufl_element()))]
+        scalar_element = V.ufl_element()
+        if isinstance(scalar_element, (TensorElement, VectorElement)):
+            scalar_element = scalar_element._sub_element
+        tensorize = lambda e, shape: TensorElement(e, shape=shape) if shape else e
+        elements = [appctx.get("interior_element", tensorize(InteriorElement(scalar_element), V.shape)),
+                    appctx.get("facet_element", tensorize(FacetElement(scalar_element), V.shape))]
         W = FunctionSpace(V.mesh(), MixedElement(elements))
         if W.dim() != V.dim():
             raise ValueError("Dimensions of the original and decomposed spaces do not match")
@@ -72,7 +76,7 @@ class FacetSplitPC(PCBase):
                       "ksp_rtol": rtol,
                       "pc_type": "jacobi", })
 
-        indices = numpy.rint((end-start-1)*v.dat.data_ro+start).astype(PETSc.IntType)
+        indices = numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
         isorted = numpy.arange(start, end, dtype=PETSc.IntType)
         if V.comm.allreduce(numpy.array_equal(indices, isorted), MPI.PROD):
             self.perm = None

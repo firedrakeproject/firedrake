@@ -869,8 +869,9 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     ndim = Vc.mesh().topological_dimension()
     Dhat = diff_matrix(ndim, ec.formdegree, A00, A11, A10)
 
-    fdofs = restricted_dofs(ef, create_element(unrestrict_element(Vf.ufl_element())))
-    cdofs = restricted_dofs(ec, create_element(unrestrict_element(Vc.ufl_element())))
+    scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
+    fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
+    cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
     fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
     cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
     Dhat = Dhat.createSubMatrix(fises, cises)

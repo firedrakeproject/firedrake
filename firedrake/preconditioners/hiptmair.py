@@ -7,6 +7,7 @@ import firedrake.dmhooks as dmhooks
 
 __all__ = ("HiptmairPC",)
 
+
 class TwoLevelPC(PCBase):
 
     needs_python_pmat = False
@@ -121,7 +122,7 @@ class HiptmairPC(TwoLevelPC):
         from firedrake.interpolation import Interpolator
         from ufl.algorithms.ad import expand_derivatives
         from ufl import (FiniteElement, TensorElement, FacetElement,
-                         replace, zero, grad, curl)
+                         replace, zero, grad, curl, as_vector)
 
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
@@ -131,6 +132,7 @@ class HiptmairPC(TwoLevelPC):
         bcs = ctx._problem.bcs
 
         mesh = V.mesh()
+        element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             dminus = grad
@@ -138,12 +140,13 @@ class HiptmairPC(TwoLevelPC):
             G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             dminus = curl
+            if V.shape:
+                dminus = lambda u: as_vector([curl(u[k, ...]) for k in range(u.ufl_shape[0])])
             cfamily = "N1curl" if mesh.ufl_cell().is_simplex() else "NCE"
             G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
-        element = V.ufl_element()
         variant = element.variant()
         degree = element.degree()
         try:
@@ -157,7 +160,7 @@ class HiptmairPC(TwoLevelPC):
                 celement = FacetElement(celement)
                 # TODO provide statically-condensed form with SLATE
         if V.shape:
-            celement = TensorElement(element, shape=V.shape)
+            celement = TensorElement(celement, shape=V.shape)
 
         coarse_space = FunctionSpace(mesh, celement)
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
