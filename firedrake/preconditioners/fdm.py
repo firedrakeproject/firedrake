@@ -424,7 +424,6 @@ class FDMPC(PCBase):
         bsize = V.value_size
         nrows = Afdm[0].getSize()[0]
         work_mat = PETSc.Mat().createAIJ((nrows, nrows), nnz=([bsize], [0]), comm=PETSc.COMM_SELF)
-
         index_cell, nel = glonum_fun(V.cell_node_map())
         if bsize > 1:
             _index_cell = index_cell
@@ -665,7 +664,7 @@ def unrestrict_element(ele):
     if isinstance(ele, ufl.VectorElement):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
     elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+        return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, ufl.EnrichedElement):
         return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
     elif isinstance(ele, ufl.TensorProductElement):

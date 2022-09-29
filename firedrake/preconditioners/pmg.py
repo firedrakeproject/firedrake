@@ -390,7 +390,7 @@ class PMGBase(PCSNESBase):
         if isinstance(ele, ufl.VectorElement):
             return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements())
         elif isinstance(ele, ufl.TensorElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), shape=ele.value_shape(), symmetry=ele.symmetry())
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), shape=ele._shape, symmetry=ele.symmetry())
         elif isinstance(ele, ufl.EnrichedElement):
             shift = degree-PMGBase.max_degree(ele)
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e)+shift) for e in ele._elements))
@@ -1295,7 +1295,7 @@ class StandaloneInterpolationMatrix(object):
             except Exception:
                 qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
-                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
+                    qelem = ufl.TensorElement(qelem, shape=felem._shape, symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 

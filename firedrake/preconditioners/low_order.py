@@ -30,7 +30,7 @@ def remove_empty_nodes(ele):
         return type(ele)(wrapee, dim=ele.num_sub_elements()) if wrapee else None
     elif isinstance(ele, ufl.TensorElement):
         wrapee = remove_empty_nodes(ele._sub_element)
-        return type(ele)(wrapee, shape=ele.value_shape(), symmetry=ele.symmetry()) if wrapee else None
+        return type(ele)(wrapee, shape=ele._shape, symmetry=ele.symmetry()) if wrapee else None
     elif isinstance(ele, ufl.MixedElement):
         return type(ele)(*list(map(remove_empty_nodes, ele.sub_elements())))
     elif isinstance(ele, ufl.EnrichedElement):
