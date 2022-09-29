@@ -180,6 +180,10 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            self.pc.destroy()
+
     def assemble_fdm_op(self, V, J, bcs, appctx):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
