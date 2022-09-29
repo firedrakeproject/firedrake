@@ -98,7 +98,7 @@ class ASMPatchPC(PCBase):
 
     @abc.abstractmethod
     def get_patches(self, V):
-        ''' Get the patches used for PETSc PSASM
+        ''' Get the patches used for PETSc PCASM
 
         :param  V: the :class:`~.FunctionSpace`.
 
@@ -118,6 +118,10 @@ class ASMPatchPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         self.asmpc.applyTranspose(x, y)
+
+    def destroy(self, pc):
+        if hasattr(self, "asmpc"):
+            self.asmpc.destroy()
 
 
 class ASMStarPC(ASMPatchPC):

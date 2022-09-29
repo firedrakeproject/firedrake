@@ -273,6 +273,12 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            for mat in self.pc.getOperators():
+                mat.destroy()
+            self.pc.destroy()
+
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensors(self, V, appctx):
         import FIAT
@@ -470,6 +476,8 @@ class FDMPC(PCBase):
         work_mat.setValuesCSR(indptr, indices, coefs_array)
         work_mat.assemble()
         Ae = work_mat.PtAP(Afdm[0], result=Ae)
+        del indptr
+        del indices
         return Ae
 
 
@@ -501,6 +509,10 @@ def condense_element_mat(A, i0, i1, submats):
 
     A00.setValuesCSR(indptr, indices, data)
     A00.assemble()
+    del indptr
+    del indices
+    del data
+    del degree
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
     submats[5] = A00.matMult(A01, result=submats[5])
     submats[6] = submats[4].matMult(submats[5], result=submats[6])

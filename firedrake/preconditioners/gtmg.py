@@ -179,3 +179,7 @@ class GTMGPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC using Gopalakrishnan and Tan algorithm\n")
             self.pc.view(viewer)
+
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            self.pc.destroy()

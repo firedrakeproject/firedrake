@@ -175,3 +175,14 @@ class FacetSplitPC(PCBase):
         if hasattr(self, "pc"):
             viewer.printfASCII("PC using interior-facet decomposition\n")
             self.pc.view(viewer)
+
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            if hasattr(self, "_permute_op"):
+                for mat in self.pc.getOperators():
+                    mat.destroy()
+            self.pc.destroy()
+        if hasattr(self, "iperm"):
+            self.iperm.destroy()
+        if hasattr(self, "perm"):
+            self.perm.destroy()

@@ -85,3 +85,7 @@ class HypreAMS(PCBase):
 
     def update(self, pc):
         self.pc.setUp()
+
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            self.pc.destroy()
