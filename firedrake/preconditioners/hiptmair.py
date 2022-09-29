@@ -110,10 +110,6 @@ class TwoLevelPC(PCBase):
             viewer.printfASCII("Two level PC\n")
             self.pc.view(viewer)
 
-    def destroy(self, pc):
-        if hasattr(self, "pc"):
-            self.pc.destroy()
-
 
 class HiptmairPC(TwoLevelPC):
 
