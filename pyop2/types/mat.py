@@ -1094,7 +1094,10 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    x.comm.tompi4py().bcast(a)
+
+                    comm = mpi.dup_comm(x.comm)
+                    comm.bcast(a)
+                    mpi.free_comm(comm)
                     return y.scale(a)
                 else:
                     return v.pointwiseMult(x, y)
@@ -1110,7 +1113,9 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    x.comm.tompi4py().bcast(a)
+                    comm = mpi.dup_comm(x.comm)
+                    comm.bcast(a)
+                    mpi.free_comm(comm)
                     y.scale(a)
                 else:
                     v.pointwiseMult(x, y)
@@ -1134,7 +1139,9 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    x.comm.tompi4py().bcast(a)
+                    comm = mpi.dup_comm(x.comm)
+                    comm.bcast(a)
+                    mpi.free_comm(comm)
                     if y == z:
                         # Last two arguments are aliased.
                         tmp = y.duplicate()
