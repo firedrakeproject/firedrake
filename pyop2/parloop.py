@@ -16,7 +16,7 @@ from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelAr
                                  MatKernelArg, MixedMatKernelArg, GlobalKernel)
 from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, Dat, DatView, MixedDat, Mat, Set,
-                         MixedSet, ExtrudedSet, Subset, Map, MixedMap)
+                         MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.utils import cached_property
 
 
@@ -25,7 +25,10 @@ class ParloopArg(abc.ABC):
     @staticmethod
     def check_map(m):
         if configuration["type_check"]:
-            if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
+            if isinstance(m, ComposedMap):
+                for m_ in m.maps_:
+                    ParloopArg.check_map(m_)
+            elif m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
                 raise MapValueError(f"{m} is not initialized")
 
 

@@ -149,6 +149,13 @@ class Map:
         """self<=o if o equals self or self._parent <= o."""
         return self == o
 
+    @utils.cached_property
+    def flattened_maps(self):
+        """Return all component maps.
+
+        This is useful to flatten nested :class:`ComposedMap`s."""
+        return (self, )
+
 
 class PermutedMap(Map):
     """Composition of a standard :class:`Map` with a constant permutation.
@@ -173,6 +180,10 @@ class PermutedMap(Map):
     want two global-sized data structures.
     """
     def __init__(self, map_, permutation):
+        if not isinstance(map_, Map):
+            raise TypeError("map_ must be a Map instance")
+        if isinstance(map_, ComposedMap):
+            raise NotImplementedError("PermutedMap of ComposedMap not implemented: simply permute before composing")
         self.map_ = map_
         self.permutation = np.asarray(permutation, dtype=Map.dtype)
         assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
@@ -190,6 +201,85 @@ class PermutedMap(Map):
 
     def __getattr__(self, name):
         return getattr(self.map_, name)
+
+
+class ComposedMap(Map):
+    """Composition of :class:`Map`s, :class:`PermutedMap`s, and/or :class:`ComposedMap`s.
+
+    :arg maps_: The maps to compose.
+
+    Where normally staging to element data is performed as
+
+    .. code-block::
+
+       local[i] = global[map[i]]
+
+    With a :class:`ComposedMap` we instead get
+
+    .. code-block::
+
+       local[i] = global[maps_[0][maps_[1][maps_[2][...[i]]]]]
+
+    This might be useful if the map you want can be represented by
+    a composition of existing maps.
+    """
+    def __init__(self, *maps_, name=None):
+        if not all(isinstance(m, Map) for m in maps_):
+            raise TypeError("All maps must be Map instances")
+        for tomap, frommap in zip(maps_[:-1], maps_[1:]):
+            if tomap.iterset is not frommap.toset:
+                raise ex.MapTypeError("tomap.iterset must match frommap.toset")
+            if tomap.comm is not frommap.comm:
+                raise ex.MapTypeError("All maps needs to share a communicator")
+            if frommap.arity != 1:
+                raise ex.MapTypeError("frommap.arity must be 1")
+        self._iterset = maps_[-1].iterset
+        self._toset = maps_[0].toset
+        self.comm = self._toset.comm
+        self._arity = maps_[0].arity
+        # Don't call super().__init__() to avoid calling verify_reshape()
+        self._values = None
+        self.shape = (self._iterset.total_size, self._arity)
+        self._name = name or "cmap_#x%x" % id(self)
+        self._offset = maps_[0]._offset
+        # A cache for objects built on top of this map
+        self._cache = {}
+        self.maps_ = tuple(maps_)
+
+    @utils.cached_property
+    def _kernel_args_(self):
+        return tuple(itertools.chain(*[m._kernel_args_ for m in self.maps_]))
+
+    @utils.cached_property
+    def _wrapper_cache_key_(self):
+        return tuple(m._wrapper_cache_key_ for m in self.maps_)
+
+    @utils.cached_property
+    def _global_kernel_arg(self):
+        from pyop2.global_kernel import ComposedMapKernelArg
+
+        return ComposedMapKernelArg(*(m._global_kernel_arg for m in self.maps_))
+
+    @utils.cached_property
+    def values(self):
+        raise RuntimeError("ComposedMap does not store values directly")
+
+    @utils.cached_property
+    def values_with_halo(self):
+        raise RuntimeError("ComposedMap does not store values directly")
+
+    def __str__(self):
+        return "OP2 ComposedMap of Maps: [%s]" % ",".join([str(m) for m in self.maps_])
+
+    def __repr__(self):
+        return "ComposedMap(%s)" % ",".join([repr(m) for m in self.maps_])
+
+    def __le__(self, o):
+        raise NotImplementedError("__le__ not implemented for ComposedMap")
+
+    @utils.cached_property
+    def flattened_maps(self):
+        return tuple(itertools.chain(*(m.flattened_maps for m in self.maps_)))
 
 
 class MixedMap(Map, caching.ObjectCached):
@@ -315,3 +405,7 @@ class MixedMap(Map, caching.ObjectCached):
 
     def __repr__(self):
         return "MixedMap(%r)" % (self._maps,)
+
+    @utils.cached_property
+    def flattened_maps(self):
+        raise NotImplementedError("flattend_maps should not be necessary for MixedMap")

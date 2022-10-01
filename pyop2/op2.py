@@ -41,7 +41,7 @@ from pyop2.mpi import MPI, COMM_WORLD, collective
 
 from pyop2.types import (
     Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
-    Map, MixedMap, PermutedMap, Sparsity, Halo,
+    Map, MixedMap, PermutedMap, ComposedMap, Sparsity, Halo,
     Global, GlobalDataSet,
     Dat, MixedDat, DatView, Mat
 )
@@ -64,7 +64,7 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'parloop', 'Parloop', 'ParLoop', 'par_loop',
-           'DatView', 'PermutedMap']
+           'DatView', 'PermutedMap', 'ComposedMap']
 
 
 _initialised = False

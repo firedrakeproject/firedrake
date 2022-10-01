@@ -317,6 +317,162 @@ def test_permuted_map_both():
     assert (d2.data == expect).all()
 
 
+@pytest.mark.parametrize("permuted", ["none", "pre"])
+def test_composed_map_two_maps(permuted):
+    arity = 2
+    setB = op2.Set(3)
+    nodesetB = op2.Set(6)
+    datB = op2.Dat(op2.DataSet(nodesetB, 1), dtype=np.float64)
+    mapB = op2.Map(setB, nodesetB, arity, values=[[0, 1], [2, 3], [4, 5]])
+    setA = op2.Set(5)
+    nodesetA = op2.Set(8)
+    datA = op2.Dat(op2.DataSet(nodesetA, 1), dtype=np.float64)
+    datA.data[:] = np.array([.0, .1, .2, .3, .4, .5, .6, .7], dtype=np.float64)
+    mapA0 = op2.Map(setA, nodesetA, arity, values=[[0, 1], [2, 3], [4, 5], [6, 7], [0, 1]])
+    if permuted == "pre":
+        mapA0 = op2.PermutedMap(mapA0, [1, 0])
+    mapA1 = op2.Map(setB, setA, 1, values=[3, 1, 2])
+    mapA = op2.ComposedMap(mapA0, mapA1)
+    # "post" permutation is currently not supported
+    k = op2.Kernel("""
+    void copy(double *to, const double * restrict from) {
+        for (int i = 0; i < 2; ++i) { to[i] = from[i]; }
+    }""", "copy")
+    op2.par_loop(k, setB, datB(op2.WRITE, mapB), datA(op2.READ, mapA))
+    if permuted == "none":
+        assert (datB.data == np.array([.6, .7, .2, .3, .4, .5], dtype=np.float64)).all()
+    else:
+        assert (datB.data == np.array([.7, .6, .3, .2, .5, .4], dtype=np.float64)).all()
+
+
+@pytest.mark.parametrize("nested", ["none", "first", "last"])
+@pytest.mark.parametrize("subset", [False, True])
+def test_composed_map_three_maps(nested, subset):
+    arity = 2
+    setC = op2.Set(2)
+    nodesetC = op2.Set(4)
+    datC = op2.Dat(op2.DataSet(nodesetC, 1), dtype=np.float64)
+    mapC = op2.Map(setC, nodesetC, arity, values=[[0, 1], [2, 3]])
+    setB = op2.Set(3)
+    setA = op2.Set(5)
+    nodesetA = op2.Set(8)
+    datA = op2.Dat(op2.DataSet(nodesetA, 1), dtype=np.float64)
+    datA.data[:] = np.array([.0, .1, .2, .3, .4, .5, .6, .7], dtype=np.float64)
+    mapA0 = op2.Map(setA, nodesetA, arity, values=[[0, 1], [2, 3], [4, 5], [6, 7], [0, 1]])
+    mapA1 = op2.Map(setB, setA, 1, values=[3, 1, 2])
+    mapA2 = op2.Map(setC, setB, 1, values=[2, 0])
+    if nested == "none":
+        mapA = op2.ComposedMap(mapA0, mapA1, mapA2)
+    elif nested == "first":
+        mapA = op2.ComposedMap(op2.ComposedMap(mapA0, mapA1), mapA2)
+    elif nested == "last":
+        mapA = op2.ComposedMap(mapA0, op2.ComposedMap(mapA1, mapA2))
+    else:
+        raise ValueError(f"Unknown nested param: {nested}")
+    k = op2.Kernel("""
+    void copy(double *to, const double * restrict from) {
+        for (int i = 0; i < 2; ++i) { to[i] = from[i]; }
+    }""", "copy")
+    if subset:
+        indices = np.array([1], dtype=np.int32)
+        setC = op2.Subset(setC, indices)
+    op2.par_loop(k, setC, datC(op2.WRITE, mapC), datA(op2.READ, mapA))
+    if subset:
+        assert (datC.data == np.array([.0, .0, .6, .7], dtype=np.float64)).all()
+    else:
+        assert (datC.data == np.array([.4, .5, .6, .7], dtype=np.float64)).all()
+
+
+@pytest.mark.parametrize("variable", [False, True])
+@pytest.mark.parametrize("subset", [False, True])
+def test_composed_map_extrusion(variable, subset):
+    # variable: False
+    #
+    # +14-+-9-+-4-+
+    # |13 | 8 | 3 |
+    # +12-+-7-+-2-+
+    # |11 | 6 | 1 |
+    # +10-+-5-+-0-+
+    #
+    #   0   1   2   <- setA
+    #       0   1   <- setC
+    #
+    # variable: True
+    #
+    # +12-+-7-+-4-+
+    # |11 | 6 | 3 |
+    # +10-+-5-+-2-+
+    # | 9 |   | 1 |
+    # +-8-+   +-0-+
+    #
+    #   0   1   2   <- setA
+    #       0   1   <- setC
+    #
+    arity = 3
+    if variable:
+        # A layer is a copy of base layer, so cell_layer_index + 1
+        layersC = [[1, 2 + 1], [0, 2 + 1]]
+        setC = op2.ExtrudedSet(op2.Set(2), layersC)
+        nodesetC = op2.Set(8)
+        datC = op2.Dat(op2.DataSet(nodesetC, 1), dtype=np.float64)
+        mapC = op2.Map(setC, nodesetC, arity,
+                       values=[[5, 6, 7],
+                               [0, 1, 2]],
+                       offset=[2, 2, 2])
+        layersA = [[0, 2 + 1], [1, 2 + 1], [0, 2 + 1]]
+        setA = op2.ExtrudedSet(op2.Set(3), layersA)
+        nodesetA = op2.Set(13)
+        datA = op2.Dat(op2.DataSet(nodesetA, 1), dtype=np.float64)
+        datA.data[:] = np.arange(0, 13, dtype=np.float64)
+        mapA0 = op2.Map(setA, nodesetA, arity,
+                        values=[[8, 9, 10],
+                                [5, 6, 7],
+                                [0, 1, 2]],
+                        offset=[2, 2, 2])
+        mapA1 = op2.Map(setC, setA, 1, values=[1, 2])
+        mapA = op2.ComposedMap(mapA0, mapA1)
+        if subset:
+            expected = np.array([0., 1., 2., 3., 4., 0., 0., 0.], dtype=np.float64)
+        else:
+            expected = np.array([0., 1., 2., 3., 4., 5., 6., 7.], dtype=np.float64)
+    else:
+        # A layer is a copy of base layer, so cell_layer_index + 1
+        layersC = 2 + 1
+        setC = op2.ExtrudedSet(op2.Set(2), layersC)
+        nodesetC = op2.Set(10)
+        datC = op2.Dat(op2.DataSet(nodesetC, 1), dtype=np.float64)
+        mapC = op2.Map(setC, nodesetC, arity,
+                       values=[[5, 6, 7],
+                               [0, 1, 2]],
+                       offset=[2, 2, 2])
+        layersA = 2 + 1
+        setA = op2.ExtrudedSet(op2.Set(3), layersA)
+        nodesetA = op2.Set(15)
+        datA = op2.Dat(op2.DataSet(nodesetA, 1), dtype=np.float64)
+        datA.data[:] = np.arange(0, 15, dtype=np.float64)
+        mapA0 = op2.Map(setA, nodesetA, arity,
+                        values=[[10, 11, 12],
+                                [5, 6, 7],
+                                [0, 1, 2]],
+                        offset=[2, 2, 2])
+        mapA1 = op2.Map(setC, setA, 1, values=[1, 2])
+        mapA = op2.ComposedMap(mapA0, mapA1)
+        if subset:
+            expected = np.array([0., 1., 2., 3., 4., 0., 0., 0., 0., 0.], dtype=np.float64)
+        else:
+            expected = np.array([0., 1., 2., 3., 4., 5., 6., 7., 8., 9.], dtype=np.float64)
+    k = op2.Kernel("""
+    void copy(double *to, const double * restrict from) {
+        for (int i = 0; i < 3; ++i) { to[i] = from[i]; }
+    }""", "copy")
+    if subset:
+        indices = np.array([1], dtype=np.int32)
+        setC = op2.Subset(setC, indices)
+    op2.par_loop(k, setC, datC(op2.WRITE, mapC), datA(op2.READ, mapA))
+    print(datC.data)
+    assert (datC.data == expected).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

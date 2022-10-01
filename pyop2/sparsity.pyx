@@ -51,7 +51,9 @@ cdef extern from "petsc.h":
         PETSC_INSERT_VALUES "INSERT_VALUES"
     int PetscCalloc1(size_t, void*)
     int PetscMalloc1(size_t, void*)
+    int PetscMalloc2(size_t, void*, size_t, void*)
     int PetscFree(void*)
+    int PetscFree2(void*,void*)
     int MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
                                  PetscScalar*, PetscInsertMode)
     int MatSetValuesLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
@@ -193,7 +195,9 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         PetscScalar zero = 0.0
         PetscInt nrow, ncol
         PetscInt rarity, carity, tmp_rarity, tmp_carity
-        PetscInt[:, ::1] rmap, cmap
+        PetscInt[:, ::1] rmap, cmap, tempmap
+        PetscInt **rcomposedmaps = NULL, **ccomposedmaps = NULL
+        PetscInt nrcomposedmaps = 0, nccomposedmaps = 0, rset_entry, cset_entry
         PetscInt *rvals
         PetscInt *cvals
         PetscInt *roffset
@@ -213,23 +217,52 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         set_size = pair[0].iterset.size
         if set_size == 0:
             continue
-        # Memoryviews require writeable buffers
-        rflag = set_writeable(pair[0])
-        cflag = set_writeable(pair[1])
-        # Map values
-        rmap = pair[0].values_with_halo
-        cmap = pair[1].values_with_halo
+        rflags = []
+        cflags = []
+        if isinstance(pair[0], op2.ComposedMap):
+            m = pair[0].flattened_maps[0]
+            rflags.append(set_writeable(m))
+            rmap = m.values_with_halo
+            nrcomposedmaps = len(pair[0].flattened_maps) - 1
+        else:
+            rflags.append(set_writeable(pair[0]))  # Memoryviews require writeable buffers
+            rmap = pair[0].values_with_halo  # Map values
+        if isinstance(pair[1], op2.ComposedMap):
+            m = pair[1].flattened_maps[0]
+            cflags.append(set_writeable(m))
+            cmap = m.values_with_halo
+            nccomposedmaps = len(pair[1].flattened_maps) - 1
+        else:
+            cflags.append(set_writeable(pair[1]))
+            cmap = pair[1].values_with_halo
+        # Handle ComposedMaps
+        CHKERR(PetscMalloc2(nrcomposedmaps, &rcomposedmaps, nccomposedmaps, &ccomposedmaps))
+        for i in range(nrcomposedmaps):
+            m = pair[0].flattened_maps[1 + i]
+            rflags.append(set_writeable(m))
+            tempmap = m.values_with_halo
+            rcomposedmaps[i] = &tempmap[0, 0]
+        for i in range(nccomposedmaps):
+            m = pair[1].flattened_maps[1 + i]
+            cflags.append(set_writeable(m))
+            tempmap = m.values_with_halo
+            ccomposedmaps[i] = &tempmap[0, 0]
         # Arity of maps
         rarity = pair[0].arity
         carity = pair[1].arity
-
         if not extruded:
             # The non-extruded case is easy, we just walk over the
             # rmap and cmap entries and set a block of values.
             CHKERR(PetscCalloc1(rarity*carity*rdim*cdim, &values))
             for set_entry in range(set_size):
-                CHKERR(MatSetValuesBlockedLocal(mat.mat, rarity, &rmap[set_entry, 0],
-                                                carity, &cmap[set_entry, 0],
+                rset_entry = <PetscInt>set_entry
+                cset_entry = <PetscInt>set_entry
+                for i in range(nrcomposedmaps):
+                    rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                for i in range(nccomposedmaps):
+                    cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
+                CHKERR(MatSetValuesBlockedLocal(mat.mat, rarity, &rmap[<int>rset_entry, 0],
+                                                carity, &cmap[<int>cset_entry, 0],
                                                 values, PETSC_INSERT_VALUES))
         else:
             # The extruded case needs a little more work.
@@ -268,6 +301,12 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                 for i in range(carity):
                     coffset[i] = pair[1].offset[i]
                 for set_entry in range(set_size):
+                    rset_entry = <PetscInt>set_entry
+                    cset_entry = <PetscInt>set_entry
+                    for i in range(nrcomposedmaps):
+                        rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                    for i in range(nccomposedmaps):
+                        cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
                     if constant_layers:
                         layer_start = layers[0, 0]
                         layer_end = layers[0, 1] - 1
@@ -287,15 +326,15 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
 
                     # In the case of tmp_rarity == rarity this is just:
                     #
-                    # rvals[i] = rmap[set_entry, i] + layer_start * roffset[i]
+                    # rvals[i] = rmap[rset_entry, i] + layer_start * roffset[i]
                     #
                     # But this means less special casing.
                     for i in range(tmp_rarity):
-                        rvals[i] = rmap[set_entry, i % rarity] + \
+                        rvals[i] = rmap[<int>rset_entry, i % rarity] + \
                             (layer_start - layer_bottom + i // rarity) * roffset[i % rarity]
                     # Ditto
                     for i in range(tmp_carity):
-                        cvals[i] = cmap[set_entry, i % carity] + \
+                        cvals[i] = cmap[<int>cset_entry, i % carity] + \
                             (layer_start - layer_bottom + i // carity) * coffset[i % carity]
                     for layer in range(layer_start, layer_end):
                         CHKERR(MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
@@ -310,6 +349,15 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
             CHKERR(PetscFree(cvals))
             CHKERR(PetscFree(roffset))
             CHKERR(PetscFree(coffset))
-        restore_writeable(pair[0], rflag)
-        restore_writeable(pair[1], cflag)
+        CHKERR(PetscFree2(rcomposedmaps, ccomposedmaps))
+        if isinstance(pair[0], op2.ComposedMap):
+            for m, rflag in zip(pair[0].flattened_maps, rflags):
+                restore_writeable(m, rflag)
+        else:
+            restore_writeable(pair[0], rflags[0])
+        if isinstance(pair[1], op2.ComposedMap):
+            for m, cflag in zip(pair[1].flattened_maps, cflags):
+                restore_writeable(m, cflag)
+        else:
+            restore_writeable(pair[1], cflags[0])
         CHKERR(PetscFree(values))
