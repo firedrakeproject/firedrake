@@ -40,6 +40,10 @@ logger = logging.getLogger('pyop2')
 handler = logging.StreamHandler()
 logger.addHandler(handler)
 
+fhandler = logging.FileHandler('pyop2.log')
+logger.addHandler(fhandler)
+
+
 debug = logger.debug
 info = logger.info
 warning = logger.warning

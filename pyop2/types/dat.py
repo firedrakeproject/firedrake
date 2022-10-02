@@ -19,6 +19,7 @@ from pyop2.types.access import Access
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.data_carrier import DataCarrier, EmptyDataMixin, VecAccessMixin
 from pyop2.types.set import ExtrudedSet, GlobalSet, Set
+from pyop2.logger import debug
 
 
 class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
@@ -81,9 +82,15 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         EmptyDataMixin.__init__(self, data, dtype, self._shape)
 
         self._dataset = dataset
-        self.comm = dataset.comm
+        self.comm = mpi.internal_comm(dataset.comm)
         self.halo_valid = True
         self._name = name or "dat_#x%x" % id(self)
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
 
         self._halo_frozen = False
         self._frozen_access_mode = None
@@ -768,7 +775,8 @@ class MixedDat(AbstractDat, VecAccessMixin):
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise ex.DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
-        self.comm = self._dats[0].comm
+        self.comm = mpi.internal_comm(self._dats[0].comm)
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @property
     def dat_version(self):

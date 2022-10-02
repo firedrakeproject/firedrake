@@ -10,7 +10,9 @@ from pyop2 import (
     exceptions as ex,
     utils
 )
+from pyop2 import mpi
 from pyop2.types.set import GlobalSet, MixedSet, Set
+from pyop2.logger import debug
 
 
 class Map:
@@ -35,7 +37,7 @@ class Map:
     def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, offset_quotient=None):
         self._iterset = iterset
         self._toset = toset
-        self.comm = toset.comm
+        self.comm = mpi.internal_comm(toset.comm)
         self._arity = arity
         self._values = utils.verify_reshape(values, dtypes.IntType,
                                             (iterset.total_size, arity), allow_none=True)
@@ -51,6 +53,12 @@ class Map:
             self._offset_quotient = utils.verify_reshape(offset_quotient, dtypes.IntType, (arity, ))
         # A cache for objects built on top of this map
         self._cache = {}
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -195,6 +203,7 @@ class PermutedMap(Map):
         if isinstance(map_, ComposedMap):
             raise NotImplementedError("PermutedMap of ComposedMap not implemented: simply permute before composing")
         self.map_ = map_
+        self.comm = mpi.internal_comm(map_.comm)
         self.permutation = np.asarray(permutation, dtype=Map.dtype)
         assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
 
@@ -309,8 +318,9 @@ class MixedMap(Map, caching.ObjectCached):
             raise ex.MapTypeError("All maps needs to share a communicator")
         if len(comms) == 0:
             raise ex.MapTypeError("Don't know how to make communicator")
-        self.comm = comms[0]
+        self.comm = mpi.internal_comm(comms[0])
         self._initialized = True
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @classmethod
     def _process_args(cls, *args, **kwargs):

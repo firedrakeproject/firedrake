@@ -64,6 +64,7 @@ class EmptyDataMixin(abc.ABC):
             self._dtype = self._data.dtype
 
     @utils.cached_property
+    # ~ @property
     def _data(self):
         """Return the user-provided data buffer, or a zeroed buffer of
         the correct size if none was provided."""

@@ -44,13 +44,12 @@ from hashlib import md5
 from packaging.version import Version, InvalidVersion
 
 
-from pyop2.mpi import MPI, collective, COMM_WORLD
-from pyop2.mpi import dup_comm, get_compilation_comm, set_compilation_comm
+from pyop2 import mpi
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
 from petsc4py import PETSc
-
+from pyop2.logger import debug
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -59,7 +58,7 @@ def _check_hashes(x, y, datatype):
     return False
 
 
-_check_op = MPI.Op.Create(_check_hashes, commute=True)
+_check_op = mpi.MPI.Op.Create(_check_hashes, commute=True)
 _compiler = None
 
 
@@ -148,53 +147,6 @@ def sniff_compiler(exe):
     return compiler
 
 
-@collective
-def compilation_comm(comm):
-    """Get a communicator for compilation.
-
-    :arg comm: The input communicator.
-    :returns: A communicator used for compilation (may be smaller)
-    """
-    # Should we try and do node-local compilation?
-    if not configuration["node_local_compilation"]:
-        return comm
-    retcomm = get_compilation_comm(comm)
-    if retcomm is not None:
-        debug("Found existing compilation communicator")
-        return retcomm
-    if MPI.VERSION >= 3:
-        debug("Creating compilation communicator using MPI_Split_type")
-        retcomm = comm.Split_type(MPI.COMM_TYPE_SHARED)
-        debug("Finished creating compilation communicator using MPI_Split_type")
-        set_compilation_comm(comm, retcomm)
-        return retcomm
-    debug("Creating compilation communicator using MPI_Split + filesystem")
-    import tempfile
-    if comm.rank == 0:
-        if not os.path.exists(configuration["cache_dir"]):
-            os.makedirs(configuration["cache_dir"], exist_ok=True)
-        tmpname = tempfile.mkdtemp(prefix="rank-determination-",
-                                   dir=configuration["cache_dir"])
-    else:
-        tmpname = None
-    tmpname = comm.bcast(tmpname, root=0)
-    if tmpname is None:
-        raise CompilationError("Cannot determine sharedness of filesystem")
-    # Touch file
-    debug("Made tmpdir %s" % tmpname)
-    with open(os.path.join(tmpname, str(comm.rank)), "wb"):
-        pass
-    comm.barrier()
-    import glob
-    ranks = sorted(int(os.path.basename(name))
-                   for name in glob.glob("%s/[0-9]*" % tmpname))
-    debug("Creating compilation communicator using filesystem colors")
-    retcomm = comm.Split(color=min(ranks), key=comm.rank)
-    debug("Finished creating compilation communicator using filesystem colors")
-    set_compilation_comm(comm, retcomm)
-    return retcomm
-
-
 class Compiler(ABC):
     """A compiler for shared libraries.
 
@@ -210,7 +162,7 @@ class Compiler(ABC):
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
     :kwarg comm: Optional communicator to compile the code on
-        (defaults to COMM_WORLD).
+        (defaults to pyop2.mpi.COMM_WORLD).
     """
     _name = "unknown"
 
@@ -226,16 +178,27 @@ class Compiler(ABC):
     _debugflags = ()
 
     def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), cpp=False, comm=None):
+        self.sniff_compiler_version()
         self._extra_compiler_flags = tuple(extra_compiler_flags)
         self._extra_linker_flags = tuple(extra_linker_flags)
 
         self._cpp = cpp
         self._debug = configuration["debug"]
 
-        # Ensure that this is an internal communicator.
-        comm = dup_comm(comm or COMM_WORLD)
-        self.comm = compilation_comm(comm)
+        # Compilation communicators are reference counted on the PyOP2 comm
+        self.pcomm = mpi.internal_comm(comm)
+        self.comm = mpi.compilation_comm(self.pcomm)
         self.sniff_compiler_version()
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
+        debug(f"INIT {self.__class__} and assign {self.pcomm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
+        if hasattr(self, "pcomm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.pcomm.name}")
+            mpi.decref(self.pcomm)
 
     def __repr__(self):
         return f"<{self._name} compiler, version {self.version or 'unknown'}>"
@@ -313,7 +276,7 @@ class Compiler(ABC):
             else:
                 yield flag
 
-    @collective
+    @mpi.collective
     def get_so(self, jitmodule, extension):
         """Build a shared library and load it
 
@@ -445,6 +408,8 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
+            if self.comm == mpi.MPI.COMM_NULL:
+                import pytest; pytest.set_trace()
             self.comm.barrier()
             # Load resulting library
             return ctypes.CDLL(soname)
@@ -591,7 +556,7 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
-@collective
+@mpi.collective
 def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
          argtypes=None, restype=None, comm=None):
     """Build a shared library and return a function pointer from it.
@@ -608,7 +573,7 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
     :arg restype: The return type of the function (optional, pass
          ``None`` for ``void``).
     :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to COMM_WORLD).
+        rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
     from pyop2.global_kernel import GlobalKernel
 
@@ -638,7 +603,9 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
         else:
             exe = configuration["cc"] or "mpicc"
         compiler = sniff_compiler(exe)
-    dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
+    x = compiler(cppargs, ldargs, cpp=cpp, comm=comm)
+    dll = x.get_so(code, extension)
+    del x
     if isinstance(jitmodule, GlobalKernel):
         _add_profiling_events(dll, code.local_kernel.events)
 

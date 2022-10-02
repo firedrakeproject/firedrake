@@ -13,6 +13,7 @@ from pyop2 import (
 from pyop2.types.access import Access
 from pyop2.types.dataset import GlobalDataSet
 from pyop2.types.data_carrier import DataCarrier, EmptyDataMixin, VecAccessMixin
+from pyop2.logger import debug
 
 
 class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
@@ -39,21 +40,30 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
 
     @utils.validate_type(('name', str, ex.NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None, comm=None):
+        debug(f"calling Global.__init__")
         if isinstance(dim, Global):
             # If g is a Global, Global(g) performs a deep copy. This is for compatibility with Dat.
             self.__init__(dim._dim, None, dtype=dim.dtype,
                           name="copy_of_%s" % dim.name, comm=dim.comm)
             dim.copy(self)
-            return
-        self._dim = utils.as_tuple(dim, int)
-        self._cdim = np.prod(self._dim).item()
-        EmptyDataMixin.__init__(self, data, dtype, self._dim)
-        self._buf = np.empty(self.shape, dtype=self.dtype)
-        self._name = name or "global_#x%x" % id(self)
-        self.comm = comm
-        # Object versioning setup
-        petsc_counter = (self.comm and self.dtype == PETSc.ScalarType)
-        VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
+        else:
+            self._dim = utils.as_tuple(dim, int)
+            self._cdim = np.prod(self._dim).item()
+            EmptyDataMixin.__init__(self, data, dtype, self._dim)
+            self._buf = np.empty(self.shape, dtype=self.dtype)
+            self._name = name or "global_#x%x" % id(self)
+            # ~ import pdb; pdb.set_trace()
+            self.comm = mpi.internal_comm(comm)
+            # Object versioning setup
+            # ~ petsc_counter = (self.comm and self.dtype == PETSc.ScalarType)
+            petsc_counter = (comm and self.dtype == PETSc.ScalarType)
+            VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
+            debug(f"INIT {self.__class__} and assign {self.comm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -96,7 +106,8 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
 
-    @utils.cached_property
+    # ~ @utils.cached_property
+    @property
     def dataset(self):
         return GlobalDataSet(self)
 
@@ -281,7 +292,8 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         assert isinstance(other, Global)
         return np.dot(self.data_ro, np.conj(other.data_ro))
 
-    @utils.cached_property
+    # ~ @utils.cached_property
+    @property
     def _vec(self):
         assert self.dtype == PETSc.ScalarType, \
             "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)

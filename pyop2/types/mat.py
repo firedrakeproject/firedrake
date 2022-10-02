@@ -20,6 +20,7 @@ from pyop2.types.data_carrier import DataCarrier
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.map import Map, ComposedMap
 from pyop2.types.set import MixedSet, Set, Subset
+from pyop2.logger import debug
 
 
 class Sparsity(caching.ObjectCached):
@@ -56,6 +57,7 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
 
+        debug(f"INIT {self.__class__} BEGIN")
         self._block_sparse = block_sparse
         # Split into a list of row maps and a list of column maps
         maps, iteration_regions = zip(*maps)
@@ -68,11 +70,11 @@ class Sparsity(caching.ObjectCached):
             self._o_nnz = None
             self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
             self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
-            self.lcomm = dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm
-            self.rcomm = dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm
+            self.lcomm = mpi.internal_comm(dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm)
+            self.rcomm = mpi.internal_comm(dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm)
         else:
-            self.lcomm = self._rmaps[0].comm
-            self.rcomm = self._cmaps[0].comm
+            self.lcomm = mpi.internal_comm(self._rmaps[0].comm)
+            self.rcomm = mpi.internal_comm(self._cmaps[0].comm)
 
             rset, cset = self.dsets
             # All rmaps and cmaps have the same data set - just use the first.
@@ -93,10 +95,8 @@ class Sparsity(caching.ObjectCached):
 
         if self.lcomm != self.rcomm:
             raise ValueError("Haven't thought hard enough about different left and right communicators")
-        self.comm = self.lcomm
-
+        self.comm = mpi.internal_comm(self.lcomm)
         self._name = name or "sparsity_#x%x" % id(self)
-
         self.iteration_regions = iteration_regions
         # If the Sparsity is defined on MixedDataSets, we need to build each
         # block separately
@@ -130,6 +130,16 @@ class Sparsity(caching.ObjectCached):
                 self._o_nnz = onnz
             self._blocks = [[self]]
         self._initialized = True
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
+        if hasattr(self, "lcomm"):
+            mpi.decref(self.lcomm)
+        if hasattr(self, "rcomm"):
+            mpi.decref(self.rcomm)
 
     _cache = {}
 
@@ -373,10 +383,18 @@ class SparsityBlock(Sparsity):
         self._dims = tuple([tuple([parent.dims[i][j]])])
         self._blocks = [[self]]
         self.iteration_regions = parent.iteration_regions
-        self.lcomm = self.dsets[0].comm
-        self.rcomm = self.dsets[1].comm
+        self.lcomm = mpi.internal_comm(self.dsets[0].comm)
+        self.rcomm = mpi.internal_comm(self.dsets[1].comm)
         # TODO: think about lcomm != rcomm
-        self.comm = self.lcomm
+        self.comm = mpi.internal_comm(self.lcomm)
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            mpi.decref(self.comm)
+        if hasattr(self, "lcomm"):
+            mpi.decref(self.lcomm)
+        if hasattr(self, "rcomm"):
+            mpi.decref(self.rcomm)
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
@@ -434,13 +452,23 @@ class AbstractMat(DataCarrier, abc.ABC):
                          ('name', str, ex.NameTypeError))
     def __init__(self, sparsity, dtype=None, name=None):
         self._sparsity = sparsity
-        self.lcomm = sparsity.lcomm
-        self.rcomm = sparsity.rcomm
-        self.comm = sparsity.comm
+        self.lcomm = mpi.internal_comm(sparsity.lcomm)
+        self.rcomm = mpi.internal_comm(sparsity.rcomm)
+        self.comm = mpi.internal_comm(sparsity.comm)
         dtype = dtype or dtypes.ScalarType
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_#x%x" % id(self)
         self.assembly_state = Mat.ASSEMBLED
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            mpi.decref(self.comm)
+        if hasattr(self, "lcomm"):
+            mpi.decref(self.lcomm)
+        if hasattr(self, "rcomm"):
+            mpi.decref(self.rcomm)
 
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path, lgmaps=None, unroll_map=False):
@@ -939,8 +967,9 @@ class MatBlock(AbstractMat):
         colis = cset.local_ises[j]
         self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
                                                       iscol=colis)
-        self.comm = parent.comm
+        self.comm = mpi.internal_comm(parent.comm)
         self.local_to_global_maps = self.handle.getLGMap()
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @property
     def dat_version(self):
@@ -1094,10 +1123,8 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-
-                    comm = mpi.dup_comm(x.comm)
-                    comm.bcast(a)
-                    mpi.free_comm(comm)
+                    with mpi.PyOP2Comm(x.comm) as comm:
+                        comm.bcast(a)
                     return y.scale(a)
                 else:
                     return v.pointwiseMult(x, y)
@@ -1113,9 +1140,8 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    comm = mpi.dup_comm(x.comm)
-                    comm.bcast(a)
-                    mpi.free_comm(comm)
+                    with mpi.PyOP2Comm(x.comm) as comm:
+                        comm.bcast(a)
                     y.scale(a)
                 else:
                     v.pointwiseMult(x, y)
@@ -1139,9 +1165,8 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    comm = mpi.dup_comm(x.comm)
-                    comm.bcast(a)
-                    mpi.free_comm(comm)
+                    with mpi.PyOP2Comm(x.comm) as comm:
+                        comm.bcast(a)
                     if y == z:
                         # Last two arguments are aliased.
                         tmp = y.duplicate()
