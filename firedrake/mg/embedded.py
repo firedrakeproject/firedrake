@@ -205,11 +205,13 @@ class TransferManager(object):
                 push = self.pushforward(mapping, ufl.Jacobian(Vf.mesh()))
                 pull = self.pullback(mapping, self.V_coarse_jacobian(Vc, Vf))
                 scale = push * pull
+                if scale.ufl_shape:
+                    scale = scale.T
 
             idet = 1/abs(ufl.JacobianDeterminant(V.mesh()))
             a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
                                                  firedrake.TestFunction(V))*idet*self.dx(V))
-            b = firedrake.Tensor(firedrake.inner(scale*firedrake.TrialFunction(DG),
+            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG)*scale,
                                                  firedrake.TestFunction(V))*idet*self.dx(V))
             M = firedrake.assemble(a.inv * b, mat_type=self.mat_type)
             return cache._V_approx_inv_mass_piola.setdefault(key, M.petscmat)
@@ -234,9 +236,11 @@ class TransferManager(object):
                 push = self.pushforward(mapping, ufl.Jacobian(Vf.mesh()))
                 pull = self.pullback(mapping, self.V_coarse_jacobian(Vc, Vf))
                 scale = push * pull
+                if scale.ufl_shape:
+                    scale = scale.T
 
             idet = 1/abs(ufl.JacobianDeterminant(V.mesh()))
-            b = firedrake.Tensor(firedrake.inner(scale*firedrake.TrialFunction(DG),
+            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG)*scale,
                                                  firedrake.TestFunction(V))*idet*self.dx(V))
             M = firedrake.assemble(b, mat_type=self.mat_type)
             return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
