@@ -212,8 +212,8 @@ class ImplicitMatrixContext(object):
         W = self._block_diagonal.function_space()
         v = TestFunction(W)
         u = TrialFunction(W)
-        v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
-        u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
+        v = sum([v[i, :, ...] for i in range(v.ufl_shape[0])])
+        u = sum([u[:, j, ...] for j in range(u.ufl_shape[1])])
         form = self.a(v, u, coefficients={})
         return OneFormAssembler(form, tensor=self._block_diagonal,
                                 form_compiler_parameters=self.fc_params,

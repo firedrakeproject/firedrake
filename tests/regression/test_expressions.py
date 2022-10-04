@@ -499,6 +499,26 @@ def test_expression_cache():
     assert len(u._expression_cache) == 5
 
 
+def test_global_expression_cache():
+    from firedrake.assemble_expressions import _pointwise_expression_cache
+
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+
+    _pointwise_expression_cache.clear()
+    assert len(_pointwise_expression_cache) == 0
+
+    u.assign(Constant(1))
+    assert len(_pointwise_expression_cache) == 1
+
+    u.assign(Constant(2))
+    assert len(_pointwise_expression_cache) == 1
+
+    u.assign(1)
+    assert len(_pointwise_expression_cache) == 2
+
+
 def test_augmented_assignment_broadcast():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "BDM", 1)
