@@ -447,7 +447,7 @@ class FDMPC(PCBase):
                 assemble_coef()
             for e in range(nel):
                 coefs_array = get_coefs(e, coefs_array)
-                Ae = self.element_mat(coefs_array, Afdm, work_mat, Ae=Ae)
+                Ae = self.element_mat(coefs_array, Afdm, work_mat, result=Ae)
                 self.update_A(A, self.condense_element_mat(Ae), lgmap.apply(index_cell(e)))
 
         elif nel:
@@ -457,7 +457,7 @@ class FDMPC(PCBase):
                 coefs_array = numpy.tile(numpy.eye(shape[1]), shape[:1] + (1,)*(len(shape)-1))
             else:
                 coefs_array.fill(1.0E0)
-            Ae = self.element_mat(coefs_array, Afdm, work_mat, Ae=Ae)
+            Ae = self.element_mat(coefs_array, Afdm, work_mat, result=Ae)
             if self.idofs:
                 sort_interior_dofs(self.idofs, Ae)
             Ae = self.condense_element_mat(Ae)
@@ -466,7 +466,7 @@ class FDMPC(PCBase):
 
         A.assemble()
 
-    def element_mat(self, coefs_array, Afdm, work_mat, Ae=None):
+    def element_mat(self, coefs_array, Afdm, work_mat, result=None):
         shape = coefs_array.shape
         shape += (1,)*(3-len(shape))
         indptr = numpy.arange(work_mat.getSize()[0]+1, dtype=PETSc.IntType)
@@ -475,10 +475,9 @@ class FDMPC(PCBase):
         work_mat.zeroEntries()
         work_mat.setValuesCSR(indptr, indices, coefs_array)
         work_mat.assemble()
-        Ae = work_mat.PtAP(Afdm[0], result=Ae)
         del indptr
         del indices
-        return Ae
+        return work_mat.PtAP(Afdm[0], result=result)
 
 
 @PETSc.Log.EventDecorator("FDMCondense")

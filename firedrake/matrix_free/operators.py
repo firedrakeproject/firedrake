@@ -193,13 +193,15 @@ class ImplicitMatrixContext(object):
         from ufl import MixedElement, TensorElement, VectorElement
         assert self.on_diag
 
+        bs = self.block_size[0]
         V = self._x.function_space()
         scalar_element = V.ufl_element()
         if isinstance(scalar_element, MixedElement):
-            raise NotImplementedError("Block diagonal assembly not implemented")
-        if isinstance(scalar_element, (TensorElement, VectorElement)):
-            scalar_element = scalar_element.sub_elements()[0]
-        tensor_element = TensorElement(scalar_element, shape=V.shape*2)
+            if isinstance(scalar_element, (TensorElement, VectorElement)):
+                scalar_element = scalar_element.sub_elements()[0]
+            else:
+                raise NotImplementedError("Block diagonal assembly not implemented")
+        tensor_element = TensorElement(scalar_element, shape=(bs, bs))
         W = FunctionSpace(V.mesh(), tensor_element)
         return Function(W)
 
@@ -212,30 +214,23 @@ class ImplicitMatrixContext(object):
         u = TrialFunction(W)
         v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
         u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
-        bjacobi = self.a(v, u, coefficients={})
-        return OneFormAssembler(bjacobi, tensor=self._block_diagonal,
+        form = self.a(v, u, coefficients={})
+        return OneFormAssembler(form, tensor=self._block_diagonal,
                                 form_compiler_parameters=self.fc_params,
                                 diagonal=True).assemble
 
-    def _invertBlockDiagonal(self, mat, result):
-        from firedrake.petsc import PETSc
+    def invertBlockDiagonal(self, mat):
         import numpy
 
         self._assemble_block_diagonal()
-        V = self._x.function_space()
-        W = self._block_diagonal.function_space()
-        bsize = self.block_size[0]
-        sizes = V.dof_dset.layout_vec.getSizes()
-        with self._block_diagonal.dat.data_ro as bdiag:
-            shape = bdiag.shape
-            assert len(shape) == 3
-            indptr = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange(), dtype=PETSc.IntType)
-            indices = numpy.tile(indptr[:-1].reshape((-1, shape[1])), (1, shape[2]))
-            indptr *= shape[2]
-            result.createAIJWithArrays(sizes*2, csr=(indptr, indices, numpy.linalg.inv(bdiag)), bsize=bsize, comm=V.comm)
+        result = numpy.linalg.inv(self._block_diagonal.dat.data_ro)
 
-        bcdofs = V.local_to_global_map([]).indices[V.local_to_global_map(self.bcs) < 0]
-        result.zeroRowsColumns(bcdofs, diag=1)
+        # FIXME cache bcdofs
+        W = self._block_diagonal.function_space()
+        wbcs = [bc.reconstruct(V=W, g=0) for bc in self.bcs]
+        bcdofs = W.local_to_global_map([]).indices[W.local_to_global_map(wbcs).indices < 0]
+        result.flat[bcdofs] = numpy.reshape(numpy.tile(numpy.eye(self.block_size[0]), (result.shape[0], 1, 1)), (-1,))
+        return result
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):

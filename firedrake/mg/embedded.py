@@ -198,21 +198,22 @@ class TransferManager(object):
         try:
             return cache._V_approx_inv_mass_piola[key]
         except KeyError:
+            dg_trial = firedrake.TrialFunction(DG)
             V = self.affine_function_space(Vf)
-            scale = 1
             if V != Vf:
                 mapping = Vc.ufl_element().mapping()
                 push = self.pushforward(mapping, ufl.Jacobian(Vf.mesh()))
                 pull = self.pullback(mapping, self.V_coarse_jacobian(Vc, Vf))
                 scale = push * pull
-                if scale.ufl_shape:
-                    scale = scale.T
+                if scale.ufl_shape and len(dg_trial.ufl_shape) > 1:
+                    dg_trial = dg_trial * scale.T
+                else:
+                    dg_trial = scale * dg_trial
 
             idet = 1/abs(ufl.JacobianDeterminant(V.mesh()))
             a = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(V),
                                                  firedrake.TestFunction(V))*idet*self.dx(V))
-            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG)*scale,
-                                                 firedrake.TestFunction(V))*idet*self.dx(V))
+            b = firedrake.Tensor(firedrake.inner(dg_trial, firedrake.TestFunction(V))*idet*self.dx(V))
             M = firedrake.assemble(a.inv * b, mat_type=self.mat_type)
             return cache._V_approx_inv_mass_piola.setdefault(key, M.petscmat)
 
@@ -229,19 +230,20 @@ class TransferManager(object):
         try:
             return cache._V_DG_mass_piola[key]
         except KeyError:
+            dg_trial = firedrake.TrialFunction(DG)
             V = self.affine_function_space(Vf)
-            scale = 1
             if V != Vf:
                 mapping = Vc.ufl_element().mapping()
                 push = self.pushforward(mapping, ufl.Jacobian(Vf.mesh()))
                 pull = self.pullback(mapping, self.V_coarse_jacobian(Vc, Vf))
                 scale = push * pull
-                if scale.ufl_shape:
-                    scale = scale.T
+                if scale.ufl_shape and len(dg_trial.ufl_shape) > 1:
+                    dg_trial = dg_trial * scale.T
+                else:
+                    dg_trial = scale * dg_trial
 
             idet = 1/abs(ufl.JacobianDeterminant(V.mesh()))
-            b = firedrake.Tensor(firedrake.inner(firedrake.TrialFunction(DG)*scale,
-                                                 firedrake.TestFunction(V))*idet*self.dx(V))
+            b = firedrake.Tensor(firedrake.inner(dg_trial, firedrake.TestFunction(V))*idet*self.dx(V))
             M = firedrake.assemble(b, mat_type=self.mat_type)
             return cache._V_DG_mass_piola.setdefault(key, M.petscmat)
 
