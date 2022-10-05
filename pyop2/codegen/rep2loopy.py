@@ -126,7 +126,7 @@ class LACallable(loopy.ScalarCallable, metaclass=abc.ABCMeta):
         pass
 
     def with_types(self, arg_id_to_dtype, callables_table):
-        dtypes = OrderedDict()
+        dtypes = {}
         for i in range(len(arg_id_to_dtype)):
             if arg_id_to_dtype.get(i) is None:
                 # the types provided aren't mature enough to specialize the
@@ -416,7 +416,7 @@ def generate(builder, wrapper_name=None):
     parameters.layer_end = builder.layer_extents[1].name
     parameters.conditions = []
     parameters.kernel_data = list(None for _ in parameters.wrapper_arguments)
-    parameters.temporaries = OrderedDict()
+    parameters.temporaries = {}
     parameters.kernel_name = builder.kernel.name
 
     # replace Materialise
