@@ -193,7 +193,6 @@ class ImplicitMatrixContext(object):
         from ufl import MixedElement, TensorElement, VectorElement
         assert self.on_diag
 
-        bs = self.block_size[0]
         V = self._x.function_space()
         scalar_element = V.ufl_element()
         if isinstance(scalar_element, MixedElement):
@@ -201,7 +200,7 @@ class ImplicitMatrixContext(object):
                 scalar_element = scalar_element.sub_elements()[0]
             else:
                 raise NotImplementedError("Block diagonal assembly not implemented")
-        tensor_element = TensorElement(scalar_element, shape=(bs, bs))
+        tensor_element = TensorElement(scalar_element, shape=self.block_size)
         W = FunctionSpace(V.mesh(), tensor_element)
         return Function(W)
 
@@ -230,7 +229,8 @@ class ImplicitMatrixContext(object):
         wbcs = [bc.reconstruct(V=W, g=0) for bc in self.bcs]
         bcdofs = W.local_to_global_map([]).indices[W.local_to_global_map(wbcs).indices < 0]
         result.flat[bcdofs] = numpy.reshape(numpy.tile(numpy.eye(self.block_size[0]), (result.shape[0], 1, 1)), (-1,))
-        return numpy.asfortranarray(result.transpose((1, 2, 0)))
+        self._block_diag_inverse =  numpy.asfortranarray(result.transpose((1, 2, 0)))
+        return self._block_diag_inverse
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
