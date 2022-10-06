@@ -27,7 +27,6 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
-from time import time
 
 try:
     import netgen
@@ -265,7 +264,7 @@ def _from_netgen(ngmesh, comm=None):
     if ngmesh.dim == 3:
         V = ngmesh.Coordinates()
         T = ngmesh.Elements3D().NumPy()["nodes"]
-        T = np.array([list(np.trim_zeros(a,'b')) for a in list(T)])-1
+        T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
         plex = _from_cell_list(3, T, V, comm, name=None)
         plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
@@ -279,7 +278,7 @@ def _from_netgen(ngmesh, comm=None):
     elif ngmesh.dim == 2:
         V = ngmesh.Coordinates()
         T = ngmesh.Elements2D().NumPy()["nodes"]
-        T = np.array([list(np.trim_zeros(a,'b')) for a in list(T)])-1
+        T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
         plex = _from_cell_list(2, T, V, comm, name=None)
         plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
