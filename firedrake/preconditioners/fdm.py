@@ -275,8 +275,7 @@ class FDMPC(PCBase):
 
     def destroy(self, pc):
         if hasattr(self, "pc"):
-            for mat in self.pc.getOperators():
-                mat.destroy()
+            self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -325,7 +324,7 @@ class FDMPC(PCBase):
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
         """
         from ufl.algorithms.ad import expand_derivatives
-
+        from firedrake.assemble import OneFormAssembler
         mesh = J.ufl_domain()
         ndim = mesh.topological_dimension()
         args_J = J.arguments()
@@ -361,15 +360,8 @@ class FDMPC(PCBase):
                     ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
 
         elements = list(map(ufl.InteriorElement if interior_element else ufl.BrokenElement, elements))
-
-        pbjacobi = True
-        shape = V.shape
-        if shape:
-            if pbjacobi:
-                shape = shape*2
-            elements = [ufl.TensorElement(ele, shape=shape) for ele in elements]
-        else:
-            pbjacobi = False
+        if V.shape:
+            elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
 
         map_grad = None
         if sobolev == ufl.H1:
@@ -386,36 +378,29 @@ class FDMPC(PCBase):
             else:
                 map_grad = lambda p: p*(eps/2)
 
+        Z = firedrake.FunctionSpace(mesh, ufl.MixedElement(elements))
+        args = (firedrake.TestFunction(Z), firedrake.TrialFunction(Z))
+        repargs = {t: firedrake.split(v)[0] for t, v in zip(args_J, args)}
+        repgrad = {ufl.grad(t): map_grad(firedrake.split(v)[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_derivatives(ufl.Form(J.integrals_by_type("cell")))
+        mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
-        def make_args(W):
-            v = firedrake.TestFunction(W)
-            u = firedrake.TrialFunction(W)
-            if pbjacobi:
-                v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
-                u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
-            return v, u
+        assembly_callables = []
+        if V.shape:
+            M = firedrake.assemble(mixed_form, mat_type="matfree")
+            coefficients = dict()
+            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+                sub = M.petscmat.createSubMatrix(iset, iset)
+                ctx = sub.getPythonContext()
+                coefficients[name] = ctx._block_diagonal
+                assembly_callables.append(ctx._assemble_block_diagonal)
 
-        def bform(*args):
-            gdim = Jcell.ufl_domain().geometric_dimension()
-            replace_args = {t: v for t, v in zip(args_J, args)}
-            replace_grad = {ufl.grad(t): ufl.zero(t.ufl_shape+(gdim,)) for t in args_J} if map_grad else dict()
-            return ufl.replace(ufl.replace(Jcell, replace_grad), replace_args)
+        else:
+            diag = firedrake.Function(Z)
+            beta, alpha = diag.split()
+            coefficients = {"beta": beta, "alpha": alpha}
+            assembly_callables.append(OneFormAssembler(mixed_form, tensor=diag, diagonal=True).assemble)
 
-        def aform(*args):
-            replace_args = {t: ufl.zero(t.ufl_shape) for t in args_J}
-            replace_grad = {ufl.grad(t): map_grad(q) for t, q in zip(args_J, args)} if map_grad else dict()
-            return ufl.replace(ufl.replace(Jcell, replace_grad), replace_args)
-
-        def assembly_callable(form, tensor, diagonal=True):
-            return partial(firedrake.assemble, form, tensor=tensor, diagonal=diagonal) if form.integrals() else tensor.dat.zero
-
-        W = [firedrake.FunctionSpace(mesh, e) for e in elements]
-        beta = firedrake.Function(W[0], name="beta")
-        alpha = firedrake.Function(W[1], name="alpha")
-        coefficients = {"beta": beta, "alpha": alpha}
-        assembly_callables = [assembly_callable(bform(*make_args(W[0])), beta),
-                              assembly_callable(aform(*make_args(W[1])), alpha)]
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")

@@ -213,7 +213,8 @@ class ImplicitMatrixContext(object):
         u = TrialFunction(W)
         v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
         u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
-        form = self.a(v, u, coefficients={})
+
+        form = self.a(v, u)
         return OneFormAssembler(form, tensor=self._block_diagonal,
                                 form_compiler_parameters=self.fc_params,
                                 diagonal=True).assemble
@@ -229,7 +230,8 @@ class ImplicitMatrixContext(object):
         wbcs = [bc.reconstruct(V=W, g=0) for bc in self.bcs]
         bcdofs = W.local_to_global_map([]).indices[W.local_to_global_map(wbcs).indices < 0]
         result.flat[bcdofs] = numpy.reshape(numpy.tile(numpy.eye(self.block_size[0]), (result.shape[0], 1, 1)), (-1,))
-        self._block_diag_inverse =  numpy.asfortranarray(result.transpose((1, 2, 0)))
+
+        self._block_diag_inverse = numpy.asfortranarray(result.transpose((1, 2, 0)))
         return self._block_diag_inverse
 
     @PETSc.Log.EventDecorator()
