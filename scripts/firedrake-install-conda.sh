@@ -32,9 +32,12 @@ conda create --prefix $prefix --file spec-file.txt
 
 # Install Firedrake into a subdirectory of the conda env
 cd $prefix
-curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+if [[ -z $script ]]; then
+    curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+    declare script=${PWD}/firedrake-install
+fi
 source activate firedrake
-python firedrake-install --no-package-manager --disable-ssh --venv-name=firedrake-venv
+python $script --no-package-manager --venv-name=firedrake-venv
 
 # Make an activate script
 mkdir -p etc/conda/activate.d
