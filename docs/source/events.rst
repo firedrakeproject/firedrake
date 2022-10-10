@@ -11,9 +11,9 @@ Firedrake events
 Firedrake '22
 ~~~~~~~~~~~~~
 
-The slightly inaccurately named Firedrake '22 will be held from 4-6 January at
-Dartington Hall near Totnes. For more information see 
-:doc:`the workshop page <firedrake_22>`.
+The slightly inaccurately named Firedrake '22 will be held from 4-6 January
+2023 at Dartington Hall near Totnes. For more information see :doc:`the
+workshop page <firedrake_22>`.
 
 Firedrake tutorial at Imperial College London May 30 2022
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
