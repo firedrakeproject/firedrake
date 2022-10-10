@@ -21,11 +21,21 @@ in the project, and the future developments anticipated. The event
 provides Firedrake users with the opportunity to interact directly
 with developers and other users.
 
+Key Dates
+---------
+
+* 18/11/2022 Abstract submission
+* 25/11/2022 Registration
+* 4-6/1/2023 Workshop
+
+
 Abstract submission
 -------------------
 
-Abstract submission will open soon. We expect that any attendee who wishes to
-present their work will be able to.
+Abstracts should be submitted `via EasyChair
+<https://easychair.org/conferences/?conf=firedrake22>`__ by Friday 18 November
+2022. We expect to be able to accommodate a talk by any participant who wishes
+to present their work.
 
 Registration
 ------------
@@ -36,9 +46,9 @@ will be £150 for students and £250 for others.
 Organising committee
 --------------------
 
-* `David Ham <mailto:david.ham@imperial.ac.uk>`__, Imperial College London
-* `Nell Hartney <mailto:nh491@exeter.ac.uk>`__, University of Exeter
-* `Jemma Shipton <mailto:j.shipton@exeter.ac.uk>`__, University of Exeter
+* `David Ham <https://www.imperial.ac.uk/people/david.ham>`__, Imperial College London
+* `Nell Hartney <https://mathematics.exeter.ac.uk/staff/nh491?sm=nh491>`__, University of Exeter
+* `Jemma Shipton <https://mathematics.exeter.ac.uk/staff/js1075?sm=js1075>`__, University of Exeter
 
 Further details
 ---------------
