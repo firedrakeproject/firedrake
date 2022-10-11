@@ -164,7 +164,7 @@ installing with Anaconda will require either using this special
 `shell script <https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install-conda.sh>`_
 or executing the commands in that script manually. If installation under
 Anaconda with that script fails, please
-`raise an issue <https://github.com/firedrakeproject/firedrake/issues`_
+`raise an issue <https://github.com/firedrakeproject/firedrake/issues>`_
 and we will try to fix it as soon as possible, but please bear with us
 as we iron out the wrinkles on supporting Anaconda.
 
