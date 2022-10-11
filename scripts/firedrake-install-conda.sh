@@ -31,18 +31,18 @@ conda list --explicit | grep -v mpich | grep -v hdf5 | grep -v h5py | grep -v as
 conda create --prefix $prefix --file spec-file.txt
 
 # Install Firedrake into a subdirectory of the conda env
-cd $prefix
 if [[ -z $script ]]; then
     curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
     declare script=${PWD}/firedrake-install
 fi
-source activate firedrake
-python $script --no-package-manager --venv-name=firedrake-venv
+echo "Install script location: $script"
+source activate $prefix
+python $script --no-package-manager --venv-name=$prefix/firedrake-venv
 
 # Make an activate script
-mkdir -p etc/conda/activate.d
-cp firedrake-venv/bin/activate etc/conda/activate.d/01_firedrake-venv.sh
+mkdir -p $prefix/etc/conda/activate.d
+cp $prefix/firedrake-venv/bin/activate $prefix/etc/conda/activate.d/01_firedrake-venv.sh
 
 # Make a custom deactivate script
-mkdir -p etc/conda/deactivate.d
-echo deactivate > etc/conda/deactivate.d/01_firedrake-venv.sh
+mkdir -p $prefix/etc/conda/deactivate.d
+echo deactivate > $prefix/etc/conda/deactivate.d/01_firedrake-venv.sh
