@@ -795,7 +795,6 @@ class TestMatrices:
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
 
-
 class TestMatrixStateChanges:
 
     """
@@ -822,7 +821,7 @@ class TestMatrixStateChanges:
     def test_mat_starts_assembled(self, mat):
         assert mat.assembly_state is op2.Mat.ASSEMBLED
         for m in mat:
-            assert mat.assembly_state is op2.Mat.ASSEMBLED
+            assert m.assembly_state is op2.Mat.ASSEMBLED
 
     def test_after_set_local_state_is_insert(self, mat):
         mat[0, 0].set_local_diagonal_entries([0])
