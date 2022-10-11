@@ -31,7 +31,8 @@ from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
                                           LogicalNot, LogicalAnd, LogicalOr,
                                           Materialise, Accumulate, FunctionCall, When,
                                           Argument, Variable, Literal, NamedLiteral,
-                                          Symbol, Zero, Sum, Min, Max, Product)
+                                          Symbol, Zero, Sum, Min, Max, Product,
+                                          Quotient, FloorDiv, Remainder)
 from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
 from pytools import ImmutableRecord
 from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
@@ -853,18 +854,26 @@ def expression_uop(expr, parameters):
 
 @expression.register(Sum)
 @expression.register(Product)
+@expression.register(Quotient)
+@expression.register(FloorDiv)
+@expression.register(Remainder)
 @expression.register(LogicalAnd)
 @expression.register(LogicalOr)
 @expression.register(BitwiseAnd)
 @expression.register(BitwiseOr)
 def expression_binop(expr, parameters):
     children = tuple(expression(c, parameters) for c in expr.children)
-    return {Sum: pym.Sum,
-            Product: pym.Product,
-            LogicalOr: pym.LogicalOr,
-            LogicalAnd: pym.LogicalAnd,
-            BitwiseOr: pym.BitwiseOr,
-            BitwiseAnd: pym.BitwiseAnd}[type(expr)](children)
+    if type(expr) in {Quotient, FloorDiv, Remainder}:
+        return {Quotient: pym.Quotient,
+                FloorDiv: pym.FloorDiv,
+                Remainder: pym.Remainder}[type(expr)](*children)
+    else:
+        return {Sum: pym.Sum,
+                Product: pym.Product,
+                LogicalOr: pym.LogicalOr,
+                LogicalAnd: pym.LogicalAnd,
+                BitwiseOr: pym.BitwiseOr,
+                BitwiseAnd: pym.BitwiseAnd}[type(expr)](children)
 
 
 @expression.register(Min)
