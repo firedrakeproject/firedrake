@@ -161,7 +161,7 @@ Anaconda
 Firedrake was incompatible with the Anaconda Python distribution for a
 long time. This limitation has been lifted, but for the time being,
 installing with Anaconda will require either using this special
-`shell script <https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install-conda.sh>`_
+`shell script <https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install-conda>`_
 or executing the commands in that script manually. If installation under
 Anaconda with that script fails, please
 `raise an issue <https://github.com/firedrakeproject/firedrake/issues>`_
