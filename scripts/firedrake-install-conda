@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euxo pipefail
 
 # Parse command-line arguments
 while [ $# -gt 0 ]; do
