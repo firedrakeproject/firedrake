@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euxo pipefail
+set -exo pipefail
 
 # Parse command-line arguments
 while [ $# -gt 0 ]; do
@@ -33,7 +33,8 @@ conda create --prefix $prefix --file spec-file.txt
 
 # Install Firedrake into a subdirectory of the conda env
 if [[ -z $script ]]; then
-    curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+    #~ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+    curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/JDBetteridge/conda_ci/scripts/firedrake-install
     declare script=${PWD}/firedrake-install
 fi
 echo "Install script location: $script"

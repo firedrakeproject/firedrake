@@ -1375,9 +1375,9 @@ def quit(message):
     sys.exit(1)
 
 
-def build_update_script():
+def build_update_script(install_script="firedrake/scripts/firedrake-install"):
     log.info("Creating firedrake-update script.")
-    with open("firedrake/scripts/firedrake-install", "r") as f:
+    with open(install_script, "r") as f:
         update_script = f.read()
 
     try:
@@ -1729,7 +1729,7 @@ if mode == "install":
 
     if "Build Firedrake" in os.environ.get("GITHUB_WORKFLOW", ""):
         # When building Firedrake in CI, don't clone Firedrake again.
-        check_call(["ln", "-s", "../../firedrake", "firedrake"])
+        check_call(["ln", "-s", "/__w/firedrake/firedrake", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
 

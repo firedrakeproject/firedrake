@@ -101,7 +101,7 @@ jobs:
         run: |
           cd ..
           eval "$(/home/firedrake/conda/bin/conda shell.bash hook)"
-          ./firedrake/scripts/firedrake-install-conda|| (cat firedrake-install.log && /bin/false)
+          (bash ./firedrake/scripts/firedrake-install-conda) || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           eval "$(/home/firedrake/conda/bin/conda shell.bash hook)"
