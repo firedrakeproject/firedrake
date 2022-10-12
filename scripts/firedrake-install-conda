@@ -38,7 +38,7 @@ if [[ -z $script ]]; then
 fi
 echo "Install script location: $script"
 source activate $prefix
-python $script --no-package-manager --venv-name=$prefix/firedrake-venv
+python $script --no-package-manager --disable-ssh --venv-name=$prefix/firedrake-venv
 
 # Make an activate script
 mkdir -p $prefix/etc/conda/activate.d
