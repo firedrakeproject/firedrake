@@ -41,6 +41,7 @@ python $script --no-package-manager --venv-name=$prefix/firedrake-venv
 
 # Make an activate script
 mkdir -p $prefix/etc/conda/activate.d
+echo export VIRTUAL_ENV_DISABLE_PROMPT=1 > $prefix/etc/conda/activate.d/00_virtual_env_disable_prompt.sh
 cp $prefix/firedrake-venv/bin/activate $prefix/etc/conda/activate.d/01_firedrake-venv.sh
 
 # Make a custom deactivate script
