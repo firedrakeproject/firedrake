@@ -53,7 +53,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
     def __new__(cls, *args, **kwargs):
         # Hack to avoid hitting `ufl.Coefficient.__new__` which may perform operations
         # meant for coefficients and not constants (e.g. check if the function space is dual or not)
-        # This is a consequence of firedrake.Constant inheriting from ufl.Constant instead of ufl.Coefficient.
+        # This is a consequence of firedrake.Constant inheriting from ufl.Coefficient instead of ufl.Constant.
         return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
