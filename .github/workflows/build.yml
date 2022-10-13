@@ -42,32 +42,34 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
-      #~ ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager|| (cat firedrake-install.log && /bin/false)
-      #~ - name: Install test dependencies
-        #~ run: |
-          #~ . ../build/bin/activate
-          #~ python $(which firedrake-clean)
-          #~ python -m pip install pytest-cov pytest-timeout pytest-xdist
-          #~ python -m pip list
-      #~ - name: Test Firedrake
-        #~ run: |
-          #~ . ../build/bin/activate
-          #~ echo OMP_NUM_THREADS is $OMP_NUM_THREADS
-          #~ echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
-          #~ python -m pytest --durations=200 -n 12 --cov firedrake --timeout=1800 -v tests
-      #~ - name: Test pyadjoint
-        #~ if: ${{ matrix.scalar-type == 'real' }}
-        #~ run: |
-          #~ . ../build/bin/activate
-          #~ cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 --timeout=600 -v tests/firedrake_adjoint
-      #~ - name: Cleanup
-        #~ # Belt and braces: clean up before and after the run.
-        #~ if: ${{ always() }}
-        #~ run: |
-          #~ cd ..
-          #~ rm -rf build
+          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager|| (cat firedrake-install.log && /bin/false)
+      - name: Install test dependencies
+        run: |
+          . ../build/bin/activate
+          python $(which firedrake-clean)
+          python -m pip install pytest-cov pytest-timeout pytest-xdist
+          python -m pip list
+      - name: Test Firedrake
+        run: |
+          . ../build/bin/activate
+          echo OMP_NUM_THREADS is $OMP_NUM_THREADS
+          echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
+          python -m pytest --durations=200 -n 12 --cov firedrake --timeout=1800 -v tests
+      - name: Test pyadjoint
+        if: ${{ matrix.scalar-type == 'real' }}
+        run: |
+          . ../build/bin/activate
+          cd ../build/src/pyadjoint; python -m pytest --durations=200 -n 12 --timeout=600 -v tests/firedrake_adjoint
+      - name: Cleanup
+        # Belt and braces: clean up before and after the run.
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf build
   conda_build:
     name: "Use Conda to install Firedrake"
+    # TODO: remove before final commit
+    # if: ${{ github.ref == 'refs/heads/master' }}
     # The type of runner that the job will run on
     runs-on: self-hosted
     # The docker container to use.
@@ -92,11 +94,11 @@ jobs:
       - name: Download and install Anaconda
         run: |
           cd ..
-          curl -L https://repo.anaconda.com/archive/Anaconda3-2022.05-Linux-x86_64.sh -o anaconda.sh
-          bash anaconda.sh -b -p /home/firedrake/conda
+          curl -L https://repo.anaconda.com/archive/Anaconda3-2022.05-Linux-x86_64.sh -o miniconda.sh
+          bash miniconda.sh -b -p /home/firedrake/conda
           eval "$(/home/firedrake/conda/bin/conda shell.bash hook)"
           conda init
-          rm anaconda.sh
+          rm miniconda.sh
       - name: Build Firedrake
         run: |
           cd ..
@@ -107,7 +109,8 @@ jobs:
           eval "$(/home/firedrake/conda/bin/conda shell.bash hook)"
           conda activate firedrake
           python $(which firedrake-clean)
-          conda install pytest-cov pytest-timeout pytest-xdist
+          # TODO:
+          # conda install pytest-cov pytest-timeout pytest-xdist
           conda list
       - name: Smoke Test Firedrake
         run: |
@@ -115,7 +118,10 @@ jobs:
           conda activate firedrake
           echo OMP_NUM_THREADS is $OMP_NUM_THREADS
           echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
-          pytest -n 4 -v --timeout=1800 tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+          cd $VIRTUAL_ENV/src/firedrake
+          pytest -v tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+          # TODO:
+          # pytest -n 4 -v --timeout=1800 tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
