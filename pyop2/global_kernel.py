@@ -31,14 +31,17 @@ class MapKernelArg:
 
     arity: int
     offset: Optional[Tuple[int, ...]] = None
+    offset_quotient: Optional[Tuple[int, ...]] = None
 
     def __post_init__(self):
         if not isinstance(self.offset, collections.abc.Hashable):
             raise ValueError("The provided offset must be hashable")
+        if not isinstance(self.offset_quotient, collections.abc.Hashable):
+            raise ValueError("The provided offset_quotient must be hashable")
 
     @property
     def cache_key(self):
-        return type(self), self.arity, self.offset
+        return type(self), self.arity, self.offset, self.offset_quotient
 
 
 @dataclass(eq=False, frozen=True)
@@ -231,6 +234,7 @@ class GlobalKernel(Cached):
     :param arguments: An iterable of :class:`KernelArg` instances describing
         the arguments to the global kernel.
     :param extruded: Are we looping over an extruded mesh?
+    :param extruded_periodic: Flag for periodic extrusion.
     :param constant_layers: If looping over an extruded mesh, are the layers the
         same for each base entity?
     :param subset: Are we iterating over a subset?
@@ -264,6 +268,7 @@ class GlobalKernel(Cached):
 
     def __init__(self, local_kernel, arguments, *,
                  extruded=False,
+                 extruded_periodic=False,
                  constant_layers=False,
                  subset=False,
                  iteration_region=None,
@@ -283,6 +288,7 @@ class GlobalKernel(Cached):
         self.local_kernel = local_kernel
         self.arguments = arguments
         self._extruded = extruded
+        self._extruded_periodic = extruded_periodic
         self._constant_layers = constant_layers
         self._subset = subset
         self._iteration_region = iteration_region
@@ -334,6 +340,7 @@ class GlobalKernel(Cached):
         builder = WrapperBuilder(kernel=self.local_kernel,
                                  subset=self._subset,
                                  extruded=self._extruded,
+                                 extruded_periodic=self._extruded_periodic,
                                  constant_layers=self._constant_layers,
                                  iteration_region=self._iteration_region,
                                  pass_layer_to_kernel=self._pass_layer_arg)

@@ -188,20 +188,23 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         int set_entry
         int set_size
         int region_selector
-        bint constant_layers
-        PetscInt layer_start, layer_end, layer_bottom
+        bint constant_layers, extruded_periodic
+        PetscInt layer_start, layer_end, layer_bottom, num_layers, effective_offset, layer
         PetscInt[:, ::1] layers
-        PetscInt i
+        PetscInt i, k, irem
         PetscScalar zero = 0.0
         PetscInt nrow, ncol
         PetscInt rarity, carity, tmp_rarity, tmp_carity
         PetscInt[:, ::1] rmap, cmap, tempmap
-        PetscInt **rcomposedmaps = NULL, **ccomposedmaps = NULL
+        PetscInt **rcomposedmaps = NULL
+        PetscInt **ccomposedmaps = NULL
         PetscInt nrcomposedmaps = 0, nccomposedmaps = 0, rset_entry, cset_entry
         PetscInt *rvals
         PetscInt *cvals
         PetscInt *roffset
         PetscInt *coffset
+        PetscInt *roffset_quotient
+        PetscInt *coffset_quotient
 
     from pyop2 import op2
     rdim, cdim = dims
@@ -268,6 +271,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
             # The extruded case needs a little more work.
             layers = pair[0].iterset.layers_array
             constant_layers = pair[0].iterset.constant_layers
+            extruded_periodic = pair[0].iterset._extruded_periodic
             # We only need the *4 if we have an ON_INTERIOR_FACETS
             # iteration region, but it doesn't hurt to make them all
             # bigger, since we can special case less code below.
@@ -279,6 +283,9 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
             # Offsets (for walking up the column)
             CHKERR(PetscMalloc1(rarity, &roffset))
             CHKERR(PetscMalloc1(carity, &coffset))
+            # Offset quotients (for walking up the column)
+            CHKERR(PetscMalloc1(rarity, &roffset_quotient))
+            CHKERR(PetscMalloc1(carity, &coffset_quotient))
             # Walk over the iteration regions on this map.
             for r in iteration_region:
                 region_selector = -1
@@ -300,6 +307,10 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                     roffset[i] = pair[0].offset[i]
                 for i in range(carity):
                     coffset[i] = pair[1].offset[i]
+                for i in range(rarity):
+                    roffset_quotient[i] = 0 if pair[0].offset_quotient is None else pair[0].offset_quotient[i]
+                for i in range(carity):
+                    coffset_quotient[i] = 0 if pair[1].offset_quotient is None else pair[1].offset_quotient[i]
                 for set_entry in range(set_size):
                     rset_entry = <PetscInt>set_entry
                     cset_entry = <PetscInt>set_entry
@@ -314,6 +325,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                         layer_start = layers[set_entry, 0]
                         layer_end = layers[set_entry, 1] - 1
                     layer_bottom = layer_start
+                    num_layers = layer_end - layer_start
                     if region_selector == 1:
                         # Bottom, finish after first layer
                         layer_end = layer_start + 1
@@ -321,34 +333,41 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                         # Top, start on penultimate layer
                         layer_start = layer_end - 1
                     elif region_selector == 3:
-                        # interior, finish on penultimate layer
-                        layer_end = layer_end - 1
-
-                    # In the case of tmp_rarity == rarity this is just:
-                    #
-                    # rvals[i] = rmap[rset_entry, i] + layer_start * roffset[i]
-                    #
-                    # But this means less special casing.
-                    for i in range(tmp_rarity):
-                        rvals[i] = rmap[<int>rset_entry, i % rarity] + \
-                            (layer_start - layer_bottom + i // rarity) * roffset[i % rarity]
-                    # Ditto
-                    for i in range(tmp_carity):
-                        cvals[i] = cmap[<int>cset_entry, i % carity] + \
-                            (layer_start - layer_bottom + i // carity) * coffset[i % carity]
+                        if not extruded_periodic:
+                            # interior, finish on penultimate layer
+                            layer_end = layer_end - 1
                     for layer in range(layer_start, layer_end):
+                        # Make sure that the following cases are covered:
+                        #
+                        # - extrusion type            : standard, periodic
+                        # - num_layers                : 1, 2, and N (general)
+                        # - integration_type          : ON_INTERIOR_FACET, ALL
+                        # - {r,c}offset_quotient[irem]: 0 and 1 (for FEM)
+                        #
+                        # For the standard extrusion, the following reduces to
+                        # the conventional logic;
+                        # note that {r,c}offset_quotient[:] == 0 in that case.
+                        for i in range(tmp_rarity):
+                            k = i // rarity  # always 0 if not ON_INTERIOR_FACETS
+                            irem = i % rarity  # always i if not ON_INTERIOR_FACETS
+                            effective_offset = layer + k + roffset_quotient[irem]
+                            rvals[i] = rmap[<int>rset_entry, irem] + \
+                                       roffset[irem] * (effective_offset % num_layers - roffset_quotient[irem] % num_layers)
+                        for i in range(tmp_carity):
+                            k = i // carity
+                            irem = i % carity
+                            effective_offset = layer + k + coffset_quotient[irem]
+                            cvals[i] = cmap[<int>cset_entry, irem] + \
+                                       coffset[irem] * (effective_offset % num_layers - coffset_quotient[irem] % num_layers)
                         CHKERR(MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
                                                         tmp_carity, cvals,
                                                         values, PETSC_INSERT_VALUES))
-                        # Move to the next layer
-                        for i in range(tmp_rarity):
-                            rvals[i] += roffset[i % rarity]
-                        for i in range(tmp_carity):
-                            cvals[i] += coffset[i % carity]
             CHKERR(PetscFree(rvals))
             CHKERR(PetscFree(cvals))
             CHKERR(PetscFree(roffset))
             CHKERR(PetscFree(coffset))
+            CHKERR(PetscFree(roffset_quotient))
+            CHKERR(PetscFree(coffset_quotient))
         CHKERR(PetscFree2(rcomposedmaps, ccomposedmaps))
         if isinstance(pair[0], op2.ComposedMap):
             for m, rflag in zip(pair[0].flattened_maps, rflags):

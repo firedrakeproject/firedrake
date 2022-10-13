@@ -53,6 +53,7 @@ class Set:
     _GHOST_SIZE = 2
 
     _extruded = False
+    _extruded_periodic = False
 
     _kernel_args_ = ()
     _argtypes_ = ()
@@ -209,6 +210,7 @@ class Set:
 class GlobalSet(Set):
 
     _extruded = False
+    _extruded_periodic = False
 
     """A proxy set allowing a :class:`Global` to be used in place of a
     :class:`Dat` where appropriate."""
@@ -300,7 +302,7 @@ class ExtrudedSet(Set):
     """
 
     @utils.validate_type(('parent', Set, TypeError))
-    def __init__(self, parent, layers):
+    def __init__(self, parent, layers, extruded_periodic=False):
         self._parent = parent
         try:
             layers = utils.verify_reshape(layers, dtypes.IntType, (parent.total_size, 2))
@@ -322,6 +324,7 @@ class ExtrudedSet(Set):
 
         self._layers = layers
         self._extruded = True
+        self._extruded_periodic = extruded_periodic
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -403,6 +406,7 @@ class Subset(ExtrudedSet):
                        (self._indices < superset.size).sum(),
                        len(self._indices))
         self._extruded = superset._extruded
+        self._extruded_periodic = superset._extruded_periodic
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -596,6 +600,10 @@ class MixedSet(Set, caching.ObjectCached):
     @utils.cached_property
     def _extruded(self):
         return isinstance(self._sets[0], ExtrudedSet)
+
+    @utils.cached_property
+    def _extruded_periodic(self):
+        raise NotImplementedError("_extruded_periodic not implemented in MixedSet")
 
     @utils.cached_property
     def layers(self):

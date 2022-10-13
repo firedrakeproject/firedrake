@@ -1437,8 +1437,8 @@ class TestMapAPI:
 
     def test_map_repr(self, m_iterset_toset):
         "Map should have the expected repr."
-        r = "Map(%r, %r, %r, None, %r)" % (m_iterset_toset.iterset, m_iterset_toset.toset,
-                                           m_iterset_toset.arity, m_iterset_toset.name)
+        r = "Map(%r, %r, %r, None, %r, %r, %r)" % (m_iterset_toset.iterset, m_iterset_toset.toset,
+                                                   m_iterset_toset.arity, m_iterset_toset.name, m_iterset_toset._offset, m_iterset_toset._offset_quotient)
         assert repr(m_iterset_toset) == r
 
     def test_map_str(self, m_iterset_toset):
