@@ -373,6 +373,11 @@ class SparsityBlock(Sparsity):
        This class only implements the properties necessary to infer
        its shape.  It does not provide arrays of non zero fill."""
     def __init__(self, parent, i, j):
+        # Protect against re-initialization when retrieved from cache
+        if self._initialized:
+            return
+
+        debug(f"INIT {self.__class__} BEGIN")
         self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
         self._rmaps = tuple(m.split[i] for m in parent.rmaps)
         self._cmaps = tuple(m.split[j] for m in parent.cmaps)
@@ -387,14 +392,8 @@ class SparsityBlock(Sparsity):
         self.rcomm = mpi.internal_comm(self.dsets[1].comm)
         # TODO: think about lcomm != rcomm
         self.comm = mpi.internal_comm(self.lcomm)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            mpi.decref(self.comm)
-        if hasattr(self, "lcomm"):
-            mpi.decref(self.lcomm)
-        if hasattr(self, "rcomm"):
-            mpi.decref(self.rcomm)
+        self._initialized = True
+        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
@@ -958,6 +957,7 @@ class MatBlock(AbstractMat):
     :arg j: The block column.
     """
     def __init__(self, parent, i, j):
+        debug(f"INIT {self.__class__} BEGIN")
         self._parent = parent
         self._i = i
         self._j = j
