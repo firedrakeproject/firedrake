@@ -7,6 +7,7 @@ from ufl.referencevalue import ReferenceValue
 import firedrake.ufl_expr as ufl_expr
 from firedrake.assemble import allocate_matrix
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake import utils, functionspaceimpl
 from firedrake.adjoint import ExternalOperatorsMixin
@@ -241,8 +242,8 @@ class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metacla
         if len(self.arguments()) == 1:
             # TODO: Check result.function_space() == self.arguments()[0].function_space().dual()
             # Will also catch the case where wrong fct space
-            if not isinstance(result, Function):
-                raise ValueError('External operators with one argument must result in a firedrake.Function object!')
+            if not isinstance(result, (Function, Cofunction)):
+                raise ValueError('External operators with one argument must result in a firedrake.Function or firedrake.Cofunction object!')
         elif len(self.arguments()) == 2:
             if not isinstance(result, MatrixBase):
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
