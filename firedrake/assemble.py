@@ -465,8 +465,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         petsc_mat = mat.petscmat
         # TODO Add Hermitian Transpose to petsc4py and replace transpose
         petsc_mat.transpose()
-        (row, col) = mat.arguments()
-        return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
+        return matrix.AssembledMatrix(expr, bcs, petsc_mat,
                                       appctx=appctx,
                                       options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
@@ -490,7 +489,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
 
                 # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
-                return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
                                               options_prefix=options_prefix)
             else:
@@ -525,7 +524,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 else:
                     res = petsc_mat
                     is_set = True
-            return matrix.AssembledMatrix(expr.arguments(), bcs, res,
+            return matrix.AssembledMatrix(expr, bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
@@ -581,7 +580,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             if is_adjoint:
                 # TODO: Work out how to get the conjugate?
                 petsc_mat.transpose()
-            return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+            return matrix.AssembledMatrix(expr, bcs, petsc_mat,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:

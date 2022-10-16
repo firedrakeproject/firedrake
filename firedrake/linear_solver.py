@@ -52,7 +52,7 @@ class LinearSolver(OptionsManager):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
         solver_parameters = solving_utils.set_defaults(solver_parameters,
-                                                       A.a.arguments(),
+                                                       A.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
@@ -102,11 +102,11 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def test_space(self):
-        return self.A.a.arguments()[0].function_space()
+        return self.A.arguments()[0].function_space()
 
     @cached_property
     def trial_space(self):
-        return self.A.a.arguments()[1].function_space()
+        return self.A.arguments()[1].function_space()
 
     @cached_property
     def _rhs(self):
