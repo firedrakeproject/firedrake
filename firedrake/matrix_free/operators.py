@@ -102,6 +102,9 @@ class ImplicitMatrixContext(object):
         self.row_bcs = tuple(bc for bc in itertools.chain(*row_bcs) if isinstance(bc, DirichletBC))
         self.col_bcs = tuple(bc for bc in itertools.chain(*col_bcs) if isinstance(bc, DirichletBC))
 
+        self._lscale = None
+        self._rscale = None
+
         # create functions from test and trial space to help
         # with 1-form assembly
         test_space, trial_space = [
@@ -183,9 +186,23 @@ class ImplicitMatrixContext(object):
             bc.set(self._diagonal, 1)
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
+            if self._lscale:
+                v.pointwiseMult(v, self._lscale)
+            if self._rscale:
+                v.pointwiseMult(v, self._rscale)
 
     def missingDiagonal(self, mat):
         return (False, -1)
+
+    def diagonalScale(self, mat, L=None, R=None):
+        if L and self._lscale:
+            self._lscale.pointwiseMult(self._lscale, L)
+        elif L:
+            self._lscale = L.copy()
+        if R and self._rscale:
+            self._rscale.pointwiseMult(self._rscale, R)
+        elif R:
+            self._rscale = R.copy()
 
     @cached_property
     def _block_diagonal(self):
@@ -224,6 +241,8 @@ class ImplicitMatrixContext(object):
 
         self._assemble_block_diagonal()
         result = numpy.linalg.inv(self._block_diagonal.dat.data_ro)
+        if self._rscale or self._lscale:
+            raise NotImplementedError()
 
         # FIXME cache bcdofs
         W = self._block_diagonal.function_space()
@@ -237,7 +256,10 @@ class ImplicitMatrixContext(object):
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
-            X.copy(v)
+            if self._rscale:
+                v.pointwiseMult(self._rscale, X)
+            else:
+                X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
         # identity block corresponding to the Dirichlet boundary conditions.
@@ -266,7 +288,10 @@ class ImplicitMatrixContext(object):
                 bc.zero(self._y)
 
         with self._y.dat.vec_ro as v:
-            v.copy(Y)
+            if self._lscale:
+                Y.pointwiseMult(self._lscale, v)
+            else:
+                v.copy(Y)
 
     @PETSc.Log.EventDecorator()
     def multTranspose(self, mat, Y, X):
@@ -306,7 +331,10 @@ class ImplicitMatrixContext(object):
 
         """
         with self._y.dat.vec_wo as v:
-            Y.copy(v)
+            if self._lscale:
+                v.pointwiseMult(self._lscale, Y)
+            else:
+                Y.copy(v)
 
         if len(self.bcs) > 0:
             # Accumulate values in self._x
@@ -337,7 +365,10 @@ class ImplicitMatrixContext(object):
                 bc.zero(self._x)
 
         with self._x.dat.vec_ro as v:
-            v.copy(X)
+            if self._rscale:
+                X.pointwiseMult(self._rscale, v)
+            else:
+                v.copy(X)
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -431,7 +462,15 @@ class ImplicitMatrixContext(object):
                         bsize=submat_ctx.block_size)
         submat.setPythonContext(submat_ctx)
         submat.setUp()
-
+        
+        if self._rscale or self._lscale:
+            L = self._lscale
+            if L:
+                L = L.getSubVector(cols_is)
+            R = self._lscale
+            if R:
+                R = R.getSubVector(rows_is)
+            submat.diagonalScale(L=L, R=R)
         return submat
 
     @PETSc.Log.EventDecorator()
@@ -450,4 +489,6 @@ class ImplicitMatrixContext(object):
                         bsize=newmat_ctx.block_size)
         newmat.setPythonContext(newmat_ctx)
         newmat.setUp()
+        if self._rscale or self._lscale:
+            newmat.diagonalScale(L=self._lscale, R=self._rscale)
         return newmat

@@ -99,7 +99,7 @@ class FDMPC(PCBase):
             Amat, _ = pc.getOperators()
         else:
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
-            J_fdm = ufl.replace(J, {t: t.reconstruct(function_space=V_fdm) for t in J.arguments()})
+            J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()])
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm, g=0) for bc in bcs)
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
             Amat = None
@@ -166,7 +166,6 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-
         self.is_interior_element = True
         self.is_facet_element = True
         entity_dofs = V.finat_element.entity_dofs()
@@ -183,7 +182,7 @@ class FDMPC(PCBase):
                     self.is_facet_element = False
                 else:
                     self.is_interior_element = False
-
+        
         Vbig = V
         _, fdofs = split_dofs(V.finat_element)
         if self.is_facet_element:
@@ -208,8 +207,9 @@ class FDMPC(PCBase):
 
         addv = PETSc.InsertMode.ADD_VALUES
         _update_A = load_assemble_csr()
-        _set_bc_values = load_set_bc_values()
         self.update_A = lambda A, B, rows: _update_A(A, B, rows, rows, addv)
+        
+        _set_bc_values = load_set_bc_values()
         self.set_bc_values = lambda A, rows: _set_bc_values(A, rows.size, rows, addv)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_reference_tensors(Vbig, appctx)
@@ -221,6 +221,7 @@ class FDMPC(PCBase):
             coefficients["eta"] = eta
             bcflags = get_weak_bc_flags(J)
 
+        self.coeffcients = coefficients
         # preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = (V.dof_dset.layout_vec.getSizes(),)*2
         block_size = V.dof_dset.layout_vec.getBlockSize()
@@ -334,35 +335,6 @@ class FDMPC(PCBase):
         e = unrestrict_element(e)
         sobolev = e.sobolev_space()
 
-        V = args_J[0].function_space()
-        degree = e.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
-        qdeg = degree
-
-        formdegree = V.finat_element.formdegree
-        if formdegree == ndim:
-            qfam = "DG" if ndim == 1 else "DQ"
-            qdeg = 0
-        elif formdegree == 0:
-            qfam = "DG" if ndim == 1 else "RTCE" if ndim == 2 else "NCE"
-        elif formdegree == 1 and ndim == 3:
-            qfam = "NCF"
-        else:
-            qfam = "DQ L2"
-            qdeg = degree-1
-
-        interior_element = self.is_interior_element
-        qvariant = "fdm_feec" if interior_element else "fdm_quadrature"
-        elements = [e.reconstruct(variant=qvariant),
-                    ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
-
-        elements = list(map(ufl.InteriorElement if interior_element else ufl.BrokenElement, elements))
-        if V.shape:
-            elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-
         map_grad = None
         if sobolev == ufl.H1:
             map_grad = lambda p: p
@@ -378,15 +350,47 @@ class FDMPC(PCBase):
             else:
                 map_grad = lambda p: p*(eps/2)
 
+        V = args_J[0].function_space()
+        formdegree = V.finat_element.formdegree
+        degree = e.degree()
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        qdeg = degree
+        if formdegree == ndim:
+            qfam = "DG" if ndim == 1 else "DQ"
+            qdeg = 0
+        elif formdegree == 0:
+            qfam = "DG" if ndim == 1 else "RTCE" if ndim == 2 else "NCE"
+        elif formdegree == 1 and ndim == 3:
+            qfam = "NCF"
+        else:
+            qfam = "DQ L2"
+            qdeg = degree-1
+
+        interior_element = self.is_interior_element
+        qvariant = "fdm_feec" if interior_element else "fdm_quadrature"
+        elements = [e.reconstruct(variant=qvariant),
+                    ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
+        elements = list(map(ufl.InteriorElement if interior_element else ufl.BrokenElement, elements))
+        if V.shape:
+            elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
+
         Z = firedrake.FunctionSpace(mesh, ufl.MixedElement(elements))
-        args = (firedrake.TestFunction(Z), firedrake.TrialFunction(Z))
-        repargs = {t: firedrake.split(v)[0] for t, v in zip(args_J, args)}
-        repgrad = {ufl.grad(t): map_grad(firedrake.split(v)[1]) for t, v in zip(args_J, args)} if map_grad else dict()
+        args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
+        repargs = {t: v[0] for t, v in zip(args_J, args)}
+        repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_derivatives(ufl.Form(J.integrals_by_type("cell")))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
         assembly_callables = []
-        if V.shape:
+        if V.shape == ():
+            tensor = firedrake.Function(Z)
+            beta, alpha = tensor.split()
+            coefficients = {"beta": beta, "alpha": alpha}
+            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True).assemble)
+        else:
             M = firedrake.assemble(mixed_form, mat_type="matfree")
             coefficients = dict()
             for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
@@ -394,12 +398,6 @@ class FDMPC(PCBase):
                 ctx = sub.getPythonContext()
                 coefficients[name] = ctx._block_diagonal
                 assembly_callables.append(ctx._assemble_block_diagonal)
-
-        else:
-            diag = firedrake.Function(Z)
-            beta, alpha = diag.split()
-            coefficients = {"beta": beta, "alpha": alpha}
-            assembly_callables.append(OneFormAssembler(mixed_form, tensor=diag, diagonal=True).assemble)
 
         return coefficients, assembly_callables
 
@@ -412,9 +410,9 @@ class FDMPC(PCBase):
 
         self.set_bc_values(A, V.dof_dset.lgmap.indices[lgmap.indices < 0])
 
-        bsize = V.value_size
+        bsize = A.getBlockSize()
         nrows = Afdm[0].getSize()[0]
-        work_mat = PETSc.Mat().createAIJ((nrows, nrows), nnz=([bsize], [0]), comm=PETSc.COMM_SELF)
+        work_mat = PETSc.Mat().createAIJ((nrows, nrows), bsize=bsize, nnz=([bsize], [0]), comm=PETSc.COMM_SELF)
         index_cell, nel = glonum_fun(V.cell_node_map())
         if bsize > 1:
             _index_cell = index_cell

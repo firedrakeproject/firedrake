@@ -86,6 +86,9 @@ class FacetSplitPC(PCBase):
             rindices[indices-start] = isorted
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
+        
+        del w
+        del v
 
         def _permute_nullspace(nsp):
             if nsp is None or self.iperm is None:
@@ -106,12 +109,17 @@ class FacetSplitPC(PCBase):
                                                        bcs=mixed_bcs).assemble
             self._assemble_mixed_op()
             mixed_opmat = self.mixed_op.petscmat
+            
+            if False:
+                # FIXME
+                mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
+                mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
+                mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
-            mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
-            mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
-            mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         elif self.iperm:
             self._permute_op = partial(P.permute, self.iperm, self.iperm)
+            # FIXME block jacobi not supported for virtual sub matrix
+            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P
@@ -146,6 +154,8 @@ class FacetSplitPC(PCBase):
         if hasattr(self, "mixed_op"):
             self._assemble_mixed_op()
         elif hasattr(self, "_permute_op"):
+            for mat in self.pc.getOperators():
+                mat.destroy()
             P = self._permute_op()
             self.pc.setOperators(A=P, P=P)
         self.pc.setUp()

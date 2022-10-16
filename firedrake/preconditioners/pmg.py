@@ -1260,6 +1260,31 @@ class StandaloneInterpolationMatrix(object):
         self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
 
+    def view(self, mat, viewer=None):
+        if viewer is None:
+            return
+        typ = viewer.getType()
+        if typ != PETSc.Viewer.Type.ASCII:
+            return
+        viewer.printfASCII("Firedrake matrix-free prolongator %s\n" %
+                           type(self).__name__)
+
+    def getInfo(self, mat, info=None):
+        from mpi4py import MPI
+        memory = self.uf.dat.nbytes + self.uc.dat.nbytes + self.weight.dat.nbytes
+        if info is None:
+            info = PETSc.Mat.InfoType.GLOBAL_SUM
+        if info == PETSc.Mat.InfoType.LOCAL:
+            return {"memory": memory}
+        elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
+            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.SUM)
+            return {"memory": gmem}
+        elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
+            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.MAX)
+            return {"memory": gmem}
+        else:
+            raise ValueError("Unknown info type %s" % info)
+
     @staticmethod
     def make_blas_kernels(Vf, Vc):
         """
