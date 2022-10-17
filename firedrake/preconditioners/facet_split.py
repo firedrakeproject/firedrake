@@ -117,9 +117,9 @@ class FacetSplitPC(PCBase):
                 mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
         elif self.iperm:
-            self._permute_op = partial(P.permute, self.iperm, self.iperm)
             # FIXME block jacobi not supported for virtual sub matrix
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
+            # self._permute_op = partial(P.permute, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P

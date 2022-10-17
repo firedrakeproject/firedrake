@@ -52,6 +52,7 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
+        mat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
         use_amat = options.getBool("pc_use_amat", True)
         use_ainv = options.getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
@@ -61,7 +62,6 @@ class FDMPC(PCBase):
 
         # Get original Jacobian form and bcs
         octx = dmhooks.get_appctx(pc.getDM())
-        mat_type = octx.mat_type
         oproblem = octx._problem
 
         J = oproblem.J
@@ -105,10 +105,11 @@ class FDMPC(PCBase):
             Amat = None
             omat, _ = pc.getOperators()
             if use_amat:
-                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type,
+                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, 
+                                         mat_type=octx.mat_type,
                                          options_prefix=options_prefix)
                 self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                           form_compiler_parameters=fcp, mat_type=mat_type)
+                                           form_compiler_parameters=fcp, mat_type=octx.mat_type)
                 self._assemble_A()
                 Amat = self.A.petscmat
                 inject = prolongation_matrix_matfree(V_fdm, V, [], [])
@@ -119,7 +120,7 @@ class FDMPC(PCBase):
             self.work_vec_x = omat.createVecLeft()
             self.work_vec_y = omat.createVecRight()
 
-        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, octx.mat_type,
                                           fcp=fcp, options_prefix=options_prefix)
 
         if len(bcs) > 0:
@@ -128,7 +129,7 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, mat_type=mat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -154,7 +155,7 @@ class FDMPC(PCBase):
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
-    def assemble_fdm_op(self, V, J, bcs, appctx):
+    def assemble_fdm_op(self, V, J, bcs, appctx, mat_type=None):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -166,6 +167,9 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
+        if mat_type is None:
+            mat_type = PETSc.Mat.Type.AIJ
+
         self.is_interior_element = True
         self.is_facet_element = True
         entity_dofs = V.finat_element.entity_dofs()
@@ -182,7 +186,7 @@ class FDMPC(PCBase):
                     self.is_facet_element = False
                 else:
                     self.is_interior_element = False
-        
+
         Vbig = V
         _, fdofs = split_dofs(V.finat_element)
         if self.is_facet_element:
@@ -228,12 +232,18 @@ class FDMPC(PCBase):
         prealloc = PETSc.Mat().create(comm=V.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
+        prealloc.setBlockSize(block_size)
         prealloc.setUp()
         prealloc.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
         self.assemble_kron(prealloc, V, bcs, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
 
-        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
+        Pmat = PETSc.Mat().create(comm=V.comm)
+        Pmat.setType(mat_type)
+        Pmat.setSizes(sizes)
+        Pmat.setBlockSize(block_size)
+        Pmat.setPreallocationNNZ(nnz)
+        Pmat.setUp()
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs,
                              coefficients, Afdm, Dfdm, bcflags)

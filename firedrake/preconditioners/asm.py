@@ -66,9 +66,11 @@ class ASMPatchPC(PCBase):
                 opts["sub_pc_factor_shift_type"] = "NONE"
 
             # If an ordering type is provided, PCASM should not sort patch indices, otherwise it can.
-            sentinel = object()
-            ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default=sentinel)
-            asmpc.setASMSortIndices(ordering is sentinel)
+            mat_type = P.getType()
+            if not mat_type.endswith("sbaij"):
+                sentinel = object()
+                ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default=sentinel)
+                asmpc.setASMSortIndices(ordering is sentinel)
 
             lgmap = V.dof_dset.lgmap
             # Translate to global numbers
@@ -111,6 +113,9 @@ class ASMPatchPC(PCBase):
         self.asmpc.view(viewer=viewer)
 
     def update(self, pc):
+        # FIXME this should be done internally by PCASM
+        for sub in self.asmpc.getASMSubKSP():
+            sub.getOperators()[0].setUnfactored()
         self.asmpc.setUp()
 
     def apply(self, pc, x, y):
