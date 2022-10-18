@@ -70,8 +70,8 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
 _initialised = False
 
 # set the log level
-print('PyOP2 log level:', configuration['log_level'])
 set_log_level(configuration['log_level'])
+
 
 def initialised():
     """Check whether PyOP2 has been yet initialised but not yet finalised."""
@@ -104,7 +104,6 @@ def init(**kwargs):
     configuration.reconfigure(**kwargs)
 
     set_log_level(configuration['log_level'])
-    import pytest; pytest.set_trace()
     _initialised = True
 
 

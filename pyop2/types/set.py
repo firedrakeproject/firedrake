@@ -227,7 +227,7 @@ class GlobalSet(Set):
     _argtypes_ = ()
 
     def __init__(self, comm=None):
-        debug(f"calling GlobalSet.__init__")
+        debug("calling GlobalSet.__init__")
         # ~ import pdb; pdb.set_trace()
         self.comm = mpi.internal_comm(comm)
         self._cache = {}
@@ -548,7 +548,6 @@ class MixedSet(Set, caching.ObjectCached):
 
     def __del__(self):
         if self._initialized and hasattr(self, "comm"):
-        # ~ if "comm" in self.__dict__.keys():
             debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 

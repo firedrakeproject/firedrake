@@ -49,7 +49,7 @@ from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
 from petsc4py import PETSc
-from pyop2.logger import debug
+
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -408,8 +408,6 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
-            if self.comm == mpi.MPI.COMM_NULL:
-                import pytest; pytest.set_trace()
             self.comm.barrier()
             # Load resulting library
             return ctypes.CDLL(soname)

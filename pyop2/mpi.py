@@ -37,13 +37,14 @@
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 import atexit
-import inspect # remove later
+import os
 from pyop2.configuration import configuration
-from pyop2.logger import warning, debug, progress, INFO
+from pyop2.exceptions import CompilationError
+from pyop2.logger import warning, debug
 from pyop2.utils import trim
 
 
-__all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "internal_comm", "is_pyop2_comm", "incref", "decref")
+__all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "internal_comm", "is_pyop2_comm", "incref", "decref", "PyOP2Comm")
 
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
@@ -163,16 +164,16 @@ def is_pyop2_comm(comm):
     if isinstance(comm, PETSc.Comm):
         ispyop2comm = False
     elif comm == MPI.COMM_NULL:
-        if PYOP2_FINALIZED == False:
+        if PYOP2_FINALIZED is False:
             # ~ import pytest; pytest.set_trace()
             # ~ raise ValueError("COMM_NULL")
             ispyop2comm = True
         else:
             ispyop2comm = True
-    elif isinstance(comm, MPI.Comm):
+    elif isinstance(comm, (MPI.Comm, FriendlyCommNull)):
         ispyop2comm = bool(comm.Get_attr(refcount_keyval))
     else:
-        raise ValueError("Argument passed to is_pyop2_comm() is not a recognised comm type")
+        raise ValueError(f"Argument passed to is_pyop2_comm() is a {type(comm)}, which is not a recognised comm type")
     return ispyop2comm
 
 
@@ -228,8 +229,7 @@ def internal_comm(comm):
         pyop2_comm = comm
     elif isinstance(comm, PETSc.Comm):
         # Convert PETSc.Comm to mpi4py.MPI.Comm
-        comm = dup_comm(comm.tompi4py())
-        pyop2_comm.Set_name(f"PYOP2_{comm.name or id(comm)}")
+        pyop2_comm = dup_comm(comm.tompi4py())
     elif comm == MPI.COMM_NULL:
         # Ensure comm is not the NULL communicator
         raise ValueError("MPI_COMM_NULL passed to internal_comm()")
@@ -259,10 +259,10 @@ def decref(comm):
     # ~ if not PYOP2_FINALIZED:
     refcount = comm.Get_attr(refcount_keyval)
     refcount[0] -= 1
-    debug(f'{comm.name} DECREF to {refcount[0]}')
-    if refcount[0] == 0:
+    # ~ debug(f'{comm.name} DECREF to {refcount[0]}')
+    if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
         dupped_comms.remove(comm)
-        debug(f'Freeing {comm.name}')
+        # ~ debug(f'Freeing {comm.name}')
         free_comm(comm)
 
 
@@ -282,6 +282,7 @@ def dup_comm(comm_in):
         comm_in.Set_attr(innercomm_keyval, comm_out)
         comm_out.Set_attr(outercomm_keyval, comm_in)
         # Name
+        # replace id() with .py2f() ???
         comm_out.Set_name(f"{comm_in.name or id(comm_in)}_DUP")
         # Refcount
         comm_out.Set_attr(refcount_keyval, [0])
@@ -402,16 +403,6 @@ def free_comm(comm):
     """
     if comm != MPI.COMM_NULL:
         assert is_pyop2_comm(comm)
-        # ~ if is_pyop2_comm(comm):
-            # ~ # Not a PyOP2 communicator, check for an embedded comm.
-            # ~ comm = comm.Get_attr(innercomm_keyval)
-            # ~ if comm is None:
-                # ~ raise ValueError("Trying to destroy communicator not known to PyOP2")
-            # ~ if not is_pyop2_comm(comm):
-                # ~ raise ValueError("Inner comm is not a PyOP2 comm")
-
-        # ~ decref(comm)
-
         ocomm = comm.Get_attr(outercomm_keyval)
         if ocomm is not None:
             icomm = ocomm.Get_attr(innercomm_keyval)
@@ -468,6 +459,7 @@ def hash_comm(comm):
     """Return a hashable identifier for a communicator."""
     assert is_pyop2_comm(comm)
     return id(comm)
+
 
 # Install an exception hook to MPI Abort if an exception isn't caught
 # see: https://groups.google.com/d/msg/mpi4py/me2TFzHmmsQ/sSF99LE0t9QJ

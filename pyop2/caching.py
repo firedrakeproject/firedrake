@@ -41,7 +41,7 @@ import pickle
 import cachetools
 
 from pyop2.configuration import configuration
-from pyop2.mpi import hash_comm, is_pyop2_comm
+from pyop2.mpi import hash_comm
 from pyop2.utils import cached_property
 
 
@@ -274,9 +274,6 @@ def disk_cached(cache, cachedir=None, key=cachetools.keys.hashkey, collective=Fa
             if collective:
                 comm, disk_key = key(*args, **kwargs)
                 disk_key = _as_hexdigest(disk_key)
-                # ~ k = id(comm), disk_key
-                # ~ if not is_pyop2_comm(comm):
-                    # ~ import pytest; pytest.set_trace()
                 k = hash_comm(comm), disk_key
             else:
                 k = _as_hexdigest(key(*args, **kwargs))

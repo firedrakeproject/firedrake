@@ -41,7 +41,7 @@ class DataSet(caching.ObjectCached):
     def __del__(self):
         # ~ if hasattr(self, "comm"):
         if "comm" in self.__dict__:
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+            # ~ debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 
     @classmethod

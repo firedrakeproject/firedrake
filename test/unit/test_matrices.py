@@ -795,6 +795,7 @@ class TestMatrices:
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
 
+
 class TestMatrixStateChanges:
 
     """
