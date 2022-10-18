@@ -462,14 +462,14 @@ class ImplicitMatrixContext(object):
                         bsize=submat_ctx.block_size)
         submat.setPythonContext(submat_ctx)
         submat.setUp()
-        
+
         if self._rscale or self._lscale:
             L = self._lscale
             if L:
-                L = L.getSubVector(cols_is)
+                L = L.getSubVector(col_is)
             R = self._lscale
             if R:
-                R = R.getSubVector(rows_is)
+                R = R.getSubVector(row_is)
             submat.diagonalScale(L=L, R=R)
         return submat
 

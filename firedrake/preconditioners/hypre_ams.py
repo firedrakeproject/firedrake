@@ -68,7 +68,6 @@ class HypreAMS(PCBase):
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
         pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
         pc.setUp()
-
         self.pc = pc
 
     def apply(self, pc, x, y):

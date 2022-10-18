@@ -105,7 +105,7 @@ class FDMPC(PCBase):
             Amat = None
             omat, _ = pc.getOperators()
             if use_amat:
-                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, 
+                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=octx.mat_type,
                                          options_prefix=options_prefix)
                 self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
@@ -212,7 +212,7 @@ class FDMPC(PCBase):
         addv = PETSc.InsertMode.ADD_VALUES
         _update_A = load_assemble_csr()
         self.update_A = lambda A, B, rows: _update_A(A, B, rows, rows, addv)
-        
+
         _set_bc_values = load_set_bc_values()
         self.set_bc_values = lambda A, rows: _set_bc_values(A, rows.size, rows, addv)
 
@@ -307,7 +307,8 @@ class FDMPC(PCBase):
         e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
         e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
 
-        if self.is_interior_element:
+        # FIXME this is numerically unstable !?
+        if self.is_interior_element and False:
             e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
             eq = e0
         else:
@@ -317,9 +318,15 @@ class FDMPC(PCBase):
         rule = FIAT.make_quadrature(cell, degree+1)
         pts = rule.get_points()
         wts = rule.get_weights()
-        phi0 = e0.tabulate(1, pts)
-        phi1 = e1.tabulate(0, pts)
+
         phiq = eq.tabulate(0, pts)
+        phi1 = e1.tabulate(0, pts)
+        phi0 = e0.tabulate(1, pts)
+        # FIXME this is more reliable and we are going through the same path as non interior element
+        if self.is_interior_element:
+            for key in phi0:
+                phi0[key] = phi0[key][1:-1, :]
+
         moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
         A10 = moments(phi1[(0, )], phi0[(1, )])
         A11 = moments(phi1[(0, )], phi1[(0, )])
@@ -379,7 +386,10 @@ class FDMPC(PCBase):
             qfam = "DQ L2"
             qdeg = degree-1
 
-        interior_element = self.is_interior_element
+        # FIXME this is numerically unstable !?
+        # By treating interior elements in a less special way,
+        # we may reuse the diagonal of the bilinear form of the unrestricted element
+        interior_element = self.is_interior_element and False
         qvariant = "fdm_feec" if interior_element else "fdm_quadrature"
         elements = [e.reconstruct(variant=qvariant),
                     ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
@@ -800,8 +810,8 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
         if formdegree == 0:
             A_blocks = [[A00.kron(A00.kron(A10))], [A00.kron(A10.kron(A00))], [A10.kron(A00.kron(A00))]]
         elif formdegree == 1:
-            nrows = (A10.getSize()[0])**2 * A10.getSize()[1]
-            ncols = (A10.getSize()[1])**2 * A10.getSize()[0]
+            nrows = A11.getSize()[0] * A10.getSize()[0] * A00.getSize()[0]
+            ncols = A11.getSize()[1] * A10.getSize()[1] * A00.getSize()[1]
             A_zero = PETSc.Mat().createAIJ((nrows, ncols), nnz=([0],)*2, comm=PETSc.COMM_SELF)
             A_zero.assemble()
             A_blocks = [[A00.kron(A10.kron(-A11)), A00.kron(A11.kron(A10)), A_zero],

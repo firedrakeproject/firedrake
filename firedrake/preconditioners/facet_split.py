@@ -86,7 +86,7 @@ class FacetSplitPC(PCBase):
             rindices[indices-start] = isorted
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
-        
+
         del w
         del v
 
@@ -109,7 +109,7 @@ class FacetSplitPC(PCBase):
                                                        bcs=mixed_bcs).assemble
             self._assemble_mixed_op()
             mixed_opmat = self.mixed_op.petscmat
-            
+
             if False:
                 # FIXME
                 mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
@@ -117,9 +117,8 @@ class FacetSplitPC(PCBase):
                 mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
         elif self.iperm:
-            # FIXME block jacobi not supported for virtual sub matrix
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             # self._permute_op = partial(P.permute, self.iperm, self.iperm)
+            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P
