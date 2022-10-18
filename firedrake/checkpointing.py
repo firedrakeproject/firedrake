@@ -4,7 +4,7 @@ import weakref
 from petsc4py.PETSc import ViewerHDF5
 import ufl
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm, MPI
+from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc, OptionsManager
@@ -95,7 +95,8 @@ class DumbCheckpoint(object):
             warnings.simplefilter('always', DeprecationWarning)
             warnings.warn("DumbCheckpoint class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
                           DeprecationWarning)
-        self.comm = dup_comm(comm or COMM_WORLD)
+        self.comm = comm or COMM_WORLD
+        self._comm = internal_comm(self.comm)
         self.mode = mode
 
         self._single = single_file
@@ -186,7 +187,7 @@ class DumbCheckpoint(object):
         if mode == FILE_UPDATE and not exists:
             mode = FILE_CREATE
         self._vwr = PETSc.ViewerHDF5().create(name, mode=mode,
-                                              comm=self.comm)
+                                              comm=self._comm)
         if self.mode == FILE_READ:
             nprocs = self.read_attribute("/", "nprocs")
             if nprocs != self.comm.size:
@@ -338,9 +339,9 @@ class DumbCheckpoint(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "comm"):
-            free_comm(self.comm)
-            del self.comm
+        if hasattr(self, "_comm"):
+            decref(self._comm)
+            del self._comm
 
 
 class HDF5File(object):
@@ -372,7 +373,8 @@ class HDF5File(object):
             warnings.simplefilter('always', DeprecationWarning)
             warnings.warn("HDF5File class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
                           DeprecationWarning)
-        self.comm = dup_comm(comm or COMM_WORLD)
+        self.comm = comm or COMM_WORLD
+        self._comm = internal_comm(self.comm)
 
         self._filename = filename
         self._mode = file_mode
@@ -390,7 +392,7 @@ class HDF5File(object):
 
         # Try to use MPI
         try:
-            self._h5file = h5py.File(filename, file_mode, driver="mpio", comm=self.comm)
+            self._h5file = h5py.File(filename, file_mode, driver="mpio", comm=self._comm)
         except NameError:  # the error you get if h5py isn't compiled against parallel HDF5
             raise RuntimeError("h5py *must* be installed with MPI support")
 
@@ -497,9 +499,8 @@ class HDF5File(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "comm"):
-            free_comm(self.comm)
-            del self.comm
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
 
 class CheckpointFile(object):

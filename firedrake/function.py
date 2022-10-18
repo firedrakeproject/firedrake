@@ -7,7 +7,7 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 import numbers
 
-from pyop2 import op2
+from pyop2 import op2, mpi
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -64,7 +64,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
+        # User comm
         self.comm = function_space.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(function_space.comm)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
@@ -74,10 +77,14 @@ class CoordinatelessFunction(ufl.Coefficient):
             # Allow constructing using a vector.
             val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self.comm
+            assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @utils.cached_property
     def topological(self):
@@ -297,7 +304,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     def __getattr__(self, name):
         val = getattr(self._data, name)
-        setattr(self, name, val)
         return val
 
     def __dir__(self):
