@@ -309,6 +309,7 @@ class FDMPC(PCBase):
 
         # FIXME this is numerically unstable !?
         if self.is_interior_element and False:
+            # RestrictedElement is not tabulated via the barycentric interpolation formula
             e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
             eq = e0
         else:
