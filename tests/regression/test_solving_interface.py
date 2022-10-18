@@ -5,8 +5,11 @@ from numpy.linalg import norm as np_norm
 import gc
 
 
-def howmany(cls):
-    return len([x for x in gc.get_objects() if isinstance(x, cls)])
+def count_refs(cls):
+    gc.collect()
+    # Creating a temporary here is essential for mysterious reasons
+    l = len([x for x in gc.get_objects() if isinstance(x, cls)])
+    return l
 
 
 @pytest.fixture
@@ -49,14 +52,10 @@ def test_petsc_options_cleared(a_L_out):
 def test_linear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
-    gc.collect()
-    before = howmany(LinearVariationalSolver)
-
+    before = count_refs(LinearVariationalSolver)
     solve(a == L, out)
     out.dat.data_ro  # force evaluation
-
-    gc.collect()
-    after = howmany(LinearVariationalSolver)
+    after = count_refs(LinearVariationalSolver)
 
     assert before == after
 
@@ -67,13 +66,10 @@ def test_assembled_solver_gced(a_L_out):
     A = assemble(a)
     b = assemble(L)
 
-    gc.collect()
-    before = howmany(LinearSolver)
+    before = count_refs(LinearSolver)
     solve(A, out, b)
     out.dat.data_ro
-    gc.collect()
-
-    after = howmany(LinearSolver)
+    after = count_refs(LinearSolver)
 
     assert before == after
 
@@ -81,15 +77,11 @@ def test_assembled_solver_gced(a_L_out):
 def test_nonlinear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
-    gc.collect()
-    before = howmany(NonlinearVariationalSolver)
-
+    before = count_refs(NonlinearVariationalSolver)
     F = action(a, out) - L
     solve(F == 0, out)
     out.dat.data_ro  # force evaluation
-
-    gc.collect()
-    after = howmany(NonlinearVariationalSolver)
+    after = count_refs(NonlinearVariationalSolver)
 
     assert before == after
 
