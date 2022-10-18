@@ -6,7 +6,7 @@ from functools import reduce
 import numpy
 from loopy.types import OpaqueType
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
-                                 MatKernelArg, MixedMatKernelArg, PermutedMapKernelArg)
+                                 MatKernelArg, MixedMatKernelArg, PermutedMapKernelArg, ComposedMapKernelArg)
 from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
                                           DummyInstruction, Extent, FixedIndex,
                                           FunctionCall, Index, Indexed,
@@ -152,6 +152,28 @@ class PMap(Map):
     def indexed_vector(self, n, shape, layer=None):
         permute = lambda x: Indexed(self.permutation, (x,))
         return super().indexed_vector(n, shape, layer=layer, permute=permute)
+
+
+class CMap(Map):
+
+    def __init__(self, *maps_):
+        # Copy over properties
+        self.variable = maps_[0].variable
+        self.unroll = maps_[0].unroll
+        self.layer_bounds = maps_[0].layer_bounds
+        self.interior_horizontal = maps_[0].interior_horizontal
+        self.prefetch = {}
+        self.values = maps_[0].values
+        self.offset = maps_[0].offset
+        self.maps_ = maps_
+
+    def indexed(self, multiindex, layer=None):
+        n, i, f = multiindex
+        n_ = n
+        for map_ in reversed(self.maps_):
+            if map_ is not self.maps_[0]:
+                n_, (_, _) = map_.indexed(MultiIndex(n_, FixedIndex(0), Index()), layer=None)
+        return self.maps_[0].indexed(MultiIndex(n_, i, f), layer=layer)
 
 
 class Pack(metaclass=ABCMeta):
@@ -835,6 +857,8 @@ class WrapperBuilder(object):
             if isinstance(map_, PermutedMapKernelArg):
                 imap = self._add_map(map_.base_map, unroll)
                 map_ = PMap(imap, numpy.asarray(map_.permutation, dtype=IntType))
+            elif isinstance(map_, ComposedMapKernelArg):
+                map_ = CMap(*(self._add_map(m, unroll) for m in map_.base_maps))
             else:
                 map_ = Map(interior_horizontal,
                            (self.bottom_layer, self.top_layer),
@@ -878,7 +902,8 @@ class WrapperBuilder(object):
             # But we don't need to emit stuff for PMaps because they
             # are a Map (already seen + a permutation [encoded in the
             # indexing]).
-            if not isinstance(map_, PMap):
+            # CMaps do not have their own arguments, either.
+            if not isinstance(map_, (PMap, CMap)):
                 args.append(map_.values)
         return tuple(args)
 

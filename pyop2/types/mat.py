@@ -18,7 +18,7 @@ from pyop2 import (
 from pyop2.types.access import Access
 from pyop2.types.data_carrier import DataCarrier
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
-from pyop2.types.map import Map
+from pyop2.types.map import Map, ComposedMap
 from pyop2.types.set import MixedSet, Set, Subset
 
 
@@ -165,7 +165,7 @@ class Sparsity(caching.ObjectCached):
                 if not isinstance(m, Map):
                     raise ex.MapTypeError(
                         "All maps must be of type map, not type %r" % type(m))
-                if len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
+                if not isinstance(m, ComposedMap) and len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
                     raise ex.MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
             # Make sure that the "to" Set of each map in a pair is the set of

@@ -61,6 +61,26 @@ class PermutedMapKernelArg:
         return type(self), self.base_map.cache_key, tuple(self.permutation)
 
 
+@dataclass(eq=False, init=False)
+class ComposedMapKernelArg:
+    """Class representing a composed map input to the kernel.
+
+    :param base_maps: An arbitrary combination of :class:`MapKernelArg`s, :class:`PermutedMapKernelArg`s, and :class:`ComposedMapKernelArg`s.
+    """
+
+    def __init__(self, *base_maps):
+        self.base_maps = base_maps
+
+    def __post_init__(self):
+        for m in self.base_maps:
+            if not isinstance(m, (MapKernelArg, PermutedMapKernelArg, ComposedMapKernelArg)):
+                raise TypeError("base_maps must be a combination of MapKernelArgs, PermutedMapKernelArgs, and ComposedMapKernelArgs")
+
+    @property
+    def cache_key(self):
+        return type(self), tuple(m.cache_key for m in self.base_maps)
+
+
 @dataclass(frozen=True)
 class GlobalKernelArg:
     """Class representing a :class:`pyop2.types.Global` being passed to the kernel.
