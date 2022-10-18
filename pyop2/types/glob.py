@@ -13,7 +13,6 @@ from pyop2 import (
 from pyop2.types.access import Access
 from pyop2.types.dataset import GlobalDataSet
 from pyop2.types.data_carrier import DataCarrier, EmptyDataMixin, VecAccessMixin
-from pyop2.logger import debug
 
 
 class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
@@ -40,7 +39,6 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
 
     @utils.validate_type(('name', str, ex.NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None, comm=None):
-        debug("calling Global.__init__")
         if isinstance(dim, Global):
             # If g is a Global, Global(g) performs a deep copy. This is for compatibility with Dat.
             self.__init__(dim._dim, None, dtype=dim.dtype,
@@ -54,18 +52,15 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
             self._name = name or "global_#x%x" % id(self)
             self.comm = mpi.internal_comm(comm)
             # Object versioning setup
-            # ~ petsc_counter = (self.comm and self.dtype == PETSc.ScalarType)
             petsc_counter = (comm and self.dtype == PETSc.ScalarType)
             VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
             try:
                 name = self.comm.name
             except AttributeError:
                 name = "None"
-            debug(f"INIT {self.__class__} and assign {name}")
 
     def __del__(self):
-        if hasattr(self, "comm") and self.comm is not None:
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
+        if hasattr(self, "comm"):
             mpi.decref(self.comm)
 
     @utils.cached_property

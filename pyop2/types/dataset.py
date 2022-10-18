@@ -11,7 +11,6 @@ from pyop2 import (
     utils
 )
 from pyop2.types.set import ExtrudedSet, GlobalSet, MixedSet, Set, Subset
-from pyop2.logger import debug
 
 
 class DataSet(caching.ObjectCached):
@@ -36,12 +35,10 @@ class DataSet(caching.ObjectCached):
         self._cdim = np.prod(self._dim).item()
         self._name = name or "dset_#x%x" % id(self)
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
-        # ~ if hasattr(self, "comm"):
+        # Cannot use hasattr here
         if "comm" in self.__dict__:
-            # ~ debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 
     @classmethod
@@ -217,7 +214,6 @@ class GlobalDataSet(DataSet):
         self._globalset = GlobalSet(comm=self.comm)
         self._name = "gdset_#x%x" % id(self)
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @classmethod
     def _cache_key(cls, *args):
@@ -385,7 +381,6 @@ class MixedDataSet(DataSet):
             comm = None
         self.comm = mpi.internal_comm(comm)
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @classmethod
     def _process_args(cls, arg, dims=None):

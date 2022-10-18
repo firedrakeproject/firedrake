@@ -18,7 +18,6 @@ from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKerne
 from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.utils import cached_property
-from pyop2.logger import debug
 
 
 class ParloopArg(abc.ABC):
@@ -153,11 +152,9 @@ class Parloop:
         self.iterset = iterset
         self.comm = mpi.internal_comm(iterset.comm)
         self.arguments, self.reduced_globals = self.prepare_reduced_globals(arguments, global_knl)
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
         if hasattr(self, "comm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 
     @property

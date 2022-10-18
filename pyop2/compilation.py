@@ -189,15 +189,11 @@ class Compiler(ABC):
         self.pcomm = mpi.internal_comm(comm)
         self.comm = mpi.compilation_comm(self.pcomm)
         self.sniff_compiler_version()
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
-        debug(f"INIT {self.__class__} and assign {self.pcomm.name}")
 
     def __del__(self):
         if hasattr(self, "comm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
         if hasattr(self, "pcomm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.pcomm.name}")
             mpi.decref(self.pcomm)
 
     def __repr__(self):

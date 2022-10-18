@@ -124,7 +124,7 @@ def build_sparsity(sparsity):
     nest = sparsity.nested
     if mixed and sparsity.nested:
         raise ValueError("Can't build sparsity on mixed nest, build the sparsity on the blocks")
-    preallocator = PETSc.Mat().create(comm=sparsity.comm.ob_mpi)
+    preallocator = PETSc.Mat().create(comm=sparsity.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     if mixed:
         # Sparsity is the dof sparsity.

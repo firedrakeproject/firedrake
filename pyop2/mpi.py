@@ -166,7 +166,7 @@ def is_pyop2_comm(comm):
     elif comm == MPI.COMM_NULL:
         if PYOP2_FINALIZED is False:
             # ~ import pytest; pytest.set_trace()
-            # ~ raise ValueError("COMM_NULL")
+            raise ValueError("COMM_NULL")
             ispyop2comm = True
         else:
             ispyop2comm = True
@@ -247,7 +247,6 @@ def incref(comm):
     assert is_pyop2_comm(comm)
     refcount = comm.Get_attr(refcount_keyval)
     refcount[0] += 1
-    debug(f'{comm.name} INCREF to {refcount[0]}')
 
 
 def decref(comm):
@@ -259,10 +258,8 @@ def decref(comm):
     # ~ if not PYOP2_FINALIZED:
     refcount = comm.Get_attr(refcount_keyval)
     refcount[0] -= 1
-    # ~ debug(f'{comm.name} DECREF to {refcount[0]}')
     if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
         dupped_comms.remove(comm)
-        # ~ debug(f'Freeing {comm.name}')
         free_comm(comm)
 
 

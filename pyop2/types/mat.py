@@ -20,7 +20,6 @@ from pyop2.types.data_carrier import DataCarrier
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.map import Map, ComposedMap
 from pyop2.types.set import MixedSet, Set, Subset
-from pyop2.logger import debug
 
 
 class Sparsity(caching.ObjectCached):
@@ -57,7 +56,6 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
 
-        debug(f"INIT {self.__class__} BEGIN")
         self._block_sparse = block_sparse
         # Split into a list of row maps and a list of column maps
         maps, iteration_regions = zip(*maps)
@@ -130,11 +128,9 @@ class Sparsity(caching.ObjectCached):
                 self._o_nnz = onnz
             self._blocks = [[self]]
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
         if hasattr(self, "comm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
         if hasattr(self, "lcomm"):
             mpi.decref(self.lcomm)
@@ -377,7 +373,6 @@ class SparsityBlock(Sparsity):
         if self._initialized:
             return
 
-        debug(f"INIT {self.__class__} BEGIN")
         self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
         self._rmaps = tuple(m.split[i] for m in parent.rmaps)
         self._cmaps = tuple(m.split[j] for m in parent.cmaps)
@@ -393,7 +388,6 @@ class SparsityBlock(Sparsity):
         # TODO: think about lcomm != rcomm
         self.comm = mpi.internal_comm(self.lcomm)
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
@@ -458,11 +452,9 @@ class AbstractMat(DataCarrier, abc.ABC):
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_#x%x" % id(self)
         self.assembly_state = Mat.ASSEMBLED
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
         if hasattr(self, "comm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
         if hasattr(self, "lcomm"):
             mpi.decref(self.lcomm)
@@ -957,7 +949,6 @@ class MatBlock(AbstractMat):
     :arg j: The block column.
     """
     def __init__(self, parent, i, j):
-        debug(f"INIT {self.__class__} BEGIN")
         self._parent = parent
         self._i = i
         self._j = j
@@ -969,7 +960,6 @@ class MatBlock(AbstractMat):
                                                       iscol=colis)
         self.comm = mpi.internal_comm(parent.comm)
         self.local_to_global_maps = self.handle.getLGMap()
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @property
     def dat_version(self):

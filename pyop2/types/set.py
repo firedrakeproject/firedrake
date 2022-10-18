@@ -11,7 +11,6 @@ from pyop2 import (
     mpi,
     utils
 )
-from pyop2.logger import debug
 
 
 class Set:
@@ -78,12 +77,10 @@ class Set:
         self._partition_size = 1024
         # A cache of objects built on top of this set
         self._cache = {}
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
-        # ~ if hasattr(self, "comm"):
+        # Cannot use hasattr here
         if "comm" in self.__dict__:
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 
     @utils.cached_property
@@ -227,11 +224,8 @@ class GlobalSet(Set):
     _argtypes_ = ()
 
     def __init__(self, comm=None):
-        debug("calling GlobalSet.__init__")
-        # ~ import pdb; pdb.set_trace()
         self.comm = mpi.internal_comm(comm)
         self._cache = {}
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @utils.cached_property
     def core_size(self):
@@ -337,7 +331,6 @@ class ExtrudedSet(Set):
         self._layers = layers
         self._extruded = True
         self._extruded_periodic = extruded_periodic
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -421,7 +414,6 @@ class Subset(ExtrudedSet):
                        len(self._indices))
         self._extruded = superset._extruded
         self._extruded_periodic = superset._extruded_periodic
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -544,11 +536,9 @@ class MixedSet(Set, caching.ObjectCached):
         # TODO: do all sets need the same communicator?
         self.comm = mpi.internal_comm(functools.reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets)))
         self._initialized = True
-        debug(f"INIT {self.__class__} and assign {self.comm.name}")
 
     def __del__(self):
         if self._initialized and hasattr(self, "comm"):
-            debug(f"DELETE {self.__class__} and removing reference to {self.comm.name}")
             mpi.decref(self.comm)
 
     @utils.cached_property
