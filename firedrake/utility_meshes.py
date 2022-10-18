@@ -2,7 +2,7 @@ import numpy as np
 
 import ufl
 
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_WORLD, internal_comm, decref
 from firedrake.utils import IntType, RealType, ScalarType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
@@ -73,7 +73,8 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
     coords = np.arange(left, right + 0.01 * dx, dx, dtype=np.double).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = mesh._from_cell_list(1, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(1, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
     # Apply boundary IDs
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -87,7 +88,9 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
         if vcoord[0] == coords[-1]:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
-    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -167,7 +170,7 @@ cells are not currently supported")
               "L": (cL, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
 
 
 @PETSc.Log.EventDecorator()
@@ -217,9 +220,10 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     coords = np.array([X, Y]).T
 
     # a line of coordinates, with a looped topology
-    plex = mesh._from_cell_list(2, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
-    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters)
+    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters, comm=comm)
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
@@ -326,7 +330,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc, name=mesh._generate_default_mesh_coordinates_name(name)).interpolate(mesh1.coordinates)
 
-    mash = mesh.Mesh(fc, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    mash = mesh.Mesh(fc, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     topverts = Vc.cell_node_list[:, 1::2].flatten()
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
@@ -349,6 +353,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         if all(lfd[i, :] == np.array([3, 3])):
             lfd[i, :] = [2, 3]
 
+    decref(icomm)
     return mash
 
 
@@ -368,9 +373,12 @@ def UnitTriangleMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_
     """
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = mesh._from_cell_list(2, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
-    return mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -492,7 +500,8 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
             # two cells per cell above...
             cells = cells[:, idx].reshape(-1, 3)
 
-    plex = mesh._from_cell_list(2, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
     # mark boundary facets
@@ -519,7 +528,9 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -636,7 +647,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     """
 
     if direction == "both" and ny == 1 and quadrilateral:
-        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
@@ -699,7 +710,7 @@ cells in each direction are not currently supported")
               "Ly": (cLy, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
 
 
 @PETSc.Log.EventDecorator()
@@ -811,16 +822,18 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = mesh._from_cell_list(1, cells, vertices, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(1, cells, vertices, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to circle
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     m._radius = radius
+    decref(icomm)
     return m
 
 
@@ -859,7 +872,8 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
                       [0, 7, 8],
                       [0, 8, 1]], np.int32)
 
-    plex = mesh._from_cell_list(2, cells, vertices, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, vertices, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
     # mark boundary facets
@@ -881,7 +895,8 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
     return m
 
 
@@ -918,7 +933,8 @@ def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None,
                       [0, 5, 4, 6],
                       [0, 1, 5, 6]], np.int32)
 
-    plex = mesh._from_cell_list(3, cells, vertices, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(3, cells, vertices, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -939,7 +955,8 @@ def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.sum(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
     return m
 
 
@@ -959,9 +976,12 @@ def UnitTetrahedronMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distributi
     """
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = mesh._from_cell_list(3, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(3, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
-    return mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -1040,7 +1060,8 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
     else:
         raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
 
-    plex = mesh._from_cell_list(3, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(3, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
     # Apply boundary IDs
@@ -1069,7 +1090,9 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
     plex.removeLabel("boundary_faces")
 
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -1183,7 +1206,8 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
              v0, v6, v4, v7,
              v0, v2, v6, v7]
     cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
-    plex = mesh._from_cell_list(3, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(3, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
     m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
@@ -1235,7 +1259,8 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
               "hy": (hy, READ),
               "hz": (hz, READ)},
              is_loopy_kernel=True)
-    m1 = mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m1 = mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
     return m1
 
 
@@ -1332,7 +1357,8 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                       [8, 6, 7],
                       [9, 8, 1]], dtype=np.int32)
 
-    plex = mesh._from_cell_list(2, faces, vertices, comm)
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, faces, vertices, icomm)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -1341,14 +1367,15 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     m._radius = radius
+    decref(icomm)
     return m
 
 
@@ -1443,17 +1470,18 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
         for new, idx in enumerate(indices):
             faces[faces == idx] = new
 
-    plex = mesh._from_cell_list(2, faces, vertices, comm)
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, faces, vertices, icomm)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
     plex.setName(mesh._generate_default_mesh_topology_name(name))
 
     # build the initial mesh
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     if degree > 1:
         # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)), name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)), name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -1499,6 +1527,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                             0.))
     m.coordinates.interpolate(taper*Xradial + (1-taper)*Xlatitudinal)
     m._radius = radius
+    decref(icomm)
     return m
 
 
@@ -1690,18 +1719,20 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         raise ValueError("Mesh coordinate degree must be at least 1")
 
     cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-    plex = mesh._from_cell_list(2, cells, coords, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, coords, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords, distribution_name=distribution_name, permutation_name=permutation_name)
+        m = mesh.Mesh(new_coords, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
     m._radius = radius
+    decref(icomm)
     return m
 
 
@@ -1776,9 +1807,11 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
-    plex = mesh._from_cell_list(2, cells, vertices, comm,
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, vertices, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
     return m
 
 
@@ -1892,7 +1925,9 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
-    plex = mesh._from_cell_list(2, cells, vertices, comm,
+
+    icomm = internal_comm(comm)
+    plex = mesh._from_cell_list(2, cells, vertices, icomm,
                                 mesh._generate_default_mesh_topology_name(name))
 
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -1916,7 +1951,8 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)
+    decref(icomm)
     return m
 
 
@@ -2013,4 +2049,4 @@ cells in each direction are not currently supported")
                                [1, 0]])
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
-    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name, comm=comm)

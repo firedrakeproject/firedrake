@@ -4,7 +4,7 @@ import numpy
 import os
 import ufl
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, dup_comm
+from pyop2.mpi import COMM_WORLD, internal_comm, decref
 from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
@@ -391,7 +391,8 @@ class File(object):
         if mode == "a" and not os.path.isfile(filename):
             mode = "w"
 
-        comm = dup_comm(comm or COMM_WORLD)
+        self.comm = comm or COMM_WORLD
+        self._comm = internal_comm(self.comm)
 
         if comm.rank == 0 and mode == "w":
             outdir = os.path.dirname(os.path.abspath(filename))
@@ -400,9 +401,8 @@ class File(object):
         elif comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
-        comm.barrier()
+        self._comm.barrier()
 
-        self.comm = comm
         self.filename = filename
         self.basename = basename
         self.project = project_output
@@ -430,7 +430,7 @@ class File(object):
 
         if mode == "a":
             # Need to communicate the count across all cores involved; default op is SUM
-            countstart = self.comm.allreduce(countstart)
+            countstart = self._comm.allreduce(countstart)
 
         self.counter = itertools.count(countstart)
         self.timestep = itertools.count(countstart)
@@ -438,6 +438,10 @@ class File(object):
         self._fnames = None
         self._topology = None
         self._adaptive = adaptive
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @no_annotations
     def _prepare_output(self, function, max_elem):

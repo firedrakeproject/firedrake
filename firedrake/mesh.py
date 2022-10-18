@@ -10,9 +10,8 @@ import enum
 import numbers
 import abc
 
-from mpi4py import MPI
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, dup_comm
+from pyop2.mpi import MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
@@ -374,9 +373,11 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     :arg dim: The topological dimension of the mesh
     :arg cells: The vertices of each cell
     :arg coords: The coordinates of each vertex
-    :arg comm: communicator to build the mesh on.
+    :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
+    assert is_pyop2_comm(comm)
+
     # These types are /correct/, DMPlexCreateFromCellList wants int
     # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
@@ -433,6 +434,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
+
     layers = None
     """No layers on unstructured mesh"""
 
@@ -441,7 +446,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
     @property
     def comm(self):
-        pass
+        return self.user_comm
 
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
@@ -734,7 +739,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -811,7 +816,11 @@ class MeshTopology(AbstractMeshTopology):
         r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
-        self._comm = dup_comm(plex.comm.tompi4py())
+
+        # User comm
+        self.user_comm = comm
+        # Internal comm
+        self._comm = internal_comm(self.user_comm)
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
@@ -913,9 +922,9 @@ class MeshTopology(AbstractMeshTopology):
                 self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
 
-    @property
-    def comm(self):
-        return self._comm
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1359,7 +1368,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
         r"The PETSc DM representation of the mesh topology."
-        self._comm = dup_comm(swarm.comm.tompi4py())
+        self._comm = internal_comm(swarm.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
@@ -1385,10 +1394,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             entity_dofs[:] = 0
             entity_dofs[0] = 1
             self._vertex_numbering = self.create_section(entity_dofs)
-
-    @property
-    def comm(self):
-        return self._comm
 
     @utils.cached_property
     def cell_closure(self):
@@ -1908,7 +1913,7 @@ def make_mesh_from_coordinates(coordinates, name):
     return mesh
 
 
-def make_mesh_from_mesh_topology(topology, name):
+def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
@@ -1989,7 +1994,7 @@ def Mesh(meshfile, **kwargs):
     import firedrake.function as function
 
     name = kwargs.get("name", DEFAULT_MESH_NAME)
-    comm = kwargs.get("comm", COMM_WORLD)
+    user_comm = kwargs.get("comm", COMM_WORLD)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
@@ -2000,7 +2005,7 @@ def Mesh(meshfile, **kwargs):
        any(meshfile.lower().endswith(ext) for ext in ['.h5', '.hdf5']):
         from firedrake.output import CheckpointFile
 
-        with CheckpointFile(meshfile, 'r', comm=comm) as afile:
+        with CheckpointFile(meshfile, 'r', comm=user_comm) as afile:
             return afile.load_mesh(name=name, reorder=reorder,
                                    distribution_parameters=distribution_parameters)
     elif isinstance(meshfile, function.Function):
@@ -2014,15 +2019,21 @@ def Mesh(meshfile, **kwargs):
 
     utils._init()
 
+    # We don't need to worry about using a user comm in these cases as
+    # they all immediately call a petsc4py which in turn uses a PETSc
+    # internal comm
     geometric_dim = kwargs.get("dim", None)
     if isinstance(meshfile, PETSc.DMPlex):
         plex = meshfile
+        # Check that the plex is defined over the same comm as the user has specified
+        if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile, comm)
+            plex = _from_exodus(meshfile, user_comm)
         elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile, comm)
+            plex = _from_cgns(meshfile, user_comm)
         elif ext.lower() == '.msh':
             if geometric_dim is not None:
                 opts = {"dm_plex_gmsh_spacedim": geometric_dim}
@@ -2030,9 +2041,9 @@ def Mesh(meshfile, **kwargs):
                 opts = {}
             opts = OptionsManager(opts, "")
             with opts.inserted_options():
-                plex = _from_gmsh(meshfile, comm)
+                plex = _from_gmsh(meshfile, user_comm)
         elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, geometric_dim, comm)
+            plex = _from_triangle(meshfile, geometric_dim, user_comm)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
@@ -2041,7 +2052,8 @@ def Mesh(meshfile, **kwargs):
     topology = MeshTopology(plex, name=plex.getName(), reorder=reorder,
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
-                            permutation_name=kwargs.get("permutation_name"))
+                            permutation_name=kwargs.get("permutation_name"),
+                            comm=user_comm)
     return make_mesh_from_mesh_topology(topology, name)
 
 
