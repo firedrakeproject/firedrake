@@ -7,6 +7,23 @@ import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, checkpoint_init_data
 
 
+class DelegatedFunctionCheckpoint:
+    """A wrapper which delegates the checkpoint of this Function to another Function.
+    
+    This enables us to avoid checkpointing a Function twice when it is copied.
+    
+    
+    Args:
+    other: BlockVariable
+        The block variable to which we delegate checkpointing.
+    """
+    def __init__(self, other):
+        self.other = other
+
+    def restore(self):
+        return other.saved_output()
+
+
 class FunctionMixin(FloatingType):
 
     @staticmethod
@@ -117,7 +134,10 @@ class FunctionMixin(FloatingType):
                 ret = assign(self, other, *args, **kwargs)
 
             if annotate:
-                block.add_output(self.create_block_variable())
+                block_var = self.create_block_variable()
+                if isinstance(other, type(self)):
+                    block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
+                block.add_output(block_var)
 
             return ret
 
@@ -236,7 +256,7 @@ class FunctionMixin(FloatingType):
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointFunction):
+        if isinstance(checkpoint, (CheckpointFunction, DelegatedFunctionCheckpoint)):
             return checkpoint.restore()
         else:
             return checkpoint
