@@ -8,22 +8,20 @@ from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
 from ufl import grad
-import numpy
 
 __all__ = ("HypreAMS",)
 
 
 def chop(A):
     # remove (near) zeros from sparsity pattern
-    ai, aj, a = A.getValuesCSR()
-    a[numpy.abs(a) < 1E-10] = 0
+    A.chop(1E-10)
     B = PETSc.Mat().create(comm=A.comm)
     B.setType(A.getType())
     B.setSizes(A.getSizes())
     B.setBlockSize(A.getBlockSize())
     B.setUp()
     B.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-    B.setPreallocationCSR((ai, aj, a))
+    B.setPreallocationCSR(A.getValuesCSR())
     B.assemble()
     A.destroy()
     return B
