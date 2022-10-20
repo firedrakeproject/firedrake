@@ -4,6 +4,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
+from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
 
 __all__ = ("HypreADS",)
@@ -31,12 +32,12 @@ class HypreADS(PCBase):
         NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
+            G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
         else:
             G = G_callback(NC1, P1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
+            C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
         else:
             C = C_callback(V, NC1)
 

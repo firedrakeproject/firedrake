@@ -323,7 +323,7 @@ class FDMPC(PCBase):
         phiq = eq.tabulate(0, pts)
         phi1 = e1.tabulate(0, pts)
         phi0 = e0.tabulate(1, pts)
-        # FIXME this is more reliable and we are going through the same path as non interior element
+        # FIXME this is more reliable and shares code path as non-interior elements
         if self.is_interior_element:
             for key in phi0:
                 phi0[key] = phi0[key][1:-1, :]
@@ -820,7 +820,12 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
                         [A_zero, A10.kron(A11.kron(A00)), A11.kron(A10.kron(-A00))]]
         elif formdegree == 2:
             A_blocks = [[A10.kron(A11.kron(-A11)), A11.kron(A10.kron(A11)), A11.kron(A11.kron(A10))]]
-    return block_mat(A_blocks)
+    
+    result = block_mat(A_blocks)
+    for A_row in A_blocks:
+        for A in A_row:
+            A.destroy()
+    return result
 
 
 def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):

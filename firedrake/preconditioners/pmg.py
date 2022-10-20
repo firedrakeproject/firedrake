@@ -254,13 +254,14 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
-        # injection of the initial state
-        def inject_state(mat):
-            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                mat.mult(xf, xc)
-
         injection = self.create_injection(cdm, fdm)
-        add_hook(parent, setup=partial(inject_state, injection), call_setup=True)
+        
+        # injection of the initial state
+        def inject_state():
+            with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                injection.mult(xf, xc)
+
+        add_hook(parent, setup=inject_state, call_setup=True)
 
         # coarsen the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
