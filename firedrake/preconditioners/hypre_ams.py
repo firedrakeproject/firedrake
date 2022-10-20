@@ -12,9 +12,9 @@ from ufl import grad
 __all__ = ("HypreAMS",)
 
 
-def chop(A):
+def chop(A, tol=1E-10):
     # remove (near) zeros from sparsity pattern
-    A.chop(1E-10)
+    A.chop(tol)
     B = PETSc.Mat().create(comm=A.comm)
     B.setType(A.getType())
     B.setSizes(A.getSizes())
