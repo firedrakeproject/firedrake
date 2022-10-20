@@ -147,7 +147,14 @@ class FriendlyCommNull:
         self.name = 'PYOP2_FRIENDLY_COMM_NULL'
 
     def Get_attr(self, keyval):
-        return [1]
+        if keyval is refcount_keyval:
+            ret = [1]
+        elif keyval in (innercomm_keyval, outercomm_keyval, compilationcomm_keyval):
+            ret = None
+        return ret
+
+    def Delete_attr(self, keyval):
+        pass
 
     def Free(self):
         pass
@@ -255,11 +262,15 @@ def decref(comm):
     if comm == MPI.COMM_NULL:
         comm = FriendlyCommNull()
     assert is_pyop2_comm(comm)
-    # ~ if not PYOP2_FINALIZED:
-    refcount = comm.Get_attr(refcount_keyval)
-    refcount[0] -= 1
-    if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
-        dupped_comms.remove(comm)
+    if not PYOP2_FINALIZED:
+        refcount = comm.Get_attr(refcount_keyval)
+        refcount[0] -= 1
+        if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
+            dupped_comms.remove(comm)
+            free_comm(comm)
+    elif comm == MPI.COMM_NULL:
+        pass
+    else:
         free_comm(comm)
 
 
@@ -279,7 +290,7 @@ def dup_comm(comm_in):
         comm_in.Set_attr(innercomm_keyval, comm_out)
         comm_out.Set_attr(outercomm_keyval, comm_in)
         # Name
-        # replace id() with .py2f() ???
+        # TODO: replace id() with .py2f() ???
         comm_out.Set_name(f"{comm_in.name or id(comm_in)}_DUP")
         # Refcount
         comm_out.Set_attr(refcount_keyval, [0])
@@ -398,9 +409,14 @@ def free_comm(comm):
     This only actually calls MPI_Comm_free once the refcount drops to
     zero.
     """
+    # ~ if isinstance(comm, list):
+    # ~ import pytest; pytest.set_trace()
     if comm != MPI.COMM_NULL:
         assert is_pyop2_comm(comm)
         ocomm = comm.Get_attr(outercomm_keyval)
+        if isinstance(ocomm, list):
+            # No idea why this happens!?
+            ocomm = None
         if ocomm is not None:
             icomm = ocomm.Get_attr(innercomm_keyval)
             if icomm is None:
