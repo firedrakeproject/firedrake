@@ -119,6 +119,10 @@ class ASMPatchPC(PCBase):
     def applyTranspose(self, pc, x, y):
         self.asmpc.applyTranspose(x, y)
 
+    def destroy(self, pc):
+        if hasattr(self, "asmpc"):
+            self.asmpc.destroy()
+
 
 class ASMStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
