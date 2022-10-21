@@ -55,7 +55,7 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
-        mat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
+        pmat_type = options.getString("pmat_type", PETSc.Mat.Type.AIJ)
         use_amat = options.getBool("pc_use_amat", True)
         use_ainv = options.getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
@@ -66,6 +66,7 @@ class FDMPC(PCBase):
         # Get original Jacobian form and bcs
         octx = dmhooks.get_appctx(pc.getDM())
         oproblem = octx._problem
+        mat_type = octx.mat_type
 
         J = oproblem.J
         if isinstance(J, firedrake.slate.Add):
@@ -109,10 +110,9 @@ class FDMPC(PCBase):
             omat, _ = pc.getOperators()
             if use_amat:
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
-                                         mat_type=octx.mat_type,
-                                         options_prefix=options_prefix)
+                                         mat_type=mat_type, options_prefix=options_prefix)
                 self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                           form_compiler_parameters=fcp, mat_type=octx.mat_type)
+                                           form_compiler_parameters=fcp, mat_type=mat_type)
                 self._assemble_A()
                 Amat = self.A.petscmat
                 inject = prolongation_matrix_matfree(V_fdm, V, [], [])
@@ -123,7 +123,7 @@ class FDMPC(PCBase):
             self.work_vec_x = omat.createVecLeft()
             self.work_vec_y = omat.createVecRight()
 
-        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, octx.mat_type,
+        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                           fcp=fcp, options_prefix=options_prefix)
 
         if len(bcs) > 0:
@@ -132,7 +132,7 @@ class FDMPC(PCBase):
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, mat_type=mat_type)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, pmat_type=pmat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -158,7 +158,7 @@ class FDMPC(PCBase):
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
-    def assemble_fdm_op(self, V, J, bcs, appctx, mat_type=None):
+    def assemble_fdm_op(self, V, J, bcs, appctx, pmat_type=None):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -170,8 +170,8 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-        if mat_type is None:
-            mat_type = PETSc.Mat.Type.AIJ
+        if pmat_type is None:
+            pmat_type = PETSc.Mat.Type.AIJ
 
         self.is_interior_element = True
         self.is_facet_element = True
@@ -242,7 +242,7 @@ class FDMPC(PCBase):
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
 
         Pmat = PETSc.Mat().create(comm=V.comm)
-        Pmat.setType(mat_type)
+        Pmat.setType(pmat_type)
         Pmat.setSizes(sizes)
         Pmat.setBlockSize(block_size)
         Pmat.setPreallocationNNZ(nnz)
@@ -815,29 +815,30 @@ def mass_matrix(ndim, formdegree, B00, B11):
 
 
 def diff_matrix(ndim, formdegree, A00, A11, A10):
-    A00 = petsc_sparse(A00)
-    A11 = petsc_sparse(A11)
-    A10 = petsc_sparse(A10)
     if formdegree == ndim:
-        ncols = A10.size[0]**ndim
-        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=([0],)*2, comm=PETSc.COMM_SELF)
+        ncols = A10.shape[0]**ndim
+        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=([0], [0]), comm=PETSc.COMM_SELF)
         A_zero.assemble()
         return A_zero
 
+    A00 = petsc_sparse(A00)
+    A11 = petsc_sparse(A11)
+    A10 = petsc_sparse(A10)
     if ndim == 1:
         return A10
     elif ndim == 2:
         if formdegree == 0:
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
-            A_blocks = [[A10.kron(A11), A11.kron(-A10)]]
+            A_blocks = [[A10.kron(A11), A11.kron(A10)]]
+            A_blocks[-1][-1].scale(-1)
     elif ndim == 3:
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
             nrows = A11.getSize()[0] * A10.getSize()[0] * A00.getSize()[0]
             ncols = A11.getSize()[1] * A10.getSize()[1] * A00.getSize()[1]
-            A_zero = PETSc.Mat().createAIJ((nrows, ncols), nnz=([0],)*2, comm=PETSc.COMM_SELF)
+            A_zero = PETSc.Mat().createAIJ((nrows, ncols), nnz=([0], [0]), comm=PETSc.COMM_SELF)
             A_zero.assemble()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), A_zero],
                         [kron3(A10, A00, A11, scale=-1), A_zero, kron3(A11, A00, A10)],
