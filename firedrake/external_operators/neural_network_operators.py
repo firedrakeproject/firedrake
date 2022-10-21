@@ -201,16 +201,20 @@ class PytorchOperator(PointnetOperator):
         return self.ml_backend.unsqueeze(torch_op, self.inputs_format)
 
     def _post_forward_callback(self, N, x, model_tape=False, **kwargs):
-        if self.derivatives == (0,)*len(self.ufl_operands):
-            N = N.squeeze(self.inputs_format)
-            if model_tape:
-                return N
-            return N.detach()
-        return N
+        #if self.derivatives == (0,)*len(self.ufl_operands):
+        #    N = N.squeeze(self.inputs_format)
+        #    if model_tape:
+        #        return N
+        #    return N.detach()
+        N = N.squeeze(self.inputs_format)
+        if model_tape:
+            return N
+        return N.detach()
 
     # --- Evaluation ---
 
-    def _evaluate_jacobian(self, N, x, **kwargs):
+    def _evaluate_jacobian(self, x, **kwargs):
+        N = self._evaluate(model_tape=True)
         N = N.squeeze(self.inputs_format)
         if sum(self.derivatives[-self.nparams:]) > 0:
             # When we want to compute: \frac{\partial{N}}{\partial{params_i}}
@@ -276,8 +280,8 @@ class PytorchOperator(PointnetOperator):
         res = self._post_forward_callback(val, torch_op, model_tape)
 
         # Compute the jacobian
-        if self.derivatives != (0,)*len(self.ufl_operands):
-            res = self._evaluate_jacobian(val, torch_op)
+        #if self.derivatives != (0,)*len(self.ufl_operands):
+        #    res = self._evaluate_jacobian(val,  torch_op)
 
         # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
         if model_tape:
@@ -292,7 +296,7 @@ class PytorchOperator(PointnetOperator):
         return self.assign(result)
 
     def evaluate_backprop(self, x, params_idx, controls):
-        outputs = self.evaluate(model_tape=True)
+        outputs = self._evaluate(model_tape=True)
         params = list(p for i, p in enumerate(self.model.parameters()) if i in params_idx)
         grad_W = self.ml_backend.autograd.grad(outputs, params,
                                                grad_outputs=[self.ml_backend.tensor(x.dat.data_ro)],
@@ -303,17 +307,40 @@ class PytorchOperator(PointnetOperator):
         return tuple(Function(fct_space, val=grad_Wi).vector() for grad_Wi, fct_space in zip(grad_W, cst_fct_spaces))
 
     @assemble_method(0, (0,))
-    def _assemble(self, *args, **kwargs):
+    def assemble(self, *args, **kwargs):
         return self._evaluate(*args, **kwargs)
 
     @assemble_method(1, (0, 1))
-    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
+    def assemble_jacobian(self, *args, assembly_opts, **kwargs):
         result = self._evaluate()
         integral_types = set(['cell'])
         J = self._matrix_builder((), assembly_opts, integral_types)
         with result.dat.vec as vec:
             J.petscmat.setDiagonal(vec)
         return J
+
+    @assemble_method(1, (0, None))
+    def assemble_jacobian_action(self, *args, **kwargs):
+        w = self.argument_slots()[-1]
+        idx, = [i for i, e in enumerate(self.derivatives) if e == 1]
+        res = self._evaluate_jacobian(val,  torch_op)
+
+    @assemble_method(1, (None, 0))
+    def assemble_jacobian_adjoint_action(self, *args, assembly_opts, **kwargs):
+
+        w = self.argument_slots()[0]
+        idx, = [i for i, e in enumerate(self.derivatives) if e == 1]
+        n_inputs = len(self.operator_inputs())
+        if idx < n_inputs:
+            # Gradient with respect to inputs
+            pass
+        else:
+            # Gradient with respect to parameters
+            res, = self.evaluate_backprop(w.vector(), (idx - n_inputs,), (self.ufl_operands[idx],))
+            # PyOP2 flattens out DataCarrier object by destructively modifying shape
+            # This does the inverse of that operation to get the parameters of the N in the right format.
+            res.dat.data.shape = res.ufl_shape
+            return res.function
 
     # --- Update parameters ---
 
