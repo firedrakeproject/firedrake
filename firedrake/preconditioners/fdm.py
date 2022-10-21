@@ -475,6 +475,7 @@ class FDMPC(PCBase):
                 self.update_A(A, Ae, lgmap.apply(index_cell(e)))
 
         A.assemble()
+        Ae.destroy()
         work_mat.destroy()
 
     def element_mat(self, coefs_array, Afdm, work_mat, result=None):
