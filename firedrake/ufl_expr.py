@@ -261,10 +261,18 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         V = uc.function_space()
         du = argument(V)
     elif isinstance(uc, firedrake.Constant):
+        """
         if uc.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")
         V = firedrake.FunctionSpace(mesh, "Real", 0)
         du = argument(V)
+        """
+        if uc.ufl_shape == ():
+            V = firedrake.FunctionSpace(mesh, "Real", 0)
+            du = argument(V)
+        else:
+            V = firedrake.TensorFunctionSpace(mesh, "Real", 0, shape=uc.ufl_shape)
+            du = argument(V)
     else:
         raise RuntimeError("Can't compute derivative for form")
 
