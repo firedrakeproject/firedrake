@@ -530,7 +530,7 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.0.0"}, "")
+        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
         r"""DMPlex HDF5 version options."""
 
     def __enter__(self):
