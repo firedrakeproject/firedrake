@@ -322,16 +322,15 @@ def test_bc_nodes_cover_ghost_dofs():
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
-    icomm = internal_comm(COMM_WORLD)
-    dm = create_dm(2, [[0, 1, 2],
-                       [1, 2, 3],
-                       [1, 3, 4]],
-                   [[0, 0],
-                    [1, 0],
-                    [0, 1],
-                    [0.5, 1],
-                    [1, 1]],
-                   icomm)
+    with mpi.PyOP2Comm(COMM_WORLD) as comm:
+        dm = create_dm(2, [[0, 1, 2],
+                           [1, 2, 3],
+                           [1, 3, 4]],
+                       [[0, 0],
+                        [1, 0],
+                        [0, 1],
+                        [0.5, 1],
+                        [1, 1]], comm=comm)
 
     dm.createLabel("Face Sets")
 
@@ -360,7 +359,6 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1])
     else:
         assert np.allclose(bc.nodes, [1, 2])
-    decref(icomm)
 
 
 def test_bcs_string_bc_list():

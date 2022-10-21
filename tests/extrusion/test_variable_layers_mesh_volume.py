@@ -1,4 +1,5 @@
 import numpy
+from pyop2 import mpi
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
 
@@ -15,17 +16,18 @@ def test_one_d_mesh_volume():
 
 
 def test_two_d_mesh_volume():
-    dm = create_dm(2, [[0, 1, 2],
-                       [1, 2, 3],
-                       [3, 4, 5],
-                       [1, 3, 6]],
-                   [[0, 0],
-                    [1, 0],
-                    [1, 1],
-                    [2, 0],
-                    [3, 0],
-                    [3, 1],
-                    [2, -1]], COMM_WORLD)
+    with mpi.PyOP2Comm(COMM_WORLD) as comm:
+        dm = create_dm(2, [[0, 1, 2],
+                           [1, 2, 3],
+                           [3, 4, 5],
+                           [1, 3, 6]],
+                       [[0, 0],
+                        [1, 0],
+                        [1, 1],
+                        [2, 0],
+                        [3, 0],
+                        [3, 1],
+                        [2, -1]], comm=comm)
     mesh2d = Mesh(dm, reorder=False)
 
     extmesh = ExtrudedMesh(mesh2d, [[0, 2],
