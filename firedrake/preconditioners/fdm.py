@@ -42,6 +42,9 @@ class FDMPC(PCBase):
 
     _variant = "fdm_feec"
 
+    _coefficient_cache = {}
+    _reference_tensor_cache = {}
+
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, assemble
@@ -301,48 +304,52 @@ class FDMPC(PCBase):
             pass
         if formdegree == ndim:
             degree = degree+1
-
-        elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
-        cell = elements[0].get_reference_element()
-        e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
-        e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
-
-        # FIXME this is numerically unstable !?
-        if self.is_interior_element and False:
-            # RestrictedElement is not tabulated via the barycentric interpolation formula
-            e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
-            eq = e0
-        else:
-            eq = FIAT.FDMQuadrature(cell, degree)
-
         quad_degree = 2*degree+1
-        rule = FIAT.make_quadrature(cell, degree+1)
-        pts = rule.get_points()
-        wts = rule.get_weights()
 
-        phiq = eq.tabulate(0, pts)
-        phi1 = e1.tabulate(0, pts)
-        phi0 = e0.tabulate(1, pts)
-        # FIXME this is more reliable and shares code path as non-interior elements
-        if self.is_interior_element:
-            for key in phi0:
-                phi0[key] = phi0[key][1:-1, :]
+        key = (degree, ndim, formdegree, V.value_size, self.is_interior_element)
+        if key not in self._reference_tensor_cache:
+            elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
+            cell = elements[0].get_reference_element()
+            e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
+            e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
+            eq = FIAT.FDMQuadrature(cell, degree)
+            if self.is_interior_element:
+                e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-        moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-        A10 = moments(phi1[(0, )], phi0[(1, )])
-        A11 = moments(phi1[(0, )], phi1[(0, )])
-        A00 = moments(phiq[(0, )], phi0[(0, )])
+            rule = FIAT.make_quadrature(cell, degree+1)
+            pts = rule.get_points()
+            wts = rule.get_weights()
 
-        Qhat = mass_matrix(ndim, formdegree, A00, A11)
-        Dhat = diff_matrix(ndim, formdegree, A00, A11, A10)
-        Afdm = [block_mat([[Qhat], [Dhat]]).kron(petsc_sparse(numpy.eye(V.value_size)))]
-        return Afdm, [], quad_degree, None
+            phiq = eq.tabulate(0, pts)
+            phi1 = e1.tabulate(0, pts)
+            phi0 = e0.tabulate(1, pts)
+
+            moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
+            A10 = moments(phi1[(0, )], phi0[(1, )])
+            A11 = moments(phi1[(0, )], phi1[(0, )])
+            A00 = moments(phiq[(0, )], phi0[(0, )])
+
+            Ihat = mass_matrix(ndim, formdegree, A00, A11)
+            Dhat = diff_matrix(ndim, formdegree, A00, A11, A10)
+            ref_tensor = block_mat([[Ihat], [Dhat]])
+            if V.value_size > 1:
+                eye = petsc_sparse(numpy.eye(V.value_size))
+                temp = ref_tensor
+                ref_tensor = temp.kron(eye)
+                temp.destroy()
+                eye.destroy()
+
+            self._reference_tensor_cache[key] = [ref_tensor]
+            Ihat.destroy()
+            Dhat.destroy()
+        return self._reference_tensor_cache[key], [], quad_degree, None
 
     def assemble_coef(self, J, quad_deg, discard_mixed=True, cell_average=True):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
         """
         from ufl.algorithms.ad import expand_derivatives
+        from ufl.algorithms.expand_indices import expand_indices
         from firedrake.assemble import OneFormAssembler
         mesh = J.ufl_domain()
         ndim = mesh.topological_dimension()
@@ -387,14 +394,10 @@ class FDMPC(PCBase):
             qfam = "DQ L2"
             qdeg = degree-1
 
-        # FIXME this is numerically unstable !?
-        # By treating interior elements in a less special way,
-        # we may reuse the diagonal of the bilinear form of the unrestricted element
-        interior_element = self.is_interior_element and False
-        qvariant = "fdm_feec" if interior_element else "fdm_quadrature"
+        qvariant = "fdm_quadrature"
         elements = [e.reconstruct(variant=qvariant),
                     ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
-        elements = list(map(ufl.InteriorElement if interior_element else ufl.BrokenElement, elements))
+        elements = list(map(ufl.BrokenElement, elements))
         if V.shape:
             elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
 
@@ -402,25 +405,28 @@ class FDMPC(PCBase):
         args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
         repargs = {t: v[0] for t, v in zip(args_J, args)}
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
-        Jcell = expand_derivatives(ufl.Form(J.integrals_by_type("cell")))
+        Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
-        assembly_callables = []
-        if V.shape == ():
-            tensor = firedrake.Function(Z)
-            beta, alpha = tensor.split()
-            coefficients = {"beta": beta, "alpha": alpha}
-            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True).assemble)
-        else:
-            M = firedrake.assemble(mixed_form, mat_type="matfree")
-            coefficients = dict()
-            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
-                sub = M.petscmat.createSubMatrix(iset, iset)
-                ctx = sub.getPythonContext()
-                coefficients[name] = ctx._block_diagonal
-                assembly_callables.append(ctx._assemble_block_diagonal)
+        key = mixed_form.signature()
+        if key not in self._coefficient_cache:
+            if V.shape == ():
+                tensor = firedrake.Function(Z)
+                beta, alpha = tensor.split()
+                coefficients = {"beta": beta, "alpha": alpha}
+                assembly_callables = [OneFormAssembler(mixed_form, tensor=tensor, diagonal=True).assemble]
+            else:
+                M = firedrake.assemble(mixed_form, mat_type="matfree")
+                coefficients = dict()
+                assembly_callables = []
+                for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+                    sub = M.petscmat.createSubMatrix(iset, iset)
+                    ctx = sub.getPythonContext()
+                    coefficients[name] = ctx._block_diagonal
+                    assembly_callables.append(ctx._assemble_block_diagonal)
 
-        return coefficients, assembly_callables
+            self._coefficient_cache[key] = (coefficients, assembly_callables)
+        return self._coefficient_cache[key]
 
     @PETSc.Log.EventDecorator("FDMAssemble")
     def assemble_kron(self, A, V, bcs, coefficients, Afdm, Bfdm, bcflags):
@@ -757,37 +763,55 @@ def sort_interior_dofs(idofs, A):
     idofs.setIndices(idofs.getIndices()[perm])
 
 
+def kron3(A, B, C, scale=None):
+    temp = B.kron(C)
+    if scale is not None:
+        temp.scale(scale)
+    result = A.kron(temp)
+    temp.destroy()
+    return result
+
+
 def mass_matrix(ndim, formdegree, B00, B11):
     B00 = petsc_sparse(B00)
     B11 = petsc_sparse(B11)
     if ndim == 1:
-        return B11 if formdegree else B00
+        B_blocks = [B11 if formdegree else B00]
     elif ndim == 2:
         if formdegree == 0:
-            return B00.kron(B00)
+            B_blocks = [B00.kron(B00)]
         elif formdegree == 1:
             B_blocks = [B00.kron(B11), B11.kron(B00)]
         else:
-            return B11.kron(B11)
+            B_blocks = [B11.kron(B11)]
     elif ndim == 3:
         if formdegree == 0:
-            return B00.kron(B00.kron(B00))
+            B_blocks = [kron3(B00, B00, B00)]
         elif formdegree == 1:
-            B_blocks = [B00.kron(B00.kron(B11)), B00.kron(B11.kron(B00)), B11.kron(B00.kron(B00))]
+            B_blocks = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
         elif formdegree == 2:
-            B_blocks = [B00.kron(B11.kron(B11)), B11.kron(B00.kron(B11)), B11.kron(B11.kron(B00))]
+            B_blocks = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
         else:
-            return B11.kron(B11.kron(B11))
+            B_blocks = [kron3(B11, B11, B11)]
 
-    nrows = sum(Bk.size[0] for Bk in B_blocks)
-    ncols = sum(Bk.size[1] for Bk in B_blocks)
-    csr_block = [Bk.getValuesCSR() for Bk in B_blocks]
-    ishift = numpy.cumsum([0] + [csr[0][-1] for csr in csr_block])
-    jshift = numpy.cumsum([0] + [Bk.size[1] for Bk in B_blocks])
-    indptr = numpy.concatenate([csr[0][bool(shift):]+shift for csr, shift in zip(csr_block, ishift[:-1])])
-    indices = numpy.concatenate([csr[1]+shift for csr, shift in zip(csr_block, jshift[:-1])])
-    data = numpy.concatenate([csr[2] for csr in csr_block])
-    return PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=PETSc.COMM_SELF)
+    if len(B_blocks) == 1:
+        result = B_blocks[0]
+    else:
+        nrows = sum(Bk.size[0] for Bk in B_blocks)
+        ncols = sum(Bk.size[1] for Bk in B_blocks)
+        csr_block = [Bk.getValuesCSR() for Bk in B_blocks]
+        ishift = numpy.cumsum([0] + [csr[0][-1] for csr in csr_block])
+        jshift = numpy.cumsum([0] + [Bk.size[1] for Bk in B_blocks])
+        indptr = numpy.concatenate([csr[0][bool(shift):]+shift for csr, shift in zip(csr_block, ishift[:-1])])
+        indices = numpy.concatenate([csr[1]+shift for csr, shift in zip(csr_block, jshift[:-1])])
+        data = numpy.concatenate([csr[2] for csr in csr_block])
+        result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=PETSc.COMM_SELF)
+        for B in B_blocks:
+            B.destroy()
+
+    B00.destroy()
+    B11.destroy()
+    return result
 
 
 def diff_matrix(ndim, formdegree, A00, A11, A10):
@@ -809,22 +833,25 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
             A_blocks = [[A10.kron(A11), A11.kron(-A10)]]
     elif ndim == 3:
         if formdegree == 0:
-            A_blocks = [[A00.kron(A00.kron(A10))], [A00.kron(A10.kron(A00))], [A10.kron(A00.kron(A00))]]
+            A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
             nrows = A11.getSize()[0] * A10.getSize()[0] * A00.getSize()[0]
             ncols = A11.getSize()[1] * A10.getSize()[1] * A00.getSize()[1]
             A_zero = PETSc.Mat().createAIJ((nrows, ncols), nnz=([0],)*2, comm=PETSc.COMM_SELF)
             A_zero.assemble()
-            A_blocks = [[A00.kron(A10.kron(-A11)), A00.kron(A11.kron(A10)), A_zero],
-                        [A10.kron(A00.kron(-A11)), A_zero, A11.kron(A00.kron(A10))],
-                        [A_zero, A10.kron(A11.kron(A00)), A11.kron(A10.kron(-A00))]]
+            A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), A_zero],
+                        [kron3(A10, A00, A11, scale=-1), A_zero, kron3(A11, A00, A10)],
+                        [A_zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
         elif formdegree == 2:
-            A_blocks = [[A10.kron(A11.kron(-A11)), A11.kron(A10.kron(A11)), A11.kron(A11.kron(A10))]]
-    
+            A_blocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
+
     result = block_mat(A_blocks)
     for A_row in A_blocks:
         for A in A_row:
             A.destroy()
+    A00.destroy()
+    A11.destroy()
+    A10.destroy()
     return result
 
 

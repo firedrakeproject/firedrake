@@ -255,7 +255,7 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInjection(self.create_injection)
 
         injection = self.create_injection(cdm, fdm)
-        
+
         # injection of the initial state
         def inject_state():
             with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
