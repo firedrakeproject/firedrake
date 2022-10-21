@@ -145,6 +145,10 @@ class PMGBase(PCSNESBase):
         viewer.printfASCII("p-multigrid PC\n")
         self.ppc.view(viewer)
 
+    def destroy(self, pc):
+        if hasattr(self, "ppc"):
+            self.ppc.destroy()
+
     def coarsen(self, fdm, comm):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext

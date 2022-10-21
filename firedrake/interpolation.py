@@ -397,7 +397,7 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
     # Since the caching is collective, this function must return a 2-tuple of
     # the form (comm, key) where comm is the communicator the cache is collective over.
     # FIXME FInAT elements are not safely hashable so we ignore them here
-    key = _hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
+    key = hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
     return comm, key
 
 
@@ -457,54 +457,25 @@ def rebuild_te(element, expr, rt_var_name):
                                      transpose=element._transpose)
 
 
-def composed_map(map1, map2):
-    """
-    Manually build a :class:`PyOP2.Map` from the iterset of map1 to the
-    toset of map2.
-
-    :arg map1: The map with the desired iterset
-    :arg map2: The map with the desired toset
-
-    :returns:  The composed map
-
-    Requires that `map1.toset == map2.iterset`.
-    Only currently implemented for `map1.arity == 1`
-    """
-    if map2 is None:
-        # Real function space case
-        return None
-    if map1.toset != map2.iterset:
-        raise ValueError("Cannot compose a map where the intermediate sets do not match!")
-    if map1.arity != 1:
-        raise NotImplementedError("Can only currently build composed maps where map1.arity == 1")
-    iterset = map1.iterset
-    toset = map2.toset
-    arity = map2.arity
-    values = map2.values[map1.values].reshape(iterset.size, arity)
-    assert values.shape == (iterset.size, arity)
-    return op2.Map(iterset, toset, arity, values)
-
-
 def compose_map_and_cache(map1, map2):
     """
-    Retrieve a composed :class:`PyOP2.Map` map from the cache of map1
+    Retrieve a :class:`PyOP2.ComposedMap` map from the cache of map1
     using map2 as the cache key. The composed map maps from the iterset
-    of map1 to the toset of map2. Calls `composed_map` and caches the
-    result on map1 if the composed map is not found.
+    of map1 to the toset of map2. Makes :class:`PyOP2.ComposedMap` and
+    caches the result on map1 if the composed map is not found.
 
     :arg map1: The map with the desired iterset from which the result is
         retrieved or cached
     :arg map2: The map with the desired toset
 
     :returns:  The composed map
-
-    See also `composed_map`.
     """
     cache_key = hash((map2, "composed"))
     try:
         cmap = map1._cache[cache_key]
     except KeyError:
-        cmap = composed_map(map1, map2)
+        # Real function space case separately
+        cmap = None if map2 is None else op2.ComposedMap(map2, map1)
         map1._cache[cache_key] = cmap
     return cmap
 
@@ -517,7 +488,7 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
-def _hash_expr(expr):
+def hash_expr(expr):
     """Return a numbering-invariant hash of a UFL expression.
 
     :arg expr: A UFL expression.
