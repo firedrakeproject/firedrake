@@ -15,7 +15,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
 
         from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
-        from firedrake import FunctionSpace, TestFunctions, TrialFunctions, Function, split
+        from firedrake import FunctionSpace, TestFunctions, TrialFunctions, split
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
         from functools import partial
@@ -52,19 +52,18 @@ class FacetSplitPC(PCBase):
         if W.dim() != V.dim():
             raise ValueError("Dimensions of the original and decomposed spaces do not match")
 
-        mixed_args = [sum(TestFunctions(W)), sum(TrialFunctions(W))]
-        mixed_operator = problem.J(*mixed_args, coefficients={})
+        mixed_operator = problem.J(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
         mixed_bcs = [bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs]
 
         ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
         start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
 
-        w = Function(W)
+        v = V.get_work_function()
+        w = W.get_work_function()
         with w.dat.vec_wo as wvec:
             wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
 
         w_expr = sum(split(w))
-        v = Function(V)
         try:
             v.interpolate(w_expr)
         except NotImplementedError:
@@ -86,9 +85,6 @@ class FacetSplitPC(PCBase):
             rindices[indices-start] = isorted
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
-
-        del w
-        del v
 
         def _permute_nullspace(nsp):
             if nsp is None or self.iperm is None:

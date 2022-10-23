@@ -231,7 +231,7 @@ class ImplicitMatrixContext(object):
         v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
         u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
 
-        form = self.a(v, u)
+        form = self.a(v, u, coefficients={})
         return OneFormAssembler(form, tensor=self._block_diagonal,
                                 form_compiler_parameters=self.fc_params,
                                 diagonal=True).assemble

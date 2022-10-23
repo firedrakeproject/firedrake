@@ -1459,7 +1459,7 @@ class StandaloneInterpolationMatrix(object):
         except NotImplementedError:
             if Vc.ufl_element().mapping() != Vf.ufl_element().mapping():
                 raise NotImplementedError("Prolongation not supported from %s to %s" % (Vc.ufl_element(), Vf.ufl_element()))
-            if Vf.finat_element.space_dimension() < 500:
+            if Vf.finat_element.space_dimension() < 400:
                 Jmat = finat_reference_prolongator(Vf.finat_element, Vc.finat_element)
             else:
                 Jmat = matfree_reference_prolongator(Vf, Vc)
