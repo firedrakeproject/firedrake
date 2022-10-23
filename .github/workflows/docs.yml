@@ -17,6 +17,7 @@ jobs:
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
+      options: --user root
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
