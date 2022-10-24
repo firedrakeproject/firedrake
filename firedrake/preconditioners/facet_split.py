@@ -15,7 +15,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
 
         from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
-        from firedrake import FunctionSpace, TestFunctions, TrialFunctions, split
+        from firedrake import FunctionSpace, Function, TestFunctions, TrialFunctions, split
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
         from functools import partial
@@ -58,8 +58,8 @@ class FacetSplitPC(PCBase):
         ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
         start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
 
-        v = V.get_work_function()
-        w = W.get_work_function()
+        v = Function(V)
+        w = Function(W)
         with w.dat.vec_wo as wvec:
             wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
 
