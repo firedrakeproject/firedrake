@@ -455,8 +455,7 @@ class Parloop:
                         "Dats with frozen halos must always be accessed with the same access mode"
                     )
 
-    @classmethod
-    def prepare_reduced_globals(cls, arguments, global_knl):
+    def prepare_reduced_globals(self, arguments, global_knl):
         """Swap any :class:`GlobalParloopArg` instances that are INC'd into
         with zeroed replacements.
 
@@ -466,9 +465,9 @@ class Parloop:
         """
         arguments = list(arguments)
         reduced_globals = {}
-        for i, (lk_arg, gk_arg, pl_arg) in enumerate(cls.zip_arguments(global_knl, arguments)):
+        for i, (lk_arg, gk_arg, pl_arg) in enumerate(self.zip_arguments(global_knl, arguments)):
             if isinstance(gk_arg, GlobalKernelArg) and lk_arg.access == Access.INC:
-                tmp = Global(gk_arg.dim, data=np.zeros_like(pl_arg.data.data_ro), dtype=lk_arg.dtype)
+                tmp = Global(gk_arg.dim, data=np.zeros_like(pl_arg.data.data_ro), dtype=lk_arg.dtype, comm=self.comm)
                 reduced_globals[tmp] = pl_arg
                 arguments[i] = GlobalParloopArg(tmp)
 

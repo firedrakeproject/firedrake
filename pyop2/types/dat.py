@@ -85,12 +85,12 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         self.halo_valid = True
         self._name = name or "dat_#x%x" % id(self)
 
+        self._halo_frozen = False
+        self._frozen_access_mode = None
+
     def __del__(self):
         if hasattr(self, "comm"):
             mpi.decref(self.comm)
-
-        self._halo_frozen = False
-        self._frozen_access_mode = None
 
     @utils.cached_property
     def _kernel_args_(self):

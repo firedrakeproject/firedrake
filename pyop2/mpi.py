@@ -261,8 +261,8 @@ def decref(comm):
     """
     if comm == MPI.COMM_NULL:
         comm = FriendlyCommNull()
-    assert is_pyop2_comm(comm)
     if not PYOP2_FINALIZED:
+        assert is_pyop2_comm(comm)
         refcount = comm.Get_attr(refcount_keyval)
         refcount[0] -= 1
         if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
@@ -416,7 +416,7 @@ def free_comm(comm):
         ocomm = comm.Get_attr(outercomm_keyval)
         if isinstance(ocomm, list):
             # No idea why this happens!?
-            ocomm = None
+            raise ValueError("Why have we got a list!?")
         if ocomm is not None:
             icomm = ocomm.Get_attr(innercomm_keyval)
             if icomm is None:
