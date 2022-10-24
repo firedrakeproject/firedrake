@@ -48,7 +48,7 @@ def test_laplace_physical_ev(parallel=False):
     E.solve()
 
     nconv = E.getConverged()
-    assert(nconv > 0)
+    assert nconv > 0
 
     # Create the results vectors
     vr, wr = A.getVecs()

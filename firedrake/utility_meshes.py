@@ -34,7 +34,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
 
 
 @PETSc.Log.EventDecorator()
-def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """
     Generate a uniform mesh of an interval.
 
@@ -47,6 +47,12 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
@@ -81,11 +87,11 @@ def IntervalMesh(ncells, length_or_left, right=None, distribution_parameters=Non
         if vcoord[0] == coords[-1]:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
-    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters, name=name)
+    return mesh.Mesh(plex, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """
     Generate a uniform mesh of the interval [0,1].
 
@@ -93,16 +99,22 @@ def UnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
 
-    return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name)
+    return IntervalMesh(ncells, length_or_left=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic mesh of an interval.
 
     :arg ncells: The number of cells over the interval.
@@ -110,13 +122,19 @@ def PeriodicIntervalMesh(ncells, length, distribution_parameters=None, comm=COMM
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
 
     if ncells < 3:
         raise ValueError("1D periodic meshes with fewer than 3 \
 cells are not currently supported")
 
-    m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm, name=name)
+    m = CircleManifoldMesh(ncells, distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     coord_fs = VectorFunctionSpace(m, FiniteElement('DG', interval, 1, variant="equispaced"), dim=1)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs, name=mesh._generate_default_mesh_coordinates_name(name))
@@ -149,23 +167,29 @@ cells are not currently supported")
               "L": (cL, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates, name=name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def PeriodicUnitIntervalMesh(ncells, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic mesh of the unit interval
 
     :arg ncells: The number of cells in the interval.
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
-    return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name)
+    return PeriodicIntervalMesh(ncells, length=1.0, distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
     and [Lx, Ly] with ncells, that is periodic in the x-direction.
@@ -176,6 +200,12 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
 
     left = np.arange(ncells, dtype=np.int32)
@@ -208,14 +238,14 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         row = cell_numbering.getOffset(e)
 
         # run some checks
-        assert(closure[0] == e)
+        assert closure[0] == e
         assert len(closure) == 6, closure
         edge_range = plex.getHeightStratum(1)
-        assert(all(closure[1:4] >= edge_range[0]))
-        assert(all(closure[1:4] < edge_range[1]))
+        assert all(closure[1:4] >= edge_range[0])
+        assert all(closure[1:4] < edge_range[1])
         vertex_range = plex.getHeightStratum(2)
-        assert(all(closure[4:] >= vertex_range[0]))
-        assert(all(closure[4:] < vertex_range[1]))
+        assert all(closure[4:] >= vertex_range[0])
+        assert all(closure[4:] < vertex_range[1])
 
         # enter the cell number
         cell_closure[row][8] = e
@@ -246,10 +276,10 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                if(cell_X.min() < dx/2):
+                if cell_X.min() < dx/2:
                     if cell_X.max() < 3*dx/2:
                         # We are in the first cell
-                        if(edge_X.min() < dx/2):
+                        if edge_X.min() < dx/2:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                         else:
@@ -257,14 +287,14 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
                             cell_closure[row][5] = edge_set[i]
                     else:
                         # We are in the last cell
-                        if(edge_X.min() < dx/2):
+                        if edge_X.min() < dx/2:
                             # we are on right hand edge
                             cell_closure[row][5] = edge_set[i]
                         else:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                 else:
-                    if(abs(cell_X.min()-edge_X.min()) < dx/2):
+                    if abs(cell_X.min()-edge_X.min()) < dx/2:
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
                     else:
@@ -278,11 +308,11 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
         x1 = coords[coords_sec.getOffset(v1)]
         x2 = coords[coords_sec.getOffset(v2)]
         # Fix orientations
-        if(x1 > x2):
-            if(x1 - x2 < dx*1.5):
+        if x1 > x2:
+            if x1 - x2 < dx*1.5:
                 # we are not on the rightmost cell and need to swap
                 v1, v2 = v2, v1
-        elif(x2 - x1 > dx*1.5):
+        elif x2 - x1 > dx*1.5:
             # we are on the rightmost cell and need to swap
             v1, v2 = v2, v1
 
@@ -296,7 +326,7 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(Vc, name=mesh._generate_default_mesh_coordinates_name(name)).interpolate(mesh1.coordinates)
 
-    mash = mesh.Mesh(fc, name=name)
+    mash = mesh.Mesh(fc, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     topverts = Vc.cell_node_list[:, 1::2].flatten()
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
@@ -323,23 +353,29 @@ def OneElementThickMesh(ncells, Lx, Ly, distribution_parameters=None, comm=COMM_
 
 
 @PETSc.Log.EventDecorator()
-def UnitTriangleMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitTriangleMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of the reference triangle
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
     plex = mesh._from_cell_list(2, cells, coords, comm,
                                 mesh._generate_default_mesh_topology_name(name))
-    return mesh.Mesh(plex, reorder=False, name=name)
+    return mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
-                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                  diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -354,6 +390,12 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
         from bottom left to top right (``"right"``), or top left to
         bottom right (``"left"``), or put in both diagonals (``"crossed"``).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -375,14 +417,18 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
                                diagonal=diagonal,
                                distribution_parameters=distribution_parameters,
                                comm=comm,
-                               name=name)
+                               name=name,
+                               distribution_name=distribution_name,
+                               permutation_name=permutation_name)
 
 
 def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
                         reorder=None,
                         diagonal="left", distribution_parameters=None,
                         comm=COMM_WORLD,
-                        name=mesh.DEFAULT_MESH_NAME):
+                        name=mesh.DEFAULT_MESH_NAME,
+                        distribution_name=None,
+                        permutation_name=None):
     """Generate a rectangular mesh
 
     :arg xcoords: mesh points for the x direction
@@ -473,11 +519,11 @@ def TensorRectangleMesh(xcoords, ycoords, quadrilateral=False,
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -488,6 +534,12 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -501,11 +553,13 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, diagonal="left", di
                          diagonal=diagonal,
                          distribution_parameters=distribution_parameters,
                          comm=comm,
-                         name=name)
+                         name=name,
+                         distribution_name=distribution_name,
+                         permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -515,6 +569,12 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -528,7 +588,9 @@ def UnitSquareMesh(nx, ny, reorder=None, diagonal="left", quadrilateral=False, d
                       diagonal=diagonal,
                       distribution_parameters=distribution_parameters,
                       comm=comm,
-                      name=name)
+                      name=name,
+                      distribution_name=distribution_name,
+                      permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -537,7 +599,9 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           distribution_parameters=None,
                           diagonal=None,
                           comm=COMM_WORLD,
-                          name=mesh.DEFAULT_MESH_NAME):
+                          name=mesh.DEFAULT_MESH_NAME,
+                          distribution_name=None,
+                          permutation_name=None):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -553,6 +617,12 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -566,7 +636,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     """
 
     if direction == "both" and ny == 1 and quadrilateral:
-        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters, name=name)
+        return OneElementThickMesh(nx, Lx, Ly, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
@@ -575,12 +645,12 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                                               quadrilateral=quadrilateral,
                                               reorder=reorder,
                                               distribution_parameters=distribution_parameters,
-                                              diagonal=diagonal, comm=comm, name=name)
+                                              diagonal=diagonal, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     if nx < 3 or ny < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name)
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     coord_family = 'DQ' if quadrilateral else 'DG'
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
@@ -629,12 +699,12 @@ cells in each direction are not currently supported")
               "Ly": (cLy, READ)},
              is_loopy_kernel=True)
 
-    return mesh.Mesh(new_coordinates, name=name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                       distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -649,6 +719,12 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -663,13 +739,13 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
                                  quadrilateral=quadrilateral, reorder=reorder,
                                  distribution_parameters=distribution_parameters,
-                                 diagonal=diagonal, comm=comm, name=name)
+                                 diagonal=diagonal, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                            quadrilateral=False, distribution_parameters=None,
-                           diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                           diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -683,6 +759,12 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -697,11 +779,11 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral,
                               distribution_parameters=distribution_parameters,
-                              diagonal=diagonal, comm=comm, name=name)
+                              diagonal=diagonal, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
@@ -713,6 +795,12 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     if ncells < 3:
         raise ValueError("CircleManifoldMesh must have at least three cells")
@@ -725,19 +813,19 @@ def CircleManifoldMesh(ncells, radius=1, degree=1, distribution_parameters=None,
 
     plex = mesh._from_cell_list(1, cells, vertices, comm,
                                 mesh._generate_default_mesh_topology_name(name))
-    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=2, reorder=False, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to circle
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords, name=name)
+        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     m._radius = radius
     return m
 
 
 @PETSc.Log.EventDecorator()
-def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of the unit disk in 2D
 
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
@@ -745,6 +833,12 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     vertices = np.array([[0, 0],
                          [1, 0],
@@ -787,12 +881,12 @@ def UnitDiskMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=2, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     return m
 
 
 @PETSc.Log.EventDecorator()
-def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of the unit ball in 3D
 
     :kwarg refinement_level: optional number of refinements (0 is an octahedron)
@@ -800,6 +894,12 @@ def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None,
     :kwarg comm: Optional MPI communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     vertices = np.array([[0, 0, 0],
                          [1, 0, 0],
@@ -839,27 +939,33 @@ def UnitBallMesh(refinement_level=0, reorder=None, distribution_parameters=None,
             t = np.sum(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     return m
 
 
 @PETSc.Log.EventDecorator()
-def UnitTetrahedronMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitTetrahedronMesh(comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of the reference tetrahedron.
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
     plex = mesh._from_cell_list(3, cells, coords, comm,
                                 mesh._generate_default_mesh_topology_name(name))
-    return mesh.Mesh(plex, reorder=False, name=name)
+    return mesh.Mesh(plex, reorder=False, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, diagonal="default", comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -963,11 +1069,11 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, 
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
     plex.removeLabel("boundary_faces")
 
-    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    return mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of a cube
 
     :arg nx: The number of cells in the x direction
@@ -978,6 +1084,12 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary surfaces are numbered as follows:
 
@@ -989,11 +1101,11 @@ def CubeMesh(nx, ny, nz, L, reorder=None, distribution_parameters=None, comm=COM
     * 6: plane z == L
     """
     return BoxMesh(nx, ny, nz, L, L, L, reorder=reorder, distribution_parameters=distribution_parameters,
-                   comm=comm, name=name)
+                   comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -1003,6 +1115,12 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary surfaces are numbered as follows:
 
@@ -1014,11 +1132,11 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=CO
     * 6: plane z == 1
     """
     return CubeMesh(nx, ny, nz, 1, reorder=reorder, distribution_parameters=distribution_parameters,
-                    comm=comm, name=name)
+                    comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -1031,6 +1149,12 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     for n in (nx, ny, nz):
         if n < 3:
@@ -1061,7 +1185,7 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
     cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
     plex = mesh._from_cell_list(3, cells, coords, comm,
                                 mesh._generate_default_mesh_topology_name(name))
-    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters)
+    m = mesh.Mesh(plex, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
     old_coordinates = m.coordinates
     new_coordinates = Function(VectorFunctionSpace(m, FiniteElement('DG', tetrahedron, 1, variant="equispaced")), name=mesh._generate_default_mesh_coordinates_name(name))
@@ -1111,12 +1235,12 @@ def PeriodicBoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, distribution_parameter
               "hy": (hy, READ),
               "hz": (hz, READ)},
              is_loopy_kernel=True)
-    m1 = mesh.Mesh(new_coordinates, name=name)
+    m1 = mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     return m1
 
 
 @PETSc.Log.EventDecorator()
-def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a periodic mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -1126,13 +1250,19 @@ def PeriodicUnitCubeMesh(nx, ny, nz, reorder=None, distribution_parameters=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
-    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name)
+    return PeriodicBoxMesh(nx, ny, nz, 1., 1., 1., reorder=reorder, distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
-                          distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                          distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -1152,6 +1282,12 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -1205,20 +1341,20 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords, name=name)
+        m = mesh.Mesh(new_coords, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     m._radius = radius
     return m
 
 
 @PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
-                              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -1229,9 +1365,15 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
-                                 degree=degree, reorder=reorder, comm=comm, name=name)
+                                 degree=degree, reorder=reorder, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 # mesh is mainly used as a utility, so it's unnecessary to annotate the construction
@@ -1244,7 +1386,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
                          reorder=None,
                          distribution_parameters=None,
                          comm=COMM_WORLD,
-                         name=mesh.DEFAULT_MESH_NAME):
+                         name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate an octahedral approximation to the surface of the
     sphere.
 
@@ -1262,6 +1404,12 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise ValueError("Number of refinements must be a non-negative integer")
@@ -1302,10 +1450,10 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     plex.setName(mesh._generate_default_mesh_topology_name(name))
 
     # build the initial mesh
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     if degree > 1:
         # use it to build a higher-order mesh
-        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)), name=name)
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)), name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
@@ -1357,7 +1505,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 @PETSc.Log.EventDecorator()
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
                              hemisphere="both", z0=0.8, reorder=None,
-                             distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                             distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate an octahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -1373,12 +1521,18 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, hemisphere=hemisphere,
                                 z0=z0,
                                 reorder=reorder,
-                                distribution_parameters=distribution_parameters, comm=comm, name=name)
+                                distribution_parameters=distribution_parameters, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -1510,7 +1664,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 @PETSc.Log.EventDecorator()
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
-                    reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                    reorder=None, distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -1522,6 +1676,12 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -1533,21 +1693,21 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     plex = mesh._from_cell_list(2, cells, coords, comm,
                                 mesh._generate_default_mesh_topology_name(name))
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = mesh.Mesh(new_coords)
+        m = mesh.Mesh(new_coords, distribution_name=distribution_name, permutation_name=permutation_name)
     m._radius = radius
     return m
 
 
 @PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
-                        distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                        distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
@@ -1557,14 +1717,20 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
-                           degree=degree, reorder=reorder, comm=comm, name=name)
+                           degree=degree, reorder=reorder, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
-              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+              distribution_parameters=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generate a toroidal mesh
 
     :arg nR: The number of cells in the major direction (min 3)
@@ -1576,6 +1742,12 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
     """
 
     if nR < 3 or nr < 3:
@@ -1606,14 +1778,14 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None,
 
     plex = mesh._from_cell_list(2, cells, vertices, comm,
                                 mesh._generate_default_mesh_topology_name(name))
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     return m
 
 
 @PETSc.Log.EventDecorator()
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None,
-                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                 distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -1631,6 +1803,12 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -1738,13 +1916,13 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, distribution_parameters=distribution_parameters, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     return m
 
 
 @PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False,
-                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME):
+                                   reorder=None, distribution_parameters=None, diagonal=None, comm=COMM_WORLD, name=mesh.DEFAULT_MESH_NAME, distribution_name=None, permutation_name=None):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
@@ -1759,6 +1937,12 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
@@ -1786,7 +1970,7 @@ cells in each direction are not currently supported")
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder,
                      distribution_parameters=distribution_parameters,
-                     diagonal=diagonal, comm=comm, name=name)
+                     diagonal=diagonal, comm=comm, name=name, distribution_name=distribution_name, permutation_name=permutation_name)
     coord_family = 'DQ' if quadrilateral else 'DG'
     cell = 'quadrilateral' if quadrilateral else 'triangle'
     coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2)
@@ -1829,4 +2013,4 @@ cells in each direction are not currently supported")
                                [1, 0]])
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
-    return mesh.Mesh(new_coordinates, name=name)
+    return mesh.Mesh(new_coordinates, name=name, distribution_name=distribution_name, permutation_name=permutation_name)

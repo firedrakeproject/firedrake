@@ -342,6 +342,7 @@ def test_near_nullspace_mixed():
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
             'assembled_mg_levels_pc_type': 'sor',
+            'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,  # See https://gitlab.com/petsc/petsc/-/issues/1221
             'ksp_rtol': 1e-7,
             'ksp_converged_reason': None,
         },
@@ -372,4 +373,4 @@ def test_near_nullspace_mixed():
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
     # currently ~64 vs. >110-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 70
+    assert ksp_inner.getIterationNumber() < 75
