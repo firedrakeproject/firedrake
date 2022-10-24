@@ -354,7 +354,8 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        return op2.Global(1, [0.0], dtype=utils.ScalarType,
+                          comm=form._integration_domains[0]._comm)
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Function(test.function_space())

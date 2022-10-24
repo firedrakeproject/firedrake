@@ -855,7 +855,7 @@ class MeshTopology(AbstractMeshTopology):
             nfacets = plex.getConeSize(cStart)
 
         # TODO: this needs to be updated for mixed-cell meshes.
-        nfacets = self.comm.allreduce(nfacets, op=MPI.MAX)
+        nfacets = self._comm.allreduce(nfacets, op=MPI.MAX)
 
         # Note that the geometric dimension of the cell is not set here
         # despite it being a property of a UFL cell. It will default to
@@ -998,7 +998,7 @@ class MeshTopology(AbstractMeshTopology):
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            unique_markers = np.asarray(sorted(self.comm.allreduce(local_markers, op=op)),
+            unique_markers = np.asarray(sorted(self._comm.allreduce(local_markers, op=op)),
                                         dtype=IntType)
             op.Free()
         else:
@@ -1074,7 +1074,7 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        return op2.Set(size, "Cells", comm=self._comm)
 
     @PETSc.Log.EventDecorator()
     def set_partitioner(self, distribute, partitioner_type=None):
@@ -1156,7 +1156,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         mesh.init()
         self._base_mesh = mesh
-        self._comm = mesh.comm
+        self.user_comm = mesh.comm
+        self._comm = internal_comm(mesh._comm)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
@@ -1192,10 +1193,6 @@ class ExtrudedMeshTopology(MeshTopology):
         else:
             self.variable_layers = False
         self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
-
-    @property
-    def comm(self):
-        return self._comm
 
     @utils.cached_property
     def cell_closure(self):

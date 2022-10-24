@@ -524,14 +524,20 @@ class CheckpointFile(object):
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
+        self.comm = comm
+        self._comm = internal_comm(comm)
         r"""The neme of the checkpoint file."""
-        self.viewer.create(filename, mode=mode, comm=comm)
-        self.commkey = comm.py2f()
+        self.viewer.create(filename, mode=mode, comm=self._comm)
+        self.commkey = self._comm.py2f()
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
         r"""DMPlex HDF5 version options."""
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     def __enter__(self):
         return self
@@ -881,7 +887,7 @@ class CheckpointFile(object):
                     _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
                     nroots, _, _ = lsf.getGraph()
                     layers_a = np.empty(nroots, dtype=utils.IntType)
-                    layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self.viewer.comm)
+                    layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self._comm)
                     layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
                     self.viewer.pushGroup(path)
                     layers_a_iset.load(self.viewer)
@@ -963,7 +969,7 @@ class CheckpointFile(object):
             _distribution_name, = self.h5pyfile[path].keys()
             path = self._path_to_distribution(tmesh_name, _distribution_name)
             _comm_size = self.get_attr(path, "comm_size")
-            if _comm_size == self.viewer.comm.size and \
+            if _comm_size == self._comm.size and \
                distribution_parameters is None and reorder is None:
                 load_distribution_permutation = True
         if load_distribution_permutation:
@@ -990,7 +996,7 @@ class CheckpointFile(object):
             tmesh = self._tmesh_cache[tmesh_key]
         else:
             plex = PETSc.DMPlex()
-            plex.create(comm=self.viewer.comm)
+            plex.create(comm=self._comm)
             plex.setName(tmesh_name)
             # Check format
             path = os.path.join(self._path_to_topology(tmesh_name), "topology")
@@ -1007,7 +1013,7 @@ class CheckpointFile(object):
             self.viewer.popFormat()
             if load_distribution_permutation:
                 chart_size = np.empty(1, dtype=utils.IntType)
-                chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self.viewer.comm)
+                chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
                 chart_sizes_iset.setName("chart_sizes")
                 path = self._path_to_distribution(tmesh_name, distribution_name)
                 self.viewer.pushGroup(path)
@@ -1015,7 +1021,7 @@ class CheckpointFile(object):
                 self.viewer.popGroup()
                 chart_size = chart_sizes_iset.getIndices().item()
                 perm = np.empty(chart_size, dtype=utils.IntType)
-                perm_is = PETSc.IS().createGeneral(perm, comm=self.viewer.comm)
+                perm_is = PETSc.IS().createGeneral(perm, comm=self._comm)
                 path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
                 self.viewer.pushGroup(path)
                 perm_is.setName("permutation")
@@ -1027,7 +1033,8 @@ class CheckpointFile(object):
             # -- Construct Mesh (Topology) --
             tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
                                  distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
-                                 distribution_name=distribution_name, permutation_name=permutation_name)
+                                 distribution_name=distribution_name, permutation_name=permutation_name,
+                                 comm=self.comm)
             self.viewer.pushFormat(format=format)
             # tmesh.topology_dm has already been redistributed.
             sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
