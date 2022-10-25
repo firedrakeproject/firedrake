@@ -480,18 +480,11 @@ class FDMPC(PCBase):
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
 
-        offsets = []
+        lgmaps = []
         local_indices = []
-        lgmaps = [Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs]) for Vsub in V]
-
-        offset = 0
-        for Vsub, lgmap in zip(V, lgmaps):
-            offsets.append(offset)
+        ises = V.dof_dset.field_ises
+        for Vsub, iset in zip(V, ises):
             dof_dset = Vsub.dof_dset
-            # set BC rows and columns equal to the identity
-            bc_nodes = offset + dof_dset.lgmap.indices[lgmap.indices < 0]
-            self.set_bc_values(A, bc_nodes)
-
             icell, nel = glonum_fun(Vsub.cell_node_map())
             bsize = dof_dset.layout_vec.getBlockSize()
             if bsize > 1:
@@ -499,16 +492,21 @@ class FDMPC(PCBase):
                 ibase = numpy.arange(bsize, dtype=PETSc.IntType)
                 icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
             local_indices.append(icell)
-            offset += dof_dset.layout_vec.getSizes()[0]
 
-        def apply_offset(indices, offset):
+            offset = iset.indices[0] - dof_dset.lgmap.indices[0]
+            # FIXME reconstruct bcs
+            _lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs])
+            indices = _lgmap.indices.copy()
             indices[indices >= 0] += offset
-            return indices
+            lgmaps.append(PETSc.LGMap().create(indices, bsize=_lgmap.getBlockSize(), comm=_lgmap.comm))
+
+            bc_nodes = offset + dof_dset.lgmap.indices[indices < 0]
+            self.set_bc_values(A, bc_nodes)
 
         if len(lgmaps) == 1:
             get_indices = lambda e, result=None: lgmaps[0].apply(local_indices[0](e), result=result)
         else:
-            get_indices = lambda e, result=None: numpy.concatenate([apply_offset(lgmap.apply(icell(e)), offset) for lgmap, icell, offset in zip(lgmaps, local_indices, offsets)], out=result)
+            get_indices = lambda e, result=None: numpy.concatenate([lgmap.apply(icell(e)) for lgmap, icell in zip(lgmaps, local_indices)], out=result)
 
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         dof_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
