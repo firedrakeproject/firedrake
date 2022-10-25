@@ -172,11 +172,11 @@ class FDMPC(PCBase):
         from pyop2.sparsity import get_preallocation
         self.is_mixed_element = len(V) > 1
         ndim = V.mesh().topological_dimension()
-        
-        def is_restricted(V):
+
+        def is_restricted(finat_element):
             is_interior = True
             is_facet = True
-            entity_dofs = V.finat_element.entity_dofs()
+            entity_dofs = finat_element.entity_dofs()
             for key in entity_dofs:
                 v = sum(list(entity_dofs[key].values()), [])
                 if len(v):
@@ -197,38 +197,35 @@ class FDMPC(PCBase):
             e0 = unrestrict_element(V[0].ufl_element())
             e1 = unrestrict_element(V[1].ufl_element())
             assert e0 == e1
-            
-            Vbig = firedrake.FunctionSpace(V.mesh(), e0) 
+
+            Vbig = firedrake.FunctionSpace(V.mesh(), e0)
             dims = [Vsub.finat_element.space_dimension() for Vsub in V]
             assert sum(dims) == Vbig.finat_element.space_dimension()
 
-            restrictions = [is_restricted(Vsub) for Vsub in V]
+            restrictions = [is_restricted(Vsub.finat_element) for Vsub in V]
             assert restrictions[0][0] and restrictions[1][1] or restrictions[0][1] and restrictions[1][0]
+
+
             fdofs = numpy.arange(*((0, dim[0]) if restrictions[0][1] else (dims[0], sum(dims))), dtype=PETSc.IntType)
-            
+
             perm = numpy.concatenate(split_dofs(Vbig.finat_element))
-            isorted = numpy.arange(len(perm), dtype=perm.dtype)
-            iperm = numpy.empty_like(perm)
-            iperm[perm] = isorted
             self.perm = PETSc.IS().createGeneral(perm, comm=PETSc.COMM_SELF)
-            self.iperm = PETSc.IS().createGeneral(iperm, comm=PETSc.COMM_SELF)
-            self.no_perm = PETSc.IS().createGeneral(isorted, comm=PETSc.COMM_SELF)
         else:
-            self.is_interior_element, self.is_facet_element = is_restricted(V)
+            self.is_interior_element, self.is_facet_element = is_restricted(V.finat_element)
             Vbig = V
             _, fdofs = split_dofs(V.finat_element)
             if self.is_facet_element:
                 Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
                 fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
 
-        fdofs = numpy.add.outer(V.value_size*fdofs, numpy.arange(V.value_size, dtype=fdofs.dtype))
-        dofs = numpy.arange(V.value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
+        value_size = Vbig.value_size
+        fdofs = numpy.add.outer(value_size*fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
+        dofs = numpy.arange(value_size*Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs, assume_unique=True), comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-        
         self.sub_mats = [None for _ in range(7)]
 
-        if self.is_interior_element:
+        if self.is_interior_element or self.is_mixed_element:
             self.condense_element_mat = lambda Ae: Ae
         elif self.is_facet_element:
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.sub_mats)
@@ -330,7 +327,7 @@ class FDMPC(PCBase):
         ndim = V.mesh().topological_dimension()
         if self.is_mixed_element:
             V = V[-1]
-        
+
         value_size = V.value_size
         formdegree = V.finat_element.formdegree
         degree = V.finat_element.degree
@@ -346,7 +343,7 @@ class FDMPC(PCBase):
         if key not in self._reference_tensor_cache:
             elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
             cell = elements[0].get_reference_element()
-            
+
             eq = FIAT.FDMQuadrature(cell, degree)
             e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
             e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
@@ -371,10 +368,12 @@ class FDMPC(PCBase):
             result = block_mat([[Ihat], [Dhat]])
             Ihat.destroy()
             Dhat.destroy()
-            
+
             if self.is_mixed_element:
                 temp = result
-                result = temp.permute(self.no_perm, self.perm)
+                noperm = PETSc.IS().createGeneral(numpy.arange(temp.getSize()[0], dtype=PETSc.IntType), comm=temp.comm)
+                result = temp.permute(noperm, self.perm)
+                noperm.destroy()
                 temp.destroy()
 
             if value_size != 1:
@@ -397,9 +396,7 @@ class FDMPC(PCBase):
         from firedrake.assemble import OneFormAssembler
         if self.is_mixed_element:
             splitter = ExtractSubBlock()
-            print(J, flush=True)
             J = splitter.split(J, argument_indices=(0, 0))
-            print(J, flush=True)
 
         mesh = J.ufl_domain()
         ndim = mesh.topological_dimension()
@@ -480,39 +477,61 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMAssemble")
     def assemble_kron(self, A, V, bcs, coefficients, Afdm, Bfdm, bcflags):
-        bsize = V.dof_dset.layout_vec.getBlockSize()
-        lgmap = V.local_to_global_map(bcs)
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
 
-        self.set_bc_values(A, V.dof_dset.lgmap.indices[lgmap.indices < 0])
+        offsets = []
+        local_indices = []
+        lgmaps = [Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs]) for Vsub in V]
 
-        index_cell, nel = glonum_fun(V.cell_node_map())
-        if bsize > 1:
-            _index_cell = index_cell
-            ibase = numpy.arange(bsize, dtype=PETSc.IntType)
-            index_cell = lambda e: numpy.add.outer(_index_cell(e)*bsize, ibase)
-        get_indices = lambda e: lgmap.apply(index_cell(e))
+        offset = 0
+        for Vsub, lgmap in zip(V, lgmaps):
+            offsets.append(offset)
+            dof_dset = Vsub.dof_dset
+            # set BC rows and columns equal to the identity
+            bc_nodes = offset + dof_dset.lgmap.indices[lgmap.indices < 0]
+            self.set_bc_values(A, bc_nodes)
+
+            icell, nel = glonum_fun(Vsub.cell_node_map())
+            bsize = dof_dset.layout_vec.getBlockSize()
+            if bsize > 1:
+                _icell = icell
+                ibase = numpy.arange(bsize, dtype=PETSc.IntType)
+                icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
+            local_indices.append(icell)
+            offset += dof_dset.layout_vec.getSizes()[0]
+
+        def apply_offset(indices, offset):
+            indices[indices >= 0] += offset
+            return indices
+
+        if len(lgmaps) == 1:
+            get_indices = lambda e, result=None: lgmaps[0].apply(local_indices[0](e), result=result)
+        else:
+            get_indices = lambda e, result=None: numpy.concatenate([apply_offset(lgmap.apply(icell(e)), offset) for lgmap, icell, offset in zip(lgmaps, local_indices, offsets)], out=result)
 
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         dof_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
-        get_coefs = lambda e, out=None: numpy.concatenate([coef.dat.data_ro[dof_map(e)] for coef, dof_map in zip(coefs, dof_maps)], out=out)
+        get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[dof_map(e)] for coef, dof_map in zip(coefs, dof_maps)], out=result)
 
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
+            indices = None
             coefs_array = None
             Ae, De = self.work_mats
             for assemble_coef in self.assembly_callables:
                 assemble_coef()
             for e in range(nel):
-                coefs_array = get_coefs(e, coefs_array)
+                coefs_array = get_coefs(e, result=coefs_array)
                 Ae = self.element_mat(coefs_array, Afdm, De, result=Ae)
-                self.update_A(A, self.condense_element_mat(Ae), get_indices(e))
+                indices = get_indices(e, result=indices)
+                self.update_A(A, self.condense_element_mat(Ae), indices)
 
         elif nel:
+            indices = None
             coefs_array = get_coefs(0)
             shape = coefs_array.shape
             if len(shape) > 2:
-                coefs_array = numpy.tile((1+shape[1])*numpy.eye(shape[1])-1, shape[:1] + (1,)*(len(shape)-1))
+                coefs_array = numpy.tile(numpy.eye(shape[1]), shape[:1] + (1,)*(len(shape)-1))
             else:
                 coefs_array.fill(1.0E0)
 
@@ -524,7 +543,8 @@ class FDMPC(PCBase):
                 sort_interior_dofs(self.idofs, Ae)
             Se = self.condense_element_mat(Ae)
             for e in range(nel):
-                self.update_A(A, Se, get_indices(e))
+                indices = get_indices(e, result=indices)
+                self.update_A(A, Se, indices)
 
         A.assemble()
 
@@ -1658,3 +1678,16 @@ def get_weak_bc_flags(J):
             fbc = bq.dat.data_with_halos[glonum(Q.cell_node_map())]
             return (abs(fbc) > tol).astype(PETSc.IntType)
     return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
+
+
+def spy(A, comm=None):
+    import matplotlib.pyplot as plt
+    import scipy.sparse as sp
+    if comm is None:
+        comm = A.comm
+    csr = tuple(reversed(A.getValuesCSR()))
+    if comm.rank == 0:
+        scipy_mat = sp.csr_matrix(csr, shape=A.getSize())
+        fig, axes = plt.subplots(nrows=1, ncols=1)
+        axes.spy(scipy_mat, marker=".", markersize=2)
+        plt.show()
