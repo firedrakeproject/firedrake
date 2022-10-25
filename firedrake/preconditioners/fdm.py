@@ -7,6 +7,7 @@ import numpy
 import ufl
 import ctypes
 from firedrake_citations import Citations
+from firedrake.utils import cached_property
 
 Citations().add("Brubeck2021", """
 @misc{Brubeck2021,
@@ -201,13 +202,10 @@ class FDMPC(PCBase):
             Vbig = firedrake.FunctionSpace(V.mesh(), e0)
             dims = [Vsub.finat_element.space_dimension() for Vsub in V]
             assert sum(dims) == Vbig.finat_element.space_dimension()
-
             restrictions = [is_restricted(Vsub.finat_element) for Vsub in V]
             assert restrictions[0][0] and restrictions[1][1] or restrictions[0][1] and restrictions[1][0]
 
-
             fdofs = numpy.arange(*((0, dim[0]) if restrictions[0][1] else (dims[0], sum(dims))), dtype=PETSc.IntType)
-
             perm = numpy.concatenate(split_dofs(Vbig.finat_element))
             self.perm = PETSc.IS().createGeneral(perm, comm=PETSc.COMM_SELF)
         else:
@@ -477,36 +475,42 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMAssemble")
     def assemble_kron(self, A, V, bcs, coefficients, Afdm, Bfdm, bcflags):
+        import pyop2
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
 
         lgmaps = []
+        for Vsub, iset in zip(V, V.dof_dset.field_ises):
+            # FIXME reconstruct bcs
+            _lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs])
+
+            # ugly halo exchange, move this somewhere else
+            val = numpy.zeros_like(_lgmap.indices)
+            val[:len(iset.indices)] = iset.indices
+            usub = firedrake.Function(Vsub, val=val, dtype=PETSc.IntType)
+            usub.dat.local_to_global_begin(pyop2.INC)
+            usub.dat.local_to_global_end(pyop2.INC)
+            indices = usub.dat.data_with_halos
+
+            bc_nodes = _lgmap.indices < 0
+            self.set_bc_values(A, indices[bc_nodes])
+            indices[bc_nodes] = -1
+            lgmaps.append(PETSc.LGMap().create(indices, bsize=_lgmap.getBlockSize(), comm=_lgmap.comm))
+
         local_indices = []
-        ises = V.dof_dset.field_ises
-        for Vsub, iset in zip(V, ises):
-            dof_dset = Vsub.dof_dset
+        for Vsub in V:
             icell, nel = glonum_fun(Vsub.cell_node_map())
-            bsize = dof_dset.layout_vec.getBlockSize()
+            bsize = Vsub.dof_dset.layout_vec.getBlockSize()
             if bsize > 1:
                 _icell = icell
                 ibase = numpy.arange(bsize, dtype=PETSc.IntType)
                 icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
             local_indices.append(icell)
 
-            offset = iset.indices[0] - dof_dset.lgmap.indices[0]
-            # FIXME reconstruct bcs
-            _lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs])
-            indices = _lgmap.indices.copy()
-            indices[indices >= 0] += offset
-            lgmaps.append(PETSc.LGMap().create(indices, bsize=_lgmap.getBlockSize(), comm=_lgmap.comm))
-
-            bc_nodes = offset + dof_dset.lgmap.indices[indices < 0]
-            self.set_bc_values(A, bc_nodes)
-
-        if len(lgmaps) == 1:
-            get_indices = lambda e, result=None: lgmaps[0].apply(local_indices[0](e), result=result)
-        else:
+        if self.is_mixed_element:
             get_indices = lambda e, result=None: numpy.concatenate([lgmap.apply(icell(e)) for lgmap, icell in zip(lgmaps, local_indices)], out=result)
+        else:
+            get_indices = lambda e, result=None: lgmaps[0].apply(local_indices[0](e), result=result)
 
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         dof_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
@@ -1599,7 +1603,7 @@ def glonum_fun(node_map):
                 numpy.copyto(buffer, node_map.values_with_halo[e//nelz])
                 buffer += (e % nelz)*node_map.offset
                 return buffer
-            return lambda e: _glonum(buffer, node_map, nelz, e), nel
+            return partial(_glonum, buffer, node_map, nelz), nel
         else:
             nelz = layers[:, 1]-layers[:, 0]-1
             nel = sum(nelz[:nelv])
@@ -1611,7 +1615,7 @@ def glonum_fun(node_map):
                 numpy.copyto(buffer, node_map.values_with_halo[to_base[e]])
                 buffer += to_layer[e]*node_map.offset
                 return buffer
-            return lambda e: _glonum(buffer, node_map, to_base, to_layer, e), nel
+            return partial(_glonum, buffer, node_map, to_base, to_layer), nel
 
 
 def glonum(node_map):
