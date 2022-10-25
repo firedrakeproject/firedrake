@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from pyop2.mpi import COMM_WORLD, internal_comm, decref
+from pyop2.mpi import COMM_WORLD, PyOP2Comm
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
 from firedrake.utils import IntType
@@ -322,7 +322,7 @@ def test_bc_nodes_cover_ghost_dofs():
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
-    with mpi.PyOP2Comm(COMM_WORLD) as comm:
+    with PyOP2Comm(COMM_WORLD) as comm:
         dm = create_dm(2, [[0, 1, 2],
                            [1, 2, 3],
                            [1, 3, 4]],
