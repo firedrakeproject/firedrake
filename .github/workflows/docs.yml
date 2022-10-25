@@ -41,7 +41,7 @@ jobs:
       - name: Build docs
         run: |
           cd /home/firedrake/firedrake/src/ufl
-          git checkout interp_dual
+          git checkout external-operator_dualspace
           cd /home/firedrake/firedrake/src/firedrake
           . /home/firedrake/firedrake/bin/activate
           cd docs
