@@ -1365,7 +1365,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
         r"The PETSc DM representation of the mesh topology."
-        self._comm = internal_comm(swarm.comm.tompi4py())
+
+        # Set up the comms the same as the parent mesh
+        self.user_comm = parentmesh.comm
+        self._comm = internal_comm(parentmesh._comm)
+        if MPI.Comm.Compare(swarm.comm.tompi4py(), self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            ValueError("Parent mesh communicator and swarm communicator are not congruent")
 
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
