@@ -21,7 +21,7 @@ class DelegatedFunctionCheckpoint:
         self.other = other
 
     def restore(self):
-        return other.saved_output()
+        return self.other.saved_output
 
 
 class FunctionMixin(FloatingType):
@@ -135,9 +135,10 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 block_var = self.create_block_variable()
+                block.add_output(block_var)
+                
                 if isinstance(other, type(self)):
                     block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
-                block.add_output(block_var)
 
             return ret
 
