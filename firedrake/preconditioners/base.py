@@ -54,6 +54,10 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         viewer.printfASCII("Firedrake custom %s %s\n" %
                            (self._asciiname, type(self).__name__))
 
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            self.pc.destroy()
+
     @staticmethod
     def get_appctx(pc):
         from firedrake.dmhooks import get_appctx

@@ -143,3 +143,14 @@ class PCDPC(PCBase):
         self.Kksp.view(viewer)
         viewer.printfASCII("KSP solver for M^-1:\n")
         self.Mksp.view(viewer)
+
+    def destroy(self, pc):
+        if hasattr(self, "workspace"):
+            for vec in self.workspace:
+                vec.destroy()
+        if hasattr(self, "Kksp"):
+            self.Kksp.destroy()
+        if hasattr(self, "Fp"):
+            self.Fp.petscmat.destroy()
+        if hasattr(self, "Mksp"):
+            self.Mksp.destroy()
