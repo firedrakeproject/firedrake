@@ -60,18 +60,25 @@ class PointexprOperator(AbstractExternalOperator):
     # --- Evaluation ---
 
     @assemble_method(0, (0,))
-    def _assemble(self, *args, **kwargs):
+    def assemble_operator(self, *args, **kwargs):
         return self._evaluate(*args, **kwargs)
 
     @assemble_method(1, (0, None))
-    def dN_dm(self, *args, **kwargs):
-        from firedrake.assemble import assemble
-        uhat = self.argument_slots()[-1]
+    def assemble_Jacobian_action(self, *args, **kwargs):
+        from firedrake.function import Function
+        res = Function(self.function_space())
+        w = self.argument_slots()[-1]
+        # Get diagonal of the Jacobian
         dNdu = self._evaluate()
-        return assemble(dNdu * uhat)
+        # Multiply pointwise dNdu and w since the Jacobian is diagonal
+        with res.dat.vec_wo as res_vec:
+            with w.dat.vec_ro as u_vec:
+                with dNdu.dat.vec_ro as v_vec:
+                    res_vec.pointwiseMult(u_vec, v_vec)
+        return res
 
     @assemble_method(1, (0, 1))
-    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
+    def assemble_Jacobian(self, *args, assembly_opts, **kwargs):
         result = self._evaluate()
 
         # Construct the Jacobian matrix
@@ -80,6 +87,20 @@ class PointexprOperator(AbstractExternalOperator):
         with result.dat.vec as vec:
             J.petscmat.setDiagonal(vec)
         return J
+
+    @assemble_method(1, (None, 0))
+    def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
+        from firedrake.cofunction import Cofunction
+        res = Cofunction(self.function_space().dual())
+        ustar = self.argument_slots()[0]
+        # Get diagonal of the Jacobian
+        dNdu = self._evaluate()
+        # Multiply pointwise dNdu and ustar since the Jacobian is diagonal
+        with res.dat.vec_wo as res_vec:
+            with ustar.dat.vec_ro as u_vec:
+                with dNdu.dat.vec_ro as v_vec:
+                    res_vec.pointwiseMult(u_vec, v_vec)
+        return res
 
     def _evaluate(self, *args, **kwargs):
         operands = self.ufl_operands

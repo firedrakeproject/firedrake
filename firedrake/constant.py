@@ -5,6 +5,8 @@ from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
+from ufl.formatting.ufl2unicode import ufl2unicode
+
 
 import firedrake.utils as utils
 from firedrake.adjoint.constant import ConstantMixin
@@ -143,3 +145,6 @@ class Constant(ufl.Coefficient, ConstantMixin):
 
     def __idiv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __str__(self):
+        return ufl2unicode(self)

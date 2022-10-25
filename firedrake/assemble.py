@@ -285,6 +285,14 @@ def restructure_base_form(expr, visited=None):
         This case arises as a consequence of (2) which turns sum of `Action`s (i.e. ufl.FormSum since Action is a BaseForm)
         into sum of `BaseFormOperator`s (i.e. ufl.Sum since BaseFormOperator is an Expr as well).
 
+        (7) Action(w*, dNdu)
+
+                 Action
+                 /   \
+                w*    \        ----->   dNdu(u; v0, w*)
+                       \
+                  dNdu(u; v1, v0*)
+
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     various dag rotations/manipulations in expr.
     """
@@ -304,11 +312,24 @@ def restructure_base_form(expr, visited=None):
             return ufl.replace(left, {arg: right})
         # -- Case (3) -- #
         if isinstance(left, ufl.Form) and is_rank_1(right):
-            # 1) Replace the highest-numbered argument of left by right when needed
+            # 1) Replace the highest numbered argument of left by right when needed
             #    -> e.g. if right is a BaseFormOperator with 1 argument.
             # Or
             # 2) Let expr as it is by returning `ufl.Action(left, right)`.
             return ufl.action(left, right)
+        # -- Case (7) -- #
+        if is_rank_1(left) and isinstance(right, ufl.core.base_form_operator.BaseFormOperator) and len(right.arguments()) != 1:
+            # Action(w*, dNdu(u; v1, v*)) -> dNdu(u; v0, w*)
+            # Get lowest numbered argument
+            arg = min(right.arguments(), key=lambda v: v.number())
+            # Need to replace lowest numbered argument of right by left
+            replace_map = {arg: left}
+            # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
+            other_args = [a for a in right.arguments() if a is not arg]
+            new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
+            replace_map.update(dict(zip(other_args, new_args)))
+            # Replace arguments
+            return ufl.replace(right, replace_map)
 
     # -- Case (4) -- #
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
@@ -534,10 +555,16 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 'mat_type': mat_type, 'sub_mat_type': sub_mat_type,
                 'appctx': appctx, 'options_prefix': options_prefix,
                 'diagonal': diagonal}
-        # Replace external operators in the operands of the external operator expr by their result
-        if args:
-            children = base_form_operands(expr)
-            expr = ufl.replace(expr, dict(zip(children, args)))
+        # Replace base forms in the operands and argument slots of the external operator by their result
+        v, *assembled_children = args
+        if assembled_children:
+            _, *children = base_form_operands(expr)
+            # Replace assembled children by their results
+            expr = ufl.replace(expr, dict(zip(children, assembled_children)))
+        # Always reconstruct the dual argument (0-slot argument) since it is a BaseForm
+        # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
+        expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
+        # Call the external operator assembly
         return expr.assemble(assembly_opts=opts)
     elif isinstance(expr, ufl.Interp):
         # Replace assembled children
