@@ -607,6 +607,11 @@ def split_nest(A, i0, i1, submats):
     return submats[:4]
 
 
+def condense_nest(A, i0, i1, submats):
+    condense_element_mat(A, i0, i1, submats)
+    return submats[0], submats[1], submats[2], submats[6]
+
+
 def update_nest(A, submats, indices, update_csr):
     i0, i1 = indices
     addv = PETSc.InsertMode.ADD_VALUES
@@ -667,26 +672,6 @@ def condense_element_pattern(A, i0, i1, submats):
     submats[6] = submats[4].matMult(submats[5], result=submats[6])
     submats[6].aypx(-1, A)
     return submats[6]
-
-
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_nest(A, Alocal, global_indices, i0, i1, submats, update_csr):
-    isrows = [i0, i0, i1, i1]
-    iscols = [i0, i1, i0, i1]
-    submats[:4] = Alocal.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    A00, A01, A10, A11 = submats[:4]
-    factor_interior_mat(A00)
-    submats[4] = A00.matMult(A01, result=submats[4])
-    submats[5] = A10.matTransposeMult(A00, result=submats[5])
-    submats[6] = submats[5].matMult(submats[4], result=submats[6])
-    submats[6].aypx(-1.0, A11)
-
-    j0, j1 = global_indices
-    addv = PETSc.InsertMode.ADD_VALUES
-    update_csr(A.getNestSubMatrix(0, 0), A00, j0, j0, addv)
-    update_csr(A.getNestSubMatrix(0, 1), A01, j0, j1, addv)
-    update_csr(A.getNestSubMatrix(1, 0), A10, j1, j0, addv)
-    update_csr(A.getNestSubMatrix(1, 1), submats[6], j1, j1, addv)
 
 
 @PETSc.Log.EventDecorator("LoadCode")
