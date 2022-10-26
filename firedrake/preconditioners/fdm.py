@@ -235,8 +235,10 @@ class FDMPC(PCBase):
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
         self.submats = [None for _ in range(7)]
 
-        if self.dofset in [DOF.INTERIOR, DOF.SPLIT]:
+        if self.dofset == DOF.INTERIOR:
             self.condense_element_mat = lambda Ae: Ae
+        elif self.dofset == DOF.SPLIT:
+            self.condense_element_mat = lambda Ae: split_nest(Ae, self.idofs, self.fdofs, self.submats)
         elif self.dofset == DOF.FACET:
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.submats)
         elif V.finat_element.formdegree == 0:
@@ -249,7 +251,7 @@ class FDMPC(PCBase):
         _update_A = load_assemble_csr()
         _set_bc_values = load_set_bc_values()
         if self.dofset == DOF.SPLIT:
-            self.update_A = lambda A, B, indices: update_nest(A, B, indices, self.idofs, self.fdofs, self.submats, _update_A)
+            self.update_A = lambda A, B, indices: update_nest(A, B, indices, _update_A)
         else:
             self.update_A = lambda A, B, indices: _update_A(A, B, indices, indices, addv)
         self.set_bc_values = lambda A, rows=self.bc_nodes: _set_bc_values(A, rows.size, rows, addv)
@@ -598,6 +600,21 @@ class FDMPC(PCBase):
         return self._reference_tensor_cache[key], [], quad_degree, None
 
 
+def split_nest(A, i0, i1, submats):
+    isrows = [i0, i0, i1, i1]
+    iscols = [i0, i1, i0, i1]
+    submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
+    return submats[:4]
+
+
+def update_nest(A, submats, indices, update_csr):
+    i0, i1 = indices
+    addv = PETSc.InsertMode.ADD_VALUES
+    update_csr(A.getNestSubMatrix(0, 0), submats[0], i0, i0, addv)
+    update_csr(A.getNestSubMatrix(0, 1), submats[1], i0, i1, addv)
+    update_csr(A.getNestSubMatrix(1, 0), submats[2], i1, i0, addv)
+    update_csr(A.getNestSubMatrix(1, 1), submats[3], i1, i1, addv)
+
 
 def factor_interior_mat(A00):
     # Assume that interior DOF list i0 is ordered such that A00 is block diagonal
@@ -650,19 +667,6 @@ def condense_element_pattern(A, i0, i1, submats):
     submats[6] = submats[4].matMult(submats[5], result=submats[6])
     submats[6].aypx(-1, A)
     return submats[6]
-
-
-def update_nest(A, Alocal, global_indices, i0, i1, submats, update_csr):
-    isrows = [i0, i0, i1, i1]
-    iscols = [i0, i1, i0, i1]
-    submats[:4] = Alocal.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    A00, A01, A10, A11 = submats[:4]
-    j0, j1 = global_indices
-    addv = PETSc.InsertMode.ADD_VALUES
-    update_csr(A.getNestSubMatrix(0, 0), A00, j0, j0, addv)
-    update_csr(A.getNestSubMatrix(0, 1), A01, j0, j1, addv)
-    update_csr(A.getNestSubMatrix(1, 0), A10, j1, j0, addv)
-    update_csr(A.getNestSubMatrix(1, 1), A11, j1, j1, addv)
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
