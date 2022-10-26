@@ -251,7 +251,7 @@ class ComposedMap(Map):
                 raise ex.MapTypeError("frommap.arity must be 1")
         self._iterset = maps_[-1].iterset
         self._toset = maps_[0].toset
-        self.comm = self._toset.comm
+        self.comm = mpi.internal_comm(self._toset.comm)
         self._arity = maps_[0].arity
         # Don't call super().__init__() to avoid calling verify_reshape()
         self._values = None
