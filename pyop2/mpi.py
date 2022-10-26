@@ -142,24 +142,6 @@ compilationcomm_keyval = MPI.Comm.Create_keyval()
 dupped_comms = []
 
 
-class FriendlyCommNull:
-    def __init__(self):
-        self.name = 'PYOP2_FRIENDLY_COMM_NULL'
-
-    def Get_attr(self, keyval):
-        if keyval is refcount_keyval:
-            ret = [1]
-        elif keyval in (innercomm_keyval, outercomm_keyval, compilationcomm_keyval):
-            ret = None
-        return ret
-
-    def Delete_attr(self, keyval):
-        pass
-
-    def Free(self):
-        pass
-
-
 def is_pyop2_comm(comm):
     """Returns `True` if `comm` is a PyOP2 communicator,
     False if `comm` another communicator.
@@ -177,7 +159,7 @@ def is_pyop2_comm(comm):
             ispyop2comm = True
         else:
             ispyop2comm = True
-    elif isinstance(comm, (MPI.Comm, FriendlyCommNull)):
+    elif isinstance(comm, MPI.Comm):
         ispyop2comm = bool(comm.Get_attr(refcount_keyval))
     else:
         raise ValueError(f"Argument passed to is_pyop2_comm() is a {type(comm)}, which is not a recognised comm type")
@@ -259,13 +241,11 @@ def incref(comm):
 def decref(comm):
     """ Decrement communicator reference count
     """
-    if comm == MPI.COMM_NULL:
-        comm = FriendlyCommNull()
     if not PYOP2_FINALIZED:
         assert is_pyop2_comm(comm)
         refcount = comm.Get_attr(refcount_keyval)
         refcount[0] -= 1
-        if refcount[0] == 0 and not isinstance(comm, FriendlyCommNull):
+        if refcount[0] == 0:
             dupped_comms.remove(comm)
             free_comm(comm)
     elif comm == MPI.COMM_NULL:
@@ -388,6 +368,7 @@ def compilation_comm(comm):
         retcomm = get_compilation_comm(comm)
         if retcomm is not None:
             debug("Found existing compilation communicator")
+            debug(f"{retcomm.name}")
         else:
             retcomm = create_split_comm(comm)
             set_compilation_comm(comm, retcomm)
