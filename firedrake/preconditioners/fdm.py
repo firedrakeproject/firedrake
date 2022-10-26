@@ -264,6 +264,28 @@ class FDMPC(PCBase):
             bcflags = get_weak_bc_flags(J)
         self.coeffcients = coefficients
 
+        cell_maps = []
+        for Vsub in V:
+            icell, nel = glonum_fun(Vsub.cell_node_map())
+            bsize = Vsub.dof_dset.layout_vec.getBlockSize()
+            if bsize > 1:
+                _icell = icell
+                ibase = numpy.arange(bsize, dtype=PETSc.IntType)
+                icell = lambda e, out: numpy.add.outer(_icell(e)*bsize, ibase)
+            cell_maps.append(icell)
+
+        self.nel = nel
+        if len(V) == 1:
+            lgmap = V.local_to_global_map(bcs)
+            self.get_indices = lambda e, result=None: lgmap.apply(cell_maps[0](e), result=result)
+        else:
+            lgmaps = [Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs]) for Vsub in V]
+            self.get_indices = lambda e, result=None: [lgmap.apply(cmap(e), result=out) for lgmap, cmap, out in zip(lgmaps, cell_maps, result or [None]*len(lgmaps))]
+
+        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
+        coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
+        self.get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
+
         if pmat_type is None:
             pmat_type = PETSc.Mat.Type.AIJ
 
@@ -364,38 +386,7 @@ class FDMPC(PCBase):
             atype = A.getNestSubMatrix(0, 0).getType()
         if atype != PETSc.Mat.Type.PREALLOCATOR:
             A.zeroEntries()
-
-        lgmaps = []
-        if A.getType() == PETSc.Mat.Type.NEST:
-            for isub, Vsub in enumerate(V):
-                # FIXME reconstruct bcs
-                lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs])
-                bc_nodes = numpy.argwhere(lgmap.indices[:Vsub.dof_dset.size] < 0)
-                bc_nodes = Vsub.dof_dset.lgmap.indices[bc_nodes]
-                self.set_bc_values(A.getNestSubMatrix(isub, isub), bc_nodes)
-                lgmaps.append(lgmap)
-        else:
-            lgmaps.append(V.local_to_global_map(bcs))
-            self.set_bc_values(A)
-
-        cell_maps = []
-        for Vsub in V:
-            icell, nel = glonum_fun(Vsub.cell_node_map())
-            bsize = Vsub.dof_dset.layout_vec.getBlockSize()
-            if bsize > 1:
-                _icell = icell
-                ibase = numpy.arange(bsize, dtype=PETSc.IntType)
-                icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
-            cell_maps.append(icell)
-
-        if len(lgmaps) == 1:
-            get_indices = lambda e, result=None: lgmaps[0].apply(cell_maps[0](e), result=result)
-        else:
-            get_indices = lambda e, result=None: [lgmap.apply(cmap(e), result=out) for lgmap, cmap, out in zip(lgmaps, cell_maps, result or [None]*len(lgmaps))]
-
-        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
-        coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
-        get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
+        self.set_bc_values(A)
 
         if atype != PETSc.Mat.Type.PREALLOCATOR:
             indices = None
@@ -404,15 +395,15 @@ class FDMPC(PCBase):
             for _assemble in self.assembly_callables:
                 _assemble()
 
-            for e in range(nel):
-                coefs_array = get_coefs(e, result=coefs_array)
+            for e in range(self.nel):
+                coefs_array = self.get_coefs(e, result=coefs_array)
                 Ae = self.assemble_element_mat(coefs_array, Afdm, De, result=Ae)
-                indices = get_indices(e, result=indices)
+                indices = self.get_indices(e, result=indices)
                 self.update_A(A, self.condense_element_mat(Ae), indices)
 
-        elif nel:
+        elif self.nel:
             indices = None
-            coefs_array = get_coefs(0)
+            coefs_array = self.get_coefs(0)
             shape = coefs_array.shape
             if len(shape) > 2:
                 bsize = shape[1]
@@ -428,8 +419,8 @@ class FDMPC(PCBase):
             if self.idofs:
                 sort_interior_dofs(self.idofs, Ae)
             Se = self.condense_element_mat(Ae)
-            for e in range(nel):
-                indices = get_indices(e, result=indices)
+            for e in range(self.nel):
+                indices = self.get_indices(e, result=indices)
                 self.update_A(A, Se, indices)
         else:
             self.work_mats = None, None
