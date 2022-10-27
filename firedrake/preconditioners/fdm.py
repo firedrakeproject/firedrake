@@ -137,8 +137,7 @@ class FDMPC(PCBase):
                                           fcp=fcp, options_prefix=options_prefix)
 
         if len(bcs) > 0:
-            bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
-            self.bc_nodes = V.dof_dset.lgmap.indices[bc_nodes]
+            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         else:
             self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
@@ -238,7 +237,8 @@ class FDMPC(PCBase):
         if self.dofset == DOF.INTERIOR:
             self.condense_element_mat = lambda Ae: Ae
         elif self.dofset == DOF.SPLIT:
-            self.condense_element_mat = lambda Ae: split_nest(Ae, self.idofs, self.fdofs, self.submats)
+            i0 = self.idofs.copy()
+            self.condense_element_mat = lambda Ae: split_nest(Ae, i0, self.fdofs, self.submats)
         elif self.dofset == DOF.FACET:
             self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.submats)
         elif V.finat_element.formdegree == 0:
@@ -250,11 +250,14 @@ class FDMPC(PCBase):
         addv = PETSc.InsertMode.ADD_VALUES
         _update_A = load_assemble_csr()
         _set_bc_values = load_set_bc_values()
+
         if self.dofset == DOF.SPLIT:
             self.update_A = lambda A, B, indices: update_nest(A, B, indices, _update_A)
         else:
             self.update_A = lambda A, B, indices: _update_A(A, B, indices, indices, addv)
-        self.set_bc_values = lambda A, rows=self.bc_nodes: _set_bc_values(A, rows.size, rows, addv)
+
+        bc_rows = V.dof_dset.lgmap.apply(self.bc_nodes)
+        self.set_bc_values = lambda A, rows=bc_rows: _set_bc_values(A, rows.size, rows, addv)
 
         Afdm, Dfdm, quad_degree, eta = self.assemble_reference_tensors(Vbig, appctx)
         coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
@@ -290,15 +293,18 @@ class FDMPC(PCBase):
             pmat_type = PETSc.Mat.Type.AIJ
 
         def create_nest(mats):
-            if len(mats) == 1:
-                return mats[0]
             n = len(V)
+            if n == 1:
+                return mats[0]
             return PETSc.Mat().createNest([mats[i:i+n] for i in range(0, len(mats), n)], comm=V.comm)
 
         Pmats = []
         preallocators = []
         own_rows = []
         for Vrow, Vcol in product(V, V):
+            on_diag = Vrow == Vcol
+            ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
+            is_sbaij = ptype.endswith("sbaij")
             sizes = (Vrow.dof_dset.layout_vec.getSizes(), Vcol.dof_dset.layout_vec.getSizes())
             row_bsize = Vrow.dof_dset.layout_vec.getBlockSize()
             col_bsize = Vcol.dof_dset.layout_vec.getBlockSize()
@@ -309,10 +315,11 @@ class FDMPC(PCBase):
             preallocator.setSizes(sizes)
             preallocator.setUp()
             preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+            preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, is_sbaij)
             preallocators.append(preallocator)
 
             P = PETSc.Mat().create(comm=V.comm)
-            P.setType(pmat_type)
+            P.setType(ptype)
             P.setSizes(sizes)
             P.setBlockSizes(row_bsize, col_bsize)
             Pmats.append(P)
@@ -389,51 +396,49 @@ class FDMPC(PCBase):
         self.set_bc_values(A)
 
         if atype != PETSc.Mat.Type.PREALLOCATOR:
-            indices = None
-            coefs_array = None
-            Ae, De = self.work_mats
             for _assemble in self.assembly_callables:
                 _assemble()
 
+            Ae, De = self.work_mats
+            data = self.work_csr[2]
+            indices = None
             for e in range(self.nel):
-                coefs_array = self.get_coefs(e, result=coefs_array)
-                Ae = self.assemble_element_mat(coefs_array, Afdm, De, result=Ae)
+                data = self.get_coefs(e, result=data)
+                Ae = self.assemble_element_mat(self.work_csr, Afdm, De, result=Ae)
                 indices = self.get_indices(e, result=indices)
                 self.update_A(A, self.condense_element_mat(Ae), indices)
 
         elif self.nel:
-            indices = None
-            coefs_array = self.get_coefs(0)
-            shape = coefs_array.shape
-            if len(shape) > 2:
-                bsize = shape[1]
-                coefs_array = numpy.tile(numpy.eye(bsize), shape[:1] + (1,)*(len(shape)-1))
-            else:
-                bsize = 1
-                coefs_array.fill(1.0E0)
-
             nrows = Afdm[0].getSize()[0]
-            De = PETSc.Mat().createAIJ((nrows, nrows), nnz=([bsize], [0]), comm=PETSc.COMM_SELF)
-            Ae = self.assemble_element_mat(coefs_array, Afdm, De, result=None)
-            self.work_mats = (Ae, De)
-            if self.idofs:
-                sort_interior_dofs(self.idofs, Ae)
+
+            data = self.get_coefs(0)
+            data.fill(1.0E0)
+            shape = data.shape + (1,)*(3-len(data.shape))
+            ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
+            aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
+            ai *= shape[2]
+            if shape[2] > 1:
+                data = numpy.tile(numpy.eye(shape[2]), shape[:1] + (1,)*(len(shape)-1))
+
+            self.work_csr = (ai, aj, data)
+            De = PETSc.Mat().createAIJ((nrows, nrows), csr=self.work_csr, comm=PETSc.COMM_SELF)
+            Ae = self.assemble_element_mat(self.work_csr, Afdm, De, result=None)
+            sort_interior_dofs(self.idofs, Ae)
             Se = self.condense_element_mat(Ae)
+
+            indices = None
             for e in range(self.nel):
                 indices = self.get_indices(e, result=indices)
                 self.update_A(A, Se, indices)
+
+            self.work_mats = (Ae, De)
         else:
             self.work_mats = None, None
         A.assemble()
 
-    def assemble_element_mat(self, coefs_array, Afdm, work_mat, result=None):
-        shape = coefs_array.shape
-        shape += (1,)*(3-len(shape))
-        indptr = numpy.arange(work_mat.getSize()[0]+1, dtype=PETSc.IntType)
-        indices = numpy.tile(indptr[:-1].reshape((-1, shape[1])), (1, shape[2]))
-        indptr *= shape[2]
+    def assemble_element_mat(self, csr, Afdm, work_mat, result=None):
         work_mat.zeroEntries()
-        work_mat.setValuesCSR(indptr, indices, coefs_array)
+        work_mat.setValuesCSR(*csr)
         work_mat.assemble()
         return work_mat.PtAP(Afdm[0], result=result)
 
@@ -603,13 +608,13 @@ def condense_nest(A, i0, i1, submats):
     return submats[0], submats[1], submats[2], submats[6]
 
 
-def update_nest(A, submats, indices, update_csr):
+def update_nest(A, submats, indices, set_values):
     i0, i1 = indices
     addv = PETSc.InsertMode.ADD_VALUES
-    update_csr(A.getNestSubMatrix(0, 0), submats[0], i0, i0, addv)
-    update_csr(A.getNestSubMatrix(0, 1), submats[1], i0, i1, addv)
-    update_csr(A.getNestSubMatrix(1, 0), submats[2], i1, i0, addv)
-    update_csr(A.getNestSubMatrix(1, 1), submats[3], i1, i1, addv)
+    set_values(A.getNestSubMatrix(0, 0), submats[0], i0, i0, addv)
+    set_values(A.getNestSubMatrix(0, 1), submats[1], i0, i1, addv)
+    set_values(A.getNestSubMatrix(1, 0), submats[2], i1, i0, addv)
+    set_values(A.getNestSubMatrix(1, 1), submats[3], i1, i1, addv)
 
 
 def factor_interior_mat(A00):
@@ -802,27 +807,6 @@ def block_mat(A_blocks):
     return A
 
 
-def unrestrict_element(ele):
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.EnrichedElement):
-        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
-    elif isinstance(ele, ufl.TensorProductElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.WithMapping):
-        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
-    elif isinstance(ele, ufl.RestrictedElement):
-        return unrestrict_element(ele._element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
-        return type(ele)(unrestrict_element(ele._element))
-    else:
-        return ele
-
-
 def restricted_dofs(celem, felem):
     """
     find which DOFs from felem are on celem
@@ -937,7 +921,7 @@ def mass_matrix(ndim, formdegree, B00, B11):
 def diff_matrix(ndim, formdegree, A00, A11, A10):
     if formdegree == ndim:
         ncols = A10.shape[0]**ndim
-        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=([0], [0]), comm=PETSc.COMM_SELF)
+        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=PETSc.COMM_SELF)
         A_zero.assemble()
         return A_zero
 
@@ -956,9 +940,8 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
-            nrows = A11.getSize()[0] * A10.getSize()[0] * A00.getSize()[0]
-            ncols = A11.getSize()[1] * A10.getSize()[1] * A00.getSize()[1]
-            A_zero = PETSc.Mat().createAIJ((nrows, ncols), nnz=([0], [0]), comm=PETSc.COMM_SELF)
+            size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
+            A_zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=PETSc.COMM_SELF)
             A_zero.assemble()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), A_zero],
                         [kron3(A10, A00, A11, scale=-1), A_zero, kron3(A11, A00, A10)],
@@ -994,6 +977,27 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
     for e in range(nel):
         update_A(A, Ahat, rmap.apply(rindices(e)), cmap.apply(cindices(e)), addv)
     A.assemble()
+
+
+def unrestrict_element(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.EnrichedElement):
+        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
+    elif isinstance(ele, ufl.TensorProductElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.WithMapping):
+        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
+    elif isinstance(ele, ufl.RestrictedElement):
+        return unrestrict_element(ele._element)
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        return type(ele)(unrestrict_element(ele._element))
+    else:
+        return ele
 
 
 def get_base_elements(e):
