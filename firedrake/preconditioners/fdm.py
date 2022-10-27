@@ -166,7 +166,6 @@ class FDMPC(PCBase):
         fdmpc.setOperators(A=Amat, P=Pmat)
         fdmpc.setUseAmat(use_amat)
         self.pc = fdmpc
-
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
@@ -182,11 +181,13 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-        ndim = V.mesh().topological_dimension()
+        if pmat_type is None:
+            pmat_type = PETSc.Mat.Type.AIJ
 
         def is_restricted(finat_element):
             is_interior = True
             is_facet = True
+            ndim = finat_element.cell.get_spatial_dimension()
             entity_dofs = finat_element.entity_dofs()
             for key in entity_dofs:
                 v = sum(list(entity_dofs[key].values()), [])
@@ -202,21 +203,7 @@ class FDMPC(PCBase):
                         is_interior = False
             return is_interior, is_facet
 
-        if len(V) > 1:
-            self.dofset = DOF.SPLIT
-            ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
-            dims = [Vsub.finat_element.space_dimension() for Vsub in V]
-            assert sum(dims) == Vbig.finat_element.space_dimension()
-
-            perm = numpy.concatenate([restricted_dofs(Vsub.finat_element, Vbig.finat_element) for Vsub in V])
-            self.perm = PETSc.IS().createGeneral(perm, comm=PETSc.COMM_SELF)
-
-            restrictions = [is_restricted(Vsub.finat_element) for Vsub in V]
-            assert restrictions[0][0] and restrictions[1][1] or restrictions[0][1] and restrictions[1][0]
-            fdofs = numpy.arange(*((0, dim[0]) if restrictions[0][1] else (dims[0], sum(dims))), dtype=PETSc.IntType)
-
-        else:
+        if len(V) == 1:
             is_interior, is_facet = is_restricted(V.finat_element)
             if is_facet:
                 self.dofset = DOF.FACET
@@ -226,6 +213,18 @@ class FDMPC(PCBase):
                 self.dofset = DOF.INTERIOR if is_interior else DOF.FULL
                 _, fdofs = split_dofs(V.finat_element)
                 Vbig = V
+        else:
+            self.dofset = DOF.SPLIT
+            ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
+            Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
+            dims = [Vsub.finat_element.space_dimension() for Vsub in V]
+            assert sum(dims) == Vbig.finat_element.space_dimension()
+            perm = numpy.concatenate([restricted_dofs(Vsub.finat_element, Vbig.finat_element) for Vsub in V])
+            self.perm = PETSc.IS().createGeneral(perm, comm=PETSc.COMM_SELF)
+
+            restrictions = [is_restricted(Vsub.finat_element) for Vsub in V]
+            assert restrictions[0][0] and restrictions[1][1] or restrictions[0][1] and restrictions[1][0]
+            fdofs = numpy.arange(*((0, dim[0]) if restrictions[0][1] else (dims[0], sum(dims))), dtype=PETSc.IntType)
 
         value_size = Vbig.value_size
         fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
@@ -267,6 +266,10 @@ class FDMPC(PCBase):
             bcflags = get_weak_bc_flags(J)
         self.coeffcients = coefficients
 
+        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
+        coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
+        self.get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
+
         cell_maps = []
         for Vsub in V:
             icell, nel = glonum_fun(Vsub.cell_node_map())
@@ -274,7 +277,7 @@ class FDMPC(PCBase):
             if bsize > 1:
                 _icell = icell
                 ibase = numpy.arange(bsize, dtype=PETSc.IntType)
-                icell = lambda e, out: numpy.add.outer(_icell(e)*bsize, ibase)
+                icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
             cell_maps.append(icell)
 
         self.nel = nel
@@ -284,13 +287,6 @@ class FDMPC(PCBase):
         else:
             lgmaps = [Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs]) for Vsub in V]
             self.get_indices = lambda e, result=None: [lgmap.apply(cmap(e), result=out) for lgmap, cmap, out in zip(lgmaps, cell_maps, result or [None]*len(lgmaps))]
-
-        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
-        coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
-        self.get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
-
-        if pmat_type is None:
-            pmat_type = PETSc.Mat.Type.AIJ
 
         def create_nest(mats):
             n = len(V)
@@ -416,13 +412,14 @@ class FDMPC(PCBase):
             shape = data.shape + (1,)*(3-len(data.shape))
             ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
             aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
-            ai *= shape[2]
             if shape[2] > 1:
+                ai *= shape[2]
                 data = numpy.tile(numpy.eye(shape[2]), shape[:1] + (1,)*(len(shape)-1))
 
             self.work_csr = (ai, aj, data)
             De = PETSc.Mat().createAIJ((nrows, nrows), csr=self.work_csr, comm=PETSc.COMM_SELF)
             Ae = self.assemble_element_mat(self.work_csr, Afdm, De, result=None)
+            self.work_mats = (Ae, De)
             sort_interior_dofs(self.idofs, Ae)
             Se = self.condense_element_mat(Ae)
 
@@ -430,10 +427,9 @@ class FDMPC(PCBase):
             for e in range(self.nel):
                 indices = self.get_indices(e, result=indices)
                 self.update_A(A, Se, indices)
-
-            self.work_mats = (Ae, De)
         else:
-            self.work_mats = None, None
+            self.work_csr = (None, None, None)
+            self.work_mats = (None, None)
         A.assemble()
 
     def assemble_element_mat(self, csr, Afdm, work_mat, result=None):
@@ -979,45 +975,6 @@ def assemble_reference_tensor(A, Ahat, Vrows, Vcols, rmap, cmap, addv=None):
     A.assemble()
 
 
-def unrestrict_element(ele):
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.EnrichedElement):
-        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
-    elif isinstance(ele, ufl.TensorProductElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.WithMapping):
-        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
-    elif isinstance(ele, ufl.RestrictedElement):
-        return unrestrict_element(ele._element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
-        return type(ele)(unrestrict_element(ele._element))
-    else:
-        return ele
-
-
-def get_base_elements(e):
-    import finat
-    import FIAT
-    if isinstance(e, finat.EnrichedElement):
-        return sum(list(map(get_base_elements, e.elements)), [])
-    elif isinstance(e, finat.TensorProductElement):
-        return sum(list(map(get_base_elements, e.factors)), [])
-    elif isinstance(e, finat.cube.FlattenedDimensions):
-        return get_base_elements(e.product)
-    elif isinstance(e, (finat.HCurlElement, finat.HDivElement)):
-        return get_base_elements(e.wrappee)
-    elif isinstance(e, finat.finiteelementbase.FiniteElementBase):
-        return get_base_elements(e.fiat_equivalent)
-    elif isinstance(e, FIAT.RestrictedElement):
-        return get_base_elements(e._element)
-    return [e]
-
-
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     from tsfc.finatinterface import create_element
     from pyop2.sparsity import get_preallocation
@@ -1066,6 +1023,45 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     Dhat.destroy()
     prealloc.destroy()
     return Dmat
+
+
+def unrestrict_element(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.EnrichedElement):
+        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
+    elif isinstance(ele, ufl.TensorProductElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.WithMapping):
+        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
+    elif isinstance(ele, ufl.RestrictedElement):
+        return unrestrict_element(ele._element)
+    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        return type(ele)(unrestrict_element(ele._element))
+    else:
+        return ele
+
+
+def get_base_elements(e):
+    import finat
+    import FIAT
+    if isinstance(e, finat.EnrichedElement):
+        return sum(list(map(get_base_elements, e.elements)), [])
+    elif isinstance(e, finat.TensorProductElement):
+        return sum(list(map(get_base_elements, e.factors)), [])
+    elif isinstance(e, finat.cube.FlattenedDimensions):
+        return get_base_elements(e.product)
+    elif isinstance(e, (finat.HCurlElement, finat.HDivElement)):
+        return get_base_elements(e.wrappee)
+    elif isinstance(e, finat.finiteelementbase.FiniteElementBase):
+        return get_base_elements(e.fiat_equivalent)
+    elif isinstance(e, FIAT.RestrictedElement):
+        return get_base_elements(e._element)
+    return [e]
 
 
 class PoissonFDMPC(FDMPC):
