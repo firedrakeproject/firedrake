@@ -12,7 +12,7 @@ Finally we will show how to use mesh refinement features included in NetGen to c
 Constructive Solid Geometry
 ---------------------------
 Using the Constructive Solid Geometry (CSG) features implemented in NetGen, we can construct a geometry starting from basic sets such as rectangles and disks. Let's have a look at an example.
-First we need to import the NetGen library required in order to construct a `SplineGeometry`:  ::
+First we need to import the NetGen library required in order to construct a `SplineGeometry`::
 
    from firedrake import *
    from netgen.geom2d import SplineGeometry
@@ -48,7 +48,7 @@ We can now construct a mesh for the geometry we have defined and save it to a PV
 We can also "hardwire" a geometry in NetGen, specifying the points and the splines making the boundary of the domain.
 In particular we add points to an instance of the `SplineGeometry` class using the method `AppendPoint`, while a spline can be added using the `Append` method.
 When using the `Append` method we can specify the type of Spline and its boundary label (in this particular case we use the "bnd" tag for all the curves making up the boundary).
-Here is showed how to construct a "Pacman"-like domain: ::
+Here is showed how to construct a "Pacman"-like domain::
 
    geo = SplineGeometry()
    pnts = [(0, 0), (1, 0), (1, 1),
@@ -69,7 +69,7 @@ Example: Poisson Problem
 -------------------------
 Let's now have a look at some features that can be useful when solving a variational problem using a NetGen mesh.
 We will consider as example the Poisson problem with constant source data and homogeneous boundary conditions on the boundary of the PacMan.
-The only method that should be new to the reader should be the `GetBCIDs` which allows to find the IDs of the boundary we have labeled in NetGen. As usual we begin defining the `FunctionSpace` that will be used in our discretisation, defining trial and test functions and the source data ::
+The only method that should be new to the reader should be the `GetBCIDs` which allows to find the IDs of the boundary we have labeled in NetGen. As usual we begin defining the `FunctionSpace` that will be used in our discretisation, defining trial and test functions and the source data::
 
    V = FunctionSpace(msh, "CG", 1)
    u = TrialFunction(V)
@@ -90,7 +90,7 @@ In code this becomes: ::
    a = inner(grad(u), grad(v))*dx
    L = inner(f, v) * dx
 
-Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a `DirichletBC` object and we use the `GetBCIDs` method from the NetGen mesh in order to map the label we have given when describing the geometry to the PETSc `DMPLEX` IDs. ::
+Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a `DirichletBC` object and we use the `GetBCIDs` method from the NetGen mesh in order to map the label we have given when describing the geometry to the PETSc `DMPLEX` IDs::
 
    sol = Function(V)
    labels = sum([ngmsh.GetBCIDs(label) for label in ["line", "curve"]], [])
@@ -108,7 +108,7 @@ In particular we will be considering a Laplace eigenvalue problem on the same Pa
    \text{Find } u \in H^1_0(\Omega) \text{ and } \lambda \in \mathbb{R} \text{ s.t. } \int_{\Omega} \nabla(u)\cdot\nabla(v)\;d\vec{x} = \lambda \int_{\Omega}uv\;d\vec{x}\qquad \forall v\in H^1_0(\Omega).
 
 This script is based on a code developed by Professor Daniele Boffi and based on a code from Professor Douglas Arnold for the source problem.
-We begin by defining some quantities of interest such as the desired tolerance, the maximum number of iterations and the exact eigenvalue: ::
+We begin by defining some quantities of interest such as the desired tolerance, the maximum number of iterations and the exact eigenvalue::
 
    from firedrake.petsc import PETSc
    from slepc4py import SLEPc
@@ -122,7 +122,7 @@ We begin by defining some quantities of interest such as the desired tolerance, 
    opts.setValue("eps_monitor_all", None)
 
 We create a function to solve the eigenvalue problem using SLEPc. We begin initialising the `FunctionSpace`, the bilinear forms and linear functionals needed in the variational problem.
-Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use a shift and invert (`SINVERT`) spectral transformation where the preconditioner factorisation is computed using MUMPS. ::
+Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use a shift and invert (`SINVERT`) spectral transformation where the preconditioner factorisation is computed using MUMPS::
 
 
    def Solve(msh, ngmsh):
@@ -167,7 +167,7 @@ We will also need a function that mark the elements that need to be marked accor
 .. math::
    \eta = \sum_{K\in \mathcal{T}_h(\Omega)} h^2\int_K|\lambda u_h + \Delta u_h|^2\;d\vec{x}+\frac{h}{2}\int_{E\subset \partial K} | [\![ \nabla u\cdot n_E]\!] | ^2\; ds
 
-In order to do so we begin by computing the value of the indicator using a piecewise constant function space. ::
+In order to do so we begin by computing the value of the indicator using a piecewise constant function space::
 
 
    def Mark(msh, uh, lam):
@@ -198,7 +198,7 @@ In order to do so we begin by computing the value of the indicator using a piece
            frac -= delfrac
        return marked
 
-Last we define the method that will take care of refining the mesh on the marked elements. ::
+Last we define the method that will take care of refining the mesh on the marked elements::
 
 
    def Refine(msh, ngmsh, marked):
@@ -214,7 +214,7 @@ Last we define the method that will take care of refining the mesh on the marked
        return ngmsh
 
 
-It is now time to define the solve, mark and refine loop that is at the heart of the adaptive method described here. ::
+It is now time to define the solve, mark and refine loop that is at the heart of the adaptive method described here::
 
    for i in range(max_iterations):
        print(f"Refinement cycle {i}")
@@ -231,7 +231,7 @@ Constructive Solid Geometry in 3D
 ---------------------------------
 In this section we will focus our attention on three dimensional constructive solid geometry. In particular we will look at the operators `+,-,*~`, which have been overridden to have a special meaning when applied to two instances of the class `CSGeometry`.
 It is important to notice that the same operators can be used also when working with a `SplineGeometry` and their action will have the same meaning that is presented here.
-The `+,-,*` operators have respectively the meaning of union, set difference, and intersection. We will build a cube using the planes intersection and remove from it a portion of sphere. ::
+The `+,-,*` operators have respectively the meaning of union, set difference, and intersection. We will build a cube using the planes intersection and remove from it a portion of sphere::
 
    from netgen.csg import *
    left = Plane(Pnt(0, 0, 0), Vec(-1, 0, 0))
@@ -254,7 +254,7 @@ Open Cascade Technology
 -----------------------
 Last we will have a look at the NetGen Open Cascade Technology interface, which has been recently included. We will follow the tutorial presented in the `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__, which itself comes from the OCCT tutorial `here <https://dev.opencascade.org/doc/overview/html/occt__tutorial.html>`__.
 The idea is to draw a "flask" using the OCCT interface and solve the linear elasticity equations to compute the stress tensor on the flask subject to gravity.
-We begin importing the NetGen Open Cascade interface and constructing the bottom of the flask using many different method such as `Axes, Face, Pnt, Segment, ...` (all the details this methods can be found in `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__.
+We begin importing the NetGen Open Cascade interface and constructing the bottom of the flask using many different method such as `Axes, Face, Pnt, Segment, ...` (all the details this methods can be found in `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__
 
 ::
 
@@ -276,7 +276,7 @@ We begin importing the NetGen Open Cascade interface and constructing the bottom
    f = Face(w)
    f.bc("bottom")
 
-Once the bottom part of the flask has been constructed we then extrude it to create the main body. We now construct the neck of the flask and fuse it with the main body: ::
+Once the bottom part of the flask has been constructed we then extrude it to create the main body. We now construct the neck of the flask and fuse it with the main body::
 
    body = f.Extrude(myHeight*Z)
    body = body.MakeFillet(body.edges, myThickness / 12.0)
@@ -288,7 +288,7 @@ Once the bottom part of the flask has been constructed we then extrude it to cre
    fmax = body.faces.Max(Z)
    thickbody = body.MakeThickSolid([fmax], -myThickness / 50, 1.e-3)
    
-Last we are left to construct the threading of the flask neck and fuse it to the rest of the flask body. In order to do this we are going to need the value of pi, which we grab from the Python math package.::
+Last we are left to construct the threading of the flask neck and fuse it to the rest of the flask body. In order to do this we are going to need the value of pi, which we grab from the Python math package::
 
    import math
    cyl1 = Cylinder(neckax, myNeckRadius * 0.99, 1).faces[0]
@@ -307,7 +307,7 @@ Last we are left to construct the threading of the flask neck and fuse it to the
    bottle = thickbody + threading
    geo = OCCGeometry(bottle)
 
-As usual, we generate a mesh for the described geometry and use the Firedrake-NetGen interface to import as a PETSc DMPLEX. ::
+As usual, we generate a mesh for the described geometry and use the Firedrake-NetGen interface to import as a PETSc DMPLEX::
 
    ngmsh = geo.GenerateMesh(maxh=5)
    msh = Mesh(ngmsh)
@@ -325,7 +325,7 @@ where epsilon denotes the symmetric part of the gradient of the argument, and la
    
    \text{Find } u\in H^1_0(\Omega) \text{ s.t. } \int_{\Omega} \sigma(u):\epsilon(u)\;d\vec{x} = \int_{\Omega} fv\;d\vec{x}, \qquad v\in H^1_0(\Omega)
 
-::
+which in code becomes::
 
 
    V = VectorFunctionSpace(msh, "CG", 1)
@@ -344,7 +344,7 @@ where epsilon denotes the symmetric part of the gradient of the argument, and la
    a = inner(sigma(u), epsilon(v))*dx
    L = inner(f, v)*dx
 
-Last we solve the problem using a Cholesky factorization: ::
+Last we solve the problem using a Cholesky factorization::
 
    uh = Function(V, name="Displacement")
    sp = {"ksp_type": "preonly",
