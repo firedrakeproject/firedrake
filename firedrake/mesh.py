@@ -273,7 +273,8 @@ def _from_netgen(ngmesh, comm=None):
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
         for e in ngmesh.Elements1D():
             join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-            plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
+            EDGE_SETS_LABEL = "Edge Sets"  # FIXME: find a better home for this
+            plex.setLabelValue(EDGE_SETS_LABEL, join[0], int(e.index))
         return plex
     elif ngmesh.dim == 2:
         V = ngmesh.Coordinates()
