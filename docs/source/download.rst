@@ -102,10 +102,10 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.6.x to 3.10.x. On MacOS Arm (M1 or M2) Python 3.9.x
-or 3.10.x are required since these are the only versions for which VTK binary
+Firedrake requires Python 3.7.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
+to 3.11.x is required since these are the only versions for which VTK binary
 packages are currently available. The installation script is tested on Ubuntu
-and MacOS X. On Ubuntu 18.04 or later, the system installed Python 3 is
+and MacOS X. On Ubuntu 20.04 or later, the system installed Python 3 is
 supported and tested. On MacOS, the homebrew_ installed Python 3 is supported
 and tested::
 
@@ -123,7 +123,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.6.x-3.10.x (3.9.x-3.10.x on MacOS Arm)
+* Python version 3.7.x-3.11.x (3.9.x-3.11.x on MacOS Arm)
 * The Python headers
 * autoconf, automake, libtool
 * CMake
