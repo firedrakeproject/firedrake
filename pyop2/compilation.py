@@ -178,7 +178,9 @@ class Compiler(ABC):
     _debugflags = ()
 
     def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), cpp=False, comm=None):
+        # Get compiler version ASAP since it is used in __repr__
         self.sniff_compiler_version()
+
         self._extra_compiler_flags = tuple(extra_compiler_flags)
         self._extra_linker_flags = tuple(extra_linker_flags)
 
@@ -188,7 +190,6 @@ class Compiler(ABC):
         # Compilation communicators are reference counted on the PyOP2 comm
         self.pcomm = mpi.internal_comm(comm)
         self.comm = mpi.compilation_comm(self.pcomm)
-        self.sniff_compiler_version()
 
     def __del__(self):
         if hasattr(self, "comm"):
@@ -597,9 +598,8 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
         else:
             exe = configuration["cc"] or "mpicc"
         compiler = sniff_compiler(exe)
-    x = compiler(cppargs, ldargs, cpp=cpp, comm=comm)
-    dll = x.get_so(code, extension)
-    del x
+    dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
+
     if isinstance(jitmodule, GlobalKernel):
         _add_profiling_events(dll, code.local_kernel.events)
 

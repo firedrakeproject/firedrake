@@ -54,10 +54,6 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
             # Object versioning setup
             petsc_counter = (comm and self.dtype == PETSc.ScalarType)
             VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
-            try:
-                name = self.comm.name
-            except AttributeError:
-                name = "None"
 
     def __del__(self):
         if hasattr(self, "comm"):

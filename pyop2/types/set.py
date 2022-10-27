@@ -79,7 +79,8 @@ class Set:
         self._cache = {}
 
     def __del__(self):
-        # Cannot use hasattr here
+        # Cannot use hasattr here, since child classes define `__getattr__`
+        # This causes infinite recursion when looked up!
         if "comm" in self.__dict__:
             mpi.decref(self.comm)
 

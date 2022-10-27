@@ -37,7 +37,8 @@ class DataSet(caching.ObjectCached):
         self._initialized = True
 
     def __del__(self):
-        # Cannot use hasattr here
+        # Cannot use hasattr here, since we define `__getattr__`
+        # This causes infinite recursion when looked up!
         if "comm" in self.__dict__:
             mpi.decref(self.comm)
 
