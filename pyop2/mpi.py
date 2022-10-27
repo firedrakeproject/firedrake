@@ -168,18 +168,19 @@ def is_pyop2_comm(comm):
 def pyop2_comm_status():
     """ Prints the reference counts for all comms PyOP2 has duplicated
     """
-    print('PYOP2 Communicator reference counts:')
-    print('| Communicator name                      | Count |')
-    print('==================================================')
+    status_string = 'PYOP2 Communicator reference counts:\n'
+    status_string += '| Communicator name                      | Count |\n'
+    status_string += '==================================================\n'
     for comm in dupped_comms:
         if comm == MPI.COMM_NULL:
             null = 'COMM_NULL'
-            print(f'| {null:39}| {0:5d} |')
+            status_string += f'| {null:39}| {0:5d} |\n'
         else:
             refcount = comm.Get_attr(refcount_keyval)[0]
             if refcount is None:
                 refcount = -999
-            print(f'| {comm.name:39}| {refcount:5d} |')
+            status_string += f'| {comm.name:39}| {refcount:5d} |\n'
+    return status_string
 
 
 class PyOP2Comm:
@@ -429,15 +430,14 @@ def free_comm(comm):
 @atexit.register
 def free_comms():
     """Free all outstanding communicators."""
-    # Collect garbage as it may hold on to communicator references
     global PYOP2_FINALIZED
     PYOP2_FINALIZED = True
     debug("PyOP2 Finalizing")
+    # Collect garbage as it may hold on to communicator references
     debug("Calling gc.collect()")
     import gc
     gc.collect()
-    pyop2_comm_status()
-    print(dupped_comms)
+    debug(pyop2_comm_status())
     debug(f"Freeing comms in list (length {len(dupped_comms)})")
     while dupped_comms:
         c = dupped_comms[-1]
