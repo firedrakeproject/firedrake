@@ -52,21 +52,21 @@ Here is showed how to construct a "Pacman"-like domain: ::
 
    geo = SplineGeometry()
    pnts = [(0, 0), (1, 0), (1, 1),
-          (0, 1), (-1, 1), (-1, 0),
-          (-1, -1), (0, -1)]
+           (0, 1), (-1, 1), (-1, 0),
+           (-1, -1), (0, -1)]
    p1, p2, p3, p4, p5, p6, p7, p8 = [geo.AppendPoint(*pnt) for pnt in pnts]
-   curves = [[["line", p1, p2],"line"],
-             [["spline3", p2, p3, p4],"curve"],
-             [["spline3", p4, p5, p6],"curve"],
-             [["spline3", p6, p7, p8],"curve"],
-             [["line", p8, p1],"line"]]
+   curves = [[["line", p1, p2], "line"],
+             [["spline3", p2, p3, p4], "curve"],
+             [["spline3", p4, p5, p6], "curve"],
+             [["spline3", p6, p7, p8], "curve"],
+             [["line", p8, p1], "line"]]
    [geo.Append(c, bc=bc) for c, bc in curves]
    ngmsh = geo.GenerateMesh(maxh=0.4)
    msh = Mesh(ngmsh)
    File("output/MeshExample2.pvd").write(msh)
 
 Example: Poisson Problem
-------------------------- 
+-------------------------
 Let's now have a look at some features that can be useful when solving a variational problem using a NetGen mesh.
 We will consider as example the Poisson problem with constant source data and homogeneous boundary conditions on the boundary of the PacMan.
 The only method that should be new to the reader should be the `GetBCIDs` which allows to find the IDs of the boundary we have labeled in NetGen. As usual we begin defining the `FunctionSpace` that will be used in our discretisation, defining trial and test functions and the source data ::
@@ -83,13 +83,13 @@ Now we can define the bilinear form and linear function that characterize the we
 
 .. math::
    
-   \text{find } u\in H^1_0(\Omega) \text{ s.t. } a(u,v) := \int_{\Omega} \nabla u\cdot \nabla v \; d\vec{x} = l(v) := \int_{\Omega} fv\; d\vec{x}\qquad v\in H^1_0(\Omega). 
+   \text{find } u\in H^1_0(\Omega) \text{ s.t. } a(u,v) := \int_{\Omega} \nabla u\cdot \nabla v \; d\vec{x} = l(v) := \int_{\Omega} fv\; d\vec{x}\qquad v\in H^1_0(\Omega).
 
 In code this becomes: ::
-   
+
    a = inner(grad(u), grad(v))*dx
    L = inner(f, v) * dx
-   
+
 Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a `DirichletBC` object and we use the `GetBCIDs` method from the NetGen mesh in order to map the label we have given when describing the geometry to the PETSc `DMPLEX` IDs. ::
 
    sol = Function(V)
@@ -124,42 +124,43 @@ We begin by defining some quantities of interest such as the desired tolerance, 
 We create a function to solve the eigenvalue problem using SLEPc. We begin initialising the `FunctionSpace`, the bilinear forms and linear functionals needed in the variational problem.
 Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use a shift and invert (`SINVERT`) spectral transformation where the preconditioner factorisation is computed using MUMPS. ::
 
+
    def Solve(msh, ngmsh):
-        V = FunctionSpace(msh, "CG", 2)
-        u = TrialFunction(V)
-        v = TestFunction(V)
+       V = FunctionSpace(msh, "CG", 2)
+       u = TrialFunction(V)
+       v = TestFunction(V)
 
-        # Stifness matrix
-        a = inner(grad(u), grad(v))*dx
+       # Stifness matrix
+       a = inner(grad(u), grad(v))*dx
 
-        # Mass matrix
-        m = (u*v)*dx
+       # Mass matrix
+       m = (u*v)*dx
 
-        uh = Function(V)
-        labels = sum([ngmsh.GetBCIDs(label) for label in ["line", "curve"]], [])
-        bc = DirichletBC(V, 0, labels)
-        A = assemble(a, bcs=bc)
-        M = assemble(m)
-        Asc, Msc = A.M.handle, M.M.handle
+       uh = Function(V)
+       labels = sum([ngmsh.GetBCIDs(label) for label in ["line", "curve"]], [])
+       bc = DirichletBC(V, 0, labels)
+       A = assemble(a, bcs=bc)
+       M = assemble(m)
+       Asc, Msc = A.M.handle, M.M.handle
 
-        # Setting up SLEPc
-        E = SLEPc.EPS().create()
-        E.setType(SLEPc.EPS.Type.ARNOLDI)
-        E.setProblemType(SLEPc.EPS.ProblemType.GHEP)
-        E.setDimensions(1, SLEPc.DECIDE)
-        E.setOperators(Asc, Msc)
-        ST = E.getST()
-        ST.setType(SLEPc.ST.Type.SINVERT)
-        PC = ST.getKSP().getPC()
-        PC.setType("lu")
-        PC.setFactorSolverType("mumps")
-        E.setST(ST)
-        E.solve()
+       # Setting up SLEPc
+       E = SLEPc.EPS().create()
+       E.setType(SLEPc.EPS.Type.ARNOLDI)
+       E.setProblemType(SLEPc.EPS.ProblemType.GHEP)
+       E.setDimensions(1, SLEPc.DECIDE)
+       E.setOperators(Asc, Msc)
+       ST = E.getST()
+       ST.setType(SLEPc.ST.Type.SINVERT)
+       PC = ST.getKSP().getPC()
+       PC.setType("lu")
+       PC.setFactorSolverType("mumps")
+       E.setST(ST)
+       E.solve()
 
-        vr, vi = Asc.getVecs()
-        with uh.dat.vec_wo as vr:
-                lam = E.getEigenpair(0, vr, vi)
-        return (lam, uh, V)
+       vr, vi = Asc.getVecs()
+       with uh.dat.vec_wo as vr:
+           lam = E.getEigenpair(0, vr, vi)
+       return (lam, uh, V)
    
 We will also need a function that mark the elements that need to be marked according to an error indicator, i.e.
 
@@ -168,59 +169,61 @@ We will also need a function that mark the elements that need to be marked accor
 
 In order to do so we begin by computing the value of the indicator using a piecewise constant function space. ::
 
+
    def Mark(msh, uh, lam):
-        W = FunctionSpace(msh, "DG", 0)
-        w = TestFunction(W)
-        R_T = lam.real*uh + div(grad(uh))
-        n = FacetNormal(V.mesh())
-        h = CellDiameter(msh)
-        R_dT = dot(grad(uh),n)
-        eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
-        eta = eta.dat.data
-        eta_max = max(eta)
-        sum_eta = sum(eta)
+       W = FunctionSpace(msh, "DG", 0)
+       w = TestFunction(W)
+       R_T = lam.real*uh + div(grad(uh))
+       n = FacetNormal(V.mesh())
+       h = CellDiameter(msh)
+       R_dT = dot(grad(uh), n)
+       eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
+       eta = eta.dat.data
+       eta_max = max(eta)
+       sum_eta = sum(eta)
 
-        # stop error estimate is less than tolerance
-        if sum_eta < tolerance:
-                exit()
+       # stop error estimate is less than tolerance
+       if sum_eta < tolerance:
+           exit()
 
-        frac = .95
-        delfrac = .05
-        part = .5
-        marked = np.zeros(eta.size, dtype='bool')
-        sum_marked_eta = 0.
-        while sum_marked_eta < part*sum_eta:
-                new_marked = (~marked) & (eta > frac*eta_max)
-                sum_marked_eta += sum(eta[new_marked])
-                marked += new_marked
-                frac -= delfrac
-        return marked
+       frac = .95
+       delfrac = .05
+       part = .5
+       marked = np.zeros(eta.size, dtype='bool')
+       sum_marked_eta = 0.
+       while sum_marked_eta < part*sum_eta:
+           new_marked = (~marked) & (eta > frac*eta_max)
+           sum_marked_eta += sum(eta[new_marked])
+           marked += new_marked
+           frac -= delfrac
+       return marked
 
 Last we define the method that will take care of refining the mesh on the marked elements. ::
 
+
    def Refine(msh, ngmsh, marked):
-        i = 0
-        for el in ngmsh.Elements2D():
-            plex_idx = msh._cell_numbering.getOffset(i)
-            if marked[plex_idx]:
-                el.SetRefinementFlag(1)
-            else:
-                el.SetRefinementFlag(0)
-            i = i + 1
-        ngmsh.RefineFlaged(0,True)
-        return ngmsh
-        
+       i = 0
+       for el in ngmsh.Elements2D():
+           plex_idx = msh._cell_numbering.getOffset(i)
+           if marked[plex_idx]:
+               el.SetRefinementFlag(1)
+           else:
+               el.SetRefinementFlag(0)
+           i = i + 1
+       ngmsh.RefineFlaged(0, True)
+       return ngmsh
+
 
 It is now time to define the solve, mark and refine loop that is at the heart of the adaptive method described here. ::
-  
+
    for i in range(max_iterations):
-        print(f"Refinement cycle {i}")
-        lam, uh, V = Solve(msh, ngmsh)
-        marked = Mark(msh, uh, lam)
-        ngmsh = Refine(msh, ngmsh, marked)
-        msh = Mesh(ngmsh)
-        outfile = File("output/Eig.pvd")
-        outfile.write(uh)
+       print(f"Refinement cycle {i}")
+       lam, uh, V = Solve(msh, ngmsh)
+       marked = Mark(msh, uh, lam)
+       ngmsh = Refine(msh, ngmsh, marked)
+       msh = Mesh(ngmsh)
+       outfile = File("output/Eig.pvd")
+       outfile.write(uh)
 
 Note that the mesh conforms to the CAD geometry as it is adaptively refined.
 
@@ -231,15 +234,15 @@ It is important to notice that the same operators can be used also when working 
 The `+,-,*` operators have respectively the meaning of union, set difference, and intersection. We will build a cube using the planes intersection and remove from it a portion of sphere. ::
 
    from netgen.csg import *
-   left  = Plane(Pnt(0, 0, 0), Vec(-1, 0, 0))
+   left = Plane(Pnt(0, 0, 0), Vec(-1, 0, 0))
    right = Plane(Pnt(1, 1, 1), Vec(1, 0, 0))
    front = Plane(Pnt(0, 0, 0), Vec(0, -1, 0))
-   back  = Plane(Pnt(1, 1, 1), Vec(0, 1, 0))
-   bot   = Plane(Pnt(0, 0, 0), Vec(0, 0, -1))
-   top   = Plane(Pnt(1, 1, 1), Vec(0, 0, 1))
+   back = Plane(Pnt(1, 1, 1), Vec(0, 1, 0))
+   bot = Plane(Pnt(0, 0, 0), Vec(0, 0, -1))
+   top = Plane(Pnt(1, 1, 1), Vec(0, 0, 1))
    cube = left * right * front * back * bot * top
    cube.bc("cube")
-   sphere = Sphere(Pnt(0.6,0.6,0.6),0.5)
+   sphere = Sphere(Pnt(0.6, 0.6, 0.6), 0.5)
    geo = CSGeometry()
    geo.Add(cube-sphere)
    ngmsh = geo.GenerateMesh(maxh=0.1)
@@ -298,8 +301,8 @@ Last we are left to construct the threading of the flask neck and fuse it to the
    arc1 = Ellipse(anAx2d, aMajor, aMinor).Trim(0, math.pi)
    arc2 = Ellipse(anAx2d, aMajor, aMinor/4).Trim(0, math.pi)
    seg = Segment(arc1.start, arc1.end)
-   wire1 = Wire( [Edge(arc1, cyl1), Edge(seg, cyl1)] )
-   wire2 = Wire( [Edge(arc2, cyl2), Edge(seg, cyl2)] )
+   wire1 = Wire([Edge(arc1, cyl1), Edge(seg, cyl1)])
+   wire2 = Wire([Edge(arc2, cyl2), Edge(seg, cyl2)])
    threading = ThruSections([wire1, wire2])
    bottle = thickbody + threading
    geo = OCCGeometry(bottle)
@@ -323,23 +326,21 @@ where epsilon denotes the symmetric part of the gradient of the argument, and la
    \text{Find } u\in H^1_0(\Omega) \text{ s.t. } \int_{\Omega} \sigma(u):\epsilon(u)\;d\vec{x} = \int_{\Omega} fv\;d\vec{x}, \qquad v\in H^1_0(\Omega)
 
 ::
-   
-   
+
+
    V = VectorFunctionSpace(msh, "CG", 1)
    W = FunctionSpace(msh, "CG", 1)
    u = TrialFunction(V)
    v = TestFunction(V)
    sol = Function(V)
    labels = ngmsh.GetBCIDs("bottom")
-   bc = DirichletBC (V, 0, labels)
+   bc = DirichletBC(V, 0, labels)
    f = as_vector([0, 0, -2710*9.8])
    mu = Constant(25.95e9)
    lambda_ = Constant(55.27e9)
    Id = Identity(3)
-   def epsilon(u):
-        return 0.5*(grad(u) + grad(u).T)
-   def sigma(u):
-        return lambda_*div(u)*Id + 2*mu*epsilon(u)
+   epsilon = lambda u: 0.5*(grad(u) + grad(u).T)
+   sigma = lambda u: lambda_*div(u)*Id + 2*mu*epsilon(u)
    a = inner(sigma(u), epsilon(v))*dx
    L = inner(f, v)*dx
 
