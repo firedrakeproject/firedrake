@@ -79,34 +79,13 @@ machine using STREAMS_.
 Parallel garbage collection
 ===========================
 
-Firedrake objects often contain PETSc objects, but are managed by
-the Python garbage collector. It is possible that when executing in
-parallel, code will deadlock as the Python garbage collector is not
-collective over the MPI communicator that the PETSc objects are
-collective over. If you find parallel code hanging for inexplicable
-reasons, it is possible to turn off the Python garbage collector by
-including these lines in your code:
-
-.. code-block:: python3
-
-    import gc
-    gc.disable()
-
-.. warning::
-    Disabling the garbage collector may cause memory leaks. It is
-    possible to call the garbage collector manually using
-    :func:`.gc.collect` to avoid the issue, but this may in turn
-    lead to a deadlock.
-
-The garbage collector can be turned back on with this line:
-
-.. code-block:: python3
-
-    gc.enable()
-
-More information can be found in
-`this <https://github.com/firedrakeproject/firedrake/issues/1617>`_
-issue.
+As of the PETSc v3.18 release (which Firedrake started using October
+2022), there should no longer be any issue with MPI distributed PETSc
+objects and Python's internal garbage collector. If you previously
+disabled the Python garbage collector in your Firedrake scripts, we now
+recommend you turn garbage collection back on. Randomly hanging or
+deadlocking parallel code should be debugged and any suspected issues
+reported by `getting in touch <contact.html>`_.
 
 Using MPI Communicators
 =======================
@@ -140,6 +119,11 @@ different simulations on the two halves we would write.
 
 To access the communicator a mesh was created on, we can use the
 :attr:`~.mesh.comm` property, or the function :func:`~.mesh.mpi_comm`.
+
+.. warning::
+  Do not use the internal :attr:`~.mesh._comm` attribute for communication.
+  This communicator is for internal Firedrake MPI communication only.
+
 
 Ensemble parallelism
 ====================
