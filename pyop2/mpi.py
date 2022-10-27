@@ -48,10 +48,10 @@ __all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "internal_comm", "is_pyop2_comm", "
 
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
-COMM_WORLD = PETSc.COMM_WORLD.tompi4py()
+COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
 COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
 
-COMM_SELF = PETSc.COMM_SELF.tompi4py()
+COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
 COMM_SELF.Set_name("PYOP2_COMM_SELF")
 
 PYOP2_FINALIZED = False
@@ -452,6 +452,8 @@ def free_comms():
                outercomm_keyval,
                compilationcomm_keyval]:
         MPI.Comm.Free_keyval(kv)
+    COMM_WORLD.Free()
+    COMM_SELF.Free()
 
 
 def hash_comm(comm):
