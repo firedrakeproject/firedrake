@@ -206,25 +206,21 @@ class FDMPC(PCBase):
         if len(V) == 1:
             is_interior, is_facet = is_restricted(V.finat_element)
             if is_facet:
-                self.dofset = DOF.FACET
+                dofset = DOF.FACET
                 Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
                 fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
             else:
-                self.dofset = DOF.INTERIOR if is_interior else DOF.FULL
+                dofset = DOF.INTERIOR if is_interior else DOF.FULL
                 _, fdofs = split_dofs(V.finat_element)
                 Vbig = V
         else:
-            self.dofset = DOF.SPLIT
+            dofset = DOF.SPLIT
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
             Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
             dims = [Vsub.finat_element.space_dimension() for Vsub in V]
             assert sum(dims) == Vbig.finat_element.space_dimension()
-            perm = numpy.concatenate([restricted_dofs(Vsub.finat_element, Vbig.finat_element) for Vsub in V])
-            self.perm = PETSc.IS().createGeneral(perm, comm=PETSc.COMM_SELF)
+            fdofs = restricted_dofs(V[1].finat_element, Vbig.finat_element)
 
-            restrictions = [is_restricted(Vsub.finat_element) for Vsub in V]
-            assert restrictions[0][0] and restrictions[1][1] or restrictions[0][1] and restrictions[1][0]
-            fdofs = numpy.arange(*((0, dim[0]) if restrictions[0][1] else (dims[0], sum(dims))), dtype=PETSc.IntType)
 
         value_size = Vbig.value_size
         fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
@@ -232,40 +228,33 @@ class FDMPC(PCBase):
         self.idofs = PETSc.IS().createGeneral(numpy.setdiff1d(dofs, fdofs, assume_unique=True), comm=PETSc.COMM_SELF)
         self.fdofs = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
         self.submats = [None for _ in range(7)]
+        condense = lambda A: condense_element_mat(A, self.idofs, self.fdofs, self.submats)
 
-        if self.dofset == DOF.INTERIOR:
-            self.condense_element_mat = lambda Ae: Ae
-        elif self.dofset == DOF.SPLIT:
-            i0 = self.idofs.copy()
-            self.condense_element_mat = lambda Ae: split_nest(Ae, i0, self.fdofs, self.submats)
-        elif self.dofset == DOF.FACET:
-            self.condense_element_mat = lambda Ae: condense_element_mat(Ae, self.idofs, self.fdofs, self.submats)
+        self.get_reference_tensor = {key: self.assemble_reference_tensors(key) for key in V}
+        self.get_reference_tensor_on_diag = dict(self.get_reference_tensor)
+        if dofset == DOF.SPLIT:
+            self.get_static_condensation = {V[0]: None, V[1]: None,}
+            #self.get_reference_tensor_on_diag[V[1]] = self.assemble_reference_tensors(Vbig)
+
+        elif dofset == DOF.INTERIOR:
+            self.get_static_condensation = {V: None,}
+        elif dofset == DOF.FACET:
+            self.get_static_condensation = {V: condense,}
+            self.get_reference_tensor_on_diag[V] = self.assemble_reference_tensors(Vbig)
         elif V.finat_element.formdegree == 0:
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
-            self.condense_element_mat = lambda Ae: condense_element_pattern(Ae, self.idofs, i1, self.submats)
+            self.get_static_condensation = {V: lambda Ae: condense_element_pattern(Ae, self.idofs, i1, self.submats)}
         else:
-            self.condense_element_mat = lambda Ae: Ae
+            self.get_static_condensation = {V: None}
 
-        addv = PETSc.InsertMode.ADD_VALUES
-        _update_A = load_assemble_csr()
         _set_bc_values = load_set_bc_values()
-
-        if self.dofset == DOF.SPLIT:
-            self.update_A = lambda A, B, indices: update_nest(A, B, indices, _update_A)
-        else:
-            self.update_A = lambda A, B, indices: _update_A(A, B, indices, indices, addv)
-
         bc_rows = V.dof_dset.lgmap.apply(self.bc_nodes)
-        self.set_bc_values = lambda A, rows=bc_rows: _set_bc_values(A, rows.size, rows, addv)
+        set_bc_values = lambda A, rows=bc_rows: _set_bc_values(A, rows.size, rows, PETSc.InsertMode.ADD)
 
-        Afdm, Dfdm, quad_degree, eta = self.assemble_reference_tensors(Vbig, appctx)
-        coefficients, self.assembly_callables = self.assemble_coef(J, quad_degree)
-        bcflags = None
-        if eta:
-            coefficients["eta"] = eta
-            bcflags = get_weak_bc_flags(J)
-        self.coeffcients = coefficients
+        _update_A = load_assemble_csr()
+        self.update_A = lambda A, B, rindices, cindices=None: _update_A(A, B, rindices, rindices if cindices is None else cindices, PETSc.InsertMode.ADD)
 
+        coefficients, assembly_callables = self.assemble_coef(J)
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
         self.get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
@@ -280,59 +269,69 @@ class FDMPC(PCBase):
                 icell = lambda e: numpy.add.outer(_icell(e)*bsize, ibase)
             cell_maps.append(icell)
 
+        self.work_mats = dict()
+        self.work_coefs = None
         self.nel = nel
         if len(V) == 1:
-            lgmap = V.local_to_global_map(bcs)
-            self.get_indices = lambda e, result=None: lgmap.apply(cell_maps[0](e), result=result)
+            lgmaps = [V.local_to_global_map(bcs)]
         else:
             lgmaps = [Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs]) for Vsub in V]
-            self.get_indices = lambda e, result=None: [lgmap.apply(cmap(e), result=out) for lgmap, cmap, out in zip(lgmaps, cell_maps, result or [None]*len(lgmaps))]
 
-        def create_nest(mats):
-            n = len(V)
-            if n == 1:
-                return mats[0]
-            return PETSc.Mat().createNest([mats[i:i+n] for i in range(0, len(mats), n)], comm=V.comm)
+        def cell_to_global(lgmap, cmap, e, result=None):
+            return lgmap.apply(cmap(e), result=result)
 
-        Pmats = []
-        preallocators = []
-        own_rows = []
+        self.get_indices = {Vsub: partial(cell_to_global, lgmap, cmap) for Vsub, lgmap, cmap in zip(V, lgmaps, cell_maps)}
+
+        symmetric = pmat_type.endswith("sbaij")
+        Pmats = dict()
         for Vrow, Vcol in product(V, V):
-            on_diag = Vrow == Vcol
-            ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
-            is_sbaij = ptype.endswith("sbaij")
-            sizes = (Vrow.dof_dset.layout_vec.getSizes(), Vcol.dof_dset.layout_vec.getSizes())
-            row_bsize = Vrow.dof_dset.layout_vec.getBlockSize()
-            col_bsize = Vcol.dof_dset.layout_vec.getBlockSize()
-            own_rows.append(row_bsize * Vrow.dof_dset.set.size)
+            if symmetric and (Vcol, Vrow) in Pmats:
+                P = PETSc.Mat().createTranspose(Pmats[(Vcol, Vrow)])
+            else:
+                on_diag = Vrow == Vcol
+                ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
+                sizes = (Vrow.dof_dset.layout_vec.getSizes(), Vcol.dof_dset.layout_vec.getSizes())
+                row_bsize = Vrow.dof_dset.layout_vec.getBlockSize()
+                col_bsize = Vcol.dof_dset.layout_vec.getBlockSize()
+                own_rows = row_bsize * Vrow.dof_dset.set.size
 
-            preallocator = PETSc.Mat().create(comm=V.comm)
-            preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-            preallocator.setSizes(sizes)
-            preallocator.setUp()
-            preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-            preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, is_sbaij)
-            preallocators.append(preallocator)
+                preallocator = PETSc.Mat().create(comm=V.comm)
+                preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+                preallocator.setSizes(sizes)
+                preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+                preallocator.setUp()
+                self.assemble_mat(preallocator, Vrow, Vcol)
 
-            P = PETSc.Mat().create(comm=V.comm)
-            P.setType(ptype)
-            P.setSizes(sizes)
-            P.setBlockSizes(row_bsize, col_bsize)
-            Pmats.append(P)
+                d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
+                if on_diag:
+                    d_nnz[d_nnz == 0] = 1
+                preallocator.destroy()
 
-        preallocator = create_nest(preallocators)
-        # preallocate by calling the assembly routine on a PREALLOCATOR Mat
-        self.assemble_mat(preallocator, V, bcs, coefficients, Afdm, Dfdm, bcflags)
+                P = PETSc.Mat().create(comm=V.comm)
+                P.setType(ptype)
+                P.setSizes(sizes)
+                P.setBlockSizes(row_bsize, col_bsize)
+                P.setPreallocationNNZ((d_nnz, o_nnz))
+                P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+                P.setUp()
+            Pmats[Vrow, Vcol] = P
 
-        for P, prealloc, nrows, in zip(Pmats, preallocators, own_rows):
-            P.setPreallocationNNZ(get_preallocation(prealloc, nrows))
-            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-            P.setUp()
-            prealloc.destroy()
+        ises = V.dof_dset.field_ises
+        Pmat = Pmats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Pmats[r, c] for r in V] for c in V], isrows=ises, iscols=ises, comm=V.comm)
 
-        Pmat = create_nest(Pmats)
-        assemble_P = partial(self.assemble_mat, Pmat, V, bcs,
-                             coefficients, Afdm, Dfdm, bcflags)
+        def assemble_P():
+            for _assemble in assembly_callables:
+                _assemble()
+            for Vrow, Vcol in product(V, V):
+                P = Pmats[Vrow, Vcol]
+                if P.getType().endswith("aij"):
+                    P.zeroEntries()
+            set_bc_values(Pmat)
+            for Vrow, Vcol in product(V, V):
+                P = Pmats[Vrow, Vcol]
+                if P.getType().endswith("aij"):
+                    self.assemble_mat(P, Vrow, Vcol)
+
         return Pmat, assemble_P
 
     @PETSc.Log.EventDecorator("FDMUpdate")
@@ -377,68 +376,86 @@ class FDMPC(PCBase):
         if hasattr(self, "submats"):
             mats.extend(self.submats)
         if hasattr(self, "work_mats"):
-            mats.extend(self.work_mats)
+            mats.extend(list(self.work_mats.values()))
         for m in mats:
             if m:
                 m.destroy()
 
     @PETSc.Log.EventDecorator("FDMAssemble")
-    def assemble_mat(self, A, V, bcs, coefficients, Afdm, Bfdm, bcflags):
-        atype = A.getType()
-        if atype == PETSc.Mat.Type.NEST:
-            atype = A.getNestSubMatrix(0, 0).getType()
-        if atype != PETSc.Mat.Type.PREALLOCATOR:
-            A.zeroEntries()
-        self.set_bc_values(A)
+    def assemble_mat(self, A, Vrow, Vcol):
 
-        if atype != PETSc.Mat.Type.PREALLOCATOR:
-            for _assemble in self.assembly_callables:
-                _assemble()
+        def RtAP(R, A, P, result=None):
+            RtAP.buff = R.transposeMatMult(A, result=RtAP.buff)
+            return RtAP.buff.matMult(P, result=result)
+        RtAP.buff = None
 
-            Ae, De = self.work_mats
+        get_rindices = self.get_indices[Vrow]
+        if Vrow == Vcol:
+            get_cindices = lambda e, result=None: result
+            rtensor = self.get_reference_tensor_on_diag[Vrow]
+            assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
+            condense_element_mat = self.get_static_condensation[Vrow]
+        else:
+            get_cindices = self.get_indices[Vcol]
+            rtensor = self.get_reference_tensor[Vrow]
+            ctensor = self.get_reference_tensor[Vcol]
+            assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
+            condense_element_mat = None
+
+        do_sort = True
+        if condense_element_mat is None:
+            condense_element_mat = lambda x: x
+            do_sort = False
+
+        rindices = None
+        cindices = None
+        if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
+            Ae = self.work_mats[(Vrow, Vcol)]
+            De = self.work_coefs
             data = self.work_csr[2]
-            indices = None
             for e in range(self.nel):
                 data = self.get_coefs(e, result=data)
-                Ae = self.assemble_element_mat(self.work_csr, Afdm, De, result=Ae)
-                indices = self.get_indices(e, result=indices)
-                self.update_A(A, self.condense_element_mat(Ae), indices)
+                De.setValuesCSR(*self.work_csr)
+                De.assemble()
+
+                Ae = assemble_element_mat(De, result=Ae)
+                rindices = get_rindices(e, result=rindices)
+                cindices = get_cindices(e, result=cindices)
+                self.update_A(A, condense_element_mat(Ae), rindices, cindices)
 
         elif self.nel:
-            nrows = Afdm[0].getSize()[0]
+            if self.work_coefs is None:
+                data = self.get_coefs(0)
+                data.fill(1.0E0)
+                shape = data.shape + (1,)*(3-len(data.shape))
+                nrows = shape[0] * shape[1]
+                ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
+                aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
+                if shape[2] > 1:
+                    ai *= shape[2]
+                    data = numpy.tile(numpy.eye(shape[2]), shape[:1] + (1,)*(len(shape)-1))
 
-            data = self.get_coefs(0)
-            data.fill(1.0E0)
-            shape = data.shape + (1,)*(3-len(data.shape))
-            ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
-            aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
-            if shape[2] > 1:
-                ai *= shape[2]
-                data = numpy.tile(numpy.eye(shape[2]), shape[:1] + (1,)*(len(shape)-1))
+                self.work_csr = (ai, aj, data)
+                De = PETSc.Mat().createAIJ((nrows, nrows), csr=self.work_csr, comm=PETSc.COMM_SELF)
+                self.work_coefs = De
 
-            self.work_csr = (ai, aj, data)
-            De = PETSc.Mat().createAIJ((nrows, nrows), csr=self.work_csr, comm=PETSc.COMM_SELF)
-            Ae = self.assemble_element_mat(self.work_csr, Afdm, De, result=None)
-            self.work_mats = (Ae, De)
-            sort_interior_dofs(self.idofs, Ae)
-            Se = self.condense_element_mat(Ae)
-
-            indices = None
+            De = self.work_coefs
+            Ae = assemble_element_mat(De, result=None)
+            self.work_mats[(Vrow, Vcol)] = Ae
+            if do_sort:
+                sort_interior_dofs(self.idofs, Ae)
+            Se = condense_element_mat(Ae)
             for e in range(self.nel):
-                indices = self.get_indices(e, result=indices)
-                self.update_A(A, Se, indices)
+                rindices = get_rindices(e, result=rindices)
+                cindices = get_cindices(e, result=cindices)
+                self.update_A(A, Se, rindices, cindices)
         else:
             self.work_csr = (None, None, None)
-            self.work_mats = (None, None)
+            self.work_coefs = None
+            self.work_mats[(Vrow, Vcol)] = None
         A.assemble()
 
-    def assemble_element_mat(self, csr, Afdm, work_mat, result=None):
-        work_mat.zeroEntries()
-        work_mat.setValuesCSR(*csr)
-        work_mat.assemble()
-        return work_mat.PtAP(Afdm[0], result=result)
-
-    def assemble_coef(self, J, quad_deg, discard_mixed=True, cell_average=True):
+    def assemble_coef(self, J, quad_deg=None, discard_mixed=True, cell_average=True):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
         """
@@ -528,7 +545,7 @@ class FDMPC(PCBase):
         return self._coefficient_cache[key]
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
-    def assemble_reference_tensors(self, V, appctx):
+    def assemble_reference_tensors(self, V, appctx=None):
         import FIAT
         ndim = V.mesh().topological_dimension()
         value_size = V.value_size
@@ -540,15 +557,28 @@ class FDMPC(PCBase):
             pass
         if formdegree == ndim:
             degree = degree+1
-        quad_degree = 2*degree+1
 
-        is_interior = self.dofset == DOF.INTERIOR
-        is_split = self.dofset == DOF.SPLIT
-        key = (degree, ndim, formdegree, V.value_size, is_interior, is_split)
+        is_interior = True
+        is_facet = True
+        ndim = V.finat_element.cell.get_spatial_dimension()
+        entity_dofs = V.finat_element.entity_dofs()
+        for key in entity_dofs:
+            v = sum(list(entity_dofs[key].values()), [])
+            if len(v):
+                edim = key
+                try:
+                    edim = sum(edim)
+                except TypeError:
+                    pass
+                if edim == ndim:
+                    is_facet = False
+                else:
+                    is_interior = False
+
+        key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
         if key not in self._reference_tensor_cache:
             elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
             cell = elements[0].get_reference_element()
-
             eq = FIAT.FDMQuadrature(cell, degree)
             e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
             e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
@@ -574,10 +604,10 @@ class FDMPC(PCBase):
             Ihat.destroy()
             Dhat.destroy()
 
-            if is_split:
+            if is_facet:
                 temp = result
                 noperm = PETSc.IS().createGeneral(numpy.arange(temp.getSize()[0], dtype=PETSc.IntType), comm=temp.comm)
-                result = temp.permute(noperm, self.perm)
+                result = temp.createSubMatrix(noperm, self.fdofs)
                 noperm.destroy()
                 temp.destroy()
 
@@ -588,29 +618,8 @@ class FDMPC(PCBase):
                 temp.destroy()
                 eye.destroy()
 
-            self._reference_tensor_cache[key] = [result]
-        return self._reference_tensor_cache[key], [], quad_degree, None
-
-
-def split_nest(A, i0, i1, submats):
-    isrows = [i0, i0, i1, i1]
-    iscols = [i0, i1, i0, i1]
-    submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    return submats[:4]
-
-
-def condense_nest(A, i0, i1, submats):
-    condense_element_mat(A, i0, i1, submats)
-    return submats[0], submats[1], submats[2], submats[6]
-
-
-def update_nest(A, submats, indices, set_values):
-    i0, i1 = indices
-    addv = PETSc.InsertMode.ADD_VALUES
-    set_values(A.getNestSubMatrix(0, 0), submats[0], i0, i0, addv)
-    set_values(A.getNestSubMatrix(0, 1), submats[1], i0, i1, addv)
-    set_values(A.getNestSubMatrix(1, 0), submats[2], i1, i0, addv)
-    set_values(A.getNestSubMatrix(1, 1), submats[3], i1, i1, addv)
+            self._reference_tensor_cache[key] = result
+        return self._reference_tensor_cache[key]
 
 
 def factor_interior_mat(A00):
