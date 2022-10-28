@@ -6,10 +6,21 @@ import gc
 
 
 def count_refs(cls):
+    """ Counts references of type `cls`
+    """
     gc.collect()
-    # Creating a temporary here is essential for mysterious reasons
-    l = len([x for x in gc.get_objects() if isinstance(x, cls)])
-    return l
+    # A list comprehension here can trigger:
+    #  > ReferenceError: weakly-referenced object no longer exists
+    # So we count references the "slow" way and ignore `ReferenceError`s
+    count = 0
+    object_list = gc.get_objects()
+    for obj in object_list:
+        try:
+            if isinstance(obj, cls):
+                count += 1
+        except ReferenceError:
+            pass
+    return count
 
 
 @pytest.fixture
