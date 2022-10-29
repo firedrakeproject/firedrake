@@ -181,7 +181,6 @@ class FDMPC(PCBase):
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
         from pyop2.sparsity import get_preallocation
-        from firedrake.preconditioners.patch import bcdofs
         if pmat_type is None:
             pmat_type = PETSc.Mat.Type.AIJ
 
@@ -259,10 +258,10 @@ class FDMPC(PCBase):
 
         self.get_indices = {Vsub: partial(cell_to_global, lgmap, cmap) for Vsub, lgmap, cmap in zip(V, lgmaps, cell_maps)}
 
-        self.symmetric = pmat_type.endswith("sbaij")
+        symmetric = pmat_type.endswith("sbaij")
         Pmats = dict()
         for Vrow, Vcol in product(V, V):
-            if self.symmetric and (Vcol, Vrow) in Pmats:
+            if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
                 on_diag = Vrow == Vcol
@@ -434,6 +433,10 @@ class FDMPC(PCBase):
             self.work_csr = (None, None, None)
             self.work_mats[None]= None
             self.work_mats[(Vrow, Vcol)] = None
+        if RtAP.buff:
+            RtAP.buff.destroy()
+
+
 
     def assemble_coef(self, J, quad_deg=None, discard_mixed=True, cell_average=True):
         """
