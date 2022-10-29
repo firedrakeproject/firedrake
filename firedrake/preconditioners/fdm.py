@@ -201,7 +201,7 @@ class FDMPC(PCBase):
             Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
             dims = [Vsub.finat_element.space_dimension() for Vsub in V]
             assert sum(dims) == Vbig.finat_element.space_dimension()
-            fdofs = restricted_dofs(V[1].finat_element, Vbig.finat_element)
+            fdofs = restricted_dofs(V[-1].finat_element, Vbig.finat_element)
 
         value_size = Vbig.value_size
         fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
@@ -214,7 +214,7 @@ class FDMPC(PCBase):
         self.get_static_condensation = dict()
         self.get_reference_tensor = {Vsub: self.assemble_reference_tensors(Vsub) for Vsub in V}
         self.get_reference_tensor_on_diag = dict(self.get_reference_tensor)
-        if dofset in [DOF.FACET]:
+        if dofset in [DOF.FACET, DOF.SPLIT]:
             Vfacet = V[-1]
             self.get_static_condensation[Vfacet] = condense
             self.get_reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensors(Vbig)
@@ -259,10 +259,10 @@ class FDMPC(PCBase):
 
         self.get_indices = {Vsub: partial(cell_to_global, lgmap, cmap) for Vsub, lgmap, cmap in zip(V, lgmaps, cell_maps)}
 
-        symmetric = pmat_type.endswith("sbaij")
+        self.symmetric = pmat_type.endswith("sbaij")
         Pmats = dict()
         for Vrow, Vcol in product(V, V):
-            if symmetric and (Vcol, Vrow) in Pmats:
+            if self.symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
                 on_diag = Vrow == Vcol
@@ -276,9 +276,9 @@ class FDMPC(PCBase):
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
                 preallocator.setSizes(sizes)
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-                preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, symmetric and on_diag)
                 preallocator.setUp()
-                self.assemble_mat(preallocator, Vrow, Vcol)
+                self.set_values(preallocator, Vrow, Vcol)
+                preallocator.assemble()
 
                 d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
                 if on_diag:
@@ -291,6 +291,8 @@ class FDMPC(PCBase):
                 P.setBlockSizes(row_bsize, col_bsize)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+                if ptype.endswith("sbaij"):
+                    P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
             Pmats[Vrow, Vcol] = P
 
@@ -307,7 +309,8 @@ class FDMPC(PCBase):
                 if P.getType().endswith("aij"):
                     P.zeroEntries()
                     set_bc_values(P, rows=bc_rows[Vrow])
-                    self.assemble_mat(P, Vrow, Vcol)
+                    self.set_values(P, Vrow, Vcol)
+            Pmat.assemble()
 
         return Pmat, assemble_P
 
@@ -358,8 +361,8 @@ class FDMPC(PCBase):
             if m:
                 m.destroy()
 
-    @PETSc.Log.EventDecorator("FDMAssemble")
-    def assemble_mat(self, A, Vrow, Vcol):
+    @PETSc.Log.EventDecorator("FDMSetValues")
+    def set_values(self, A, Vrow, Vcol):
 
         def RtAP(R, A, P, result=None):
             RtAP.buff = R.transposeMatMult(A, result=RtAP.buff)
@@ -422,6 +425,7 @@ class FDMPC(PCBase):
             if do_sort:
                 sort_interior_dofs(self.idofs, Ae)
             Se = condense_element_mat(Ae)
+
             for e in range(self.nel):
                 rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
@@ -430,7 +434,6 @@ class FDMPC(PCBase):
             self.work_csr = (None, None, None)
             self.work_mats[None]= None
             self.work_mats[(Vrow, Vcol)] = None
-        A.assemble()
 
     def assemble_coef(self, J, quad_deg=None, discard_mixed=True, cell_average=True):
         """
@@ -1741,7 +1744,8 @@ def spy(A, comm=None):
     if comm is None:
         comm = A.comm
     nnz = A.getInfo()["nz_used"]
-    #A.setOption(PETSc.Mat.Option.GETROW_UPPERTRIANGULAR, True)
+    if A.getType().endswith("sbaij"):
+        A.setOption(PETSc.Mat.Option.GETROW_UPPERTRIANGULAR, True)
     csr = tuple(reversed(A.getValuesCSR()))
     if comm.rank == 0:
         scipy_mat = sp.csr_matrix(csr, shape=A.getSize())
