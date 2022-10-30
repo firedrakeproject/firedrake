@@ -37,9 +37,8 @@ class FacetSplitPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
-        pmat_type = options.getString("pmat_type", "submatrix")
+        mat_type = options.getString("mat_type", "submatrix")
 
-        mat_type = ctx.mat_type
         problem = ctx._problem
         V = problem.J.arguments()[-1].function_space()
 
@@ -55,7 +54,7 @@ class FacetSplitPC(PCBase):
             raise ValueError("Dimensions of the original and decomposed spaces do not match")
 
         mixed_operator = problem.J(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
-        mixed_bcs = [bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs]
+        mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs)
 
         ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
         start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
@@ -69,7 +68,7 @@ class FacetSplitPC(PCBase):
         try:
             v.interpolate(w_expr)
         except NotImplementedError:
-            rtol = 1.0/max(numpy.diff(ownership_ranges))**2
+            rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
             v.project(w_expr, solver_parameters={
                       "mat_type": "matfree",
                       "ksp_type": "cg",
@@ -83,10 +82,8 @@ class FacetSplitPC(PCBase):
             self.perm = None
             self.iperm = None
         else:
-            rindices = numpy.empty_like(indices)
-            rindices[indices-start] = isorted
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
-            self.iperm = PETSc.IS().createGeneral(rindices, comm=V.comm)
+            self.iperm = self.perm.invertPermutation()
 
         def _permute_nullspace(nsp):
             if nsp is None or self.iperm is None:
@@ -96,11 +93,11 @@ class FacetSplitPC(PCBase):
                 vec.permute(self.iperm)
             return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
 
-        if P.getType() == "python" and pmat_type == "matfree":
+        if mat_type != "submatrix":
             self.mixed_op = allocate_matrix(mixed_operator,
                                             bcs=mixed_bcs,
                                             form_compiler_parameters=fcp,
-                                            mat_type=pmat_type,
+                                            mat_type=mat_type,
                                             options_prefix=options_prefix)
             self._assemble_mixed_op = TwoFormAssembler(mixed_operator, tensor=self.mixed_op,
                                                        form_compiler_parameters=fcp,
@@ -115,7 +112,6 @@ class FacetSplitPC(PCBase):
                 mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
         elif self.iperm:
-            # self._permute_op = partial(P.permute, self.iperm, self.iperm)
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
         else:

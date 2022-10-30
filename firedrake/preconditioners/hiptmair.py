@@ -177,17 +177,8 @@ class HiptmairPC(TwoLevelPC):
                 coarse_operator += beta(test, shift*trial, coefficients={})
 
         if G_callback is None:
-            G = Interpolator(dminus(test), V).callable().handle
-
-            # remove (near) zeros from sparsity pattern
-            ai, aj, a = G.getValuesCSR()
-            a[numpy.abs(a) < 1e-10] = 0
-            interp_petscmat = PETSc.Mat().create()
-            interp_petscmat.setType(PETSc.Mat.Type.AIJ)
-            interp_petscmat.setSizes(G.sizes)
-            interp_petscmat.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-            interp_petscmat.setPreallocationCSR((ai, aj, a))
-            interp_petscmat.assemble()
+            from firedrake.preconditioners.hypre_ams import chop
+            interp_petscmat = chop(Interpolator(dminus(test), V).callable().handle)
         else:
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
 

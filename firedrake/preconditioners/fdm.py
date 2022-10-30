@@ -122,14 +122,13 @@ class FDMPC(PCBase):
 
             self.work_vec_x = omat.createVecLeft()
             self.work_vec_y = omat.createVecRight()
+            if len(bcs) > 0:
+                self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
+            else:
+                self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                           fcp=fcp, options_prefix=options_prefix)
-
-        if len(bcs) > 0:
-            self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
-        else:
-            self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, pmat_type)
@@ -204,7 +203,7 @@ class FDMPC(PCBase):
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
             self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1], self.submats)
 
-        elif Vbig == V and V.finat_element.formdegree == 0:
+        elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
             self.get_static_condensation[V] = lambda Ae: condense_element_pattern(Ae, self.ises[0], i1, self.submats)
@@ -215,8 +214,7 @@ class FDMPC(PCBase):
             return lgmap.apply(cell_to_local(cell_index), result=result)
 
         for Vsub in V:
-            # FIXME only include bcs if the index matches Vsub
-            lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub) for bc in bcs])
+            lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
             cell_to_local, nel = glonum_fun(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
