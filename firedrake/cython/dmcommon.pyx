@@ -22,6 +22,7 @@ include "petschdr.pxi"
 
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
+EDGE_SETS_LABEL = "Edge Sets"
 
 
 def get_topological_dimension(PETSc.DM dm):
@@ -1788,7 +1789,7 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
-    if not dm.hasLabel(CELL_SETS_LABEL):
+    if not dm.hasLabel(CELL_SETS_LABEL) or not dm.hasLabel(EDGE_SETS_LABEL):
         return np.empty(0, dtype=IntType)
     vals = dm.getLabelIdIS(CELL_SETS_LABEL).indices
     comm = dm.comm.tompi4py()
