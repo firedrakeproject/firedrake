@@ -240,10 +240,9 @@ class FDMPC(PCBase):
             else:
                 on_diag = Vrow == Vcol
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
-                sizes = (Vrow.dof_dset.layout_vec.getSizes(), Vcol.dof_dset.layout_vec.getSizes())
-                row_bsize = Vrow.dof_dset.layout_vec.getBlockSize()
-                col_bsize = Vcol.dof_dset.layout_vec.getBlockSize()
-                own_rows = row_bsize * Vrow.dof_dset.set.size
+                sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
+                bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
+                own_rows = bsizes[0] * Vrow.dof_dset.set.size
 
                 preallocator = PETSc.Mat().create(comm=V.comm)
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -252,23 +251,25 @@ class FDMPC(PCBase):
                 preallocator.setUp()
                 self.set_values(preallocator, Vrow, Vcol, addv)
                 preallocator.assemble()
-
                 d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
+                preallocator.destroy()
                 if on_diag:
                     local_rows = numpy.arange(own_rows, dtype=PETSc.IntType)[d_nnz == 0]
                     bc_rows[Vrow] = Vrow.dof_dset.lgmap.apply(local_rows)
                     d_nnz[d_nnz == 0] = 1
-                preallocator.destroy()
+                    del local_rows
 
                 P = PETSc.Mat().create(comm=V.comm)
                 P.setType(ptype)
                 P.setSizes(sizes)
-                P.setBlockSizes(row_bsize, col_bsize)
+                P.setBlockSizes(*bsizes)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
+                del d_nnz
+                del o_nnz
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -347,17 +348,17 @@ class FDMPC(PCBase):
             return RtAP.buff.matMult(P, result=result)
         RtAP.buff = None
 
-        wrapper = load_assemble_csr()
-        update_A = lambda Ae, rindices, cindices=None: wrapper(A, Ae, rindices, rindices if cindices is None else cindices, addv)
-
+        set_values_csr = load_assemble_csr()
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
+            update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, rindices, addv)
             rtensor = self.reference_tensor_on_diag.get(Vrow, None) or self.assemble_reference_tensor(Vrow)
             assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
             condense_element_mat = self.get_static_condensation.get(Vrow, None)
         else:
             get_cindices = self.cell_to_global[Vcol]
+            update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, cindices, addv)
             rtensor = self.assemble_reference_tensor(Vrow)
             ctensor = self.assemble_reference_tensor(Vcol)
             assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
@@ -416,6 +417,8 @@ class FDMPC(PCBase):
             self.work_csr = (None, None, None)
             self.work_mats[common_key]= None
             self.work_mats[(Vrow, Vcol)] = None
+        del rindices
+        del cindices
         if RtAP.buff:
             RtAP.buff.destroy()
 
@@ -619,7 +622,7 @@ def condense_element_pattern(A, i0, i1, submats):
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
     submats[5] = A00.matMult(A01, result=submats[5])
     submats[6] = submats[4].matMult(submats[5], result=submats[6])
-    submats[6].aypx(-1, A)
+    submats[6].aypx(-1.0, A)
     return submats[6]
 
 

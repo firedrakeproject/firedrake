@@ -36,6 +36,8 @@ class FacetSplitPC(PCBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
+        options = PETSc.Options(options_prefix)
+        pmat_type = options.getString("pmat_type", "submatrix")
 
         mat_type = ctx.mat_type
         problem = ctx._problem
@@ -94,11 +96,11 @@ class FacetSplitPC(PCBase):
                 vec.permute(self.iperm)
             return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
 
-        if P.getType() == "python":
+        if P.getType() == "python" and pmat_type == "matfree":
             self.mixed_op = allocate_matrix(mixed_operator,
                                             bcs=mixed_bcs,
                                             form_compiler_parameters=fcp,
-                                            mat_type=mat_type,
+                                            mat_type=pmat_type,
                                             options_prefix=options_prefix)
             self._assemble_mixed_op = TwoFormAssembler(mixed_operator, tensor=self.mixed_op,
                                                        form_compiler_parameters=fcp,
