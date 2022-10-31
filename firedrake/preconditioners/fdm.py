@@ -237,6 +237,7 @@ class FDMPC(PCBase):
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
                 on_diag = Vrow == Vcol
+                triu = on_diag and symmetric
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
                 bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
@@ -247,7 +248,7 @@ class FDMPC(PCBase):
                 preallocator.setSizes(sizes)
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
                 preallocator.setUp()
-                self.set_values(preallocator, Vrow, Vcol, addv)
+                self.set_values(preallocator, Vrow, Vcol, addv, triu=triu)
                 preallocator.assemble()
                 d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
                 preallocator.destroy()
@@ -339,14 +340,14 @@ class FDMPC(PCBase):
                 obj.destroy()
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv):
+    def set_values(self, A, Vrow, Vcol, addv, triu=False):
 
         def RtAP(R, A, P, result=None):
             RtAP.buff = R.transposeMatMult(A, result=RtAP.buff)
             return RtAP.buff.matMult(P, result=result)
         RtAP.buff = None
 
-        set_values_csr = load_assemble_csr()
+        set_values_csr = load_assemble_csr(triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
@@ -650,18 +651,24 @@ def load_c_code(code, name, **kwargs):
 
 
 @lru_cache(maxsize=1)
-def load_assemble_csr():
+def load_assemble_csr(triu=False):
     comm = PETSc.COMM_SELF
-    code = """
+    if triu:
+        name = "setSubMatCSR_SBAIJ"
+        select_cols = "icol < irow ? -1: icol"
+    else:
+        name = "setSubMatCSR_AIJ"
+        select_cols = "icol"
+    code = f"""
 #include <petsc.h>
 
-PetscErrorCode setSubMatCSR(Mat A,
-                            Mat B,
-                            PetscInt *rindices,
-                            PetscInt *cindices,
-                            InsertMode addv)
+PetscErrorCode {name}(Mat A,
+                      Mat B,
+                      PetscInt *rindices,
+                      PetscInt *cindices,
+                      InsertMode addv)
 {{
-    PetscInt ncols;
+    PetscInt ncols, irow, icol;
     PetscInt *cols, *indices;
     PetscScalar *vals;
 
@@ -679,7 +686,11 @@ PetscErrorCode setSubMatCSR(Mat A,
     PetscMalloc1(n, &indices);
     for (PetscInt i = 0; i < m; i++) {{
         ierr = MatGetRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
-        for (PetscInt j = 0; j < ncols; j++) indices[j] = cindices[cols[j]];
+        irow = rindices[i];
+        for (PetscInt j = 0; j < ncols; j++) {{
+            icol = cindices[cols[j]];
+            indices[j] = {select_cols};
+        }}
         ierr = MatSetValues(A, 1, &rindices[i], ncols, indices, vals, addv);CHKERRQ(ierr);
         ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
     }}
@@ -687,7 +698,6 @@ PetscErrorCode setSubMatCSR(Mat A,
     PetscFunctionReturn(0);
 }}
 """
-    name = "setSubMatCSR"
     argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                 ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
     return load_c_code(code, name, comm=comm, argtypes=argtypes,
