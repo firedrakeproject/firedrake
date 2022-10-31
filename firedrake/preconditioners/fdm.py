@@ -232,7 +232,10 @@ class FDMPC(PCBase):
         bc_rows = dict()
         addv = PETSc.InsertMode.ADD_VALUES
         symmetric = pmat_type.endswith("sbaij")
-        for Vrow, Vcol in product(V, V):
+
+        # Store only off-diagonal blocks with more columns that rows to save memory
+        Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
+        for Vrow, Vcol in product(Vsort, Vsort):
             if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
@@ -282,7 +285,7 @@ class FDMPC(PCBase):
         def assemble_P():
             for _assemble in assembly_callables:
                 _assemble()
-            for Vrow, Vcol in product(V, V):
+            for Vrow, Vcol in product(Vsort, Vsort):
                 P = Pmats[Vrow, Vcol]
                 if P.getType().endswith("aij"):
                     P.zeroEntries()
