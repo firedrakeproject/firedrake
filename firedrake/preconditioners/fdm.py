@@ -169,29 +169,26 @@ class FDMPC(PCBase):
         """
         from pyop2.sparsity import get_preallocation
 
-        Vfacet = None
-        if len(V) == 1:
-            is_interior, is_facet = is_restricted(V.finat_element)
-            if is_facet:
-                Vfacet = V
-                Vbig = firedrake.FunctionSpace(V.mesh(), unrestrict_element(V.ufl_element()))
-                fdofs = restricted_dofs(V.finat_element, Vbig.finat_element)
-            else:
-                Vbig = V
-                _, fdofs = split_dofs(V.finat_element)
-        else:
+        ifacet, = numpy.nonzero([is_restricted(Vsub.finat_element)[1] for Vsub in V])
+        if len(ifacet) == 0:
+            Vfacet = None
+            Vbig = V
+            _, fdofs = split_dofs(V.finat_element)
+        elif len(ifacet) == 1:
+            Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
             Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
-            dims = [Vsub.finat_element.space_dimension() for Vsub in V]
-            assert sum(dims) == Vbig.finat_element.space_dimension()
-            ifacet, = numpy.nonzero([is_restricted(Vsub.finat_element)[1] for Vsub in V])
-            Vfacet = V[ifacet[0]]
+            if len(V) > 1:
+                dims = [Vsub.finat_element.space_dimension() for Vsub in V]
+                assert sum(dims) == Vbig.finat_element.space_dimension()
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
+        else:
+            raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
 
         value_size = Vbig.value_size
-        dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         if value_size != 1:
             fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
+        dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
         self.submats = [None for _ in range(7)]
@@ -199,10 +196,9 @@ class FDMPC(PCBase):
         self.reference_tensor_on_diag = dict()
         self.get_static_condensation = dict()
         if Vfacet:
-            # If we have a facet space we build the Schur complement on its diagonal block
+            # If we are in a facet space, we build the Schur complement on its diagonal block
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
             self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1], self.submats)
-
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
@@ -256,10 +252,9 @@ class FDMPC(PCBase):
                 d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
                 preallocator.destroy()
                 if on_diag:
-                    local_rows = numpy.arange(own_rows, dtype=PETSc.IntType)[d_nnz == 0]
-                    bc_rows[Vrow] = Vrow.dof_dset.lgmap.apply(local_rows)
+                    bdofs = numpy.nonzero(d_nnz == 0)[0].astype(PETSc.IntType)
+                    bc_rows[Vrow] = Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
                     d_nnz[d_nnz == 0] = 1
-                    del local_rows
 
                 P = PETSc.Mat().create(comm=V.comm)
                 P.setType(ptype)
@@ -289,7 +284,8 @@ class FDMPC(PCBase):
                 P = Pmats[Vrow, Vcol]
                 if P.getType().endswith("aij"):
                     P.zeroEntries()
-                    set_bc_values(P, bc_rows[Vrow])
+                    if Vrow == Vcol and len(bc_rows[Vrow]) > 0:
+                        set_bc_values(P, bc_rows[Vrow])
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
 
@@ -346,8 +342,8 @@ class FDMPC(PCBase):
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
 
         def RtAP(R, A, P, result=None):
-            RtAP.buff = R.transposeMatMult(A, result=RtAP.buff)
-            return RtAP.buff.matMult(P, result=result)
+            RtAP.buff = A.matMult(P, result=RtAP.buff)
+            return R.transposeMatMult(RtAP.buff, result=result)
         RtAP.buff = None
 
         set_values_csr = load_assemble_csr(triu=triu)
