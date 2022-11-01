@@ -12,14 +12,47 @@ class FacetSplitPC(PCBase):
     needs_python_pmat = False
     _prefix = "facet_"
 
+    _permutation_cache = {}
+
+    def get_permuation(self, V, W):
+        from firedrake import Function, split
+        from mpi4py import MPI
+        key = (V, W)
+        if key not in self._permutation_cache:
+            ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
+            start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
+            v = Function(V)
+            w = Function(W)
+            with w.dat.vec_wo as wvec:
+                wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
+
+            w_expr = sum(split(w))
+            try:
+                v.interpolate(w_expr)
+            except NotImplementedError:
+                rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
+                v.project(w_expr, solver_parameters={
+                          "mat_type": "matfree",
+                          "ksp_type": "cg",
+                          "ksp_atol": 0,
+                          "ksp_rtol": rtol,
+                          "pc_type": "jacobi", })
+
+            indices = numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
+            isorted = numpy.arange(start, end, dtype=PETSc.IntType)
+            if V.comm.allreduce(numpy.array_equal(indices, isorted), MPI.PROD):
+                self._permutation_cache[key] = None
+            else:
+                self._permutation_cache[key] = indices
+        return self._permutation_cache[key]
+
     def initialize(self, pc):
 
         from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
-        from firedrake import FunctionSpace, Function, TestFunctions, TrialFunctions, split
+        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
         from functools import partial
-        from mpi4py import MPI
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -53,37 +86,15 @@ class FacetSplitPC(PCBase):
         if W.dim() != V.dim():
             raise ValueError("Dimensions of the original and decomposed spaces do not match")
 
-        mixed_operator = problem.J(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
-        mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs)
-
-        ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
-        start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
-
-        v = Function(V)
-        w = Function(W)
-        with w.dat.vec_wo as wvec:
-            wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
-
-        w_expr = sum(split(w))
-        try:
-            v.interpolate(w_expr)
-        except NotImplementedError:
-            rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
-            v.project(w_expr, solver_parameters={
-                      "mat_type": "matfree",
-                      "ksp_type": "cg",
-                      "ksp_atol": 0,
-                      "ksp_rtol": rtol,
-                      "pc_type": "jacobi", })
-
-        indices = numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
-        isorted = numpy.arange(start, end, dtype=PETSc.IntType)
-        if V.comm.allreduce(numpy.array_equal(indices, isorted), MPI.PROD):
-            self.perm = None
-            self.iperm = None
-        else:
+        self.perm = None
+        self.iperm = None
+        indices = self.get_permuation(V, W)
+        if indices is not None:
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = self.perm.invertPermutation()
+
+        mixed_operator = problem.J(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs)
 
         def _permute_nullspace(nsp):
             if nsp is None or self.iperm is None:
@@ -111,7 +122,7 @@ class FacetSplitPC(PCBase):
                 mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
                 mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
-        elif self.iperm:
+        elif self.perm:
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
         else:
@@ -154,7 +165,7 @@ class FacetSplitPC(PCBase):
         self.pc.setUp()
 
     def apply(self, pc, x, y):
-        if self.iperm:
+        if self.perm:
             x.permute(self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
@@ -164,7 +175,7 @@ class FacetSplitPC(PCBase):
             y.permute(self.perm)
 
     def applyTranspose(self, pc, x, y):
-        if self.iperm:
+        if self.perm:
             x.permute(self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
