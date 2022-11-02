@@ -649,7 +649,7 @@ def load_c_code(code, name, **kwargs):
     return wrapper
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
 def load_assemble_csr(triu=False):
     comm = PETSc.COMM_SELF
     if triu:
