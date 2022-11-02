@@ -47,6 +47,7 @@ class FDMPC(PCBase):
     _variant = "fdm_feec"
 
     _reference_tensor_cache = {}
+    _coefficient_cache = {}
     _c_code_cache = {}
 
     @staticmethod
@@ -507,22 +508,25 @@ class FDMPC(PCBase):
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
-        if not V.shape:
-            tensor = firedrake.Function(Z)
-            beta, alpha = tensor.split()
-            coefficients = {"beta": beta, "alpha": alpha}
-            assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True)]
-        else:
-            M = firedrake.assemble(mixed_form, mat_type="matfree")
-            coefficients = dict()
-            assembly_callables = []
-            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
-                sub = M.petscmat.createSubMatrix(iset, iset)
-                ctx = sub.getPythonContext()
-                coefficients[name] = ctx._block_diagonal
-                assembly_callables.append(ctx._assemble_block_diagonal)
+        key = (mixed_form.signature(), mesh)
+        if key not in self._coefficient_cache:
+            if not V.shape:
+                tensor = firedrake.Function(Z)
+                beta, alpha = tensor.split()
+                coefficients = {"beta": beta, "alpha": alpha}
+                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True)]
+            else:
+                M = firedrake.assemble(mixed_form, mat_type="matfree")
+                coefficients = dict()
+                assembly_callables = []
+                for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+                    sub = M.petscmat.createSubMatrix(iset, iset)
+                    ctx = sub.getPythonContext()
+                    coefficients[name] = ctx._block_diagonal
+                    assembly_callables.append(ctx._assemble_block_diagonal)
 
-        return coefficients, assembly_callables
+            self._coefficient_cache[key] = (coefficients, assembly_callables)
+        return self._coefficient_cache[key]
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
