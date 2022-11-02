@@ -25,7 +25,7 @@ Key Dates
 ---------
 
 * 18/11/2022 Abstract submission
-* 25/11/2022 Registration
+* 02/12/2022 Registration
 * 4-6/1/2023 Workshop
 
 
@@ -39,6 +39,9 @@ to present their work.
 
 Registration
 ------------
+
+`Click here to register! <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake/firedrake-workshop-2022>`__
+The registration deadline is 2 December 2022
 
 Registration will include meals and accommodation and early registration rates
 will be £150 for students and £250 for others.
