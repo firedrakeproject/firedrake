@@ -199,6 +199,7 @@ class PMGBase(PCSNESBase):
         cJp = _coarsen_form(fctx.Jp)
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
+        cF = self.coarsen_residual(cF, cJ, cu)
 
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
@@ -449,6 +450,9 @@ class PMGPC(PCBase, PMGBase):
     def coarsen_bc_value(self, bc, cV):
         return 0
 
+    def coarsen_residual(self, Fc, Jc, uc):
+        return ufl.action(Jc, uc)
+
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
@@ -500,6 +504,9 @@ class PMGSNES(SNESBase, PMGBase):
         coarse = firedrake.Function(cV)
         coarse.interpolate(bc._original_arg)
         return coarse
+
+    def coarsen_residual(self, Fc, Jc, uc):
+        return Fc
 
 
 def load_c_code(code, name, argtypes, comm):
