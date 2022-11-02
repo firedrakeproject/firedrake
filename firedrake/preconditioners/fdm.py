@@ -1,6 +1,7 @@
 from enum import IntEnum
 from functools import partial, lru_cache
 from itertools import product
+from pyop2.sparsity import get_preallocation
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 from firedrake.preconditioners.base import PCBase
@@ -47,6 +48,24 @@ class FDMPC(PCBase):
 
     _coefficient_cache = {}
     _reference_tensor_cache = {}
+    _c_code_cache = {}
+
+    @staticmethod
+    def load_set_values(triu=False, bcs=False):
+        comm = PETSc.COMM_SELF
+        cache = FDMPC._c_code_cache
+        if bcs:
+            key = "set_bc_values"
+            if key not in cache:
+                cache[key] = load_set_bc_values(comm)
+        else:
+            if triu:
+                key = "set_values_csr_aij"
+            else:
+                key = "set_values_csr_sbaij"
+            if key not in cache:
+                cache[key] = load_assemble_csr(comm, triu=triu)
+        return cache[key]
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
@@ -167,8 +186,6 @@ class FDMPC(PCBase):
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
-        from pyop2.sparsity import get_preallocation
-
         ifacet, = numpy.nonzero([is_restricted(Vsub.finat_element)[1] for Vsub in V])
         if len(ifacet) == 0:
             Vfacet = None
@@ -274,7 +291,7 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
 
-        _set_bc_values = load_set_bc_values()
+        _set_bc_values = self.load_set_values(bcs=True)
         set_bc_values = lambda A, rows: _set_bc_values(A, rows.size, rows, addv)
 
         def assemble_P():
@@ -346,7 +363,7 @@ class FDMPC(PCBase):
             return R.transposeMatMult(RtAP.buff, result=result)
         RtAP.buff = None
 
-        set_values_csr = load_assemble_csr(triu=triu)
+        set_values_csr = self.load_set_values(triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
@@ -420,7 +437,7 @@ class FDMPC(PCBase):
         if RtAP.buff:
             RtAP.buff.destroy()
 
-    def assemble_coef(self, J, quad_deg=None, discard_mixed=True, cell_average=True):
+    def assemble_coef(self, J):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
         """
@@ -522,7 +539,6 @@ class FDMPC(PCBase):
             pass
         if formdegree == ndim:
             degree = degree+1
-
         is_interior, is_facet = is_restricted(V.finat_element)
         key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
         if key not in self._reference_tensor_cache:
@@ -593,6 +609,10 @@ def factor_interior_mat(A00):
 
     A00.setValuesCSR(indptr, indices, data)
     A00.assemble()
+    del degree
+    del indptr
+    del indices
+    del data
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
@@ -649,9 +669,7 @@ def load_c_code(code, name, **kwargs):
     return wrapper
 
 
-@lru_cache(maxsize=2)
-def load_assemble_csr(triu=False):
-    comm = PETSc.COMM_SELF
+def load_assemble_csr(comm, triu=False):
     if triu:
         name = "setSubMatCSR_SBAIJ"
         select_cols = "icol < irow ? -1: icol"
@@ -703,16 +721,15 @@ PetscErrorCode {name}(Mat A,
                        restype=ctypes.c_int)
 
 
-@lru_cache(maxsize=1)
-def load_set_bc_values():
-    comm = PETSc.COMM_SELF
-    code = """
+def load_set_bc_values(comm):
+    name = "setSubDiagonal"
+    code = f"""
 #include <petsc.h>
 
-PetscErrorCode setSubDiagonal(Mat A,
-                              PetscInt n,
-                              PetscInt *indices,
-                              InsertMode addv)
+PetscErrorCode {name}(Mat A,
+                      PetscInt n,
+                      PetscInt *indices,
+                      InsertMode addv)
 {{
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
@@ -722,7 +739,6 @@ PetscErrorCode setSubDiagonal(Mat A,
     PetscFunctionReturn(0);
 }}
 """
-    name = "setSubDiagonal"
     argtypes = [ctypes.c_voidp, ctypes.c_int,
                 ctypes.c_voidp, ctypes.c_int]
     return load_c_code(code, name, comm=comm, argtypes=argtypes,
@@ -733,7 +749,7 @@ def petsc_sparse(A_numpy, rtol=1E-10):
     Amax = max(A_numpy.min(), A_numpy.max(), key=abs)
     atol = rtol*Amax
     nnz = numpy.count_nonzero(abs(A_numpy) > atol, axis=1).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
+    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=PETSc.COMM_SELF)
     for row, Arow in enumerate(A_numpy):
         cols = numpy.argwhere(abs(Arow) > atol).astype(PETSc.IntType).flat
         A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
@@ -749,22 +765,22 @@ def block_mat(A_blocks):
     nrows = sum([Arow[0].size[0] for Arow in A_blocks])
     ncols = sum([Aij.size[1] for Aij in A_blocks[0]])
     nnz = numpy.concatenate([sum([numpy.diff(Aij.getValuesCSR()[0]) for Aij in Arow]) for Arow in A_blocks])
-    A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
+    A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, 0), comm=PETSc.COMM_SELF)
     imode = PETSc.InsertMode.INSERT
-    insert_block = load_assemble_csr()
-    iend = 0
-    for Ai in A_blocks:
-        istart = iend
-        iend += Ai[0].size[0]
-        rows = numpy.arange(istart, iend, dtype=PETSc.IntType)
-        jend = 0
-        for Aij in Ai:
-            jstart = jend
-            jend += Aij.size[1]
-            cols = numpy.arange(jstart, jend, dtype=PETSc.IntType)
-            insert_block(A, Aij, rows, cols, imode)
+    insert_block = FDMPC.load_set_values()
+    rsizes = [sum([Ai[0].size[0] for Ai in A_blocks[:k]]) for k in range(len(A_blocks)+1)]
+    csizes = [sum([Aij.size[1] for Aij in A_blocks[0][:k]]) for k in range(len(A_blocks[0])+1)]
+    rows = [numpy.arange(*rsizes[i:i+2], dtype=PETSc.IntType) for i in range(len(A_blocks))]
+    cols = [numpy.arange(*csizes[j:j+2], dtype=PETSc.IntType) for j in range(len(A_blocks[0]))]
+    for Ai, irows in zip(A_blocks, rows):
+        for Aij, jcols in zip(Ai, cols):
+            insert_block(A, Aij, irows, jcols, imode)
 
     A.assemble()
+    for row in rows:
+        del row
+    for col in cols:
+        del col
     return A
 
 
@@ -807,7 +823,7 @@ def restricted_dofs(celem, felem):
     if len(csplit[k]) != len(fsplit[k]):
         raise ValueError("Finite elements have different DOFs")
     perm = numpy.empty_like(csplit[k])
-    perm[csplit[k]] = numpy.arange(len(perm))
+    perm[csplit[k]] = numpy.arange(len(perm), dtype=perm.dtype)
     return fsplit[k][perm]
 
 
@@ -946,7 +962,7 @@ def assemble_reference_tensor(A, Ahat, Vrow, Vcol, rmap, cmap, addv=None):
 
     rindices, nel = glonum_fun(Vrow.cell_node_map(), bsize=Vrow.value_size)
     cindices, nel = glonum_fun(Vcol.cell_node_map(), bsize=Vcol.value_size)
-    update_A = load_assemble_csr()
+    update_A = FDMPC.load_set_values()
     for e in range(nel):
         update_A(A, Ahat, rmap.apply(rindices(e)), cmap.apply(cindices(e)), addv)
     A.assemble()
@@ -954,7 +970,6 @@ def assemble_reference_tensor(A, Ahat, Vrow, Vcol, rmap, cmap, addv=None):
 
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     from tsfc.finatinterface import create_element
-    from pyop2.sparsity import get_preallocation
     from firedrake.preconditioners.pmg import fiat_reference_prolongator
 
     ef = Vf.finat_element
@@ -1606,7 +1621,7 @@ def get_interior_facet_maps(V):
     return facet_to_nodes_fun, local_facet_data_fun, nfacets
 
 
-@lru_cache(maxsize=10)
+@lru_cache(maxsize=20)
 def glonum_fun(node_map, bsize=1):
     """
     Return a function that maps each topological entity to its nodes and the total number of entities.
