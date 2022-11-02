@@ -33,9 +33,7 @@ class HypreAMS(PCBase):
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
         Citations().register("Kolev2009")
-        A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
-        prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
@@ -52,39 +50,55 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(Interpolator(grad(TestFunction(P1)), V).callable().handle)
+            self.G = chop(Interpolator(grad(TestFunction(P1)), V).callable().handle)
         else:
-            G = G_callback(V, P1)
+            self.G = G_callback(V, P1)
 
-        pc = PETSc.PC().create(comm=obj.comm)
+        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+        self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)
+
+        self.pc = PETSc.PC()
+        self.build_hypre(obj, self.pc)
+
+    def build_hypre(self, obj, pc):
+        A, P = obj.getOperators()
+        prefix = obj.getOptionsPrefix()
+
+        pc.create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
+        pc.setOperators(A=A, P=P)
         pc.setOptionsPrefix(prefix + "hypre_ams_")
-        pc.setOperators(A, P)
 
         pc.setType('hypre')
         pc.setHYPREType('ams')
-        pc.setHYPREDiscreteGradient(G)
+        pc.setHYPREDiscreteGradient(self.G)
+        pc.setCoordinates(self.coordinates.dat.data_ro.copy())
 
         zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
         pc.setUp()
-        self.pc = pc
 
-    def apply(self, pc, x, y):
+    def apply(self, obj, x, y):
         self.pc.apply(x, y)
 
-    def applyTranspose(self, pc, x, y):
+    def applyTranspose(self, obj, x, y):
         self.pc.applyTranspose(x, y)
 
-    def view(self, pc, viewer=None):
-        super().view(pc, viewer)
+    def view(self, obj, viewer=None):
+        super().view(obj, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
-    def update(self, pc):
-        self.pc.setUp()
+    def update(self, obj):
+        # self.pc.setUp()
+        self.pc.destroy()
+        self.build_hypre(obj, self.pc)
+
+    def destroy(self, obj):
+        if hasattr(self, "pc"):
+            self.pc.destroy()
+        if hasattr(self, "G"):
+            self.G.destroy()
