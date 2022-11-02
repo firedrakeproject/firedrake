@@ -114,6 +114,11 @@ class AssembledPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
+    def destroy(self, pc):
+        if hasattr(self, "pc"):
+            self.pc.getOperators()[0].destroy()
+            self.pc.destroy()
+
 
 class AuxiliaryOperatorPC(AssembledPC):
     """A preconditioner that builds a PC on a specified form.

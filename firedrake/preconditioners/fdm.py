@@ -46,25 +46,16 @@ class FDMPC(PCBase):
 
     _variant = "fdm_feec"
 
-    _coefficient_cache = {}
     _reference_tensor_cache = {}
     _c_code_cache = {}
 
     @staticmethod
-    def load_set_values(triu=False, bcs=False):
-        comm = PETSc.COMM_SELF
+    def load_set_values(triu=False):
         cache = FDMPC._c_code_cache
-        if bcs:
-            key = "set_bc_values"
-            if key not in cache:
-                cache[key] = load_set_bc_values(comm)
-        else:
-            if triu:
-                key = "set_values_csr_aij"
-            else:
-                key = "set_values_csr_sbaij"
-            if key not in cache:
-                cache[key] = load_assemble_csr(comm, triu=triu)
+        key = triu
+        if key not in cache:
+            comm = PETSc.COMM_SELF
+            cache[key] = load_assemble_csr(comm, triu=triu)
         return cache[key]
 
     @PETSc.Log.EventDecorator("FDMInit")
@@ -224,7 +215,8 @@ class FDMPC(PCBase):
         # dict of cell to global mappings for each function space
         self.cell_to_global = dict()
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
-            return lgmap.apply(cell_to_local(cell_index), result=result)
+            result = cell_to_local(cell_index, result=result)
+            return lgmap.apply(result, result=result)
 
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
@@ -236,7 +228,14 @@ class FDMPC(PCBase):
         coefficients, assembly_callables = self.assemble_coef(J)
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
-        self.get_coefs = lambda e, result=None: numpy.concatenate([coef.dat.data_ro[cmap(e)] for coef, cmap in zip(coefs, coef_maps)], out=result)
+        def get_coefs(e, result=None):
+            vals = []
+            for coef, cmap, indices in zip(coefs, coef_maps, get_coefs.indices):
+                indices = cmap(e, result=indices)
+                vals.append(coef.dat.data_ro[indices])
+            return numpy.concatenate(vals, out=result)
+        get_coefs.indices = [None for _ in range(len(coefs))]
+        self.get_coefs = get_coefs
 
         self.nel = nel
         self.work_mats = dict()
@@ -291,9 +290,6 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
 
-        _set_bc_values = self.load_set_values(bcs=True)
-        set_bc_values = lambda A, rows: _set_bc_values(A, rows.size, rows, addv)
-
         def assemble_P():
             for _assemble in assembly_callables:
                 _assemble()
@@ -302,7 +298,10 @@ class FDMPC(PCBase):
                 if P.getType().endswith("aij"):
                     P.zeroEntries()
                     if Vrow == Vcol and len(bc_rows[Vrow]) > 0:
-                        set_bc_values(P, bc_rows[Vrow])
+                        rows = bc_rows[Vrow][:, None]
+                        vals = numpy.ones(rows.shape, dtype=PETSc.RealType)
+                        P.setValuesRCV(rows, rows, vals, addv)
+                        del vals
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
 
@@ -351,6 +350,8 @@ class FDMPC(PCBase):
             objs.extend(self.submats)
         if hasattr(self, "work_mats"):
             objs.extend(list(self.work_mats.values()))
+        if hasattr(self, "ises"):
+            objs.extend(self.ises)
         for obj in objs:
             if hasattr(obj, "destroy"):
                 obj.destroy()
@@ -444,7 +445,7 @@ class FDMPC(PCBase):
         from ufl.algorithms.ad import expand_derivatives
         from ufl.algorithms.expand_indices import expand_indices
         from firedrake.formmanipulation import ExtractSubBlock
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import assemble
         if len(J.arguments()[-1].function_space()) > 1:
             splitter = ExtractSubBlock()
             J = splitter.split(J, argument_indices=(0, 0))
@@ -506,25 +507,22 @@ class FDMPC(PCBase):
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
-        key = (mixed_form.signature(), Z.mesh())
-        if key not in self._coefficient_cache:
-            if not V.shape:
-                tensor = firedrake.Function(Z)
-                beta, alpha = tensor.split()
-                coefficients = {"beta": beta, "alpha": alpha}
-                assembly_callables = [OneFormAssembler(mixed_form, tensor=tensor, diagonal=True).assemble]
-            else:
-                M = firedrake.assemble(mixed_form, mat_type="matfree")
-                coefficients = dict()
-                assembly_callables = []
-                for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
-                    sub = M.petscmat.createSubMatrix(iset, iset)
-                    ctx = sub.getPythonContext()
-                    coefficients[name] = ctx._block_diagonal
-                    assembly_callables.append(ctx._assemble_block_diagonal)
+        if not V.shape:
+            tensor = firedrake.Function(Z)
+            beta, alpha = tensor.split()
+            coefficients = {"beta": beta, "alpha": alpha}
+            assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True)]
+        else:
+            M = firedrake.assemble(mixed_form, mat_type="matfree")
+            coefficients = dict()
+            assembly_callables = []
+            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+                sub = M.petscmat.createSubMatrix(iset, iset)
+                ctx = sub.getPythonContext()
+                coefficients[name] = ctx._block_diagonal
+                assembly_callables.append(ctx._assemble_block_diagonal)
 
-            self._coefficient_cache[key] = (coefficients, assembly_callables)
-        return self._coefficient_cache[key]
+        return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
@@ -717,30 +715,6 @@ PetscErrorCode {name}(Mat A,
 """
     argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                 ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-    return load_c_code(code, name, comm=comm, argtypes=argtypes,
-                       restype=ctypes.c_int)
-
-
-def load_set_bc_values(comm):
-    name = "setSubDiagonal"
-    code = f"""
-#include <petsc.h>
-
-PetscErrorCode {name}(Mat A,
-                      PetscInt n,
-                      PetscInt *indices,
-                      InsertMode addv)
-{{
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    for (PetscInt i = 0; i < n; i++) {{
-        ierr = MatSetValue(A, indices[i], indices[i], 1.0E0, addv);CHKERRQ(ierr);
-    }}
-    PetscFunctionReturn(0);
-}}
-"""
-    argtypes = [ctypes.c_voidp, ctypes.c_int,
-                ctypes.c_voidp, ctypes.c_int]
     return load_c_code(code, name, comm=comm, argtypes=argtypes,
                        restype=ctypes.c_int)
 
@@ -960,11 +934,20 @@ def assemble_reference_tensor(A, Ahat, Vrow, Vcol, rmap, cmap, addv=None):
     if addv is None:
         addv = PETSc.InsertMode.INSERT
 
-    rindices, nel = glonum_fun(Vrow.cell_node_map(), bsize=Vrow.value_size)
-    cindices, nel = glonum_fun(Vcol.cell_node_map(), bsize=Vcol.value_size)
     update_A = FDMPC.load_set_values()
+    rlocal, nel = glonum_fun(Vrow.cell_node_map(), bsize=Vrow.value_size)
+    clocal, nel = glonum_fun(Vcol.cell_node_map(), bsize=Vcol.value_size)
+
+    def cell_to_global(lgmap, cell_to_local, e, result=None):
+        result = cell_to_local(e, result=result)
+        return lgmap.apply(result, result=result)
+
+    rindices = None
+    cindices = None
     for e in range(nel):
-        update_A(A, Ahat, rmap.apply(rindices(e)), cmap.apply(cindices(e)), addv)
+        rindices = cell_to_global(rmap, rlocal, e, result=rindices)
+        cindices = cell_to_global(cmap, clocal, e, result=cindices)
+        update_A(A, Ahat, rindices, cindices, addv)
     A.assemble()
 
 
@@ -982,8 +965,8 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     e0, e1 = elements[::len(elements)-1]
 
     degree = e0.degree()
-    A11 = numpy.eye(degree)
-    A00 = numpy.eye(degree+1)
+    A11 = numpy.eye(degree, dtype=PETSc.RealType)
+    A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
     A10 = fiat_reference_prolongator(e1, e0, derivative=True)
 
     ndim = Vc.mesh().topological_dimension()
@@ -994,9 +977,15 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
     fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
     cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
-    Dhat = Dhat.createSubMatrix(fises, cises)
+    temp = Dhat
+    Dhat = temp.createSubMatrix(fises, cises)
+    temp.destroy()
     if Vf.value_size > 1:
-        Dhat = Dhat.kron(petsc_sparse(numpy.eye(Vf.value_size)))
+        temp = Dhat
+        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType))
+        Dhat = temp.kron(eye)
+        temp.destroy()
+        eye.destroy()
 
     fmap = Vf.local_to_global_map(fbcs)
     cmap = Vc.local_to_global_map(cbcs)
@@ -1009,11 +998,11 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     prealloc.setUp()
     assemble_reference_tensor(prealloc, Dhat, Vf, Vc, fmap, cmap, addv=imode)
     nnz = get_preallocation(prealloc, block_size * Vf.dof_dset.set.size)
+    prealloc.destroy()
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Vf.comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
     assemble_reference_tensor(Dmat, Dhat, Vf, Vc, fmap, cmap, addv=imode)
     Dhat.destroy()
-    prealloc.destroy()
     return Dmat
 
 
@@ -1633,44 +1622,51 @@ def glonum_fun(node_map, bsize=1):
     nelv = node_map.values.shape[0]
     if node_map.offset is None:
         nel = nelv
-        glonum = lambda e: node_map.values_with_halo[e]
+        glonum = lambda e, result=None: node_map.values_with_halo[e]
     else:
-        buffer = numpy.empty(node_map.values_with_halo.shape[1:], dtype=node_map.values_with_halo.dtype)
         layers = node_map.iterset.layers_array
         if layers.shape[0] == 1:
             nelz = layers[0, 1]-layers[0, 0]-1
             nel = nelz*nelv
-            # return lambda e: node_map.values_with_halo[e//nelz] + (e % nelz)*node_map.offset
 
-            def _glonum(buffer, node_map, nelz, e):
-                numpy.copyto(buffer, node_map.values_with_halo[e//nelz])
-                buffer += (e % nelz)*node_map.offset
-                return buffer
-            glonum = partial(_glonum, buffer, node_map, nelz)
+            def _glonum(node_map, nelz, e, result=None):
+                if result is None:
+                    result = numpy.copy(node_map.values_with_halo[e // nelz])
+                else:
+                    numpy.copyto(result, node_map.values_with_halo[e // nelz])
+                result += (e % nelz)*node_map.offset
+                return result
+            glonum = partial(_glonum, node_map, nelz)
 
         else:
             nelz = layers[:, 1]-layers[:, 0]-1
             nel = sum(nelz[:nelv])
             to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
             to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-            # return lambda e: node_map.values_with_halo[to_base[e]] + to_layer[e]*node_map.offset
 
-            def _glonum(buffer, node_map, to_base, to_layer, e):
-                numpy.copyto(buffer, node_map.values_with_halo[to_base[e]])
-                buffer += to_layer[e]*node_map.offset
-                return buffer
-            glonum = partial(_glonum, buffer, node_map, to_base, to_layer)
+            def _glonum(node_map, to_base, to_layer, e, result=None):
+                if result is None:
+                    result = numpy.copy(node_map.values_with_halo[to_base[e]])
+                else:
+                    numpy.copyto(result, node_map.values_with_halo[to_base[e]])
+                result += to_layer[e]*node_map.offset
+                return result
+            glonum = partial(_glonum, node_map, to_base, to_layer)
 
         if bsize == 1:
             return glonum, nel
 
-        vector_buffer = numpy.empty(buffer.shape+(bsize, ), dtype=buffer.dtype)
         ibase = numpy.arange(bsize, dtype=PETSc.IntType)
 
-        def vector_glonum(e, result=None):
-            return numpy.add.outer(bsize*glonum(e), ibase, out=vector_buffer)
+        def vector_glonum(bsize, ibase, e, result=None):
+            index = None
+            if result is not None:
+                index = result[:, 0]
+            index = glonum(e, result=index)
+            index *= bsize
+            return numpy.add.outer(index, ibase, out=result)
 
-        return vector_glonum, nel
+        return partial(vector_glonum, bsize, ibase), nel
 
 
 def glonum(node_map):

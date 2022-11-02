@@ -197,6 +197,8 @@ class FacetSplitPC(PCBase):
                     mat.destroy()
             self.pc.destroy()
         if hasattr(self, "iperm"):
-            self.iperm.destroy()
+            if self.iperm:
+                self.iperm.destroy()
         if hasattr(self, "perm"):
-            self.perm.destroy()
+            if self.perm:
+                self.perm.destroy()
