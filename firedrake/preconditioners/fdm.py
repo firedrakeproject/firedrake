@@ -70,8 +70,9 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
-        pmat_type = options.getString("pmat_type", PETSc.Mat.Type.AIJ)
+
         use_amat = options.getBool("pc_use_amat", True)
+        pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
         use_ainv = options.getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
 
@@ -142,7 +143,7 @@ class FDMPC(PCBase):
                                           fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, appctx, pmat_type)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -167,7 +168,7 @@ class FDMPC(PCBase):
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
-    def assemble_fdm_op(self, V, J, bcs, appctx, pmat_type):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -226,7 +227,7 @@ class FDMPC(PCBase):
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
 
         # get coefficients on a given cell
-        coefficients, assembly_callables = self.assemble_coef(J)
+        coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
         def get_coefs(e, result=None):
@@ -257,7 +258,7 @@ class FDMPC(PCBase):
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
                 bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
-                own_rows = bsizes[0] * Vrow.dof_dset.set.size
+                own_rows = Vrow.dof_dset.set.size * bsizes[0]
 
                 preallocator = PETSc.Mat().create(comm=V.comm)
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -276,7 +277,7 @@ class FDMPC(PCBase):
                 P = PETSc.Mat().create(comm=V.comm)
                 P.setType(ptype)
                 P.setSizes(sizes)
-                P.setBlockSizes(*bsizes)
+                # P.setBlockSizes(*bsizes)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
                 if ptype.endswith("sbaij"):
@@ -439,7 +440,7 @@ class FDMPC(PCBase):
         if RtAP.buff:
             RtAP.buff.destroy()
 
-    def assemble_coef(self, J):
+    def assemble_coef(self, J, form_compiler_parameters):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
         """
@@ -514,9 +515,11 @@ class FDMPC(PCBase):
                 tensor = firedrake.Function(Z)
                 beta, alpha = tensor.split()
                 coefficients = {"beta": beta, "alpha": alpha}
-                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True)]
+                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
+                                              form_compiler_parameters=form_compiler_parameters)]
             else:
-                M = firedrake.assemble(mixed_form, mat_type="matfree")
+                M = assemble(mixed_form, mat_type="matfree",
+                             form_compiler_parameters=form_compiler_parameters)
                 coefficients = dict()
                 assembly_callables = []
                 for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
@@ -710,7 +713,7 @@ PetscErrorCode {name}(Mat A,
             icol = cindices[cols[j]];
             indices[j] = {select_cols};
         }}
-        ierr = MatSetValues(A, 1, &rindices[i], ncols, indices, vals, addv);CHKERRQ(ierr);
+        ierr = MatSetValues(A, 1, &irow, ncols, indices, vals, addv);CHKERRQ(ierr);
         ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
     }}
     PetscFree(indices);
@@ -1617,11 +1620,11 @@ def get_interior_facet_maps(V):
 @lru_cache(maxsize=20)
 def glonum_fun(node_map, bsize=1):
     """
-    Return a function that maps each topological entity to its nodes and the total number of entities.
+    Return a the local numbering given an non-extruded local map and the total number of entities.
 
-    :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
+    :arg node_map: a :class:`pyop2.Map` mapping entities to their local dofs, including ghost entities.
 
-    :returns: a 2-tuple with the map and the number of cells owned by this process
+    :returns: a 2-tuple with the map and the number of entities owned by this process
     """
     nelv = node_map.values.shape[0]
     if node_map.offset is None:

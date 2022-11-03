@@ -16,7 +16,6 @@ class HypreADS(PCBase):
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
-        family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
         degree = V.ufl_element().degree()
         try:
@@ -24,6 +23,7 @@ class HypreADS(PCBase):
         except TypeError:
             pass
         if formdegree != 2 or degree != 1:
+            family = str(V.ufl_element().family())
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
