@@ -154,8 +154,7 @@ def is_pyop2_comm(comm):
         ispyop2comm = False
     elif comm == MPI.COMM_NULL:
         if PYOP2_FINALIZED is False:
-            raise ValueError("COMM_NULL")
-            ispyop2comm = True
+            raise ValueError("Communicator passed to is_pyop2_comm() is COMM_NULL")
         else:
             ispyop2comm = True
     elif isinstance(comm, MPI.Comm):
@@ -252,9 +251,7 @@ def decref(comm):
         if refcount[0] == 0:
             dupped_comms.remove(comm)
             free_comm(comm)
-    elif comm == MPI.COMM_NULL:
-        pass
-    else:
+    elif comm != MPI.COMM_NULL:
         free_comm(comm)
 
 
