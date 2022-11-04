@@ -1760,14 +1760,14 @@ if mode == "install":
                 source += "vtk-9.2.2.dev0-cp311-cp311-macosx_10_15_x86_64.whl"
             else:
                 log.error("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
-                raise InstallError("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
+                raise InstallError("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
             source += "vtk-9.2.2.dev0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 
         else:
-            log.error("Cannot install VTK for Python 3.10: unknown operating system  {0}.".format(osname))
-            raise InstallError("Cannot install VTK for Python 3.10: unknown operating system {0}.".format(osname))
-        log.info("Pip installing VTK for Python 3.10 to venv")
+            log.error("Cannot install VTK for Python 3.11: unknown operating system  {0}.".format(osname))
+            raise InstallError("Cannot install VTK for Python 3.11: unknown operating system {0}.".format(osname))
+        log.info("Pip installing VTK for Python 3.11 to venv")
         run_pip_install([source])
     if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
