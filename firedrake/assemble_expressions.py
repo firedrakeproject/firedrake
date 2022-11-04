@@ -1,6 +1,4 @@
 import itertools
-import os
-import tempfile
 import weakref
 from collections import OrderedDict, defaultdict
 from functools import singledispatch
@@ -13,7 +11,7 @@ from gem.impero_utils import compile_gem, preprocess_gem
 from gem.node import MemoizerArg
 from gem.node import traversal as gem_traversal
 from pyop2 import op2
-from pyop2.caching import disk_cached
+from pyop2.caching import cached
 from pyop2.parloop import GlobalLegacyArg, DatLegacyArg
 from tsfc import ufl2gem
 from tsfc.loopy import generate
@@ -416,25 +414,19 @@ def compile_to_gem(expr, translator):
     return preprocess_gem([lvalue, rvalue])
 
 
-try:
-    _cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
-except KeyError:
-    _cachedir = os.path.join(tempfile.gettempdir(),
-                             f"firedrake-pointwise-expression-kernel-cache-uid{os.getuid()}")
-"""Storage location for the kernel cache."""
+_pointwise_expression_cache = {}
+"""In-memory cache for pointwise expression kernels."""
 
 
 def _pointwise_expression_key(exprs, scalar_type, is_logging):
     """Return a cache key for use with :func:`pointwise_expression_kernel`."""
-    # Since this cache is collective this function must return a 2-tuple of
-    # communicator and cache key.
-    comm = exprs[0].lvalue.node_set.comm
-    key = tuple(e.slow_key for e in exprs) + (scalar_type, is_logging)
-    return comm, key
+    from firedrake.interpolation import hash_expr
+    return (tuple((e.__class__, hash(e.lvalue), hash_expr(e.rvalue)) for e in exprs)
+            + (scalar_type, is_logging))
 
 
 @PETSc.Log.EventDecorator()
-@disk_cached({}, _cachedir, key=_pointwise_expression_key, collective=True)
+@cached(_pointwise_expression_cache, key=_pointwise_expression_key)
 def pointwise_expression_kernel(exprs, scalar_type, is_logging):
     """Compile a kernel for pointwise expressions.
 

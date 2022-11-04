@@ -48,22 +48,6 @@ configure MPI for the installation process are `found here
 <https://www.firedrakeproject.org/parallelism.html>`_.
 
 
-Installing SciPy
-----------------
-
-If you want to install the ``scipy`` package alongside Firedrake you
-must ensure that the package is built against the same libraries as the
-rest of the Firedrake toolchain. To do this at install time simply add
-``scipy`` to the ``firedrake-install`` command line arguments::
-
-  python3 firedrake-install --pip-install scipy
-
-If you want to add ``scipy`` to your environment after installing
-Firedrake, first activate the virtual environment, then run::
-
-  firedrake-update --pip-install scipy
-
-
 Testing the installation
 ------------------------
 
@@ -119,7 +103,7 @@ System requirements
 -------------------
 
 Firedrake requires Python 3.7.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
-or 3.10.x are required. Many externally managed dependencies such as VTK
+to 3.11.x is required. Many externally managed dependencies such as VTK
 have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
 The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
