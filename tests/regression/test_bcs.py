@@ -1,8 +1,7 @@
 import pytest
 import numpy as np
-from pyop2.mpi import COMM_WORLD, PyOP2Comm
 from firedrake import *
-from firedrake.mesh import _from_cell_list as create_dm
+from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
 
@@ -322,16 +321,18 @@ def test_bc_nodes_cover_ghost_dofs():
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
-    with PyOP2Comm(COMM_WORLD) as comm:
-        dm = create_dm(2, [[0, 1, 2],
-                           [1, 2, 3],
-                           [1, 3, 4]],
-                       [[0, 0],
-                        [1, 0],
-                        [0, 1],
-                        [0.5, 1],
-                        [1, 1]], comm=comm)
-
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [1, 3, 4]],
+        [[0, 0],
+         [1, 0],
+         [0, 1],
+         [0.5, 1],
+         [1, 1]],
+        comm=COMM_WORLD
+    )
     dm.createLabel("Face Sets")
 
     if dm.comm.rank == 0:

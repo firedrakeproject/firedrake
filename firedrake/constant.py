@@ -18,7 +18,6 @@ def _globalify(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
-    # FIXME: We need to know what comm should be passed to the op2.Global
     if rank == 0:
         dat = op2.Global(1, data, comm=comm)
     else:
