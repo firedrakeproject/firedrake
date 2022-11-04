@@ -7,6 +7,56 @@ import numpy
 __all__ = ['FacetSplitPC']
 
 
+def get_permutation_map(V, W):
+    from firedrake.preconditioners.fdm import glonum_fun, restricted_dofs
+    bsize = V.value_size
+    V_indices = None
+    V_map, nel = glonum_fun(V.cell_node_map(), bsize=bsize)
+    perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
+    perm.fill(-1)
+
+    offset = 0
+    for Wsub in W:
+        W_indices = None
+        W_map, nel = glonum_fun(Wsub.cell_node_map(), bsize=bsize)
+        rdofs = restricted_dofs(Wsub.finat_element, V.finat_element)
+
+        for e in range(nel):
+            V_indices = V_map(e, result=V_indices)
+            W_indices = W_map(e, result=W_indices)
+            perm[V_indices[rdofs]] = W_indices + offset
+
+        offset += Wsub.dof_dset.set.size * bsize
+        del rdofs
+        del W_indices
+    del V_indices
+    perm = V.dof_dset.lgmap.apply(perm, result=perm)
+    own = V.dof_dset.set.size * bsize
+    return perm[:own]
+
+
+def get_permutation_project(V, W):
+    from firedrake import Function, split
+    ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
+    start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
+    v = Function(V)
+    w = Function(W)
+    with w.dat.vec_wo as wvec:
+        wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
+    w_expr = sum(split(w))
+    try:
+        v.interpolate(w_expr)
+    except NotImplementedError:
+        rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
+        v.project(w_expr, solver_parameters={
+                  "mat_type": "matfree",
+                  "ksp_type": "cg",
+                  "ksp_atol": 0,
+                  "ksp_rtol": rtol,
+                  "pc_type": "jacobi", })
+    return numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
+
+
 class FacetSplitPC(PCBase):
 
     needs_python_pmat = False
@@ -14,33 +64,12 @@ class FacetSplitPC(PCBase):
 
     _permutation_cache = {}
 
-    def get_permuation(self, V, W):
-        from firedrake import Function, split
+    def get_permutation(self, V, W):
         from mpi4py import MPI
         key = (V, W)
         if key not in self._permutation_cache:
-            ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
-            start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
-            v = Function(V)
-            w = Function(W)
-            with w.dat.vec_wo as wvec:
-                wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
-
-            w_expr = sum(split(w))
-            try:
-                v.interpolate(w_expr)
-            except NotImplementedError:
-                rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
-                v.project(w_expr, solver_parameters={
-                          "mat_type": "matfree",
-                          "ksp_type": "cg",
-                          "ksp_atol": 0,
-                          "ksp_rtol": rtol,
-                          "pc_type": "jacobi", })
-
-            indices = numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
-            isorted = numpy.arange(start, end, dtype=PETSc.IntType)
-            if V.comm.allreduce(numpy.array_equal(indices, isorted), MPI.PROD):
+            indices = get_permutation_map(V, W)
+            if V.comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
                 self._permutation_cache[key] = None
             else:
                 self._permutation_cache[key] = indices
@@ -88,7 +117,7 @@ class FacetSplitPC(PCBase):
 
         self.perm = None
         self.iperm = None
-        indices = self.get_permuation(V, W)
+        indices = self.get_permutation(V, W)
         if indices is not None:
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = self.perm.invertPermutation()
