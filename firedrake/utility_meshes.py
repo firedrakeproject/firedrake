@@ -890,8 +890,7 @@ def PeriodicRectangleMesh(
         )
     if nx < 3 or ny < 3:
         raise ValueError(
-            "2D periodic meshes with fewer than 3 \
-cells in each direction are not currently supported"
+            "2D periodic meshes with fewer than 3 cells in each direction are not currently supported"
         )
 
     m = TorusMesh(
@@ -1442,32 +1441,14 @@ def BoxMesh(
         v7 = v3 + (nx + 1) * (ny + 1)
 
         cells = [
-            v0,
-            v1,
-            v3,
-            v7,
-            v0,
-            v1,
-            v7,
-            v5,
-            v0,
-            v5,
-            v7,
-            v4,
-            v0,
-            v3,
-            v2,
-            v7,
-            v0,
-            v6,
-            v4,
-            v7,
-            v0,
-            v2,
-            v6,
-            v7,
+            [v0, v1, v3, v7],
+            [v0, v1, v7, v5],
+            [v0, v5, v7, v4],
+            [v0, v3, v2, v7],
+            [v0, v6, v4, v7],
+            [v0, v2, v6, v7],
         ]
-        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
     elif diagonal == "crossed":
         v0 = k * (nx + 1) * (ny + 1) + j * (nx + 1) + i
         v1 = v0 + 1
@@ -1480,28 +1461,13 @@ def BoxMesh(
 
         # There are only five tetrahedra in this cutting of hexahedra
         cells = [
-            v0,
-            v1,
-            v2,
-            v4,
-            v1,
-            v7,
-            v5,
-            v4,
-            v1,
-            v2,
-            v3,
-            v7,
-            v2,
-            v4,
-            v6,
-            v7,
-            v1,
-            v2,
-            v7,
-            v4,
+            [v0, v1, v2, v4],
+            [v1, v7, v5, v4],
+            [v1, v2, v3, v7],
+            [v2, v4, v6, v7],
+            [v1, v2, v7, v4],
         ]
-        cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+        cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
         raise NotImplementedError(
             "The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements"
         )
@@ -1741,32 +1707,14 @@ def PeriodicBoxMesh(
     v7 = ((k + 1) % nz) * nx * ny + ((j + 1) % ny) * nx + (i + 1) % nx
 
     cells = [
-        v0,
-        v1,
-        v3,
-        v7,
-        v0,
-        v1,
-        v7,
-        v5,
-        v0,
-        v5,
-        v7,
-        v4,
-        v0,
-        v3,
-        v2,
-        v7,
-        v0,
-        v6,
-        v4,
-        v7,
-        v0,
-        v2,
-        v6,
-        v7,
+        [v0, v1, v3, v7],
+        [v0, v1, v7, v5],
+        [v0, v5, v7, v4],
+        [v0, v3, v2, v7],
+        [v0, v6, v4, v7],
+        [v0, v2, v6, v7],
     ]
-    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+    cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
     plex = mesh.plex_from_cell_list(
         3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
@@ -2760,7 +2708,7 @@ def CylinderMesh(
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    m = mesh.Mesh(
+    return mesh.Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -2770,7 +2718,6 @@ def CylinderMesh(
         permutation_name=permutation_name,
         comm=comm,
     )
-    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -2831,8 +2778,7 @@ def PartiallyPeriodicRectangleMesh(
 
     if na < 3:
         raise ValueError(
-            "2D periodic meshes with fewer than 3 \
-cells in each direction are not currently supported"
+            "2D periodic meshes with fewer than 3 cells in each direction are not currently supported"
         )
 
     m = CylinderMesh(
