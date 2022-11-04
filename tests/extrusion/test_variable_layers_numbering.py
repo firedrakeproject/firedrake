@@ -1,8 +1,7 @@
 import pytest
 import numpy
-from pyop2 import mpi
 from firedrake import *
-from firedrake.mesh import _from_cell_list as create_dm
+from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
 
@@ -151,16 +150,19 @@ def test_numbering_two_d_P1():
     #   / | \   / |     x---x---x
     #  /  |  \ /  |     |   |
     # 0---1---3---4     x---x
-    with mpi.PyOP2Comm(COMM_WORLD) as comm:
-        dm = create_dm(2, [[0, 1, 2],
-                           [1, 2, 3],
-                           [3, 4, 5]],
-                       [[0, 0],
-                        [1, 0],
-                        [1, 1],
-                        [2, 0],
-                        [3, 0],
-                        [3, 1]], comm=comm)
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [3, 4, 5]],
+        [[0, 0],
+         [1, 0],
+         [1, 1],
+         [2, 0],
+         [3, 0],
+         [3, 1]],
+        comm=COMM_WORLD
+    )
     dm.markBoundaryFaces("Face Sets")
 
     mesh2d = Mesh(dm, reorder=False)
@@ -203,16 +205,19 @@ def test_numbering_two_d_P2BxP1():
     #   / | \   / |     x---x---x
     #  /  |  \ /  |     |   |
     # 0---1---3---4     x---x
-    with mpi.PyOP2Comm(COMM_WORLD) as comm:
-        dm = create_dm(2, [[0, 1, 2],
-                           [1, 2, 3],
-                           [3, 4, 5]],
-                       [[0, 0],
-                        [1, 0],
-                        [1, 1],
-                        [2, 0],
-                        [3, 0],
-                        [3, 1]], comm=comm)
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [3, 4, 5]],
+        [[0, 0],
+         [1, 0],
+         [1, 1],
+         [2, 0],
+         [3, 0],
+         [3, 1]],
+        comm=COMM_WORLD
+    )
     dm.markBoundaryFaces("Face Sets")
 
     mesh2d = Mesh(dm, reorder=False)
@@ -273,18 +278,21 @@ def test_numbering_two_d_bigger():
     #           \ |
     #            \|
     #             10
-    with mpi.PyOP2Comm(COMM_WORLD) as comm:
-        dm = create_dm(2, [[0, 1, 2],
-                           [1, 2, 3],
-                           [3, 4, 5],
-                           [1, 3, 6]],
-                       [[0, 0],
-                        [1, 0],
-                        [1, 1],
-                        [2, 0],
-                        [3, 0],
-                        [3, 1],
-                        [2, -1]], comm=comm)
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [3, 4, 5],
+         [1, 3, 6]],
+        [[0, 0],
+         [1, 0],
+         [1, 1],
+         [2, 0],
+         [3, 0],
+         [3, 1],
+         [2, -1]],
+        comm=COMM_WORLD
+    )
     dm.createLabel("Face Sets")
 
     for faces, val in [((11, 13), 1),
@@ -586,15 +594,18 @@ def test_layer_extents_parallel():
 
 @pytest.mark.parallel(nprocs=3)
 def test_layer_extents_parallel_vertex_owners():
-    with mpi.PyOP2Comm(COMM_WORLD) as comm:
-        dm = create_dm(2, [[0, 1, 2],
-                           [1, 2, 3],
-                           [2, 3, 4]],
-                       [[0, 0],
-                        [1, 0],
-                        [0, 1],
-                        [1, 1],
-                        [2, 0]], comm=comm)
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [2, 3, 4]],
+        [[0, 0],
+         [1, 0],
+         [0, 1],
+         [1, 1],
+         [2, 0]],
+        comm=COMM_WORLD
+    )
 
     if COMM_WORLD.rank == 0:
         sizes = numpy.asarray([1, 1, 1], dtype=IntType)

@@ -11,7 +11,9 @@ import numbers
 import abc
 
 from pyop2 import op2
-from pyop2.mpi import MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm
+from pyop2.mpi import (
+    MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, PyOP2Comm
+)
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
@@ -306,69 +308,70 @@ def _from_triangle(filename, dim, comm):
     """
     basename, ext = os.path.splitext(filename)
 
-    if comm.rank == 0:
-        try:
-            facetfile = open(basename+".face")
-            tdim = 3
-        except FileNotFoundError:
+    with PyOP2Comm(comm) as icomm:
+        if icomm.rank == 0:
             try:
-                facetfile = open(basename+".edge")
-                tdim = 2
+                facetfile = open(basename+".face")
+                tdim = 3
             except FileNotFoundError:
-                facetfile = None
-                tdim = 1
-        if dim is None:
-            dim = tdim
-        comm.bcast(tdim, root=0)
+                try:
+                    facetfile = open(basename+".edge")
+                    tdim = 2
+                except FileNotFoundError:
+                    facetfile = None
+                    tdim = 1
+            if dim is None:
+                dim = tdim
+            icomm.bcast(tdim, root=0)
 
-        with open(basename+".node") as nodefile:
-            header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
-            nodecount = header[0]
-            nodedim = header[1]
-            assert nodedim == dim
-            coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
-            assert nodecount == coordinates.shape[0]
+            with open(basename+".node") as nodefile:
+                header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+                nodecount = header[0]
+                nodedim = header[1]
+                assert nodedim == dim
+                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
+                assert nodecount == coordinates.shape[0]
 
-        with open(basename+".ele") as elefile:
-            header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
-            elecount = header[0]
-            eledim = header[1]
-            eles = np.loadtxt(elefile, usecols=list(range(1, eledim+1)), dtype=np.int32, skiprows=1)
-            assert elecount == eles.shape[0]
+            with open(basename+".ele") as elefile:
+                header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+                elecount = header[0]
+                eledim = header[1]
+                eles = np.loadtxt(elefile, usecols=list(range(1, eledim+1)), dtype=np.int32, skiprows=1)
+                assert elecount == eles.shape[0]
 
-        cells = list(map(lambda c: c-1, eles))
-    else:
-        tdim = comm.bcast(None, root=0)
-        cells = None
-        coordinates = None
-    plex = _from_cell_list(tdim, cells, coordinates, comm)
+            cells = list(map(lambda c: c-1, eles))
+        else:
+            tdim = icomm.bcast(None, root=0)
+            cells = None
+            coordinates = None
+        plex = plex_from_cell_list(tdim, cells, coordinates, icomm)
 
-    # Apply boundary IDs
-    if comm.rank == 0:
-        facets = None
-        try:
-            header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
-            edgecount = header[0]
-            facets = np.loadtxt(facetfile, usecols=list(range(1, tdim+2)), dtype=np.int32, skiprows=0)
-            assert edgecount == facets.shape[0]
-        finally:
-            facetfile.close()
+        # Apply boundary IDs
+        if icomm.rank == 0:
+            facets = None
+            try:
+                header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+                edgecount = header[0]
+                facets = np.loadtxt(facetfile, usecols=list(range(1, tdim+2)), dtype=np.int32, skiprows=0)
+                assert edgecount == facets.shape[0]
+            finally:
+                facetfile.close()
 
-        if facets is not None:
-            vStart, vEnd = plex.getDepthStratum(0)   # vertices
-            for facet in facets:
-                bid = facet[-1]
-                vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
-                join = plex.getJoin(vertices)
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], bid)
+            if facets is not None:
+                vStart, vEnd = plex.getDepthStratum(0)   # vertices
+                for facet in facets:
+                    bid = facet[-1]
+                    vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
+                    join = plex.getJoin(vertices)
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], bid)
 
     return plex
 
 
-@PETSc.Log.EventDecorator()
-def _from_cell_list(dim, cells, coords, comm, name=None):
+def plex_from_cell_list(dim, cells, coords, comm, name=None):
     """
     Create a DMPlex from a list of cells and coords.
+    (Public interface to `_from_cell_list()`)
 
     :arg dim: The topological dimension of the mesh
     :arg cells: The vertices of each cell
@@ -376,6 +379,50 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
+    with PyOP2Comm(comm) as icomm:
+        # These types are /correct/, DMPlexCreateFromCellList wants int
+        # and double (not PetscInt, PetscReal).
+        if comm.rank == 0:
+            cells = np.asarray(cells, dtype=np.int32)
+            coords = np.asarray(coords, dtype=np.double)
+            comm.bcast(cells.shape, root=0)
+            comm.bcast(coords.shape, root=0)
+            # Provide the actual data on rank 0.
+            plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=icomm)
+        else:
+            cell_shape = list(comm.bcast(None, root=0))
+            coord_shape = list(comm.bcast(None, root=0))
+            cell_shape[0] = 0
+            coord_shape[0] = 0
+            # Provide empty plex on other ranks
+            # A subsequent call to plex.distribute() takes care of parallel partitioning
+            plex = PETSc.DMPlex().createFromCellList(dim,
+                                                     np.zeros(cell_shape, dtype=np.int32),
+                                                     np.zeros(coord_shape, dtype=np.double),
+                                                     comm=icomm)
+    if name is not None:
+        plex.setName(name)
+    return plex
+
+
+@PETSc.Log.EventDecorator()
+def _from_cell_list(dim, cells, coords, comm, name=None):
+    """
+    Create a DMPlex from a list of cells and coords.
+    This function remains for backward compatibility, but will be deprecated after 01/06/2023
+
+    :arg dim: The topological dimension of the mesh
+    :arg cells: The vertices of each cell
+    :arg coords: The coordinates of each vertex
+    :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
+    :kwarg name: name of the plex
+    """
+    import warnings
+    warnings.warn(
+        "Private function `_from_cell_list` will be deprecated after 01/06/2023;"
+        "use public fuction `plex_from_cell_list()` instead.",
+        DeprecationWarning
+    )
     assert is_pyop2_comm(comm)
 
     # These types are /correct/, DMPlexCreateFromCellList wants int
