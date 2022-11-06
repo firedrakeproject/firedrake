@@ -102,7 +102,9 @@ class FacetSplitPC(PCBase):
         mat_type = options.getString("mat_type", "submatrix")
 
         problem = ctx._problem
-        V = problem.J.arguments()[-1].function_space()
+        a = problem.Jp or problem.J
+        V = a.arguments()[-1].function_space()
+        assert len(V) == 1
 
         # W = V_interior * V_facet
         scalar_element = V.ufl_element()
@@ -122,7 +124,7 @@ class FacetSplitPC(PCBase):
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = self.perm.invertPermutation()
 
-        mixed_operator = problem.J(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
         mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs)
 
         def _permute_nullspace(nsp):

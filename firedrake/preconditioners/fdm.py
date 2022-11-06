@@ -84,7 +84,7 @@ class FDMPC(PCBase):
         mat_type = octx.mat_type
         oproblem = octx._problem
         bcs = tuple(oproblem.bcs)
-        J = oproblem.J
+        J = oproblem.Jp or oproblem.J
         if isinstance(J, firedrake.slate.Add):
             J = J.children[0].form
         assert type(J) == ufl.Form
@@ -111,10 +111,10 @@ class FDMPC(PCBase):
                 x.destroy()
             return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
 
-        # Matrix-free assembly of the transformed Jacobian
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
         else:
+            # Matrix-free assembly of the transformed Jacobian
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm, g=0) for bc in bcs)
@@ -247,7 +247,7 @@ class FDMPC(PCBase):
         addv = PETSc.InsertMode.ADD_VALUES
         symmetric = pmat_type.endswith("sbaij")
 
-        # Store only off-diagonal blocks with more columns that rows to save memory
+        # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
         for Vrow, Vcol in product(Vsort, Vsort):
             if symmetric and (Vcol, Vrow) in Pmats:
@@ -546,7 +546,17 @@ class FDMPC(PCBase):
             degree = degree+1
         is_interior, is_facet = is_restricted(V.finat_element)
         key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
-        if key not in self._reference_tensor_cache:
+        cache = self._reference_tensor_cache
+        if key not in cache:
+            full_key = (degree, ndim, formdegree, V.value_size, 0, 0)
+
+            if is_facet and full_key in cache:
+                result = cache[full_key]
+                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
+                cache[key] = result.createSubMatrix(noperm, self.ises[1])
+                noperm.destroy()
+                return cache[key]
+
             elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
             cell = elements[0].get_reference_element()
             eq = FIAT.FDMQuadrature(cell, degree)
@@ -582,14 +592,13 @@ class FDMPC(PCBase):
                 eye.destroy()
 
             if is_facet:
-                temp = result
-                noperm = PETSc.IS().createGeneral(numpy.arange(temp.getSize()[0], dtype=PETSc.IntType), comm=temp.comm)
-                result = temp.createSubMatrix(noperm, self.ises[1])
+                cache[full_key] = result
+                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
+                result = result.createSubMatrix(noperm, self.ises[1])
                 noperm.destroy()
-                temp.destroy()
 
-            self._reference_tensor_cache[key] = result
-        return self._reference_tensor_cache[key]
+            cache[key] = result
+        return cache[key]
 
 
 def factor_interior_mat(A00):

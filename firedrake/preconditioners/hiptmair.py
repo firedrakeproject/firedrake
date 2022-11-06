@@ -128,8 +128,9 @@ class HiptmairPC(TwoLevelPC):
         appctx = self.get_appctx(pc)
         V = dmhooks.get_function_space(pc.getDM())
         ctx = dmhooks.get_appctx(pc.getDM())
-        J = ctx._problem.J
-        bcs = ctx._problem.bcs
+        problem = ctx._problem
+        a = problem.Jp or problem.J
+        bcs = problem.bcs
 
         mesh = V.mesh()
         element = V.ufl_element()
@@ -166,7 +167,7 @@ class HiptmairPC(TwoLevelPC):
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         # Get only the zero-th order term of the form
-        beta = replace(expand_derivatives(J), {grad(t): zero(grad(t).ufl_shape) for t in J.arguments()})
+        beta = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
