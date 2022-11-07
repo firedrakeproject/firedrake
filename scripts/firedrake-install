@@ -1807,7 +1807,7 @@ if mode == "install":
         # When building Firedrake in CI, don't clone Firedrake again.
         check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
-        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git@uzerbinati/netgen-integration")
 
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
