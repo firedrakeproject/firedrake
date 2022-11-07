@@ -1018,7 +1018,12 @@ class MeshTopology(AbstractMeshTopology):
 
             return dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
-
+        elif cell.cellname() == "hexahedron":
+            # TODO: Should change and use create_cell_closure() for all cell types.
+            import FIAT
+            topology = FIAT.ufc_cell(cell).get_topology()
+            closureSize = sum([len(ents) for _, ents in topology.items()])
+            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
