@@ -325,6 +325,72 @@ def facet_numbering(PETSc.DM plex, kind,
     return facet_local_num, facet_cells
 
 
+cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
+                                        PetscInt p,
+                                        PetscInt *plex_cone_old,
+                                        PetscInt *plex_cone_new):
+    """Reorder DMPlex cones for tensor product cells of intervals.
+
+    :arg dm: The DMPlex object
+    :arg p: The plex point
+    :arg plex_cone_old: The original DMPlex cone
+    :arg plex_cone_new: The reorderd cone (output)
+
+    This function defines fixed rules to reorder DMPlex cones that facilitates
+    comparison with the associated FIAT cones.
+    The reordered DMPlex cones are later used to construct cell_closure and to
+    compute orientations.
+    """
+    if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
+        raise RuntimeError(f"POINT has no cone")
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
+        # UFCQuadrilateral:       +---3---+
+        #                         |       |
+        #                         0       1
+        #                         |       |
+        #                         +---2---+
+        #
+        # PETSc.DM.PolytopeType.  +---3---+
+        # QUADRILATERAL:          |       |
+        #                         0       2
+        #                         |       |
+        #                         +---1---+
+        plex_cone_new[0] = plex_cone_old[0]
+        plex_cone_new[1] = plex_cone_old[2]
+        plex_cone_new[2] = plex_cone_old[1]
+        plex_cone_new[3] = plex_cone_old[3]
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
+        # UFCHexahedron:            +-------+     +-------+
+        #                          /.       |    /   5   /|
+        #                         + .   3   |   +-------+ |
+        #                         |0.       |   |       |1|
+        #                         | . . . . +   |   2   | +
+        #                         |.   4   /    |       |/
+        #                         +-------+     +-------+
+        #
+        # PETSc.DM.PolytopeType.    +-------+     +-------+
+        # HEXAHEDRON:              /.       |    /   1   /|
+        #                         + .   3   |   +-------+ |
+        #                         |5.       |   |       |4|
+        #                         | . . . . +   |   2   | +
+        #                         |.   0   /    |       |/
+        #                         +-------+     +-------+
+        plex_cone_new[0] = plex_cone_old[5]
+        plex_cone_new[1] = plex_cone_old[4]
+        plex_cone_new[2] = plex_cone_old[2]
+        plex_cone_new[3] = plex_cone_old[3]
+        plex_cone_new[4] = plex_cone_old[0]
+        plex_cone_new[5] = plex_cone_old[1]
+    else:
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def closure_ordering(PETSc.DM dm,
