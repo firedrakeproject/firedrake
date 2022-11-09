@@ -106,6 +106,23 @@ def test_nonlinear_solver_api(a_L_out):
     assert rtol == 1e-8
 
 
+def test_nonlinear_solver_flattens_params(a_L_out):
+    a, L, out = a_L_out
+    J = a
+    F = action(a, out) - L
+    p = NonlinearVariationalProblem(F, out, J=J)
+
+    solver1 = NonlinearVariationalSolver(
+        p, solver_parameters={'snes_type': 'ksponly', 'ksp_rtol': 1e-10}
+    )
+    solver2 = NonlinearVariationalSolver(
+        p, solver_parameters={'snes_type': 'ksponly', 'ksp': {'rtol': 1e-10}}
+    )
+
+    assert solver1.parameters["ksp_rtol"] == 1e-10
+    assert solver2.parameters["ksp_rtol"] == 1e-10
+
+
 def test_linear_solves_equivalent():
     """solve(a == L, out) should return the same as solving with the assembled objects.
 
