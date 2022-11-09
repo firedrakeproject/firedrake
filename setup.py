@@ -33,11 +33,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    from setuptools import setup, Extension
-except ImportError:
-    from distutils.core import setup
-    from distutils.extension import Extension
+from setuptools import setup, Extension
 from glob import glob
 from os import environ as env
 import sys
@@ -144,9 +140,8 @@ setup(name='PyOP2',
           'Programming Language :: Python :: 3',
           'Programming Language :: Python :: 3.6',
       ],
-      install_requires=install_requires,
+      install_requires=install_requires + test_requires,
       dependency_links=dep_links,
-      test_requires=test_requires,
       packages=['pyop2', 'pyop2.codegen', 'pyop2.types'],
       package_data={
           'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx', 'codegen/c/*.c']},
