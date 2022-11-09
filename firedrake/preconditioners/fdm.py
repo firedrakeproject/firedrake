@@ -508,10 +508,50 @@ class FDMPC(PCBase):
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
-
         key = (mixed_form.signature(), mesh)
+        block_diagonal = False
+
+        if key not in self._coefficient_cache and False:
+            coefs = []
+            ksps = []
+            xs = []
+            bs = []
+            M = assemble(mixed_form, mat_type="matfree",
+                         form_compiler_parameters=form_compiler_parameters)
+
+            for iset in Z.dof_dset.field_ises:
+                Msub = M.petscmat.createSubMatrix(iset, iset)
+                ksp = PETSc.KSP().create(comm=V.comm)
+                ksp.setOperators(A=Msub, P=Msub)
+                ksp.setTolerances(rtol=1E-3, atol=0.0E0, max_it=8)
+                ksp.setType(PETSc.KSP.Type.CG)
+                ksp.pc.setType(PETSc.PC.Type.JACOBI)
+                ksp.setComputeEigenvalues(True)
+                ksp.setUp()
+
+                ksps.append(ksp)
+                xs.append(Msub.createVecRight())
+                bs.append(Msub.createVecLeft())
+                coefs.append(Msub.getPythonContext()._diagonal)
+
+            def scale_coefficients():
+                for ksp, x, b, coef in zip(ksps, xs, bs, coefs):
+                    x.set(0)
+                    b.setRandom()
+                    ksp.solve(b, x)
+                    ew = numpy.real(ksp.computeEigenvalues())
+                    dscale = sum(ew) / len(ew)
+                    dscale = (max(ew) + min(ew))/2
+                    with coef.dat.vec as diag:
+                        diag.scale(dscale)
+
+            coefficients = {"beta": coefs[0], "alpha": coefs[1]}
+            assembly_callables = [scale_coefficients]
+            self._coefficient_cache[key] = (coefficients, assembly_callables)
+            return self._coefficient_cache[key]
+
         if key not in self._coefficient_cache:
-            if not V.shape:
+            if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
                 beta, alpha = tensor.split()
                 coefficients = {"beta": beta, "alpha": alpha}
@@ -995,6 +1035,8 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
     temp = Dhat
     Dhat = temp.createSubMatrix(fises, cises)
+    fises.destroy()
+    cises.destroy()
     temp.destroy()
     if Vf.value_size > 1:
         temp = Dhat
@@ -1638,7 +1680,14 @@ def glonum_fun(node_map, bsize=1):
     nelv = node_map.values.shape[0]
     if node_map.offset is None:
         nel = nelv
-        glonum = lambda e, result=None: node_map.values_with_halo[e]
+
+        def glonum(e, result=None):
+            if result is None:
+                result = numpy.copy(node_map.values_with_halo[e])
+            else:
+                numpy.copyto(result, node_map.values_with_halo[e])
+            return result
+
     else:
         layers = node_map.iterset.layers_array
         if layers.shape[0] == 1:
@@ -1669,20 +1718,20 @@ def glonum_fun(node_map, bsize=1):
                 return result
             glonum = partial(_glonum, node_map, to_base, to_layer)
 
-        if bsize == 1:
-            return glonum, nel
+    if bsize == 1:
+        return glonum, nel
 
-        ibase = numpy.arange(bsize, dtype=PETSc.IntType)
+    ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
 
-        def vector_glonum(bsize, ibase, e, result=None):
-            index = None
-            if result is not None:
-                index = result[:, 0]
-            index = glonum(e, result=index)
-            index *= bsize
-            return numpy.add.outer(index, ibase, out=result)
+    def vector_glonum(bsize, ibase, e, result=None):
+        index = None
+        if result is not None:
+            index = result[:, 0]
+        index = glonum(e, result=index)
+        index *= bsize
+        return numpy.add.outer(index, ibase, out=result)
 
-        return partial(vector_glonum, bsize, ibase), nel
+    return partial(vector_glonum, bsize, ibase), nel
 
 
 def glonum(node_map):
