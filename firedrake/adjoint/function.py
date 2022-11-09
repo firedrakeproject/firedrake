@@ -4,7 +4,25 @@ from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
-from .checkpointing import disk_checkpointing, CheckpointFunction, checkpoint_init_data
+from .checkpointing import disk_checkpointing, CheckpointFunction, \
+    CheckpointBase, checkpoint_init_data
+
+
+class DelegatedFunctionCheckpoint(CheckpointBase):
+    """A wrapper which delegates the checkpoint of this Function to another Function.
+
+    This enables us to avoid checkpointing a Function twice when it is copied.
+
+    Parameters
+    ----------
+    other: BlockVariable
+        The block variable to which we delegate checkpointing.
+    """
+    def __init__(self, other):
+        self.other = other
+
+    def restore(self):
+        return self.other.saved_output
 
 
 class FunctionMixin(FloatingType):
@@ -117,7 +135,11 @@ class FunctionMixin(FloatingType):
                 ret = assign(self, other, *args, **kwargs)
 
             if annotate:
-                block.add_output(self.create_block_variable())
+                block_var = self.create_block_variable()
+                block.add_output(block_var)
+
+                if isinstance(other, type(self)):
+                    block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
@@ -236,7 +258,7 @@ class FunctionMixin(FloatingType):
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointFunction):
+        if isinstance(checkpoint, CheckpointBase):
             return checkpoint.restore()
         else:
             return checkpoint
