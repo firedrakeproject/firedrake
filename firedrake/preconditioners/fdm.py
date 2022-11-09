@@ -512,38 +512,44 @@ class FDMPC(PCBase):
         block_diagonal = False
 
         if key not in self._coefficient_cache and False:
-            coefs = []
-            ksps = []
-            xs = []
-            bs = []
             M = assemble(mixed_form, mat_type="matfree",
                          form_compiler_parameters=form_compiler_parameters)
 
+            coefs = []
+            mats = []
             for iset in Z.dof_dset.field_ises:
                 Msub = M.petscmat.createSubMatrix(iset, iset)
-                ksp = PETSc.KSP().create(comm=V.comm)
-                ksp.setOperators(A=Msub, P=Msub)
-                ksp.setTolerances(rtol=1E-3, atol=0.0E0, max_it=8)
-                ksp.setType(PETSc.KSP.Type.CG)
-                ksp.pc.setType(PETSc.PC.Type.JACOBI)
-                ksp.setComputeEigenvalues(True)
-                ksp.setUp()
-
-                ksps.append(ksp)
-                xs.append(Msub.createVecRight())
-                bs.append(Msub.createVecLeft())
                 coefs.append(Msub.getPythonContext()._diagonal)
+                mats.append(Msub)
 
             def scale_coefficients():
-                for ksp, x, b, coef in zip(ksps, xs, bs, coefs):
+                scale = 1
+                for Msub in mats:
+                    ksp = PETSc.KSP().create(comm=V.comm)
+                    ksp.setOperators(A=Msub, P=Msub)
+                    ksp.setType(PETSc.KSP.Type.CG)
+                    ksp.setNormType(PETSc.KSP.NormType.NATURAL)
+                    ksp.pc.setType(PETSc.PC.Type.JACOBI)
+                    ksp.setTolerances(rtol=1E-3, atol=0.0E0, max_it=8)
+                    ksp.setComputeEigenvalues(True)
+                    ksp.setUp()
+
+                    x = Msub.createVecRight()
+                    b = Msub.createVecLeft()
                     x.set(0)
                     b.setRandom()
                     ksp.solve(b, x)
                     ew = numpy.real(ksp.computeEigenvalues())
-                    dscale = sum(ew) / len(ew)
+                    x.destroy()
+                    b.destroy()
                     dscale = (max(ew) + min(ew))/2
+                    if dscale == dscale:
+                        scale = max(scale, dscale)
+                    ksp.destroy()
+
+                for coef in coefs:
                     with coef.dat.vec as diag:
-                        diag.scale(dscale)
+                        diag.scale(scale)
 
             coefficients = {"beta": coefs[0], "alpha": coefs[1]}
             assembly_callables = [scale_coefficients]
