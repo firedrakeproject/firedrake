@@ -4,7 +4,7 @@ import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake import dmhooks
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
 
@@ -50,6 +50,7 @@ class LinearSolver(OptionsManager):
         if P is not None and not isinstance(P, matrix.MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
+        solver_parameters = flatten_parameters(solver_parameters or {})
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        A.a.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
