@@ -104,17 +104,23 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
+    def subfunctions(self):
+        """Extract any sub :class:`Function`s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        return self._subfunctions
+
     @utils.cached_property
-    def _split(self):
+    def _subfunctions(self):
+        """Extract any sub :class:`Function`s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @PETSc.Log.EventDecorator()
     def split(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return self._split
+        import warnings
+        warnings.warn("split is deprecated, please use Function.subfunctions", DeprecationWarning)
+        return self._subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -304,17 +310,21 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
+    @FunctionMixin._ad_annotate_split
+    def subfunctions(self):
+        """Extract any sub :class:`Function`s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        return self._subfunctions
+
     @utils.cached_property
-    def _split(self):
+    def _subfunctions(self):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.split()))
 
-    @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_split
     def split(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return self._split
+        import warnings
+        warnings.warn("split is deprecated, please use Function.subfunctions", DeprecationWarning)
+        return self._subfunctions
 
     @utils.cached_property
     def _components(self):

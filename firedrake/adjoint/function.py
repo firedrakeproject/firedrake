@@ -51,13 +51,13 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
-    def _ad_annotate_split(split):
-        @wraps(split)
+    def _ad_annotate_subfunctions(subfunctions):
+        @wraps(subfunctions)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             with stop_annotating():
-                output = split(self, *args, **kwargs)
+                output = subfunctions(self, *args, **kwargs)
 
             if annotate:
                 output = tuple(firedrake.Function(output[i].function_space(),

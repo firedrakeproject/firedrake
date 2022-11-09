@@ -275,7 +275,7 @@ class MeshInputBlock(Block):
         return maybe_disk_checkpoint(mesh.coordinates)
 
 
-class FunctionSplitBlock(Block, Backend):
+class FunctionSubfunctionsBlock(Block, Backend):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
