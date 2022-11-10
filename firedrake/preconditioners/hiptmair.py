@@ -116,7 +116,6 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        import numpy
         from firedrake_citations import Citations
         from firedrake import FunctionSpace, TestFunction, TrialFunction
         from firedrake.interpolation import Interpolator

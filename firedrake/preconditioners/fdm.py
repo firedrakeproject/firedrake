@@ -1,9 +1,7 @@
-from enum import IntEnum
 from functools import partial, lru_cache
 from itertools import product
 from pyop2.sparsity import get_preallocation
 from firedrake.petsc import PETSc
-from firedrake.utils import cached_property
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
 import firedrake
@@ -216,6 +214,7 @@ class FDMPC(PCBase):
 
         # dict of cell to global mappings for each function space
         self.cell_to_global = dict()
+
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
@@ -230,6 +229,7 @@ class FDMPC(PCBase):
         coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
         coefs = [coefficients.get(k) for k in ("beta", "alpha")]
         coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
+
         def get_coefs(e, result=None):
             vals = []
             for coef, cmap, indices in zip(coefs, coef_maps, get_coefs.indices):
@@ -433,7 +433,7 @@ class FDMPC(PCBase):
                 update_A(Se, rindices, cindices)
         else:
             self.work_csr = (None, None, None)
-            self.work_mats[common_key]= None
+            self.work_mats[common_key] = None
             self.work_mats[(Vrow, Vcol)] = None
         del rindices
         del cindices
