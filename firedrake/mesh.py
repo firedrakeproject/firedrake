@@ -260,32 +260,50 @@ def _from_netgen(ngmesh, comm=None):
     Create a DMPlex from an Netgen mesh
 
     :arg ngmesh: NetGen Mesh
-    """
+    TODO: Right now we construct NetGen mesh on a single worker, load it in Firedrake
+    and then distribute. We should find a way of taking adventage of the fact that
+    NetGen can act as a parallel mesher.
+    """ 
     if ngmesh.dim == 3:
-        V = ngmesh.Coordinates()
-        T = ngmesh.Elements3D().NumPy()["nodes"]
-        T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-        plex = _from_cell_list(3, T, V, comm, name=None)
-        plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
-        vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        for e in ngmesh.Elements2D():
-            join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
-            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-        for e in ngmesh.Elements1D():
-            join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-            plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
-        return plex
+        if comm.Get_rank() == 0:
+            V = ngmesh.Coordinates()
+            T = ngmesh.Elements3D().NumPy()["nodes"]
+            T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
+            plex = _from_cell_list(3, T, V, comm, name=None)
+            plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
+            vStart, vEnd = plex.getDepthStratum(0)   # vertices
+            for e in ngmesh.Elements2D():
+                join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+            for e in ngmesh.Elements1D():
+                join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+                plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
+            return plex
+        else:
+            plex = PETSc.DMPlex().createFromCellList(2,
+                                                    np.zeros((0,3), dtype=np.int32),
+                                                    np.zeros((0,2), dtype=np.double),
+                                                    comm=comm)
+            return plex
     elif ngmesh.dim == 2:
-        V = ngmesh.Coordinates()
-        T = ngmesh.Elements2D().NumPy()["nodes"]
-        T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-        plex = _from_cell_list(2, T, V, comm, name=None)
-        plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
-        vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        for e in ngmesh.Elements1D():
-            join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-        return plex
+        if comm.Get_rank() == 0:
+            V = ngmesh.Coordinates()
+            T = ngmesh.Elements2D().NumPy()["nodes"]
+            T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
+            plex = PETSc.DMPlex().createFromCellList(2, T, V, comm=comm)
+            plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
+            vStart, vEnd = plex.getDepthStratum(0)   # vertices
+            for e in ngmesh.Elements1D():
+                join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+            return plex
+        else:
+            plex = PETSc.DMPlex().createFromCellList(2,
+                                                    np.zeros((0,3), dtype=np.int32),
+                                                    np.zeros((0,2), dtype=np.double),
+                                                    comm=comm)
+            return plex
+
     else:
         raise Exception("Mesh of dimension {} are not supported.".format(ngmesh.dim))
 
