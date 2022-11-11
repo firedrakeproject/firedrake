@@ -407,6 +407,12 @@ class FormAssembler(abc.ABC):
 
         :returns: The assembled object.
         """
+        if annotate_tape():
+            raise NotImplementedError(
+                "Taping with explicit FormAssembler objects is not supported yet. "
+                "Use assemble instead."
+            )
+
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
