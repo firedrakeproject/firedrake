@@ -160,6 +160,16 @@ def test_linear_solves_equivalent():
     assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
 
 
+def test_linear_solver_flattens_params(a_L_out):
+    a, _, _ = a_L_out
+    A = assemble(a)
+    solver1 = LinearSolver(A, solver_parameters={"ksp_rtol": 1e-10})
+    solver2 = LinearSolver(A, solver_parameters={"ksp": {"rtol": 1e-10}})
+
+    assert solver1.parameters["ksp_rtol"] == 1e-10
+    assert solver2.parameters["ksp_rtol"] == 1e-10
+
+
 def test_constant_jacobian_lvs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
