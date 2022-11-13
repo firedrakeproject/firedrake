@@ -268,7 +268,7 @@ def convert_restrictedelement(element, **kwargs):
     return finat.RestrictedElement(finat_elem, element.restriction_domain()), deps
 
 
-hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
+hexahedron_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval, ufl.interval)
 quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
