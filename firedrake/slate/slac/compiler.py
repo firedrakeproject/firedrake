@@ -47,10 +47,11 @@ import gem
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
-from firedrake.slate.slac.kernel_settings import knl_counter
 import copy
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
+
+from pytools import generate_unique_names
 
 from petsc4py import PETSc
 
@@ -85,6 +86,13 @@ else:
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
+class Namer():
+
+    def __init__(self):
+        self.slate_loopy_namer = generate_unique_names("slate_loopy")
+        self.tensorshell_namer = generate_unique_names("tensorshell")
+        self.tsfc_loopy_namer = generate_unique_names("subkernel")
+        self.matfree_solve_namer = generate_unique_names("mtf_solve")
 
 class SlateKernel(TSFCKernel):
     @classmethod
@@ -157,7 +165,7 @@ def get_temp_info(loopy_kernel):
 
         shapes[len(shape)] = shapes.get(len(shape), 0) + 1
     return mem_total, num_temps, mems, shapes
-
+        
 
 def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     cpu_time = time.time()
@@ -165,6 +173,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
+    namer = Namer()
 
     if diagonal:
         slate_expr = slate.DiagonalTensor(slate_expr, vec=True)
@@ -181,11 +190,12 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     gem_expr, gem2slate = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    ((slate_loopy, ctx, slate_loopy_event), output_arg) = gem_to_loopy(gem_expr, gem2slate, scalar_type, "slate_loopy",
+    ((slate_loopy, ctx, slate_loopy_event), output_arg) = gem_to_loopy(gem_expr, gem2slate, scalar_type, next(namer.slate_loopy_namer),
                                                                        matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=compiler_parameters["form_compiler"],
-                                      slate_loopy_name=ctx.kernel_name)
+                                      slate_loopy_name=ctx.kernel_name,
+                                      namer=namer)
 
     if compiler_parameters["slate_compiler"]["replace_mul"]:
         # Matrix-free Slate
@@ -668,7 +678,7 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="output", matfree=False):
+def gem_to_loopy(gem_expr, gem2slate, scalar_type, name="", out_name="output", matfree=False, counter=0):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
 
@@ -718,8 +728,7 @@ def gem_to_loopy(gem_expr, gem2slate, scalar_type, knl_prefix="", out_name="outp
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    knl_name = knl_prefix + "_knl_%d" % knl_counter()  # auto generate a unique name
-    return (generate_loopy(impero_c, args, scalar_type, knl_name, [], return_ctx=True, log=PETSc.Log.isActive()),
+    return (generate_loopy(impero_c, args, scalar_type, name, [], return_ctx=True, log=PETSc.Log.isActive()),
             output_arg)
 
 

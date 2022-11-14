@@ -19,7 +19,6 @@ from pymbolic import parse
 from functools import singledispatch
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
-from firedrake.slate.slac.kernel_settings import knl_counter
 
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
@@ -434,7 +433,7 @@ class LocalLoopyKernelBuilder(object):
     supported_subdomain_types = ["subdomains_exterior_facet",
                                  "subdomains_interior_facet"]
 
-    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, coords=True):
+    def __init__(self, expression, tsfc_parameters=None, slate_loopy_name=None, coords=True, namer=0):
         """Constructor for the LocalGEMKernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
@@ -449,13 +448,14 @@ class LocalLoopyKernelBuilder(object):
         self.tsfc_parameters = tsfc_parameters
         self.bag = SlateWrapperBag({}, coords=coords)
         self.matfree_solve_knls = []
+        self.namer = namer
 
     def tsfc_cxt_kernels(self, terminal):
         r"""Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
 
-        return compile_terminal_form(terminal, prefix="subkernel%d_" % knl_counter(),
+        return compile_terminal_form(terminal, prefix=next(self.namer.tsfc_loopy_namer),
                                      tsfc_parameters=self.tsfc_parameters, coffee=False)
 
     def shape(self, tensor):
@@ -776,8 +776,7 @@ class LocalLoopyKernelBuilder(object):
             All matrix-vector products in the CG alorithm
             are replaced by actions to make this algorithm matrix-free.
         """
-        knl_no = knl_counter()
-        name = "mtf_solve_%d" % knl_no
+        name = next(self.namer.matfree_solve_namer)
         shape = expr.shape
         dtype = self.tsfc_parameters["scalar_type"]
         rtol = getattr(expr.ctx, "rtol")

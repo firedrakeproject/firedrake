@@ -547,7 +547,8 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                 # separate action and non-action coefficients, needed because
                 # figuring out which coefficients needs to be in the kernel data
                 # is different for original coefficients and action coefficients
-                action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, builder.slate_loopy_name)
+                action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, builder.slate_loopy_name,
+                                                         namer=builder.namer)
                 action_builder.bag.index_creator = builder.bag.index_creator
                 old_coeffs = builder.bag.coefficients
                 original_coeffs, action_coeffs = builder.collect_coefficients(expr=terminal, names=names, artificial=True)
@@ -592,14 +593,15 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
                     (action_wrapper_knl, ctx_g2l_action, event), action_output_arg = gem_to_loopy(gem_action_node,
                                                                                            gem2slate_actions,
                                                                                            tsfc_parameters["scalar_type"],
-                                                                                           "tensorshell",
+                                                                                           next(builder.namer.tensorshell_namer),
                                                                                            insn.assignee_name,
                                                                                            matfree=True)
                     all_events += (event, )
 
                     # Prepare data structures of builder for a new swipe
                     action_wrapper_knl_name = ctx_g2l_action.kernel_name
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, action_wrapper_knl_name)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters,
+                                                             action_wrapper_knl_name, namer=builder.namer)
                     
                     original_coeffs, _ = builder.collect_coefficients(expr=old_slate_node.children[0], artificial=False)
                     old_coeffs = builder.bag.coefficients
@@ -687,7 +689,8 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
 
                 else:
                     # ----- Codepath for matrix-free solves on terminal tensors ----
-                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, None)
+                    action_builder = LocalLoopyKernelBuilder(slate_node, builder.tsfc_parameters, None,
+                                                             namer=builder.namer)
 
                     # Generate matfree solve call and knl
                     new_coeffs = builder.bag.coefficients
