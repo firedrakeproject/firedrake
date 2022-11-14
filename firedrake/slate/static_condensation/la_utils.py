@@ -507,7 +507,7 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
-            if not isinstance(rhs, AssembledVector):
+            if isinstance(rhs, Coefficient):
                 rhs = AssembledVector(rhs)
             P = DiagonalTensor(self.Atilde).inverse(self.rtol_A00, self.atol_A00, self.max_it_A00)
             Atildeinv = self.inverse(self.Atilde, P, self.jacobi_A00, self.preonly_A00, self.rtol_A00, self.atol_A00, self.max_it_A00)
