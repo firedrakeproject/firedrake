@@ -231,10 +231,7 @@ class SCPC(SCBase):
             be = local_system.rhs
             i, = local_system.field_idx
 
-            if schur_builder.local_matfree:
-                local_solve = Ae * be
-            else:
-                local_solve = Ae.solve(be, decomposition="PartialPivLU")
+            local_solve = Ae * be
 
             solve_call = OneFormAssembler(local_solve, tensor=fields[i],
                                           form_compiler_parameters=self.cxt.fc_params).assemble
