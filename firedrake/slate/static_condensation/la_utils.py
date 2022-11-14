@@ -6,6 +6,8 @@ from firedrake.parameters import parameters
 from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
 from firedrake.petsc import PETSc
 
+from ufl import Coefficient
+
 
 LAContext = namedtuple("LAContext",
                        ["lhs", "rhs", "field_idx"])
@@ -16,7 +18,7 @@ operations. This object provides the symbolic expressions
 for the transformed linear system of equations.
 
 :param lhs: The resulting expression for the transformed
-            left-hand side matrix.
+            left-hand side matrix, may be inverted.
 :param rhs: The resulting expression for the transformed
             right-hand side vector.
 :param field_idx: An integer or iterable of integers
@@ -201,7 +203,7 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
             else:
                 S_e1 = Shat * S_e1
                 r_e1 = Shat * r_e1
-        systems.append(LAContext(lhs=S_e1, rhs=r_e1, field_idx=(id_e1,)))
+        systems.append(LAContext(lhs=S_e1.inv, rhs=r_e1, field_idx=(id_e1,)))
 
         # Solve for e0
         r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
@@ -487,13 +489,13 @@ class SchurComplementBuilder(object):
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
             KT0, KT1 = self.list_split_trace_ops_transpose
-            if isinstance(rhs, AssembledVector):
-                R = [rhs.blocks[self.vidx],
-                    rhs.blocks[self.pidx]]
-            else:
+            if isinstance(rhs, Coefficient):
                 broken_residual = rhs.split()
                 R = [AssembledVector(broken_residual[self.vidx]),
                      AssembledVector(broken_residual[self.pidx])]
+            else:
+                R = [rhs.blocks[self.vidx],
+                    rhs.blocks[self.pidx]]
             # K * block1
             K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
             # K * block1 * block2
