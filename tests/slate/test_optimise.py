@@ -238,13 +238,17 @@ def test_push_mul_nested(TC, TC_without_trace, TC_non_symm):
     T2, _ = TC_without_trace
     T3, C3 = TC_non_symm
     expressions = [(T+T+T2)*C, (T+T2+T)*C, (T-T+T2)*C, (T+T2-T)*C,
-                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C,
-                   (C.T*T.inv)*(T.inv*T), C3*(T3.inv*T3.T), (C3.T*T3.inv)*(T3.inv*T3)]
+                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C]
     opt_expressions = [T*C+T*C+T2*C, T*C+T2*C+T*C, T*C-(T*C)+T2*C, T*C+T2*C-(T*C),
-                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C),
-                       (T.T.solve(T.T.solve(C))).T*T, (T3*(T3.T.solve(C3.T))).T, (T3.T.solve(T3.T.solve(C3))).T*T3]
+                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C)]
     compare_vector_expressions_mixed(expressions)
     compare_slate_tensors(expressions, opt_expressions)
+    
+    # transpose of matrices is now generating a new tensor internally
+    # and testing for object equality is harder
+    # so here we only test for correctness of the results
+    compare_vector_expressions_mixed([(C.T*T.inv)*(T.inv*T), C3*(T3.inv*T3.T),
+                                      (C3.T*T3.inv)*(T3.inv*T3)])
 
     # Make sure replacing inverse by solves does not introduce errors
     opt = assemble((T3*T3.T.solve(C3.T)).T, form_compiler_parameters={"optimise": False}).dat.data
@@ -297,32 +301,33 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
 
     # Test some non symmetric, non mixed, nested expressions
     expressions = [A.inv*C+A.inv*C, (A+A)*A.solve(C),
-                   (A+A)*A.solve((A+A)*C), C*(A.inv*(A.inv*(A)))]
+                   (A+A)*A.solve((A+A)*C)]
     opt_expressions = [A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
-                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C),
-                       (A.T.solve(A.T.solve(C.T))).T*A]
+                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C)]
 
     compare_vector_expressions(expressions)
     compare_slate_tensors(expressions, opt_expressions)
+    
+    # transpose of matrices are introduced in the optimisation
+    # and a new tensor is internally generated
+    # therefore testing for object equality is harder
+    # so here we only test for correctness of the results
+    compare_vector_expressions_mixed([C*(A.inv*(A.inv*(A)))])
 
     # Make sure optimised solve gives same answer as expression with inverses
     opt = assemble((C*(A.solve(A.solve(A)))), form_compiler_parameters={"optimise": True}).dat.data
     ref = assemble((C*(A.inv*(A.inv*(A)))), form_compiler_parameters={"optimise": False}).dat.data
     for r, o in zip(ref, opt):
         assert np.allclose(o, r, rtol=1e-12)
-    compare_slate_tensors([(C*(A.solve(A.solve(A))))], [(A.T.solve(A.T.solve(C.T))).T*A])
 
     # Test some symmetric, mixed, nested expressions
     expressions = [T2.inv*C2+T2.inv*C2,
                    C2*(T2.inv*(T2.inv*(T2))),
-                   C2*(T2.inv*(T3.inv*(T2))),
-                   (T2.inv*(T3.inv*(T2)))*C2]
+                   C2*(T2.inv*(T3.inv*(T2)))]
     opt_expressions = [T2.solve(C2)+T2.solve(C2),
                        (T2.T.solve(T2.T.solve(C2.T))).T*T2,
-                       (T3.T.solve(T2.T.solve(C2.T))).T*T2,
-                       T2.solve(T3.solve(T2*C2))]
+                       (T3.T.solve(T2.T.solve(C2.T))).T*T2]
     compare_vector_expressions_mixed(expressions)
-    compare_slate_tensors(expressions, opt_expressions)
 
 
 #######################################

@@ -452,8 +452,11 @@ def _push_mul_solve(expr, self, state):
         rhs = expr.children[flip(state.pick_op)]
         Aonx = make_action(expr.children[state.pick_op], state.pick_op, self.action)
         Aonp = make_action(expr.children[state.pick_op], state.pick_op, self.action)
-        Ponr_pickop = state.pick_op if expr.preconditioner.rank > 1 else 0
-        Ponr = make_action(expr.preconditioner, Ponr_pickop, self.action) if expr.preconditioner else None
+        if expr.preconditioner:
+            Ponr_pickop = state.pick_op if expr.preconditioner.rank > 1 else 0
+            Ponr = make_action(expr.preconditioner, Ponr_pickop, self.action) if expr.preconditioner else None
+        else:
+            Ponr = None
 
         swapped_op = Transpose(rhs)
         new_rhs = Transpose(state.coeff)
