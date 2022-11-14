@@ -77,7 +77,8 @@ class FacetSplitPC(PCBase):
 
     def initialize(self, pc):
 
-        from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
+        from ufl import (InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement,
+                         FiniteElement, EnrichedElement, TensorProductElement, HCurl)
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
@@ -111,8 +112,26 @@ class FacetSplitPC(PCBase):
         if isinstance(scalar_element, (TensorElement, VectorElement)):
             scalar_element = scalar_element._sub_element
         tensorize = lambda e, shape: TensorElement(e, shape=shape) if shape else e
-        elements = [appctx.get("interior_element", tensorize(InteriorElement(scalar_element), V.shape)),
-                    appctx.get("facet_element", tensorize(FacetElement(scalar_element), V.shape))]
+
+        def get_facet_element(e):
+            cell = e.cell()
+            sub_cells = cell.sub_cells()
+            if e.sobolev_space() == HCurl and len(sub_cells) == 2 and cell.topological_dimension() == 3:
+                degree = max(e.degree())
+                variant = e.variant()
+                Qc_elt = FiniteElement("Q", sub_cells[0], degree, variant=variant)
+                Qd_elt = FiniteElement("RTCE", sub_cells[0], degree, variant=variant)
+                Id_elt = FiniteElement("DG", sub_cells[1], degree - 1, variant=variant)
+                Ic_elt = FiniteElement("CG", sub_cells[1], degree, variant=variant)
+                return EnrichedElement(HCurl(TensorProductElement(FacetElement(Qc_elt), Id_elt, cell=cell)),
+                                       HCurl(TensorProductElement(Qd_elt, FacetElement(Ic_elt), cell=cell)),
+                                       HCurl(TensorProductElement(FacetElement(Qd_elt), InteriorElement(Ic_elt), cell=cell)))
+            return FacetElement(e)
+
+
+        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, get_facet_element)]
+
+
         W = FunctionSpace(V.mesh(), MixedElement(elements))
         if W.dim() != V.dim():
             raise ValueError("Dimensions of the original and decomposed spaces do not match")

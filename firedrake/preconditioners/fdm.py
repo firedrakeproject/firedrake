@@ -207,6 +207,7 @@ class FDMPC(PCBase):
             # If we are in a facet space, we build the Schur complement on its diagonal block
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
             self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1], self.submats)
+
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
@@ -523,7 +524,7 @@ class FDMPC(PCBase):
                 mats.append(Msub)
 
             def scale_coefficients():
-                scale = 1
+                scale = 0
                 for Msub in mats:
                     ksp = PETSc.KSP().create(comm=V.comm)
                     ksp.setOperators(A=Msub, P=Msub)
@@ -695,12 +696,10 @@ def condense_element_pattern(A, i0, i1, submats):
     iscols = [i0, i1, i0]
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
-    A00.zeroEntries()
-    A00.assemble()
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
     submats[5] = A00.matMult(A01, result=submats[5])
     submats[6] = submats[4].matMult(submats[5], result=submats[6])
-    submats[6].aypx(-1.0, A)
+    submats[6].aypx(0.0, A)
     return submats[6]
 
 
@@ -1814,6 +1813,7 @@ def spy(A, comm=None):
         A.setOption(PETSc.Mat.Option.GETROW_UPPERTRIANGULAR, True)
     csr = tuple(reversed(A.getValuesCSR()))
     if comm.rank == 0:
+        csr[0].fill(1)
         scipy_mat = sp.csr_matrix(csr, shape=A.getSize())
         fig, axes = plt.subplots(nrows=1, ncols=1)
         axes.spy(scipy_mat, marker=".", markersize=2)
