@@ -93,8 +93,6 @@ cdef extern from "petscsf.h" nogil:
     int PetscSFBcastEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*)
     int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
-    int PetscSFCreateRemoteOffsets(PETSc.PetscSF,PETSc.PetscSection,PETSc.PetscSection,PetscInt**)
-    int PetscSFCreateSectionSF(PETSc.PetscSF,PETSc.PetscSection,PetscInt[],PETSc.PetscSection,PETSc.PetscSF*)
 
 ctypedef int (*PetscPCPatchComputeFunction)(PETSc.PetscPC,
                                             PetscInt,
