@@ -31,11 +31,6 @@ from enum import IntEnum
 # FIXME Move all slac loopy in separate file
 
 
-class _AssemblyStrategy(IntEnum):
-    TERMINALS_FIRST = 0
-    WHEN_NEEDED = 1
-
-
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the
     integrals of forms.
@@ -391,65 +386,16 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g2l, strategy="terminals_first", slate_expr=None, tsfc_parameters=None, slate_parameters=None):
+def merge_loopy(slate_loopy, output_arg, builder, gem2slate, wrapper_name, ctx_g2l, slate_expr=None, tsfc_parameters=None, slate_parameters=None):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
 
-    if strategy == _AssemblyStrategy.TERMINALS_FIRST:
-        slate_loopy_prg = slate_loopy
-        slate_loopy = slate_loopy[builder.slate_loopy_name]
-        tensor2temp, tsfc_kernels, insns, builder, events, preamble = assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name)
-        # Construct args
-        args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp.values())
-        kernel_args = [output_arg] + args
-        args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
-        for a in slate_loopy.args:
-            if a.name not in [arg.name for arg in args] and a.name.startswith("S"):
-                ac = a.copy(address_space=lp.AddressSpace.LOCAL)
-                args.append(ac)
-
-        # Inames come from initialisations + loopyfying kernel args and lhs
-        domains = slate_loopy.domains + builder.bag.index_creator.domains
-
-        # Help scheduling by setting within_inames_is_final on everything
-        insns_new = []
-        for i, insn in enumerate(insns):
-            if insn:
-                insns_new.append(insn.copy(depends_on=frozenset({}),
-                                 priority=len(insns)-i,
-                                 within_inames_is_final=True))
-
-        # Generates the loopy wrapper kernel
-        slate_wrapper = lp.make_function(domains, insns_new, args, name=wrapper_name,
-                                         seq_dependencies=True, target=target,
-                                         silenced_warnings=["single_writer_after_creation", "unused_inames",
-                                                            "insn_count_subgroups_upper_bound"],
-                                         preambles=preamble)
-
-        # Prevent loopy interchange by loopy
-        slate_wrapper = lp.prioritize_loops(slate_wrapper, ",".join(builder.bag.index_creator.inames.keys()))
-
-        # Register kernels
-        loop = []
-        for k in tsfc_kernels:
-            if k:
-                loop += [k.items()]
-        loop += [{slate_loopy.name: slate_loopy_prg}.items()]
-
-        for l in loop:
-            (name, knl), = tuple(l)
-            if knl:
-                slate_wrapper = lp.merge([slate_wrapper, knl])
-                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-        return slate_wrapper, tuple(kernel_args), events
-
-    elif strategy == _AssemblyStrategy.WHEN_NEEDED:
-        coeffs, _ = builder.collect_coefficients(artificial=False)
-        builder.bag.copy_coefficients(coeffs)
-        tensor2temp, builder, slate_loopy, kernel_args, events = assemble_when_needed(builder, gem2slate,
-                                                                 slate_loopy, slate_expr,
-                                                                 ctx_g2l, tsfc_parameters,
-                                                                 slate_parameters, True, {}, output_arg)
-        return slate_loopy, tuple(kernel_args), events
+    coeffs, _ = builder.collect_coefficients(artificial=False)
+    builder.bag.copy_coefficients(coeffs)
+    tensor2temp, builder, slate_loopy, kernel_args, events = assemble_when_needed(builder, gem2slate,
+                                                                slate_loopy, slate_expr,
+                                                                ctx_g2l, tsfc_parameters,
+                                                                slate_parameters, True, {}, output_arg)
+    return slate_loopy, tuple(kernel_args), events
 
 
 def assemble_terminals_first(builder, gem2slate, slate_loopy, wrapper_name):
@@ -745,7 +691,7 @@ def assemble_when_needed(builder, gem2slate, slate_loopy, slate_expr, ctx_g2l, t
 
     if init_temporaries:
         # We need to do initialise the temporaries at the end, when we collected all the ones we need
-        builder, tensor2temps, inits, init_knls = initialise_temps(builder, gem2slate, tensor2temps)
+        builder, tensor2temps, inits, init_knls = initialise_temps(builder, gem2slate, tensor2temps, matfree=slate_parameters["replace_mul"])
         for i in inits:
             insns.insert(0, i)
             knl_list.update(init_knls)
@@ -796,7 +742,7 @@ def generate_tsfc_knls_and_calls(builder, terminal, tensor2temps, insn, var=None
     return insns, knl_list, builder, events
 
 
-def initialise_temps(builder, gem2slate, tensor2temps):
+def initialise_temps(builder, gem2slate, tensor2temps, matfree=True):
     # Initialise the very first temporaries
     # (with coefficients from the original ufl form)
     # For that we need to get the temporary which
@@ -841,6 +787,30 @@ def initialise_temps(builder, gem2slate, tensor2temps):
             for tk in tsfc_knls:
                 knl_list.update(tk)
         builder.bag.action_coefficients = ac_temp
+    
+    if not matfree:
+        for variable, terminal in gem2slate.items():
+            ac_temp = builder.bag.action_coefficients
+            builder.bag.action_coefficients = None
+            # builder.bag.coefficients = None
+            if terminal.terminal:
+                if terminal not in tensor2temps.keys():
+                    # gem terminal node corresponding to lhs of the instructions
+                    name = variable.name if hasattr(variable, "name") else None
+                    gem_inlined_node = Variable(name, variable.shape)
+                    inits_diag, tensor2temp = builder.initialise_terminals({gem_inlined_node: terminal}, None)
+                    tensor2temps.update(tensor2temp)
+                    for init in inits_diag:
+                        if init.id not in [insn.id for insn in inits]:
+                            inits.append(init)
+
+                    # replaces call with tsfc call, which gets linked to tsfc kernel later
+                    tsfc_insns, tsfc_knls, events = zip(*builder.generate_tsfc_calls(terminal, tensor2temps[terminal]))
+                    tsfc_inits += tsfc_insns
+                    for tk in tsfc_knls:
+                        if tk:
+                            knl_list.update(tk)
+                builder.bag.action_coefficients = ac_temp
 
     return builder, tensor2temps, tsfc_inits+inits, knl_list
 

@@ -1015,7 +1015,7 @@ class LocalLoopyKernelBuilder(object):
             ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
             ori_loopy_arg = loopy.GlobalArg(self.cell_orientations_arg_name,
                                             shape=ori_extent,
-                                            dtype=self.tsfc_parameters["scalar_type"],
+                                            dtype=np.int32,
                                             is_input=True, is_output=False,
                                             dim_tags=None, strides=loopy.auto, order="C")
             args.append(kernel_args.CellOrientationsKernelArg(ori_loopy_arg))
