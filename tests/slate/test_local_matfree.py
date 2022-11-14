@@ -178,7 +178,7 @@ def expr(request, helmholtz_tensor, mass_tensor, advection_tensor, HMP_tensor, C
     elif request.param == "A.inv":
         return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
     elif request.param == "A.inv.inv":
-        return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20).inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
+        return (A.inverse(rtol=1.e-14, atol=1.e-14, max_it=20).inverse(rtol=1.e-8, atol=1.e-8, max_it=20))*f
     elif request.param == "A.inv*A":
         return (A.inverse(rtol=1.e-8, atol=1.e-8, max_it=20)*A)*f
     elif request.param == "A2*A.inv":
