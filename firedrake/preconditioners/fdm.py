@@ -449,9 +449,11 @@ class FDMPC(PCBase):
         from ufl.algorithms.expand_indices import expand_indices
         from firedrake.formmanipulation import ExtractSubBlock
         from firedrake.assemble import assemble
-        if len(J.arguments()[-1].function_space()) > 1:
+
+        index = len(J.arguments()[-1].function_space())-1
+        if index:
             splitter = ExtractSubBlock()
-            J = splitter.split(J, argument_indices=(0, 0))
+            J = splitter.split(J, argument_indices=(index, index))
 
         mesh = J.ufl_domain()
         ndim = mesh.topological_dimension()
