@@ -777,6 +777,10 @@ class LocalLoopyKernelBuilder(object):
             are replaced by actions to make this algorithm matrix-free.
         """
         name = next(self.namer.matfree_solve_namer)
+        try: 
+            knl_no = int(name.split('_')[-1])
+        except:
+            knl_no = 0
         shape = expr.shape
         dtype = self.tsfc_parameters["scalar_type"]
         rtol = getattr(expr.ctx, "rtol")
