@@ -1,6 +1,5 @@
 import os
 
-
 def test_slate_logging():
     """This only checks that logging does not break Firedrake, it does not check for correctness."""
     path = os.path.dirname(os.path.abspath(__file__))

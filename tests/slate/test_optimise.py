@@ -67,9 +67,10 @@ def TC(dg1_dg1_dg0, functions):
     q, p, r = functions
     u, phi, eta = TrialFunctions(dg1_dg1_dg0)
     v, psi, nu = TestFunctions(dg1_dg1_dg0)
-    K = Tensor(inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
+    K = Tensor(Constant(2)*inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     f = AssembledVector(assemble(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx))
-    return K, f
+    f2 = AssembledVector(assemble(Constant(2)*inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx))
+    return K, f, f2
 
 
 @pytest.fixture
@@ -181,7 +182,7 @@ def test_push_vector_blocks_on_blocks(KF):
 
 def test_push_assembled_vector_blocks_individual(TC):
     """Test Optimisers's ability to handle individual blocks of AssembledVectors."""
-    T, C = TC
+    T, C, _ = TC
     expressions = [C.blocks[0], (C+C).blocks[0], (T*C).blocks[0], (-C).blocks[0], (C.T).blocks[0]]
     compare_vector_expressions(expressions)
 
@@ -206,12 +207,25 @@ def test_push_block_aggressive_unaryop_nesting():
     compare_vector_expressions(expressions)
 
 
+def test_inner_blocks(TC):
+    """Test Optimisers's ability to handle expressions where the blocks is not outermost."""
+    K, F, F2 = TC
+    expressions = [F.blocks[1:2] - K.blocks[1:2, 0:1] * K.blocks[0:1, 0:1].inv * F.blocks[0:1],
+                   F.blocks[2:3] - K.blocks[2:3, 0:2] * K.blocks[0:2, 0:2].inv * F.blocks[0:2], 
+                   K.blocks[0:1, 0:1].solve(F2.blocks[0:1] - K.blocks[0:1, 1:2] * F.blocks[1:2]),
+                   (K.blocks[2, 2] - K.blocks[2, :2] * K.blocks[0:2, 0:2].inv * K.blocks[:2, 2]).solve(F2.blocks[2]),
+                   (K.blocks[2, 2] - K.blocks[2, :2] * K.blocks[0:2, 0:2].inv * K.blocks[:2, 2]).solve(F2.blocks[2] - K.blocks[2, :2] * K.blocks[0:2, 0:2].inv * F.blocks[:2]),
+                   K.blocks[0, 0].solve(F.blocks[0]-K.blocks[0, 1]*F.blocks[1]-K.blocks[0, 2]*F.blocks[2])
+                ]
+    compare_vector_expressions_mixed(expressions)
+    
+
 #######################################
 # Test multiplication optimisation pass
 #######################################
 def test_push_mul_simple(TC):
     """Test Optimisers's ability to handle multiplications nested with simple expressions."""
-    T, C = TC
+    T, C, _ = TC
     expressions = [(T+T)*C, (T*T)*C, (-T)*C, T.T*C, T.inv*C]
     opt_expressions = [T*C+T*C, T*(T*C), -(T*C), (C.T*T).T, T.solve(C)]
     compare_vector_expressions_mixed(expressions)
@@ -220,17 +234,21 @@ def test_push_mul_simple(TC):
 
 def test_push_mul_nested(TC, TC_without_trace, TC_non_symm):
     """Test Optimisers's ability to handle multiplications nested with nested expressions."""
-    T, C = TC
+    T, C, _ = TC
     T2, _ = TC_without_trace
     T3, C3 = TC_non_symm
     expressions = [(T+T+T2)*C, (T+T2+T)*C, (T-T+T2)*C, (T+T2-T)*C,
-                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C,
-                   (C.T*T.inv)*(T.inv*T), C3*(T3.inv*T3.T), (C3.T*T3.inv)*(T3.inv*T3)]
+                   (T*T.inv)*C, (T.inv*T)*C, (T2*T.inv)*C, (T2*T.inv*T)*C]
     opt_expressions = [T*C+T*C+T2*C, T*C+T2*C+T*C, T*C-(T*C)+T2*C, T*C+T2*C-(T*C),
-                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C),
-                       (T.T.solve(T.T.solve(C))).T*T, (T3*(T3.T.solve(C3.T))).T, (T3.T.solve(T3.T.solve(C3))).T*T3]
+                       T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C)]
     compare_vector_expressions_mixed(expressions)
     compare_slate_tensors(expressions, opt_expressions)
+    
+    # transpose of matrices is now generating a new tensor internally
+    # and testing for object equality is harder
+    # so here we only test for correctness of the results
+    compare_vector_expressions_mixed([(C.T*T.inv)*(T.inv*T), C3*(T3.inv*T3.T),
+                                      (C3.T*T3.inv)*(T3.inv*T3)])
 
     # Make sure replacing inverse by solves does not introduce errors
     opt = assemble((T3*T3.T.solve(C3.T)).T, form_compiler_parameters={"optimise": False}).dat.data
@@ -246,7 +264,7 @@ def test_push_mul_nested(TC, TC_without_trace, TC_non_symm):
 
 def test_push_mul_schurlike(TC, TC_without_trace):
     """Test Optimisers's ability to handle schur complement like expressions."""
-    T, C = TC
+    T, C, _ = TC
     T2, _ = TC_without_trace
     expressions = [(T-T.inv*T)*C, (T+T.inv*T)*C, (T+T-T2*T.inv*T)*C]
     opt_expressions = [T*C-T.solve(T*C), T*C+T.solve(T*C), T*C+T*C-T2*T.solve(T*C)]
@@ -267,7 +285,7 @@ def test_push_mul_non_symm(TC_non_symm):
 
 def test_push_mul_multiple_coeffs(TC, TC_without_trace):
     """Test Optimisers's ability to handle expression with multiple coefficients."""
-    T, C = TC
+    T, C, _ = TC
     T2, C2 = TC_without_trace
     expressions = [(T+T)*C+(T2+T2)*C2]
     opt_expressions = [(T*C+T*C)+(T2*C2+T2*C2)]
@@ -278,37 +296,38 @@ def test_push_mul_multiple_coeffs(TC, TC_without_trace):
 def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
     """Test Optimisers's ability to handle partially optimised expressions."""
     A, C = TC_non_symm
-    T2, C2 = TC
+    T2, C2, _ = TC
     T3, _ = TC_double_mass
 
     # Test some non symmetric, non mixed, nested expressions
     expressions = [A.inv*C+A.inv*C, (A+A)*A.solve(C),
-                   (A+A)*A.solve((A+A)*C), C*(A.inv*(A.inv*(A)))]
+                   (A+A)*A.solve((A+A)*C)]
     opt_expressions = [A.solve(C)+A.solve(C), A*A.solve(C)+A*A.solve(C),
-                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C),
-                       (A.T.solve(A.T.solve(C.T))).T*A]
+                       A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C)]
 
     compare_vector_expressions(expressions)
     compare_slate_tensors(expressions, opt_expressions)
+    
+    # transpose of matrices are introduced in the optimisation
+    # and a new tensor is internally generated
+    # therefore testing for object equality is harder
+    # so here we only test for correctness of the results
+    compare_vector_expressions_mixed([C*(A.inv*(A.inv*(A)))])
 
     # Make sure optimised solve gives same answer as expression with inverses
     opt = assemble((C*(A.solve(A.solve(A)))), form_compiler_parameters={"optimise": True}).dat.data
     ref = assemble((C*(A.inv*(A.inv*(A)))), form_compiler_parameters={"optimise": False}).dat.data
     for r, o in zip(ref, opt):
         assert np.allclose(o, r, rtol=1e-12)
-    compare_slate_tensors([(C*(A.solve(A.solve(A))))], [(A.T.solve(A.T.solve(C.T))).T*A])
 
     # Test some symmetric, mixed, nested expressions
     expressions = [T2.inv*C2+T2.inv*C2,
                    C2*(T2.inv*(T2.inv*(T2))),
-                   C2*(T2.inv*(T3.inv*(T2))),
-                   (T2.inv*(T3.inv*(T2)))*C2]
+                   C2*(T2.inv*(T3.inv*(T2)))]
     opt_expressions = [T2.solve(C2)+T2.solve(C2),
                        (T2.T.solve(T2.T.solve(C2.T))).T*T2,
-                       (T3.T.solve(T2.T.solve(C2.T))).T*T2,
-                       T2.solve(T3.solve(T2*C2))]
+                       (T3.T.solve(T2.T.solve(C2.T))).T*T2]
     compare_vector_expressions_mixed(expressions)
-    compare_slate_tensors(expressions, opt_expressions)
 
 
 #######################################

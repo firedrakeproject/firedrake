@@ -219,7 +219,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
     ast = lp.make_function(domains, instructions, data, name=name, target=target,
-                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops",
+                                                                     "insn_count_subgroups_upper_bound"])
     kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
                 ext_coords.cell_set,

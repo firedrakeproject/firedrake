@@ -26,20 +26,20 @@ import pytest
 from firedrake import *
 
 
-def setup_poisson():
+def setup_poisson(p, quad):
     n = 2
-    mesh = UnitSquareMesh(n, n)
-    U = FunctionSpace(mesh, "RT", 4)
-    V = FunctionSpace(mesh, "DG", 3)
+    mesh = UnitSquareMesh(n, n, quadrilateral=quad)
+    space1, space2 = ("RTCF", "DQ") if quad else ("RT", "DG")
+    U = FunctionSpace(mesh, space1, p+1)
+    V = FunctionSpace(mesh, space2, p)
     W = U * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
     # Define the source function
-    f = Function(V)
-    import numpy as np
-    fvector = f.vector()
-    fvector.set_local(np.random.uniform(size=fvector.local_size()))
+    x = SpatialCoordinate(mesh)
+    exact = (10)*x[0]*(1-x[0])*x[1]*(1-x[1])
+    f = -div(grad(exact))
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
@@ -47,8 +47,7 @@ def setup_poisson():
     return a, L, W
 
 
-def setup_poisson_3D():
-    p = 3
+def setup_poisson_3D(p):
     n = 2
     mesh = SquareMesh(n, n, 1, quadrilateral=True)
     mesh = ExtrudedMesh(mesh, n)
@@ -64,10 +63,9 @@ def setup_poisson_3D():
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
     V, U = W.split()
-    f = Function(U)
-    x, y, z = SpatialCoordinate(mesh)
-    expr = (1+12*pi*pi)*cos(100*pi*x)*cos(100*pi*y)*cos(100*pi*z)
-    f.interpolate(expr)
+    x = SpatialCoordinate(mesh)
+    exact = 100*x[0]*(1-x[0])*x[1]*(1-x[1])*x[2]*(1-x[2])
+    f = -div(grad(exact))
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=8)
     L = -f*v*dx(degree=8)
     return a, L, W
@@ -133,7 +131,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
 
 
 def test_slate_hybridization_wrong_option():
-    a, L, W = setup_poisson()
+    a, L, W = setup_poisson(1, True)
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -162,19 +160,27 @@ def test_slate_hybridization_wrong_option():
         PETSc.Sys.popErrorHandler("ignore")
 
 
-def test_slate_hybridization_nested_schur():
-    a, L, W = setup_poisson()
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_slate_hybridization_nested_schur(local_matfree):
+    # Take lower order for local matrix-free solve
+    # so that the test does not run too long
+    s = (1, True) if local_matfree else (3, False)
+    a, L, W = setup_poisson(*s)
 
     w = Function(W)
     params = {'mat_type': 'matfree',
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
+              'hybridization': {'ksp_type': 'cg',
+                                'pc_type': 'none',
+                                'mat_type': 'matfree',
+                                'rtol': 1e-8,
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur'}}}
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -201,17 +207,17 @@ def test_slate_hybridization_nested_schur():
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
         n = FacetNormal(W.mesh())
-        alpha = Constant(3**3)
-        gamma = Constant(4**3)
-        h = CellSize(W.mesh())
+        alpha = Constant(3**5)
+        gamma = Constant(4**5)
+        h = CellVolume(W.mesh())/FacetArea(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
                  - inner(jump(u, n), avg(grad(v)))*dS
@@ -246,84 +252,22 @@ class DGLaplacian3D(AuxiliaryOperatorPC):
         return (a_dg, bcs)
 
 
-def test_mixed_poisson_approximated_schur():
-    """A test, which compares a solution to a 2D mixed Poisson problem solved
-    globally matrixfree with a HybridizationPC and CG on the trace system to
-    a solution with uses a user supplied operator as preconditioner to the
-    Schur solver.
-
-    NOTE: With the setup in this test, using the approximated schur complemement
-    defined as DGLaplacian as a preconditioner to the schur complement,
-    reduces the condition number of the local solve from 16.77 to 6.06.
-    """
-    # setup FEM
-    a, L, W = setup_poisson()
-
-    # setup first solver
-    w = Function(W)
-    params = {'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'mat_type': 'matfree',
-              'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'cg',
-                                'pc_type': 'none',
-                                'ksp_rtol': 1e-8,
-                                'mat_type': 'matfree',
-                                'localsolve': {'ksp_type': 'preonly',
-                                               'pc_type': 'fieldsplit',
-                                               'pc_fieldsplit_type': 'schur',
-                                               'fieldsplit_1': {'ksp_type': 'default',
-                                                                'pc_type': 'python',
-                                                                'pc_python_type': __name__ + '.DGLaplacian'}}}}
-
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
-    solver = LinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
-
-    # double-check options are set as expected
-    expected = {'nested': True,
-                'preonly_A00': False, 'jacobi_A00': False,
-                'schur_approx': True,
-                'preonly_Shat': False, 'jacobi_Shat': False}
-    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
-    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
-
-    sigma_h, u_h = w.split()
-
-    # setup second solver
-    w2 = Function(W)
-    aij_params = {'ksp_type': 'preonly',
-                  'pc_type': 'python',
-                  'mat_type': 'matfree',
-                  'pc_python_type': 'firedrake.HybridizationPC',
-                  'hybridization': {'ksp_type': 'cg',
-                                    'pc_type': 'none',
-                                    'ksp_rtol': 1e-8,
-                                    'mat_type': 'matfree'}}
-    solve(a == L, w2, solver_parameters=aij_params)
-    _sigma, _u = w2.split()
-
-    # Return the L2 error
-    sigma_err = errornorm(sigma_h, _sigma)
-    u_err = errornorm(u_h, _u)
-
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
-
-
-def test_slate_hybridization_jacobi_prec_A00():
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_slate_hybridization_jacobi_prec_A00(local_matfree):
     """A test, which compares a solution to a 3D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with the same solver but which has a nested schur complement
     in the trace solve operator and a jacobi preconditioner on the A00 block.
 
-    NOTE: With the setup in this test, using jacobi as a preconditioner to the
-    schur complement matrix, the condition number of the matrix of the local solve
+    NOTE: With the setup of this test on RTCF4-DQ3,
+    using jacobi as a preconditioner to the
+    A00 block, the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 36.59 to 3.06.
     """
-    # setup FEM
-    a, L, W = setup_poisson_3D()
+    # Take lower order for local matrix-free solve
+    # so that the test does not run too long
+    p = 0 if local_matfree else 3
+    a, L, W = setup_poisson_3D(p)
 
     # setup first solver
     w = Function(W)
@@ -333,13 +277,15 @@ def test_slate_hybridization_jacobi_prec_A00():
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-12,
+                                'ksp_rtol': 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur',
                                                'fieldsplit_0': {'ksp_type': 'default',
                                                                 'pc_type': 'jacobi'}}}}
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
@@ -365,7 +311,7 @@ def test_slate_hybridization_jacobi_prec_A00():
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-8,
+                                               'ksp_rtol': 1e-12,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.split()
 
@@ -386,9 +332,12 @@ def test_slate_hybridization_jacobi_prec_schur():
     NOTE With the setup in this test, using jacobi as apreconditioner to the
     schur complement matrix the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 17.13 to 16.71
+
+    NOTE We can't do this locally matfree because we don't know
+    how to implement diag(Schur complement) in a matrix-free way
     """
     # setup FEM
-    a, L, W = setup_poisson_3D()
+    a, L, W = setup_poisson_3D(3)
 
     # setup first solver
     w = Function(W)
@@ -441,15 +390,18 @@ def test_slate_hybridization_jacobi_prec_schur():
     assert u_err < 1e-8
 
 
-def test_mixed_poisson_approximated_schur_jacobi_prec():
+@pytest.mark.parametrize("local_matfree", [True, False])
+def test_mixed_poisson_approximated_schur_jacobi_prec(local_matfree):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
-    globally matrixfree with a HybridizationPC and CG on the trace system where
-    the a user supplied operator is used as preconditioner to the
-    Schur solver to a solution where the user supplied operator is replaced
-    with the jacobi preconditioning operator.
+    globally matrixfree with a HybridizationPC and FGMRES on the trace system where
+    an operator carrying the diagonal of a user supplied operator is preconditioning
+    the (inner) Schur complement solver. When the local solves are matrix-free,
+    the A00 block needs to be solved quite accurate, because it is the innermost solver
+    and inaccuries will be propagated into the Schur complement approximation.
     """
     # setup FEM
-    a, L, W = setup_poisson()
+    s = (0, True) if local_matfree else (3, True)
+    a, L, W = setup_poisson(*s)
 
     # setup first solver
     w = Function(W)
@@ -457,18 +409,25 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
               'pc_type': 'python',
               'mat_type': 'matfree',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'cg',
+              'hybridization': {'ksp_type': 'fgmres',
                                 'pc_type': 'none',
                                 'ksp_rtol': 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur',
+                                               'fieldsplit_0_ksp_rtol': 1e-12,
+                                               'fieldsplit_0_ksp_atol': 1e-12,
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'python',
                                                                 'pc_python_type': __name__ + '.DGLaplacian',
                                                                 'aux_ksp_type': 'preonly',
-                                                                'aux_pc_type': 'jacobi'}}}}
+                                                                'aux_pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-10,
+                                                                'ksp_atol': 1e-10}}}}
+
+    if local_matfree:
+        params['hybridization']['localsolve']['mat_type'] = 'matfree'
 
     eq = a == L
     problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
@@ -502,6 +461,121 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
     # Return the L2 error
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
+
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
+
+def test_slate_hybridization_full_local_prec():
+    """A test, which compares a solution to a 3D mixed Poisson problem solved
+    globally matrixfree with a HybridizationPC and CG on the trace system to
+    a solution with the same solver but which has a nested schur complement
+    in the trace solve operator, a jacobi preconditioner on the A00 block, 
+    and an operator carrying the diagonal of a user supplied operator
+    is preconditioning the (inner) Schur complement solver.
+
+    """
+    # setup FEM
+    a, L, W = setup_poisson(0, True)
+
+    # setup first solver
+    w = Function(W)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'fgmres',
+                                'pc_type': 'none',
+                                'ksp_rtol': 1e-8,
+                                'ksp_atol': 1e-8,
+                                'mat_type': 'matfree',
+                                'localsolve': {'ksp_type': 'preonly',
+                                               'pc_type': 'fieldsplit',
+                                               'pc_fieldsplit_type': 'schur',
+                                               'mat_type': 'matfree',
+                                               'fieldsplit_0': {'ksp_type': 'default',
+                                                                'pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-25,
+                                                                'ksp_atol': 1e-50,
+                                                                'ksp_max_it': 5},
+                                               'fieldsplit_1': {'ksp_type': 'default',
+                                                                'pc_type': 'python',
+                                                                'pc_python_type': __name__ + '.DGLaplacian',
+                                                                'aux_ksp_type': 'preonly',
+                                                                'aux_pc_type': 'jacobi',
+                                                                'ksp_rtol': 1e-25,
+                                                                'ksp_atol': 1e-50,
+                                                                'ksp_max_it': 5}}}}
+
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    # double-check options are set as expected
+    expected = {'nested': True,
+                'preonly_A00': False, 'jacobi_A00': True,
+                'schur_approx': True,
+                'preonly_Shat': True, 'jacobi_Shat': True,
+                'preonly_S': False, 'jacobi_S': False}
+    builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
+    assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
+
+    sigma_h, u_h = w.split()
+
+    # setup second solver
+    w2 = Function(W)
+
+    aij_params = {'ksp_type': 'preonly',
+                  'pc_type': 'python',
+                  'mat_type': 'matfree',
+                  'pc_python_type': 'firedrake.HybridizationPC',
+                  'hybridization': {'ksp_type': 'cg',
+                                    'pc_type': 'none',
+                                    'ksp_rtol': 1e-8,
+                                    'ksp_atol': 1e-8,
+                                    'mat_type': 'matfree'}}
+    solve(a == L, w2, solver_parameters=aij_params)
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
+    assert sigma_err < 1e-8
+    assert u_err < 1e-8
+
+
+def test_slate_hybridization_global_matfree_jacobi():
+    a, L, W = setup_poisson(1, True)
+
+    w = Function(W)
+    jacobi_matfree_params = {'mat_type': 'matfree',
+                             'ksp_type': 'cg',
+                             'pc_type': 'python',
+                             'pc_python_type': 'firedrake.HybridizationPC',
+                             'hybridization': {'ksp_type': 'cg',
+                                               'pc_type': 'jacobi',
+                                               'mat_type': 'matfree',
+                                               'ksp_rtol': 1e-8}}
+
+    eq = a == L
+    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=jacobi_matfree_params)
+    solver.solve()
+    sigma_h, u_h = w.split()
+
+    w2 = Function(W)
+    solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
+                                         'pc_type': 'python',
+                                         'mat_type': 'matfree',
+                                         'pc_python_type': 'firedrake.HybridizationPC',
+                                         'hybridization': {'ksp_type': 'preonly',
+                                                           'pc_type': 'lu'}})
+    nh_sigma, nh_u = w2.split()
+
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8

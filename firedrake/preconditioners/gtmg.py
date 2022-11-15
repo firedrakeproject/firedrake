@@ -21,12 +21,12 @@ class GTMGPC(PCBase):
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
 
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
 
         ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fc_params
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
@@ -71,7 +71,7 @@ class GTMGPC(PCBase):
             fine_petscmat.setTransposeNullSpace(fine_transpose_nullspace)
 
         # Handle the coarse operator
-        coarse_options_prefix = options_prefix + "mg_coarse"
+        coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
 

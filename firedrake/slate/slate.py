@@ -16,7 +16,7 @@ functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 from ufl import Coefficient, Constant
 
@@ -35,13 +35,18 @@ from ufl.form import Form
 import hashlib
 
 from firedrake.formmanipulation import ExtractSubBlock
+from gem.gem import DEFAULT_MSC
 
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-           'Reciprocal']
+           'Reciprocal', 'Action',
+           'TensorShell', 'BlockAssembledVector',
+           'Hadamard']
 
+# Expression kernel description type
+BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])
 
 class RemoveNegativeRestrictions(MultiFunction):
     """UFL MultiFunction which removes any negative restrictions
@@ -121,6 +126,7 @@ class TensorBase(object, metaclass=ABCMeta):
     terminal = False
     assembled = False
     diagonal = False
+    inv = lambda : self.inv()
 
     _id = count()
 
@@ -158,6 +164,10 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
                 data = (op.form.signature(), op.diagonal, )
+            elif isinstance(op, DiagonalTensor):
+                data = (type(op).__name__, op.vec, )
+            elif isinstance(op, Solve):
+                data = (type(op).__name__, op.preconditioner, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -197,10 +207,11 @@ class TensorBase(object, metaclass=ABCMeta):
     @cached_property
     def rank(self):
         """Returns the rank information of the tensor object."""
-        return len(self.arguments())
+        from firedrake import Argument
+        return len(tuple(filter(lambda x: isinstance(x, Argument), self.arguments())))
 
     @abstractmethod
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
 
     @property
@@ -209,10 +220,33 @@ class TensorBase(object, metaclass=ABCMeta):
         to the split global coefficient numbers.
         The split coefficients are defined on the pieces of the originally mixed function spaces.
         """
-        return tuple((n, tuple(range(len(c.split()))))
-                     if isinstance(c, Function) or isinstance(c, Constant)
-                     else (n, (0,))
-                     for n, c in enumerate(self.coefficients()))
+        coeff_map = []
+        orig_to_pos_dict = {}
+        for c in self.coefficients():
+            m = len(coeff_map)
+            if isinstance(c, BlockFunction):  # for block assembled vectors
+                # Did we already add a part of the originial function of this block assembled vectors?
+                orig_to_pos = tuple(*filter(lambda item: item[0] == c.orig_function, orig_to_pos_dict.items()))
+                pos = orig_to_pos[1] if orig_to_pos else m
+                # We didn't -> we add normally and keep track that we did in the orig_to_pos_dict
+                # We did -> update already existing entry
+                if pos == m:
+                    split_map = c.indices[0]
+                else:
+                    if c.indices[0]:
+                        split_map = coeff_map[pos][1] + tuple(i for i in c.indices[0] if i not in coeff_map[pos][1])
+                    else:
+                        split_map = coeff_map[pos][1]
+                if pos < m:
+                    coeff_map[pos] = (pos, split_map)
+                else:
+                    coeff_map += [(pos, split_map)]
+                orig_to_pos_dict[c.orig_function] = pos
+            else:
+                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                coeff_map += [(m, split_map)]
+                orig_to_pos_dict[c] = m
+        return tuple(coeff_map)
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -244,15 +278,21 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return any(len(fs) > 1 for fs in self.arg_function_spaces)
 
+
+    def inverse(self, rtol=None, atol=None, max_it=None):
+        return Inverse(self, rtol, atol, max_it)
+
+
     @property
     def inv(self):
-        return Inverse(self)
+        return self.inverse("1e-8", "1e-50")
+
 
     @property
     def T(self):
         return Transpose(self)
 
-    def solve(self, B, decomposition=None):
+    def solve(self, B, **kwargs):
         """Solve a system of equations with
         a specified right-hand side.
 
@@ -265,7 +305,7 @@ class TensorBase(object, metaclass=ABCMeta):
             available matrix decompositions are outlined in
             :class:`Factorization`.
         """
-        return Solve(self, B, decomposition=decomposition)
+        return Solve(self, B, **kwargs)
 
     @cached_property
     def blocks(self):
@@ -440,7 +480,7 @@ class AssembledVector(TensorBase):
         """Returns a tuple of arguments associated with the tensor."""
         return (self._argument,)
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
@@ -478,23 +518,29 @@ class BlockAssembledVector(AssembledVector):
     :arg functions: A tuple of firedrake functions.
     """
 
-    def __new__(cls, function, split_functions, indices):
+    def __new__(cls, function, block, indices):
+        split_functions = block.form
         if isinstance(split_functions, tuple) \
            and all(isinstance(f, Coefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
             self._original_function = function
+            self._block = block
             return self
         else:
             raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
                             type(split_functions))
 
     @cached_property
+    def form(self):
+        return self._original_function
+
+    @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor is defined on.
         """
-        return tuple(f.ufl_function_space() for f in self._function)
+        return self._block.arg_function_spaces
 
     @cached_property
     def _argument(self):
@@ -504,11 +550,11 @@ class BlockAssembledVector(AssembledVector):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self._argument
+        return self._block.arguments()
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
-        return self._function
+        return (BlockFunction(self._function, self._indices, self._original_function),)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
@@ -669,10 +715,10 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.assembled
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.coefficients()
+        return tensor.coefficients(artificial)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -755,10 +801,10 @@ class Factorization(TensorBase):
         tensor, = self.operands
         return tensor.arguments()
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
-        return tensor.coefficients()
+        return tensor.coefficients(artificial)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -851,7 +897,7 @@ class Tensor(TensorBase):
         r = len(self.form.arguments()) - self.diagonal
         return self.form.arguments()[0:r]
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
@@ -894,9 +940,9 @@ class TensorOp(TensorBase):
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
 
-    def coefficients(self):
+    def coefficients(self, artificial=False):
         """Returns the expected coefficients of the resulting tensor."""
-        coeffs = [op.coefficients() for op in self.operands]
+        coeffs = [op.coefficients(artificial=artificial) for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     def ufl_domains(self):
@@ -953,7 +999,7 @@ class Reciprocal(UnaryOp):
     """
 
     def __init__(self, A):
-        """Constructor for the Inverse class."""
+        """Constructor for the Reciprocal class."""
         assert A.rank == 1, "The tensor must be rank 1."
 
         super(Reciprocal, self).__init__(A)
@@ -974,7 +1020,7 @@ class Reciprocal(UnaryOp):
         return tensor.arguments()
 
     def _output_string(self, prec=None):
-        """Creates a string representation of the inverse of a tensor."""
+        """Creates a string representation of the reciprocal of a tensor."""
         tensor, = self.operands
         return "(%s).reciprocal" % tensor
 
@@ -987,16 +1033,19 @@ class Inverse(UnaryOp):
        This class will raise an error if the tensor is not square.
     """
 
-    def __init__(self, A):
+    def __init__(self, A, rtol=None, atol=None, max_it=None):
         """Constructor for the Inverse class."""
         assert A.rank == 2, "The tensor must be rank 2."
         assert A.shape[0] == A.shape[1], (
             "The inverse can only be computed on square tensors."
         )
         self.diagonal = A.diagonal
+        self.rtol = rtol
+        self.atol = atol
+        self.max_it = max_it
 
-        if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
-            A = Factorization(A, decomposition="PartialPivLU")
+        # if A.shape > (4, 4) and not isinstance(A, Factorization) and not self.diagonal:
+        #     A = Factorization(A, decomposition="PartialPivLU")
 
         super(Inverse, self).__init__(A)
 
@@ -1019,6 +1068,10 @@ class Inverse(UnaryOp):
         """Creates a string representation of the inverse of a tensor."""
         tensor, = self.operands
         return "(%s).inv" % tensor
+
+    @property
+    def ctx(self):
+        return {"rtol": self.rtol, "atol":self.atol, "max_it":self.max_it}
 
 
 class Transpose(UnaryOp):
@@ -1091,8 +1144,7 @@ class BinaryOp(TensorOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
         ops = {Add: '+',
-               Mul: '*',
-               Solve: '\\'}
+               Mul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -1194,19 +1246,225 @@ class Mul(BinaryOp):
         return self._args
 
 
+class Hadamard(Mul):
+    """Abstract Slate class representing the Hadamard product or two tensors.
+    This is an entrywise multiplication.
+
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
+
+    def __init__(self, A, B):
+        """Constructor for the Mul class."""
+
+        super(Hadamard, self).__init__(A, B)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        self._args = A.arguments()
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        _, B = self.operands
+        return B.arg_function_spaces
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from multiplying two tensors A and B.
+        """
+        return self._args
+
+    def _output_string(self, prec):
+        """Returns a string representation."""
+        return "Hadamard(%s, %s)" % self.operands
+
+
+class Action(BinaryOp):
+    """Slate class representing the interior product of two tensors,
+    where the second tensor has one dimension less than the first tensor.
+    This includes an action of a Matrix on a Vector. The difference
+    to a `:class:firedrake.slate.slate.Mul` is that the higher dimensional
+    tensor is never stored in a temporary.
+
+    :arg A: a :class:`TensorBase` object.
+    :arg b: another :class:`TensorBase` object.
+    :arg pick_op: an integer argument that specifies the order of A and b
+                  if pick_op is 0 b is actioned onto A
+                  if pick_op is 1 A is actioned onto b
+    """
+
+    def __new__(cls, A, b, pick_op):
+        """Constructor for the Action class."""
+        if A.diagonal:
+            if isinstance(A, TensorShell):
+                A, = A.children
+            if isinstance(A, Inverse):
+                A, = A.children
+                if isinstance(A, DiagonalTensor):
+                    A = Tensor(A.children[0].form, diagonal=True)
+                A = Reciprocal(A)
+            return Hadamard(A, b)
+
+        if A.shape[pick_op] != b.shape[0]:
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
+                             % (A.shape, b.shape))
+
+        # Not that b does not need to be an AssembledVector
+        if b.rank != A.rank-1:
+            raise ValueError("In Action(A, b) b needs to have a lower rank than A.")
+
+        fsA = A.arg_function_spaces[-pick_op]
+        fsB = b.arg_function_spaces[0]
+        assert space_equivalence(fsA, fsB), (
+            "Cannot perform argument contraction over middle indices. "
+            "They must be in the same function space."
+        )
+
+        return super().__new__(cls)
+
+    def __init__(self, A, b, pick_op):
+        super(Action, self).__init__(A, b)
+
+        # Function space check above ensures that middle arguments can
+        # be 'eliminated'.
+        self._args = (A.arguments()[1:] + b.arguments()[1:]
+                      if pick_op == 0 else A.arguments()[:-1] + b.arguments()[1:])
+
+        self.pick_op = pick_op
+        self.tensor = A
+        self.coeff = b
+        # This is the ufl coefficient that is used a replacement
+        # for an arg in the ufl form corresponding to A
+        self.ufl_coefficient = None
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on."""
+        A, B = self.operands
+        return (A.arg_function_spaces[1:] + B.arg_function_spaces[1:]
+                if self.pick_op == 0
+                else A.arg_function_spaces[:-1] + B.arg_function_spaces[1:])
+
+    def _output_string(self, prec):
+        """Returns a string representation."""
+        return "Action(%s, %s)" % self.operands
+
+    def arguments(self):
+        """Returns the arguments of a tensor resulting
+        from multiplying two tensors A and B."""
+        return self._args
+
+    def action(self):
+        import ufl.algorithms as ufl_alg
+
+        # Pick which argument will be replaced,
+        # the first or last argument
+        arguments = self.tensor.arguments()
+        u = arguments[self.pick_op]
+
+        # The tensor we action does not necessarily need to be an AssembledVector
+        # it could be antoher Action or a matrix-free Solve
+        if hasattr(self.coeff, "_function"):
+            # If B is an AssembledVector just use its corresponding Coefficient
+            coeff = self.coeff._function
+        else:
+            # If B is an Action or a matrix-free Solve generate a Coefficient for it
+            # which is then used to the "placeholder coefficient" within the ufl form
+            # corresponding to the tensor A
+            cfs, = self.coeff.arguments()
+            coeff = Coefficient(cfs.ufl_function_space())
+
+        # Keep track of the (potentially new) coefficient and replace
+        # one of the arguments in the form corresponding to the tensor A
+        # with the coefficient
+        assert self.tensor.terminal, "It's only possible to action onto terminal tensors."
+        self.ufl_coefficient = coeff
+        return Tensor(ufl_alg.replace(self.tensor.form, {u: coeff}))
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        op1, op2 = self.operands
+        return (type(self), op1, op2, self.pick_op, self.tensor, self.coeff, self.ufl_coefficient)
+
+    def coefficients(self, artificial=False):
+        """Returns the expected coefficients of the resulting tensor.
+           Artificial coefficients (extra temporaries needed for Actions)
+           are returned if requested."""
+        if self.ufl_coefficient and artificial:
+            coeffs = [op.coefficients(artificial) for op in self.operands]
+            if (self.ufl_coefficient,) not in coeffs:
+                coeffs.append((self.ufl_coefficient,))
+        else:
+            coeffs = [op.coefficients() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+
+class TensorShell(UnaryOp):
+    """A representation of a tensor expression which is never explicitly locally assembled.
+    TensorShell is a terminal node, i.e. it does not lead to any scheduling of statements in its
+    translation to a backend. This class wraps the relevant information of the associated expression.
+
+    :arg A: A non-terminal Slate expression
+    """
+    terminal = True
+
+    def __init__(self, A):
+        super(TensorShell, self).__init__()
+        assert not A.terminal, "Terminal Slate tensors can be handled without a TensorShell node wrapped around."
+        self.operands = (A,)
+        self.diagonal = A.diagonal
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Returns a tuple of function spaces that the tensor
+        is defined on.
+        """
+        tensor, = self.operands
+        return tuple(arg.function_space() for arg in tensor.arguments())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        tensor, = self.operands
+        return tensor.arguments()
+
+    def _output_string(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed."""
+        tensor, = self.operands
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        return par("{{%s} -> {}}" % tensor._output_string(prec=self.prec))
+
+    def __repr__(self):
+        """Slate representation of the tensor object."""
+        tensor, = self.operands
+        return "TensorShell(%r)" % tensor
+
+
 class Solve(BinaryOp):
     """Abstract Slate class describing a local linear system of equations.
     This object is a direct solver, utilizing the application of the inverse
-    of matrix in a decomposed form.
+    of matrix in a decomposed form, if it is not used in its matrix-form.
+    In the matrix-free case the object is an iterative solver, where
+    currently only conjugate gradient is available.
 
     :arg A: The left-hand side operator.
     :arg B: The right-hand side.
     :arg decomposition: A string denoting the type of matrix decomposition
         to used. The factorizations available are detailed in the
         :class:`Factorization` documentation.
+    :arg matfree: True when the local solve operates matrix-free.
     """
 
-    def __new__(cls, A, B, decomposition=None):
+    def __new__(cls, A, B, **kwargs):
         assert A.rank == 2, "Operator must be a matrix."
 
         # Same rules for performing multiplication on Slate tensors
@@ -1223,27 +1481,72 @@ class Solve(BinaryOp):
             "They must be in the same function space."
         )
 
-        # For matrices smaller than 5x5, exact formulae can be used
-        # to evaluate the inverse. Otherwise, this class will trigger
-        # a factorization method in the code-generation.
-        if A.shape < (5, 5):
-            return A.inv * B
-
         return super().__new__(cls)
 
-    def __init__(self, A, B, decomposition=None):
+    def __init__(self, A, B, **kwargs):
         """Constructor for the Solve class."""
 
-        # LU with partial pivoting is a stable default.
-        decomposition = decomposition or "PartialPivLU"
+        # Get matrix-free specific and decomposition information from kwargs
+        # It's not save to make defaults a nested dict
+        defaults = DEFAULT_MSC._asdict()
+        updated_kwargs = defaults.copy()
+        updated_kwargs.update({"decomposition": "PartialPivLU"})
+        updated_kwargs.update(kwargs)
+        for key, value in updated_kwargs.items():
+            if key in defaults or key == "decomposition":
+                setattr(self, key, value)
+            else:
+                error = (f"The key {key} in the optional argument dict kwargs is not valid."
+                         f"The key has to be one of {valid_kwargs}.")
+                raise ValueError(error)
+
+        # If we have a matfree solve on a transposed Tensor
+        # we need to drop the Transpose
+        # because otherwise it will generate a matrix temporary
+        # instead we change which argument of the tensor will be replaced
+        # within the actions used in the matrix-free solve kernel
+        if isinstance(A, Transpose) and self.matfree:
+            A, = A.children
+            pick_op = 0
+        else:
+            pick_op = 1
+
+        # wrap tensor into a shell when its not terminal
+        if self.matfree and not A.terminal and not isinstance(A, TensorShell):
+            A = TensorShell(A)
+
+        self.diag_prec = self.preconditioner.diagonal if self.preconditioner else None
+        # wrap preconditioner into a shell when its not terminal
+        if self.preconditioner and not self.preconditioner.terminal \
+           and not isinstance(self.preconditioner, TensorShell):
+            self.preconditioner = TensorShell(self.preconditioner)
 
         # Create a matrix factorization
-        A_factored = Factorization(A, decomposition=decomposition) if not A.diagonal else A
+        A_factored = A 
+        # (Factorization(A, decomposition=self.decomposition)
+        #               if not A.diagonal and not self.matfree and not self.preconditioner
+        #               else A)
 
         super(Solve, self).__init__(A_factored, B)
 
         self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
+
+        # Users don't need to specify Aonx and Aonp and can still be using the solve matrix-free
+        # In our compiler we sometimes want to pass them which is why we keep them as optionals args
+        if self.matfree:
+            if self.Aonx.pick_op != pick_op:
+                arbitrary_coeff_x = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self.Aonx = Action(A, arbitrary_coeff_x, pick_op)
+            if self.Aonp.pick_op != pick_op:
+                arbitrary_coeff_p = AssembledVector(Function(A.arg_function_spaces[pick_op]))
+                self.Aonp = Action(A, arbitrary_coeff_p, pick_op)
+
+    @property
+    def ctx(self):
+        return {"matfree": self.matfree, "Aonx": self.Aonx, "Aonp": self.Aonp,
+                "preconditioner": self.preconditioner, "Ponr": self.Ponr, "diag_prec": self.diag_prec,
+                "rtol": self.rtol, "atol": self.atol, "max_it": self.max_it}
 
     @cached_property
     def arg_function_spaces(self):
@@ -1254,9 +1557,31 @@ class Solve(BinaryOp):
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
-        from applying the inverse of A onto B.
+        from applying the solve on A and B.
         """
         return self._args
+
+    def coefficients(self, artificial=False):
+        """Returns the expected coefficients of the resulting tensor."""
+        coeffs = [op.coefficients(artificial) for op in self.operands]
+        coeffs += [self.preconditioner.coefficients(artificial)] if self.preconditioner else []
+        if artificial:
+            coeffs += [op.coefficients(artificial) for op in [self.Aonx, self.Aonp]]
+            if self.Ponr:
+                coeffs += [op.coefficients(artificial) for op in [self.Ponr]]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return ((type(self), *self.operands, *self.ctx)
+                if self.matfree else (type(self), *self.operands, self.matfree))
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the solve of a tensor."""
+        return ("(%s).matf_solve(%s)" % self.operands
+                if self.matfree and not self.preconditioner else "(%s).matf_solve(%s, prec=%s)" % (*self.operands, self.preconditioner)
+                if self.matfree else "(%s).solve(%s)" % self.operands)
 
 
 class DiagonalTensor(UnaryOp):
@@ -1268,14 +1593,15 @@ class DiagonalTensor(UnaryOp):
     """
     diagonal = True
 
-    def __init__(self, A):
+    def __init__(self, A, vec=False):
         """Constructor for the Diagonal class."""
-        assert A.rank == 2, "The tensor must be rank 2."
+        assert A.rank == 2 or vec, "The tensor must be rank 2."
         assert A.shape[0] == A.shape[1], (
             "The diagonal can only be computed on square tensors."
         )
 
         super(DiagonalTensor, self).__init__(A)
+        self.vec = vec
 
     @cached_property
     def arg_function_spaces(self):
@@ -1283,17 +1609,23 @@ class DiagonalTensor(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tuple(arg.function_space() for arg in tensor.arguments())
+        return (tuple(arg.function_space() for arg in [tensor.arguments()[0]])
+                if self.vec else tuple(arg.function_space() for arg in tensor.arguments()))
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         tensor, = self.operands
-        return tensor.arguments()
+        return (tensor.arguments()[0],) if self.vec else tensor.arguments()
 
     def _output_string(self, prec=None):
         """Creates a string representation of the diagonal of a tensor."""
         tensor, = self.operands
         return "(%s).diag" % tensor
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return ((type(self), *self.operands, self.vec))
 
 
 def space_equivalence(A, B):
@@ -1311,9 +1643,9 @@ def space_equivalence(A, B):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],
+    [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal, TensorShell],
     [Add],
-    [Mul],
+    [Mul, Action],
     [Solve],
     [UnaryOp],
 ]

@@ -366,7 +366,7 @@ class FormAssembler(abc.ABC):
     :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
     """
 
-    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, tensor, bcs=(), form_compiler_parameters={}, needs_zeroing=True):
         assert tensor is not None
 
         bcs = solving._extract_bcs(bcs)
@@ -374,7 +374,9 @@ class FormAssembler(abc.ABC):
         self._form = form
         self._tensor = tensor
         self._bcs = bcs
-        self._form_compiler_params = form_compiler_parameters or {}
+        self._form_compiler_params = {}
+        if form_compiler_parameters:
+            self._form_compiler_params.update(form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
 
     @property
@@ -431,7 +433,7 @@ class FormAssembler(abc.ABC):
             return tsfc_interface.compile_form(self._form, "form", diagonal=self.diagonal,
                                                parameters=self._form_compiler_params)
         elif isinstance(self._form, slate.TensorBase):
-            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params)
+            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params, diagonal=self.diagonal)
         else:
             raise AssertionError
 

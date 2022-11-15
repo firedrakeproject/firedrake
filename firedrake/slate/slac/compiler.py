@@ -45,9 +45,13 @@ import numpy as np
 import loopy
 import gem
 from gem import indices as make_indices
-from tsfc.kernel_args import OutputKernelArg
+from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
 import copy
+from firedrake.petsc import PETSc
+from firedrake.parameters import target
+
+from pytools import generate_unique_names
 
 from petsc4py import PETSc
 
@@ -82,25 +86,34 @@ else:
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
+class Namer():
+
+    def __init__(self):
+        self.slate_loopy_namer = generate_unique_names("slate_loopy")
+        self.tensorshell_namer = generate_unique_names("tensorshell")
+        self.tsfc_loopy_namer = generate_unique_names("subkernel")
+        self.matfree_solve_namer = generate_unique_names("mtf_solve")
 
 class SlateKernel(TSFCKernel):
     @classmethod
-    def _cache_key(cls, expr, compiler_parameters, coffee):
+    def _cache_key(cls, expr, compiler_parameters, coffee, diagonal):
         return md5((expr.expression_hash
                     + str(sorted(compiler_parameters.items()))
-                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
+                    + str(coffee)
+                    + str(diagonal)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
-    def __init__(self, expr, compiler_parameters, coffee=False):
+    def __init__(self, expr, compiler_parameters, coffee=False, diagonal=False):
         if self._initialized:
             return
         if coffee:
+            assert not diagonal, "Slate compiler cannot handle diagonal option in coffee mode. Use loopy backend instead."
             self.split_kernel = generate_kernel(expr, compiler_parameters)
         else:
-            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
+            self.split_kernel = generate_loopy_kernel(expr, compiler_parameters, diagonal)
         self._initialized = True
 
 
-def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
+def compile_expression(slate_expr, compiler_parameters=None, coffee=False, diagonal=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
@@ -130,7 +143,7 @@ def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     try:
         return cache[key]
     except KeyError:
-        kernel = SlateKernel(slate_expr, params, coffee).split_kernel
+        kernel = SlateKernel(slate_expr, params, coffee, diagonal).split_kernel
         return cache.setdefault(key, kernel)
 
 
@@ -152,32 +165,41 @@ def get_temp_info(loopy_kernel):
 
         shapes[len(shape)] = shapes.get(len(shape), 0) + 1
     return mem_total, num_temps, mems, shapes
+        
 
-
-def generate_loopy_kernel(slate_expr, compiler_parameters=None):
+def generate_loopy_kernel(slate_expr, compiler_parameters=None, diagonal=False):
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
+    namer = Namer()
+
+    if diagonal:
+        slate_expr = slate.DiagonalTensor(slate_expr, vec=True)
 
     orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible
+    print("before", slate_expr)
     if compiler_parameters["slate_compiler"]["optimise"]:
         slate_expr = optimise(slate_expr, compiler_parameters["slate_compiler"])
+    print("after", slate_expr)
 
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
-    gem_expr, var2terminal = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
+    gem_expr, gem2slate = slate_to_gem(slate_expr, compiler_parameters["slate_compiler"])
 
     scalar_type = compiler_parameters["form_compiler"]["scalar_type"]
-    (slate_loopy, slate_loopy_event), output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
-
+    ((slate_loopy, ctx, slate_loopy_event), output_arg) = gem_to_loopy(gem_expr, gem2slate, scalar_type, next(namer.slate_loopy_namer),
+                                                                       matfree=compiler_parameters["slate_compiler"]["replace_mul"])
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
-                                      tsfc_parameters=compiler_parameters["form_compiler"])
-
-    name = "slate_wrapper"
-    loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
+                                      tsfc_parameters=compiler_parameters["form_compiler"],
+                                      slate_loopy_name=ctx.kernel_name,
+                                      namer=namer)
+    name = ctx.kernel_name
+    loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, gem2slate,
+                                                  name, ctx, slate_expr,
+                                                  compiler_parameters["form_compiler"], compiler_parameters["slate_compiler"])
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
@@ -186,11 +208,17 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                                        ldargs=BLASLAPACK_LIB.split(),
                                                        events=events+(slate_loopy_event,))
 
-    # map the coefficients in the order that PyOP2 needs
     new_coeffs = slate_expr.coefficients()
     orig_coeffs = orig_expr.coefficients()
-    get_index = lambda n: orig_coeffs.index(new_coeffs[n]) if new_coeffs[n] in orig_coeffs else n
-    coeff_map = tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map)
+    is_block_function = lambda n: isinstance(new_coeffs[n], slate.BlockFunction)
+    is_new_coeff = lambda n: new_coeffs[n] in orig_coeffs
+    get_index = lambda n: (orig_coeffs.index(new_coeffs[n]) if (not is_block_function(n) and is_new_coeff(n))
+                          else orig_coeffs.index(new_coeffs[n].orig_function) if (is_block_function(n) and is_new_coeff(n))
+                          else n)
+    coeff_map =  (tuple((get_index(n), split_map) for (n, split_map) in slate_expr.coeff_map))
+    coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
+    assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
+    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -642,36 +670,58 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr, var2terminal, scalar_type):
+def gem_to_loopy(gem_expr, gem2slate, scalar_type, name="", out_name="output", matfree=False, counter=0):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return slate_loopy: 2-tuple of loopy kernel for slate operations
-        and loopy GlobalArg for the output variable.
+
+    :arg gem_expr: the GEM expression which is supposed to be compiled into a loopy kernel
+    :arg gem2slate: originally a mapping from GEM variables to Slate terminal tensors,
+                       but in the matrix-free case it currently contains a mapping
+                       from arbitrary GEM expressions to arbitrary Slate nodes
+    :arg scalar_type: dtype of the variables in the loopy kernel
+    :arg out_name: name of the the final (output) GEM variable
+                   matching the last variable in the loopy kernel
+    :arg matfree: needed for seperating some expressions in gem2slate,
+                  can probably be dropped after FIXME is fixed
+
+    :return (slate_loopy, ctx): 2-tuple of loopy kernel for slate operations,
+                                and a ctx which most importantly contains gem->loopy mappings
+    :return output_variable:    a loopy GlobalArg for the output variable
     """
     # Creation of return variables for outer loopy
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-
-    output_loopy_arg = loopy.GlobalArg("output", shape=shape,
+    output_loopy_arg = loopy.GlobalArg(out_name, shape=shape,
                                        dtype=scalar_type,
                                        is_input=True,
-                                       is_output=True)
-    args = [output_loopy_arg] + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
-                                 for var in var2terminal.keys()]
-    ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
+                                       is_output=True,
+                                       dim_tags=None, strides=loopy.auto, order="C")
+    args = [output_loopy_arg]
+    for var, terminal in gem2slate.items():
+        # From the gem2slate dict we only want to append vector-shaped args
+        # which are coming from AssembledVectors to the global args of the Slate kernel,
+        # meaning we don't want to append anything matrix shaped and also no solves or actions
+        if hasattr(var, "name"):
+            if not terminal.terminal or (terminal.rank > 1 and matfree):
+                t_shape = var.shape if var.shape else (1,)
+                args.append(loopy.TemporaryVariable(var.name, shape=t_shape, dtype=scalar_type, address_space=loopy.AddressSpace.LOCAL))
+            else:
+                args.append(loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type,
+                                            is_input=True, is_output=False, dim_tags=None, strides=loopy.auto, order="C"))
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
 
     # glue assignments to return variable
-    assignments = list(zip(ret_vars, preprocessed_gem_expr))
+    assignments = list(zip([gem.Indexed(gem.Variable(out_name, shape), idx)], preprocessed_gem_expr))
 
     # Part A: slate to impero_c
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
+    return (generate_loopy(impero_c, args, scalar_type, name, [], return_ctx=True, log=PETSc.Log.isActive()),
+            output_arg)
 
 
 def slate_to_cpp(expr, temps, prec=None):

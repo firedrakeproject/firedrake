@@ -1,10 +1,11 @@
 import pytest
 import numpy as np
 from firedrake import *
+from itertools import product
 
 
-@pytest.mark.parametrize('degree', [1, 2])
-def test_lvp_equiv_hdg(degree):
+@pytest.mark.parametrize(('degree', 'nested'), list(product([1, 2], [True, False])))
+def test_lvp_equiv_hdg(degree, nested):
     """Runs an HDG problem and checks that passing
     a Slate-defined problem into a variational problem
     produces the same result for the traces as solving
@@ -51,6 +52,11 @@ def test_lvp_equiv_hdg(degree):
                                   'pc_type': 'lu',
                                   'pc_factor_mat_solver_type': 'mumps',
                                   'mat_mumps_icntl_14': 200}}
+    
+    if nested:
+         params['condensed_field']['localsolve'] = {'ksp_type': 'preonly',
+                                                    'pc_type': 'fieldsplit',
+                                                    'pc_fieldsplit_type': 'schur'}
     ref_problem = LinearVariationalProblem(a, L, s)
     ref_solver = LinearVariationalSolver(ref_problem, solver_parameters=params)
     ref_solver.solve()

@@ -39,6 +39,8 @@ class SCPC(SCBase):
         self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
             raise ValueError("Context must be an ImplicitMatrixContext")
+        if not self.cxt.fc_params:
+            self.cxt.fc_params = {}
 
         self.bilinear_form = self.cxt.a
 
@@ -74,6 +76,8 @@ class SCPC(SCBase):
             bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
+        self.local_matfree = PETSc.Options(prefix).getString("localsolve_mat_type", default="") == "matfree"
+        self.cxt.fc_params.update({"slate_compiler": {"replace_mul": self.local_matfree}})
 
         self.c_field = c_field
         self.condensed_rhs = Function(Vc)
@@ -96,7 +100,7 @@ class SCPC(SCBase):
 
         # Get expressions for the condensed linear system
         A_tensor = Tensor(self.bilinear_form)
-        reduced_sys = self.condensed_system(A_tensor, self.residual, elim_fields)
+        reduced_sys, schur_builder = self.condensed_system(A_tensor, self.residual, elim_fields, prefix, pc)
         S_expr = reduced_sys.lhs
         r_expr = reduced_sys.rhs
 
@@ -111,7 +115,7 @@ class SCPC(SCBase):
                                  form_compiler_parameters=self.cxt.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
+                                 appctx=self.cxt)
 
         self._assemble_S = TwoFormAssembler(S_expr, tensor=self.S, bcs=bcs,
                                             form_compiler_parameters=self.cxt.fc_params).assemble
@@ -124,9 +128,9 @@ class SCPC(SCBase):
         if A != P:
             self.cxt_pc = P.getPythonContext()
             P_tensor = Tensor(self.cxt_pc.a)
-            P_reduced_sys = self.condensed_system(P_tensor,
-                                                  self.residual,
-                                                  elim_fields)
+            P_reduced_sys, _ = self.condensed_system(P_tensor,
+                                                     self.residual,
+                                                     elim_fields)
             S_pc_expr = P_reduced_sys.lhs
             self.S_pc_expr = S_pc_expr
 
@@ -136,7 +140,7 @@ class SCPC(SCBase):
                                         form_compiler_parameters=self.cxt.fc_params,
                                         mat_type=mat_type,
                                         options_prefix=prefix,
-                                        appctx=self.get_appctx(pc))
+                                        appctx=self.cxt)
 
             self._assemble_S_pc = TwoFormAssembler(S_pc_expr, tensor=self.S_pc, bcs=bcs,
                                                    form_compiler_parameters=self.cxt.fc_params).assemble
@@ -164,6 +168,8 @@ class SCPC(SCBase):
                                           self.cxt.fc_params,
                                           options_prefix=prefix)
 
+        self._ctx_ref.fc_params = {"slate_compiler": {"replace_mul": self.local_matfree}}
+
         # Push new context onto the dm associated with the condensed problem
         c_dm = Vc.dm
 
@@ -187,9 +193,10 @@ class SCPC(SCBase):
         self.local_solvers = self.local_solver_calls(A_tensor,
                                                      self.residual,
                                                      self.solution,
-                                                     elim_fields)
+                                                     elim_fields,
+                                                     schur_builder)
 
-    def condensed_system(self, A, rhs, elim_fields):
+    def condensed_system(self, A, rhs, elim_fields, prefix, pc):
         """Forms the condensed linear system by eliminating
         specified unknowns.
 
@@ -200,9 +207,9 @@ class SCPC(SCBase):
 
         from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
 
-        return condense_and_forward_eliminate(A, rhs, elim_fields)
+        return condense_and_forward_eliminate(A, rhs, elim_fields, prefix, pc)
 
-    def local_solver_calls(self, A, rhs, x, elim_fields):
+    def local_solver_calls(self, A, rhs, x, elim_fields, schur_builder):
         """Provides solver callbacks for inverting local operators
         and reconstructing eliminated fields.
 
@@ -216,14 +223,16 @@ class SCPC(SCBase):
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
         fields = x.split()
-        systems = backward_solve(A, rhs, x, reconstruct_fields=elim_fields)
+        systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
             Ae = local_system.lhs
             be = local_system.rhs
             i, = local_system.field_idx
-            local_solve = Ae.solve(be, decomposition="PartialPivLU")
+
+            local_solve = Ae * be
+
             solve_call = OneFormAssembler(local_solve, tensor=fields[i],
                                           form_compiler_parameters=self.cxt.fc_params).assemble
             local_solvers.append(solve_call)
