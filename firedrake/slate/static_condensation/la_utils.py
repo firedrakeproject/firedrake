@@ -232,20 +232,6 @@ class SchurComplementBuilder(object):
                         'pc_type': 'fieldsplit',
                         'pc_fieldsplit_type': 'schur'}}
 
-    A Schur complement is requested for the mixed matrix inverse which appears inside the
-    Schur complement of the trace system solve. The Schur complements are then nested.
-    For details see defition of :meth:`build_schur`. No fieldsplit options are set so all
-    local inverses are calculated explicitly.
-
-    .. code-block:: text
-
-        'localsolve': {'ksp_type': 'preonly',
-                       'pc_type': 'fieldsplit',
-                       'pc_fieldsplit_type': 'schur',
-                       'fieldsplit_1': {'ksp_type': 'default',
-                                        'pc_type': 'python',
-                                        'pc_python_type': __name__ + '.DGLaplacian'}}
-
     The inverse of the Schur complement inside the Schur decomposition of the mixed matrix inverse
     is approximated by a default solver (LU in the matrix-explicit case) which is preconditioned
     by a user-defined operator, e.g. a DG Laplacian, see :meth:`build_inner_S_inv`.
