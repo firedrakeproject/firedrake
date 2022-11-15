@@ -32,7 +32,7 @@ class Map:
 
     @utils.validate_type(('iterset', Set, ex.SetTypeError), ('toset', Set, ex.SetTypeError),
                          ('arity', numbers.Integral, ex.ArityTypeError), ('name', str, ex.NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, offset_quotient=None):
         self._iterset = iterset
         self._toset = toset
         self.comm = toset.comm
@@ -45,6 +45,10 @@ class Map:
             self._offset = None
         else:
             self._offset = utils.verify_reshape(offset, dtypes.IntType, (arity, ))
+        if offset_quotient is None or len(offset_quotient) == 0:
+            self._offset_quotient = None
+        else:
+            self._offset_quotient = utils.verify_reshape(offset_quotient, dtypes.IntType, (arity, ))
         # A cache for objects built on top of this map
         self._cache = {}
 
@@ -54,7 +58,7 @@ class Map:
 
     @utils.cached_property
     def _wrapper_cache_key_(self):
-        return (type(self), self.arity, utils.tuplify(self.offset))
+        return (type(self), self.arity, utils.tuplify(self.offset), utils.tuplify(self.offset_quotient))
 
     # This is necessary so that we can convert a Map to a tuple
     # (needed in as_tuple).  Because, __getitem__ no longer returns a
@@ -75,7 +79,8 @@ class Map:
         from pyop2.global_kernel import MapKernelArg
 
         offset = tuple(self.offset) if self.offset is not None else None
-        return MapKernelArg(self.arity, offset)
+        offset_quotient = tuple(self.offset_quotient) if self.offset_quotient is not None else None
+        return MapKernelArg(self.arity, offset, offset_quotient)
 
     @utils.cached_property
     def split(self):
@@ -137,13 +142,18 @@ class Map:
         """The vertical offset."""
         return self._offset
 
+    @utils.cached_property
+    def offset_quotient(self):
+        """The offset quotient."""
+        return self._offset_quotient
+
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \
                % (self._name, self._iterset, self._toset, self._arity)
 
     def __repr__(self):
-        return "Map(%r, %r, %r, None, %r)" \
-               % (self._iterset, self._toset, self._arity, self._name)
+        return "Map(%r, %r, %r, None, %r, %r, %r)" \
+               % (self._iterset, self._toset, self._arity, self._name, self._offset, self._offset_quotient)
 
     def __le__(self, o):
         """self<=o if o equals self or self._parent <= o."""
@@ -386,6 +396,11 @@ class MixedMap(Map, caching.ObjectCached):
     def offset(self):
         """Vertical offsets."""
         return tuple(0 if m is None else m.offset for m in self._maps)
+
+    @utils.cached_property
+    def offset_quotient(self):
+        """Offsets quotient."""
+        raise NotImplementedError("offset_quotient not implemented for MixedMap")
 
     def __iter__(self):
         r"""Yield all :class:`Map`\s when iterated over."""

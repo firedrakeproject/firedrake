@@ -7,7 +7,7 @@ import numpy
 from loopy.types import OpaqueType
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
                                  MatKernelArg, MixedMatKernelArg, PermutedMapKernelArg, ComposedMapKernelArg)
-from pyop2.codegen.representation import (Accumulate, Argument, Comparison,
+from pyop2.codegen.representation import (Accumulate, Argument, Comparison, Conditional,
                                           DummyInstruction, Extent, FixedIndex,
                                           FunctionCall, Index, Indexed,
                                           KernelInst, Literal, LogicalAnd,
@@ -28,19 +28,27 @@ class PetscMat(OpaqueType):
         super().__init__(name="Mat")
 
 
+def _Remainder(a, b):
+    # ad hoc replacement of Remainder()
+    # Replace this with Remainder(a, b) once it gets fixed.
+    return Conditional(Comparison("<", a, b), a, Sum(a, Product(Literal(numpy.int32(-1)), b)))
+
+
 class Map(object):
 
-    __slots__ = ("values", "offset", "interior_horizontal",
-                 "variable", "unroll", "layer_bounds",
+    __slots__ = ("values", "extruded_periodic", "offset", "offset_quotient", "interior_horizontal",
+                 "variable", "unroll", "layer_bounds", "num_layers",
                  "prefetch", "_pmap_count")
 
-    def __init__(self, interior_horizontal, layer_bounds,
+    def __init__(self, interior_horizontal, layer_bounds, num_layers,
                  arity, dtype,
-                 offset=None, unroll=False,
-                 extruded=False, constant_layers=False):
+                 offset=None, offset_quotient=None, unroll=False,
+                 extruded=False, extruded_periodic=False, constant_layers=False):
         self.variable = extruded and not constant_layers
+        self.extruded_periodic = extruded_periodic
         self.unroll = unroll
         self.layer_bounds = layer_bounds
+        self.num_layers = num_layers
         self.interior_horizontal = interior_horizontal
         self.prefetch = {}
 
@@ -53,9 +61,14 @@ class Map(object):
                 offset = Literal(offset[0], casting=True)
             else:
                 offset = NamedLiteral(offset, parent=values, suffix="offset")
+        if offset_quotient is not None:
+            assert type(offset_quotient) == tuple
+            offset_quotient = numpy.array(offset_quotient, dtype=numpy.int32)
+            offset_quotient = NamedLiteral(offset_quotient, parent=values, suffix="offset_quotient")
 
         self.values = values
         self.offset = offset
+        self.offset_quotient = offset_quotient
         self._pmap_count = itertools.count()
 
     @property
@@ -87,18 +100,29 @@ class Map(object):
             if key is None:
                 key = 1
             if key not in self.prefetch:
+                # See comments in "sparsity.pyx".
                 bottom_layer, _ = self.layer_bounds
                 k = Index(f.extent if f.extent is not None else 1)
                 offset = Sum(Sum(layer, Product(Literal(numpy.int32(-1)), bottom_layer)), k)
                 j = Index()
-                # Inline map offsets where all entries are identical.
-                if self.offset.shape == ():
-                    offset = Product(offset, self.offset)
-                else:
-                    offset = Product(offset, Indexed(self.offset, (j,)))
                 base = Indexed(base, (j, ))
+                unit_offset = self.offset if self.offset.shape == () else Indexed(self.offset, (j,))
+                if self.extruded_periodic:
+                    if self.offset_quotient is None:
+                        # Equivalent to offset_quotient[:] == 0.
+                        # Avoid unnecessary logic below.
+                        offset = _Remainder(offset, self.num_layers)
+                    else:
+                        effective_offset = Sum(offset, Indexed(self.offset_quotient, (j,)))
+                        # The following code currently does not work: "undefined symbol: loopy_mod_int32"
+                        # offset = Remainder(effective_offset, self.num_layers)
+                        # Use less elegant and less robust way for now.
+                        offset = Sum(_Remainder(effective_offset, self.num_layers),
+                                     Product(Literal(numpy.int32(-1)),
+                                             _Remainder(Indexed(self.offset_quotient, (j,)), self.num_layers)))
+                # Inline map offsets where all entries are identical.
+                offset = Product(unit_offset, offset)
                 self.prefetch[key] = Materialise(PackInst(), Sum(base, offset), MultiIndex(k, j))
-
             return Indexed(self.prefetch[key], (f, i)), (f, i)
         else:
             assert f.extent == 1 or f.extent is None
@@ -125,8 +149,10 @@ class PMap(Map):
     def __init__(self, map_, permutation):
         # Copy over properties
         self.variable = map_.variable
+        self.extruded_periodic = map_.extruded_periodic
         self.unroll = map_.unroll
         self.layer_bounds = map_.layer_bounds
+        self.num_layers = map_.num_layers
         self.interior_horizontal = map_.interior_horizontal
         self.prefetch = {}
         self.values = map_.values
@@ -143,6 +169,7 @@ class PMap(Map):
             else:
                 offset = map_.offset
         self.offset = offset
+        self.offset_quotient = map_.offset_quotient
         self.permutation = NamedLiteral(permutation, parent=self.values, suffix=f"permutation{count}")
 
     def indexed(self, multiindex, layer=None):
@@ -644,7 +671,7 @@ class MixedMatPack(Pack):
 
 class WrapperBuilder(object):
 
-    def __init__(self, *, kernel, subset, extruded, constant_layers, iteration_region=None, single_cell=False,
+    def __init__(self, *, kernel, subset, extruded, extruded_periodic, constant_layers, iteration_region=None, single_cell=False,
                  pass_layer_to_kernel=False, forward_arg_types=()):
         self.kernel = kernel
         self.local_knl_args = iter(kernel.arguments)
@@ -655,6 +682,7 @@ class WrapperBuilder(object):
         self.maps = OrderedDict()
         self.subset = subset
         self.extruded = extruded
+        self.extruded_periodic = extruded_periodic
         self.constant_layers = constant_layers
         if iteration_region is None:
             self.iteration_region = ALL
@@ -701,6 +729,14 @@ class WrapperBuilder(object):
             return Argument((None, 2), IntType, name="layers")
 
     @cached_property
+    def num_layers(self):
+        cellStart = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
+        cellEnd = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))), Literal(IntType.type(-1)))
+        n = Sum(cellEnd,
+                Product(Literal(numpy.int32(-1)), cellStart))
+        return Materialise(PackInst(), n, MultiIndex())
+
+    @cached_property
     def bottom_layer(self):
         if self.iteration_region == ON_TOP:
             return Materialise(PackInst(),
@@ -723,23 +759,23 @@ class WrapperBuilder(object):
 
     @cached_property
     def layer_extents(self):
+        cellStart = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
+        cellEnd = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))), Literal(IntType.type(-1)))
         if self.iteration_region == ON_BOTTOM:
-            start = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
-            end = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(0))),
-                      Literal(IntType.type(1)))
+            start = cellStart
+            end = Sum(cellStart, Literal(IntType.type(1)))
         elif self.iteration_region == ON_TOP:
-            start = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))),
-                        Literal(IntType.type(-2)))
-            end = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))),
-                      Literal(IntType.type(-1)))
+            start = Sum(cellEnd, Literal(IntType.type(-1)))
+            end = cellEnd
         elif self.iteration_region == ON_INTERIOR_FACETS:
-            start = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
-            end = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))),
-                      Literal(IntType.type(-2)))
+            start = cellStart
+            if self.extruded_periodic:
+                end = cellEnd
+            else:
+                end = Sum(cellEnd, Literal(IntType.type(-1)))
         elif self.iteration_region == ALL:
-            start = Indexed(self._layers_array, (self._layer_index, FixedIndex(0)))
-            end = Sum(Indexed(self._layers_array, (self._layer_index, FixedIndex(1))),
-                      Literal(IntType.type(-1)))
+            start = cellStart
+            end = cellEnd
         else:
             raise ValueError("Unknown iteration region")
         return (Materialise(PackInst(), start, MultiIndex()),
@@ -862,9 +898,11 @@ class WrapperBuilder(object):
             else:
                 map_ = Map(interior_horizontal,
                            (self.bottom_layer, self.top_layer),
-                           arity=map_.arity, offset=map_.offset, dtype=IntType,
+                           self.num_layers,
+                           arity=map_.arity, offset=map_.offset, offset_quotient=map_.offset_quotient, dtype=IntType,
                            unroll=unroll,
                            extruded=self.extruded,
+                           extruded_periodic=self.extruded_periodic,
                            constant_layers=self.constant_layers)
             self.maps[key] = map_
             return map_

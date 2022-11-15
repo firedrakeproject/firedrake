@@ -316,6 +316,32 @@ class Product(Scalar):
         return numpy.find_common_type([], [a.dtype, b.dtype])
 
 
+class QuotientBase(Scalar):
+    __slots__ = ("children", )
+
+    def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+        self.children = a, b
+
+    @cached_property
+    def dtype(self):
+        a, b = self.children
+        return numpy.find_common_type([], [a.dtype, b.dtype])
+
+
+class Quotient(QuotientBase):
+    pass
+
+
+class FloorDiv(QuotientBase):
+    pass
+
+
+class Remainder(QuotientBase):
+    pass
+
+
 class Indexed(Scalar):
     __slots__ = ("children", )
 

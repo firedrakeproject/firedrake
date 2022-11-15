@@ -615,10 +615,12 @@ def LegacyParloop(local_knl, iterset, *args, **kwargs):
 
     global_knl_args = tuple(a.global_kernel_arg for a in args)
     extruded = iterset._extruded
+    extruded_periodic = iterset._extruded_periodic
     constant_layers = extruded and iterset.constant_layers
     subset = isinstance(iterset, Subset)
     global_knl = GlobalKernel(local_knl, global_knl_args,
                               extruded=extruded,
+                              extruded_periodic=extruded_periodic,
                               constant_layers=constant_layers,
                               subset=subset,
                               **kwargs)
@@ -673,6 +675,7 @@ def generate_single_cell_wrapper(iterset, args, forward_args=(),
     builder = WrapperBuilder(kernel=empty_knl,
                              subset=isinstance(iterset, Subset),
                              extruded=iterset._extruded,
+                             extruded_periodic=iterset._extruded_periodic,
                              constant_layers=iterset._extruded and iterset.constant_layers,
                              single_cell=True,
                              forward_arg_types=forward_arg_types)
