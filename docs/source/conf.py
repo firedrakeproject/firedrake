@@ -30,9 +30,15 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.graphviz',
               'sphinxcontrib.youtube',
               'sphinxcontrib.bibtex',
+              'sphinxcontrib.inkscapeconverter',
               'numpydoc']
 
-mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
+mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
+
+mathjax3_config = {
+  'loader': {'load': ['[tex]/mathtools']},
+  'tex': {'packages': {'[+]': ['mathtools']}}
+}
 
 # Both the class’ and the __init__ method’s docstring are concatenated and
 # inserted into the class definition
@@ -189,7 +195,20 @@ latex_elements = {
 
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
-\usepackage{cancel}''',
+\usepackage{cancel}
+
+%\sphinxDUC{2730}{\ding{80}}
+\sphinxDUC{27F6}{$\rightarrow$}
+\sphinxDUC{2208}{$\in$}
+\sphinxDUC{2200}{$\forall$}
+\sphinxDUC{2218}{$\circ$}
+\sphinxDUC{22C5}{$\cdot$}
+\sphinxDUC{25A3}{$\boxdot$}
+% Sphinx equivalent of
+% \DeclareUnicodeCharacter{}{}
+''',
+
+    'extrapackages': r'''\usepackage{mathtools}'''
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
