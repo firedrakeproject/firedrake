@@ -28,6 +28,7 @@ jobs:
           python -m pip install -e .
           python -m pip install sphinx
           python -m pip install sphinxcontrib-bibtex
+          python -m pip install sphinxcontrib-svg2pdfconverter
           python -m pip install bibtexparser
           python -m pip install numpydoc
           python -m pip install git+https://github.com/sphinx-contrib/youtube.git
@@ -43,3 +44,5 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           cd docs
           make html
+          make latex
+          make latexpdf

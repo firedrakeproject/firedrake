@@ -80,12 +80,12 @@ exterior facets :math:`\Gamma_\mathrm{ext}` appears exactly once in
 .. math::
 
    \int_\Omega \! \phi \frac{\partial q}{\partial t} \, \mathrm{d} x
-   = \int_\Omega \! q \nabla \cdot (\phi \vec{u}) \, \mathrm{d} x
-   - \int_{\Gamma_\mathrm{int}} \! \widetilde{q}(\phi_+ \vec{u} \cdot \vec{n}_+
-     + \phi_- \vec{u} \cdot \vec{n}_-) \, \mathrm{d} S
-   - \int_{\Gamma_\rlap{\mathrm{ext, inflow}}} \phi q_\mathrm{in} \vec{u} \cdot
-   \vec{n} \, \mathrm{d} s
-   - \int_{\Gamma_\rlap{\mathrm{ext, outflow}}} \phi q \vec{u} \cdot
+   &= \int_\Omega \! q \nabla \cdot (\phi \vec{u}) \, \mathrm{d} x\\
+   &\quad- \int_{\Gamma_\mathrm{int}} \! \widetilde{q}(\phi_+ \vec{u} \cdot \vec{n}_+
+     + \phi_- \vec{u} \cdot \vec{n}_-) \, \mathrm{d} S\\
+   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, inflow}}}} \phi q_\mathrm{in} \vec{u} \cdot
+   \vec{n} \, \mathrm{d} s\\
+   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, outflow}}}} \phi q \vec{u} \cdot
    \vec{n} \, \mathrm{d} s
    \qquad \forall \phi \in V.
 
