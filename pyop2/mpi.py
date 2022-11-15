@@ -40,7 +40,7 @@ import atexit
 import os
 from pyop2.configuration import configuration
 from pyop2.exceptions import CompilationError
-from pyop2.logger import warning, debug
+from pyop2.logger import warning, debug, logger, DEBUG
 from pyop2.utils import trim
 
 
@@ -425,10 +425,14 @@ def free_comm(comm):
 
 
 @atexit.register
-def free_comms():
+def _free_comms():
     """Free all outstanding communicators."""
     global PYOP2_FINALIZED
     PYOP2_FINALIZED = True
+    if logger.level > DEBUG:
+        debug = lambda string: None
+    else:
+        debug = lambda string: print(string)
     debug("PyOP2 Finalizing")
     # Collect garbage as it may hold on to communicator references
     debug("Calling gc.collect()")
@@ -442,7 +446,7 @@ def free_comms():
             refcount = c.Get_attr(refcount_keyval)
             debug(f"Freeing {c.name}, which has refcount {refcount[0]}")
         else:
-            debug("Freeing non PyOP2 comm in `free_comms()`")
+            debug("Freeing non PyOP2 comm in `_free_comms()`")
         free_comm(c)
     for kv in [refcount_keyval,
                innercomm_keyval,
