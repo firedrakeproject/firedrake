@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+import contextlib
 import ctypes
 import operator
 
@@ -185,6 +185,24 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         part of a :class:`MixedDat`."""
         pass
 
+    @mpi.collective
+    def frozen_halo(self, access_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        return contextlib.nullcontext()
+
+    @mpi.collective
+    def freeze_halo(self, access_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @mpi.collective
+    def unfreeze_halo(self):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
     def _op(self, other, op):
         ret = type(self)(self.dim, dtype=self.dtype, name=self.name, comm=self.comm)
         if isinstance(other, Global):
@@ -283,7 +301,7 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
                                                bsize=self.cdim,
                                                comm=self.comm)
 
-    @contextmanager
+    @contextlib.contextmanager
     def vec_context(self, access):
         """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
 
