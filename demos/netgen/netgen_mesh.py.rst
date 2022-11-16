@@ -125,7 +125,7 @@ We create a function to solve the eigenvalue problem using SLEPc. We begin initi
 Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use a shift and invert (`SINVERT`) spectral transformation where the preconditioner factorisation is computed using MUMPS::
 
 
-   def Solve(msh, ngmsh):
+   def Solve(msh):
        V = FunctionSpace(msh, "CG", 2)
        u = TrialFunction(V)
        v = TestFunction(V)
@@ -137,7 +137,7 @@ Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use 
        m = (u*v)*dx
 
        uh = Function(V)
-       labels = sum([ngmsh.GetBCIDs(label) for label in ["line", "curve"]], [])
+       labels = sum([msh.netgen_mesh.GetBCIDs(label) for label in ["line", "curve"]], [])
        bc = DirichletBC(V, 0, labels)
        A = assemble(a, bcs=bc)
        M = assemble(m)
@@ -201,27 +201,26 @@ In order to do so we begin by computing the value of the indicator using a piece
 Last we define the method that will take care of refining the mesh on the marked elements::
 
 
-   def Refine(msh, ngmsh, marked):
+   def Refine(msh, marked):
        i = 0
-       for el in ngmsh.Elements2D():
+       for el in msh.netgen_mesh.Elements2D():
            plex_idx = msh._cell_numbering.getOffset(i)
            if marked[plex_idx]:
                el.SetRefinementFlag(1)
            else:
                el.SetRefinementFlag(0)
            i = i + 1
-       ngmsh.RefineFlaged(0, True)
-       return ngmsh
+       msh.netgen_mesh.RefineFlaged(0, True)
+       return msh.netgen_mesh
 
 
 It is now time to define the solve, mark and refine loop that is at the heart of the adaptive method described here::
 
    for i in range(max_iterations):
        print(f"Refinement cycle {i}")
-       lam, uh, V = Solve(msh, ngmsh)
+       lam, uh, V = Solve(msh)
        marked = Mark(msh, uh, lam)
-       ngmsh = Refine(msh, ngmsh, marked)
-       msh = Mesh(ngmsh)
+       msh = Mesh(Refine(msh, marked))
        outfile = File("output/Eig.pvd")
        outfile.write(uh)
 

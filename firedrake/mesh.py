@@ -2167,7 +2167,12 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
-    return make_mesh_from_mesh_topology(topology, name)
+    mesh = make_mesh_from_mesh_topology(topology, name)
+    if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        #Adding NetGen mesh and inverse sfBC as attributes
+        mesh.netgen_mesh = meshfile
+        mesh.sfBCInv = mesh.sfBC.createInverse() if comm.Get_size() > 1 else None
+    return mesh
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
