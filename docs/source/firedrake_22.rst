@@ -28,6 +28,9 @@ Key Dates
 * 02/12/2022 Registration
 * 4-6/1/2023 Workshop
 
+The workshop will run from 1400 on 4 January to 1400 on 6 January (after lunch
+on Wednesday until after lunch on Friday). This will hopefully allow most UK
+participants to travel to and from the event on those days.
 
 Abstract submission
 -------------------
