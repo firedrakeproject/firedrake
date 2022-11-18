@@ -113,7 +113,6 @@ def test_comm_manager_allreduce(blocking):
         allreduce = ensemble.allreduce
     else:
         allreduce = ensemble.iallreduce
-
     mesh = UnitSquareMesh(1, 1, comm=ensemble.global_comm)
 
     mesh2 = UnitSquareMesh(2, 2, comm=ensemble.ensemble_comm)
@@ -243,7 +242,6 @@ def test_comm_manager_reduce(blocking):
 
     V4 = FunctionSpace(mesh4, "DG", 0)
     V5 = FunctionSpace(mesh5, "DG", 0)
-
     f4 = Function(V4)
     f5 = Function(V5)
 
