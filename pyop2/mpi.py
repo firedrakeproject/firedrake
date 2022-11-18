@@ -249,7 +249,6 @@ def decref(comm):
         refcount = comm.Get_attr(refcount_keyval)
         refcount[0] -= 1
         if refcount[0] == 0:
-            dupped_comms.remove(comm)
             free_comm(comm)
     elif comm != MPI.COMM_NULL:
         free_comm(comm)
