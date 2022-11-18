@@ -71,6 +71,7 @@ class FDMPC(PCBase):
 
         use_amat = options.getBool("pc_use_amat", True)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
+        diagonal_scale = options.getBool("diagonal_scale", False)
         use_ainv = options.getString("pc_type", "") == "mat"
         self.use_ainv = use_ainv
 
@@ -141,7 +142,7 @@ class FDMPC(PCBase):
                                           fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type, diagonal_scale)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -166,7 +167,7 @@ class FDMPC(PCBase):
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type, diagonal_scale):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -253,6 +254,7 @@ class FDMPC(PCBase):
         for Vrow, Vcol in product(Vsort, Vsort):
             if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
+
             else:
                 on_diag = Vrow == Vcol
                 triu = on_diag and symmetric
@@ -293,6 +295,8 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
 
+        self.diag = None
+
         def assemble_P():
             for _assemble in assembly_callables:
                 _assemble()
@@ -307,6 +311,12 @@ class FDMPC(PCBase):
                         del vals
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
+            if diagonal_scale:
+                diag = Pmat.getDiagonal(result=self.diag)
+                diag.sqrtabs()
+                diag.reciprocal()
+                Pmat.diagonalScale(L=diag, R=diag)
+                self.diag = diag
 
         return Pmat, assemble_P
 
@@ -526,8 +536,7 @@ class FDMPC(PCBase):
                 mats.append(Msub)
 
             def scale_coefficients():
-                scale = 0
-                for Msub in mats:
+                for Msub, coef in zip(mats, coefs):
                     ksp = PETSc.KSP().create(comm=V.comm)
                     ksp.setOperators(A=Msub, P=Msub)
                     ksp.setType(PETSc.KSP.Type.CG)
@@ -543,14 +552,12 @@ class FDMPC(PCBase):
                     b.setRandom()
                     ksp.solve(b, x)
                     ew = numpy.real(ksp.computeEigenvalues())
+                    ksp.destroy()
                     x.destroy()
                     b.destroy()
                     dscale = (max(ew) + min(ew))/2
-                    if dscale == dscale:
-                        scale = max(scale, dscale)
-                    ksp.destroy()
-
-                for coef in coefs:
+                    dscale = sum(ew) / len(ew)
+                    scale = dscale if dscale == dscale else 1
                     with coef.dat.vec as diag:
                         diag.scale(scale)
 
