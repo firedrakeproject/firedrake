@@ -46,11 +46,13 @@ class Ensemble(object):
 
     def _check_function(self, f, g=None):
         """
-        Check if function f (and possibly a second function g) is a valid argument for ensemble mpi routines
+        Check if function f (and possibly a second function g) is a
+            valid argument for ensemble mpi routines
 
         :arg f: The function to check
         :arg g: Second function to check
-        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        :raises ValueError: if function communicators mismatch each other or the ensemble
+            spatial communicator, or is the functions are in different spaces
         """
         if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
@@ -69,7 +71,8 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator.
-        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or if the functions are in different spaces
+        :raises ValueError: if function communicators mismatch each other or the ensemble
+            spatial communicator, or if the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
@@ -86,7 +89,8 @@ class Ensemble(object):
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator.
         :returns: list of MPI.Request objects (one for each of f.split()).
-        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or if the functions are in different spaces
+        :raises ValueError: if function communicators mismatch each other or the ensemble
+            spatial communicator, or if the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
@@ -102,7 +106,8 @@ class Ensemble(object):
         :arg f_reduced: the result of the reduction on rank root.
         :arg op: MPI reduction operator.
         :arg root: rank to reduce to
-        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        :raises ValueError: if function communicators mismatch each other or the ensemble
+            spatial communicator, or is the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
@@ -123,7 +128,8 @@ class Ensemble(object):
         :arg op: MPI reduction operator.
         :arg root: rank to reduce to
         :returns: list of MPI.Request objects (one for each of f.split()).
-        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        :raises ValueError: if function communicators mismatch each other or the ensemble
+            spatial communicator, or is the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
