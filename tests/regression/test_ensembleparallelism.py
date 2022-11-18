@@ -4,7 +4,7 @@ import pytest
 import time
 
 from operator import mul
-from functools import reduce as fold
+from functools import reduce
 
 
 max_ncpts = 2
@@ -58,7 +58,7 @@ def W(request, mesh):
     if COMM_WORLD.size == 1:
         return
     V = FunctionSpace(mesh, "CG", 1)
-    return fold(mul, [V for _ in range(request.param)])
+    return reduce(mul, [V for _ in range(request.param)])
 
 
 # initialise unique function on each rank
@@ -150,6 +150,92 @@ def test_comm_manager_allreduce(blocking):
 
     with pytest.raises(ValueError):
         allreduce(f4, f5)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize("root", roots)
+@pytest.mark.parametrize("blocking", blocking)
+def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum,
+                         root, blocking):
+
+    u_reduce = Function(W).assign(10)
+
+    if blocking:
+        reduction = ensemble.reduce
+    else:
+        reduction = ensemble.ireduce
+
+    # check default root=0 works
+    if root is None:
+        requests = reduction(urank, u_reduce)
+        root = 0
+    else:
+        requests = reduction(urank, u_reduce, root=root)
+
+    if not blocking:
+        MPI.Request.Waitall(requests)
+
+    # only u_reduce on rank root should be modified
+    if ensemble.ensemble_comm.rank == root:
+        assert errornorm(urank_sum, u_reduce) < 1e-4
+    else:
+        assert errornorm(Function(W).assign(10), u_reduce) < 1e-4
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("blocking", blocking)
+def test_comm_manager_reduce(blocking):
+    ensemble = Ensemble(COMM_WORLD, 1)
+
+    if blocking:
+        reduction = ensemble.reduce
+    else:
+        reduction = ensemble.ireduce
+
+    mesh = UnitSquareMesh(1, 1, comm=ensemble.global_comm)
+
+    mesh2 = UnitSquareMesh(2, 2, comm=ensemble.ensemble_comm)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 1)
+
+    f = Function(V)
+    f2 = Function(V2)
+
+    # different function communicators
+    with pytest.raises(ValueError):
+        reduction(f, f2)
+
+    f3 = Function(V2)
+
+    # same function communicators, but doesn't match ensembles spatial communicator
+    with pytest.raises(ValueError):
+        reduction(f3, f2)
+
+    # same function communicator but different function spaces
+    mesh3 = UnitSquareMesh(2, 2, comm=ensemble.comm)
+    V3a = FunctionSpace(mesh3, "DG", 0)
+    V3b = FunctionSpace(mesh3, "DG", 1)
+    ga = Function(V3a)
+    gb = Function(V3b)
+    with pytest.raises(ValueError):
+        reduction(ga, gb)
+
+    # same size of underlying data but different function spaces
+    mesh4 = UnitSquareMesh(4, 2, comm=ensemble.comm)
+    mesh5 = UnitSquareMesh(2, 4, comm=ensemble.comm)
+
+    V4 = FunctionSpace(mesh4, "DG", 0)
+    V5 = FunctionSpace(mesh5, "DG", 0)
+
+    f4 = Function(V4)
+    f5 = Function(V5)
+
+    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+        assert v4.getSizes() == v5.getSizes()
+
+    with pytest.raises(ValueError):
+        reduction(f4, f5)
 
 
 @pytest.mark.parallel(nprocs=6)
