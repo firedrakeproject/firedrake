@@ -3,27 +3,97 @@ from pyop2.mpi import MPI
 import pytest
 import time
 
+from operator import mul
+from functools import reduce as fold
+
+
+max_ncpts = 2
+
+ncpts = [pytest.param(i, id="%d_components" % (i))
+         for i in range(1, max_ncpts + 1)]
+
+min_root = 1
+max_root = 1
+roots = [None] + [i for i in range(min_root, max_root + 1)]
+
+roots = []
+roots.extend([pytest.param(None, id="root_none")])
+roots.extend([pytest.param(i, id="root_%d" % (i))
+              for i in range(min_root, max_root + 1)])
+
+blocking = [pytest.param(True, id="blocking"),
+            pytest.param(False, id="nonblocking")]
+
+
+# unique profile on each mixed function component on each ensemble rank
+def function_profile(x, y, rank, cpt):
+    return sin(cpt + (rank+1)*pi*x)*cos(cpt + (rank+1)*pi*y)
+
+
+def unique_function(mesh, rank, W):
+    u = Function(W)
+    x, y = SpatialCoordinate(mesh)
+    for cpt, v in enumerate(u.split()):
+        v.interpolate(function_profile(x, y, rank, cpt))
+    return u
+
+
+@pytest.fixture
+def ensemble():
+    if COMM_WORLD.size == 1:
+        return
+    return Ensemble(COMM_WORLD, 2)
+
+
+@pytest.fixture
+def mesh(ensemble):
+    if COMM_WORLD.size == 1:
+        return
+    return UnitSquareMesh(10, 10, comm=ensemble.comm)
+
+
+# mixed function space
+@pytest.fixture(params=ncpts)
+def W(request, mesh):
+    if COMM_WORLD.size == 1:
+        return
+    V = FunctionSpace(mesh, "CG", 1)
+    return fold(mul, [V for _ in range(request.param)])
+
+
+# initialise unique function on each rank
+@pytest.fixture
+def urank(ensemble, mesh, W):
+    if COMM_WORLD.size == 1:
+        return
+    return unique_function(mesh, ensemble.ensemble_comm.rank, W)
+
+
+# sum of urank across all ranks
+@pytest.fixture
+def urank_sum(ensemble, mesh, W):
+    if COMM_WORLD.size == 1:
+        return
+    u = Function(W).assign(0)
+    for rank in range(ensemble.ensemble_comm.size):
+        u.assign(u + unique_function(mesh, rank, W))
+    return u
+
 
 @pytest.mark.parallel(nprocs=6)
-def test_ensemble_allreduce():
-    manager = Ensemble(COMM_WORLD, 2)
+@pytest.mark.parametrize("blocking", blocking)
+def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum,
+                            blocking):
 
-    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
+    u_reduce = Function(W).assign(0)
 
-    x, y = SpatialCoordinate(mesh)
+    if blocking:
+        ensemble.allreduce(urank, u_reduce)
+    else:
+        requests = ensemble.iallreduce(urank, u_reduce)
+        MPI.Request.Waitall(requests)
 
-    V = FunctionSpace(mesh, "CG", 1)
-    u_correct = Function(V)
-    u = Function(V)
-    usum = Function(V)
-
-    u_correct.interpolate(sin(pi*x)*cos(pi*y) + sin(2*pi*x)*cos(2*pi*y) + sin(3*pi*x)*cos(3*pi*y))
-    q = Constant(manager.ensemble_comm.rank + 1)
-    u.interpolate(sin(q*pi*x)*cos(q*pi*y))
-    usum.assign(10)             # Check that the output gets zeroed.
-    manager.allreduce(u, usum)
-
-    assert assemble((u_correct - usum)**2*dx) < 1e-4
+    assert errornorm(urank_sum, u_reduce) < 1e-4
 
 
 @pytest.mark.parallel(nprocs=6)
