@@ -96,6 +96,62 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum,
     assert errornorm(urank_sum, u_reduce) < 1e-4
 
 
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("blocking", blocking)
+def test_comm_manager_allreduce(blocking):
+    ensemble = Ensemble(COMM_WORLD, 1)
+
+    if blocking:
+        allreduce = ensemble.allreduce
+    else:
+        allreduce = ensemble.iallreduce
+
+    mesh = UnitSquareMesh(1, 1, comm=ensemble.global_comm)
+
+    mesh2 = UnitSquareMesh(2, 2, comm=ensemble.ensemble_comm)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 1)
+
+    f = Function(V)
+    f2 = Function(V2)
+
+    # different function communicators
+    with pytest.raises(ValueError):
+        allreduce(f, f2)
+
+    f3 = Function(V2)
+
+    # same function communicators, but doesn't match ensembles spatial communicator
+    with pytest.raises(ValueError):
+        allreduce(f3, f2)
+
+    # same function communicator but different function spaces
+    mesh3 = UnitSquareMesh(2, 2, comm=ensemble.comm)
+    V3a = FunctionSpace(mesh3, "DG", 0)
+    V3b = FunctionSpace(mesh3, "DG", 1)
+    ga = Function(V3a)
+    gb = Function(V3b)
+    with pytest.raises(ValueError):
+        allreduce(ga, gb)
+
+    # same size of underlying data but different function spaces
+    mesh4 = UnitSquareMesh(4, 2, comm=ensemble.comm)
+    mesh5 = UnitSquareMesh(2, 4, comm=ensemble.comm)
+
+    V4 = FunctionSpace(mesh4, "DG", 0)
+    V5 = FunctionSpace(mesh5, "DG", 0)
+
+    f4 = Function(V4)
+    f5 = Function(V5)
+
+    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+        assert v4.getSizes() == v5.getSizes()
+
+    with pytest.raises(ValueError):
+        allreduce(f4, f5)
+
+
 @pytest.mark.parallel(nprocs=6)
 def test_ensemble_solvers():
     # this test uses linearity of the equation to solve two problems
@@ -156,34 +212,6 @@ def test_comm_manager():
 def test_comm_manager_parallel():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_comm_manager_allreduce():
-    manager = Ensemble(COMM_WORLD, 1)
-
-    mesh = UnitSquareMesh(1, 1, comm=manager.global_comm)
-
-    mesh2 = UnitSquareMesh(2, 2, comm=manager.ensemble_comm)
-
-    V = FunctionSpace(mesh, "CG", 1)
-    V2 = FunctionSpace(mesh2, "CG", 1)
-
-    f = Function(V)
-    f2 = Function(V2)
-
-    with pytest.raises(ValueError):
-        manager.allreduce(f, f2)
-
-    f3 = Function(V2)
-
-    with pytest.raises(ValueError):
-        manager.allreduce(f3, f2)
-
-    V3 = FunctionSpace(mesh, "DG", 0)
-    g = Function(V3)
-    with pytest.raises(ValueError):
-        manager.allreduce(f, g)
 
 
 @pytest.mark.parallel(nprocs=8)
