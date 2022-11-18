@@ -1,7 +1,6 @@
 from firedrake import *
 from pyop2.mpi import MPI
 import pytest
-import time
 
 from operator import mul
 from functools import reduce
@@ -82,9 +81,7 @@ def urank_sum(ensemble, mesh, W):
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("blocking", blocking)
-def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum,
-                            blocking):
-
+def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
     u_reduce = Function(W).assign(0)
 
     if blocking:
@@ -155,9 +152,7 @@ def test_comm_manager_allreduce(blocking):
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("root", roots)
 @pytest.mark.parametrize("blocking", blocking)
-def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum,
-                         root, blocking):
-
+def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     u_reduce = Function(W).assign(10)
 
     if blocking:
@@ -241,9 +236,7 @@ def test_comm_manager_reduce(blocking):
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("root", roots)
 @pytest.mark.parametrize("blocking", blocking)
-def test_ensemble_bcast(ensemble, mesh, W, urank,
-                        root, blocking):
-
+def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
     if blocking:
         bcast = ensemble.bcast
     else:
@@ -263,6 +256,66 @@ def test_ensemble_bcast(ensemble, mesh, W, urank,
     u_correct = unique_function(mesh, root, W)
 
     assert errornorm(u_correct, urank) < 1e-4
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize("blocking", blocking)
+def test_send_and_recv(ensemble, mesh, W, blocking):
+    ensemble_rank = ensemble.ensemble_comm.rank
+    ensemble_size = ensemble.ensemble_comm.size
+
+    rank0 = 0
+    rank1 = 1
+
+    usend = unique_function(mesh, ensemble_size, W)
+    urecv = Function(W).assign(0)
+
+    if blocking:
+        send = ensemble.send
+        recv = ensemble.recv
+    else:
+        send = ensemble.isend
+        recv = ensemble.irecv
+
+    if ensemble_rank == rank0:
+        send_requests = send(usend, dest=rank1, tag=rank0)
+        recv_requests = recv(urecv, source=rank1, tag=rank1)
+
+        if not blocking:
+            MPI.Request.waitall(send_requests)
+            MPI.Request.waitall(recv_requests)
+
+        assert errornorm(urecv, usend) < 1e-8
+
+    elif ensemble_rank == rank1:
+        recv_requests = recv(urecv, source=rank0, tag=rank0)
+        send_requests = send(usend, dest=rank0, tag=rank1)
+
+        if not blocking:
+            MPI.Request.waitall(send_requests)
+            MPI.Request.waitall(recv_requests)
+
+        assert errornorm(urecv, usend) < 1e-8
+
+
+@pytest.mark.parallel(nprocs=6)
+def test_sendrecv(ensemble, mesh, W, urank):
+    ensemble_rank = ensemble.ensemble_comm.rank
+    ensemble_size = ensemble.ensemble_comm.size
+
+    src_rank = (ensemble_rank - 1) % ensemble_size
+    dst_rank = (ensemble_rank + 1) % ensemble_size
+
+    usend = urank
+    urecv = Function(W).assign(0)
+    u_expect = unique_function(mesh, src_rank, W)
+
+    sendrecv = ensemble.sendrecv
+
+    sendrecv(usend, dst_rank, sendtag=ensemble_rank,
+             frecv=urecv, source=src_rank, recvtag=src_rank)
+
+    assert errornorm(urecv, u_expect) < 1e-8
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -325,104 +378,3 @@ def test_comm_manager():
 def test_comm_manager_parallel():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)
-
-
-@pytest.mark.parallel(nprocs=8)
-def test_blocking_send_recv():
-    nprocs_spatial = 2
-    manager = Ensemble(COMM_WORLD, nprocs_spatial)
-
-    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-    x, y = SpatialCoordinate(mesh)
-    u_correct = Function(V).interpolate(sin(2*pi*x)*cos(2*pi*y))
-
-    ensemble_procno = manager.ensemble_comm.rank
-
-    if ensemble_procno == 0:
-        # before receiving, u should be 0
-        assert norm(u) < 1e-8
-
-        manager.send(u_correct, dest=1, tag=0)
-        manager.recv(u, source=1, tag=1)
-
-        # after receiving, u should be like u_correct
-        assert assemble((u-u_correct)**2*dx) < 1e-8
-
-    if ensemble_procno == 1:
-        # before receiving, u should be 0
-        assert norm(u) < 1e-8
-        manager.recv(u, source=0, tag=0)
-        manager.send(u, dest=0, tag=1)
-        # after receiving, u should be like u_correct
-        assert assemble((u - u_correct)**2*dx) < 1e-8
-
-    if ensemble_procno != 0 and ensemble_procno != 1:
-        # without receiving, u should be 0
-        assert norm(u) < 1e-8
-
-
-@pytest.mark.parallel(nprocs=8)
-def test_nonblocking_send_recv_mixed():
-    nprocs_spatial = 2
-    manager = Ensemble(COMM_WORLD, nprocs_spatial)
-
-    # Big mesh so we blow through the MPI eager message limit.
-    mesh = UnitSquareMesh(100, 100, comm=manager.comm)
-    V = FunctionSpace(mesh, "CG", 1)
-    Q = FunctionSpace(mesh, "DG", 0)
-    W = V*Q
-    w = Function(W)
-    x, y = SpatialCoordinate(mesh)
-    u, v = w.split()
-    u_expr = sin(2*pi*x)*cos(2*pi*y)
-    v_expr = x + y
-
-    w_expect = Function(W)
-    u_expect, v_expect = w_expect.split()
-    u_expect.interpolate(u_expr)
-    v_expect.interpolate(v_expr)
-    ensemble_procno = manager.ensemble_comm.rank
-
-    if ensemble_procno == 0:
-        requests = manager.isend(w_expect, dest=1, tag=0)
-        MPI.Request.waitall(requests)
-    elif ensemble_procno == 1:
-        # before receiving, u should be 0
-        assert norm(w) < 1e-8
-        requests = manager.irecv(w, source=0, tag=0)
-        # Bad check to see if the buffer has gone away.
-        time.sleep(2)
-        MPI.Request.waitall(requests)
-        assert assemble((u - u_expect)**2*dx) < 1e-8
-        assert assemble((v - v_expect)**2*dx) < 1e-8
-    else:
-        assert norm(w) < 1e-8
-
-
-@pytest.mark.parallel(nprocs=8)
-def test_nonblocking_send_recv():
-    nprocs_spatial = 2
-    manager = Ensemble(COMM_WORLD, nprocs_spatial)
-
-    mesh = UnitSquareMesh(20, 20, comm=manager.comm)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-    x, y = SpatialCoordinate(mesh)
-    u_expr = sin(2*pi*x)*cos(2*pi*y)
-    u_expect = interpolate(u_expr, V)
-    ensemble_procno = manager.ensemble_comm.rank
-
-    if ensemble_procno == 0:
-        requests = manager.isend(u_expect, dest=1, tag=0)
-        MPI.Request.waitall(requests)
-    elif ensemble_procno == 1:
-        # before receiving, u should be 0
-        assert norm(u) < 1e-8
-        requests = manager.irecv(u, source=0, tag=0)
-        MPI.Request.waitall(requests)
-        # after receiving, u should be like u_expect
-        assert assemble((u - u_expect)**2*dx) < 1e-8
-    else:
-        assert norm(u) < 1e-8
