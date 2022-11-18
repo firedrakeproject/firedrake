@@ -149,10 +149,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_iadd(__iadd__):
         @wraps(__iadd__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __iadd__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __iadd__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self + other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -167,10 +168,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_isub(__isub__):
         @wraps(__isub__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __isub__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __isub__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self - other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -185,10 +187,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_imul(__imul__):
         @wraps(__imul__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __imul__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __imul__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self*other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -203,10 +206,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_idiv(__idiv__):
         @wraps(__idiv__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __idiv__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __idiv__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self/other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()

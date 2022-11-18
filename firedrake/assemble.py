@@ -9,10 +9,11 @@ import cachetools
 import finat
 import firedrake
 import numpy
+from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
-from firedrake import (assemble_expressions, extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -100,7 +101,7 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return _assemble_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        return assemble_expressions.assemble_expression(expr)
+        return _assemble_expr(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
 
@@ -290,6 +291,20 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     return assembler.assemble()
 
 
+def _assemble_expr(expr):
+    """Assemble a pointwise expression.
+
+    :arg expr: The :class:`ufl.core.expr.Expr` to be evaluated.
+    :returns: A :class:`firedrake.Function` containing the result of this evaluation.
+    """
+    try:
+        coefficients = ufl.algorithms.extract_coefficients(expr)
+        V, = set(c.function_space() for c in coefficients) - {None}
+    except ValueError:
+        raise ValueError("Cannot deduce correct target space from pointwise expression")
+    return firedrake.Function(V).assign(expr)
+
+
 def _check_inputs(form, tensor, bcs, diagonal):
     # Ensure mesh is 'initialised' as we could have got here without building a
     # function space (e.g. if integrating a constant).
@@ -392,6 +407,12 @@ class FormAssembler(abc.ABC):
 
         :returns: The assembled object.
         """
+        if annotate_tape():
+            raise NotImplementedError(
+                "Taping with explicit FormAssembler objects is not supported yet. "
+                "Use assemble instead."
+            )
+
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 

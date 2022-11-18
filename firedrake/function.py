@@ -2,26 +2,20 @@ import numpy as np
 import sys
 import ufl
 from ufl.formatting.ufl2unicode import ufl2unicode
+import cachetools
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
-import numbers
 
 from pyop2 import op2
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
 from firedrake.petsc import PETSc
-try:
-    import cachetools
-except ImportError:
-    warning("cachetools not available, expression assembly will be slowed down")
-    cachetools = None
 
 
 __all__ = ['Function', 'PointNotInDomainError']
@@ -268,11 +262,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        if cachetools:
-            # LRU cache for expressions assembled onto this function
-            self._expression_cache = cachetools.LRUCache(maxsize=50)
-        else:
-            self._expression_cache = None
+        # LRU cache for expressions assembled onto this function
+        self._expression_cache = cachetools.LRUCache(maxsize=50)
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -375,7 +366,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
@@ -392,108 +382,41 @@ class Function(ufl.Coefficient, FunctionMixin):
         If present, subset must be an :class:`pyop2.Subset` of this
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
+
+        .. note::
+
+            Assignment can only be performed for simple weighted sum expressions and constant
+            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+            should be used.
         """
-        # Avoid generating code when assigning scalar values to the Real space
-        if (isinstance(expr, numbers.Number)
-                and self.function_space().ufl_element().family() == "Real"):
-            self.dat.data[...] = expr
-            return self
-
-        expr = ufl.as_ufl(expr)
-        if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
-            return self
-        elif (isinstance(expr, Function)
-              and expr.function_space() == self.function_space()):
-            expr.dat.copy(self.dat, subset=subset)
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr), subset)
+        from firedrake.assign import Assigner
+        Assigner(self, expr, subset).assign()
         return self
 
     @FunctionMixin._ad_annotate_iadd
-    @utils.known_pyop2_safe
     def __iadd__(self, expr):
-
-        if np.isscalar(expr):
-            self.dat += expr
-            return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
-            self.dat += expr.dat
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.IAdd(self, expr))
-
+        from firedrake.assign import IAddAssigner
+        IAddAssigner(self, expr).assign()
         return self
 
     @FunctionMixin._ad_annotate_isub
-    @utils.known_pyop2_safe
     def __isub__(self, expr):
-
-        if np.isscalar(expr):
-            self.dat -= expr
-            return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
-            self.dat -= expr.dat
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.ISub(self, expr))
-
+        from firedrake.assign import ISubAssigner
+        ISubAssigner(self, expr).assign()
         return self
 
     @FunctionMixin._ad_annotate_imul
-    @utils.known_pyop2_safe
     def __imul__(self, expr):
-
-        if np.isscalar(expr):
-            self.dat *= expr
-            return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
-            self.dat *= expr.dat
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.IMul(self, expr))
-
+        from firedrake.assign import IMulAssigner
+        IMulAssigner(self, expr).assign()
         return self
 
     @FunctionMixin._ad_annotate_idiv
-    @utils.known_pyop2_safe
-    def __idiv__(self, expr):
-
-        if np.isscalar(expr):
-            self.dat /= expr
-            return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
-        if isinstance(expr, Function) and \
-           expr.function_space() == self.function_space():
-            self.dat /= expr.dat
-            return self
-
-        from firedrake import assemble_expressions
-        assemble_expressions.evaluate_expression(
-            assemble_expressions.IDiv(self, expr))
-
+    def __itruediv__(self, expr):
+        from firedrake.assign import IDivAssigner
+        IDivAssigner(self, expr).assign()
         return self
-
-    __itruediv__ = __idiv__
 
     def __float__(self):
 
