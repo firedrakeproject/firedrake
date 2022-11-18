@@ -137,6 +137,34 @@ class Ensemble(object):
         return [self.ensemble_comm.Ireduce(fdat.data, rdat.data, op=op, root=root)
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
+    def bcast(self, f, root=0):
+        """
+        Broadcast a function f over :attr:`ensemble_comm` from rank root
+
+        :arg f: The :class:`.Function` to broadcast.
+        :arg root: rank to broadcast from
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        self._check_function(f)
+
+        with f.dat.vec as vec:
+            self.ensemble_comm.Bcast(vec.array, root=root)
+        return f
+
+    def ibcast(self, f, root=0):
+        """
+        Broadcast (non-blocking) a function f over :attr:`ensemble_comm` from rank root
+
+        :arg f: The :class:`.Function` to broadcast.
+        :arg root: rank to broadcast from
+        :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        self._check_function(f)
+
+        return [self.ensemble_comm.Ibcast(dat.data, root=root)
+                for dat in f.dat]
+
     def send(self, f, dest, tag=0):
         """
         Send (blocking) a function f over :attr:`ensemble_comm` to another
