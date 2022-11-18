@@ -3,7 +3,7 @@ from pyop2.mpi import MPI
 import pytest
 
 from operator import mul
-from functools import reduce
+from functools import reduce as fold
 
 
 max_ncpts = 2
@@ -57,7 +57,7 @@ def W(request, mesh):
     if COMM_WORLD.size == 1:
         return
     V = FunctionSpace(mesh, "CG", 1)
-    return reduce(mul, [V for _ in range(request.param)])
+    return fold(mul, [V for _ in range(request.param)])
 
 
 # initialise unique function on each rank
