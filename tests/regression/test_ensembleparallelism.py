@@ -3,7 +3,7 @@ from pyop2.mpi import MPI
 import pytest
 
 from operator import mul
-from functools import reduce as fold
+from functools import reduce
 
 
 max_ncpts = 2
@@ -57,7 +57,7 @@ def W(request, mesh):
     if COMM_WORLD.size == 1:
         return
     V = FunctionSpace(mesh, "CG", 1)
-    return fold(mul, [V for _ in range(request.param)])
+    return reduce(mul, [V for _ in range(request.param)])
 
 
 # initialise unique function on each rank
@@ -165,7 +165,6 @@ def test_comm_manager_allreduce(blocking):
 def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     from numpy import zeros
     u_reduce = Function(W).assign(10)
-
     if blocking:
         reduction = ensemble.reduce
     else:
