@@ -2140,7 +2140,7 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        plex = _from_netgen(meshfile, comm)
+        plex = _from_netgen(meshfile, user_comm)
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -2171,7 +2171,7 @@ def Mesh(meshfile, **kwargs):
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         #Adding NetGen mesh and inverse sfBC as attributes
         mesh.netgen_mesh = meshfile
-        mesh.sfBCInv = mesh.sfBC.createInverse() if comm.Get_size() > 1 else None
+        mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
     return mesh
 
 
