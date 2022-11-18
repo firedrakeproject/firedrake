@@ -173,9 +173,9 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to send
         :arg dest: the rank to send to
         :arg tag: the tag of the message
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
+        self._check_function(f)
         for dat in f.dat:
             self._ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
 
@@ -188,9 +188,9 @@ class Ensemble(object):
         :arg source: the rank to receive from
         :arg tag: the tag of the message
         :arg statuses: MPI.Status objects (one for each of f.split() or None).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
+        self._check_function(f)
         if statuses is not None and len(statuses) != len(f.dat):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
@@ -205,10 +205,10 @@ class Ensemble(object):
         :arg dest: the rank to send to
         :arg tag: the tag of the message
         :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
-        return [self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
+        self._check_function(f)
+        return [self.ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
                 for dat in f.dat]
 
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
@@ -220,8 +220,30 @@ class Ensemble(object):
         :arg source: the rank to receive from
         :arg tag: the tag of the message
         :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
-        return [self._ensemble_comm.Irecv(dat.data, source=source, tag=tag)
+        self._check_function(f)
+        return [self.ensemble_comm.Irecv(dat.data, source=source, tag=tag)
                 for dat in f.dat]
+
+    def sendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG, status=None):
+        """
+        Send (blocking) a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        ensemble rank.
+
+        :arg fsend: The a :class:`.Function` to send
+        :arg dest: the rank to send to
+        :arg sendtag: the tag of the send message
+        :arg frecv: The a :class:`.Function` to receive into
+        :arg source: the rank to receive from
+        :arg recvtag: the tag of the received message
+        :arg status: MPI.Status object or None.
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        # functions don't necessarily have to match
+        self._check_function(fsend)
+        self._check_function(frecv)
+        with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
+            self.ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
+                                        recvbuf=recvvec, source=source, recvtag=recvtag,
+                                        status=status)
