@@ -127,7 +127,7 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        return [self.ensemble_comm.Ireduce(fdat.data, rdat.data, op=op, root=root)
+        return [self.ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
