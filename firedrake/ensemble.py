@@ -55,6 +55,23 @@ class Ensemble(object):
                 comm = getattr(self, comm_name)
                 decref(comm)
 
+    def _check_function(self, f, g=None):
+        """
+        Check if function f (and possibly a second function g) is a valid argument for ensemble mpi routines
+
+        :arg f: The function to check
+        :arg g: Second function to check
+        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        """
+        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Function communicator does not match space communicator")
+
+        if g is not None:
+            if MPI.Comm.Compare(f._comm, g._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+                raise ValueError("Mismatching communicators for functions")
+            if f.function_space() != g.function_space():
+                raise ValueError("Mismatching function spaces for functions")
+
     def allreduce(self, f, f_reduced, op=MPI.SUM):
         """
         Allreduce a function f into f_reduced over :attr:`ensemble_comm`.
@@ -62,17 +79,28 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator.
-        :raises ValueError: if communicators mismatch, or function sizes mismatch.
+        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or if the functions are in different spaces
         """
-        if MPI.Comm.Compare(f_reduced._comm, f._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Mismatching communicators for functions")
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
+        self._check_function(f, f_reduced)
+
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
-            if vout.getSizes() != vin.getSizes():
-                raise ValueError("Mismatching sizes")
-            self._ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
+            self.ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
+
+    def iallreduce(self, f, f_reduced, op=MPI.SUM):
+        """
+        Allreduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm`.
+
+        :arg f: The a :class:`.Function` to allreduce.
+        :arg f_reduced: the result of the reduction.
+        :arg op: MPI reduction operator.
+        :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or if the functions are in different spaces
+        """
+        self._check_function(f, f_reduced)
+
+        return [self.ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
+                for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     def send(self, f, dest, tag=0):
         """
