@@ -529,7 +529,7 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.0.0"}, "")
+        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "3.0.0"}, "")
         r"""DMPlex HDF5 version options."""
 
     def __enter__(self):
@@ -637,12 +637,12 @@ class CheckpointFile(object):
             # the global sum of DMPlex cone sizes are consistent.
             order_array_size, ornt_array_size = dmcommon.compute_point_cone_global_sizes(topology_dm)
             path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-            order_array_size1 = self.h5pyfile[path]["order"].size
-            ornt_array_size1 = self.h5pyfile[path]["orientation"].size
-            if order_array_size1 != order_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
-            if ornt_array_size1 != ornt_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
+            #order_array_size1 = self.h5pyfile[path]["order"].size
+            #ornt_array_size1 = self.h5pyfile[path]["orientation"].size
+            #if order_array_size1 != order_array_size:
+            #    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
+            #if ornt_array_size1 != ornt_array_size:
+            #    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
             # We assume that each (conceptually the same) mesh topology (plex)
             # is uniquely named (this is users' responsibility).
             # With the current setup, "distributions" folder will always contain
@@ -993,11 +993,11 @@ class CheckpointFile(object):
             plex.setName(tmesh_name)
             # Check format
             path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-            if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
-                                                    os.path.join(path, "cones"),
-                                                    os.path.join(path, "order"),
-                                                    os.path.join(path, "orientation")]):
-                raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
+            #if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
+            #                                        os.path.join(path, "cones"),
+            #                                        os.path.join(path, "order"),
+            #                                        os.path.join(path, "orientation")]):
+            #    raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
             format = ViewerHDF5.Format.HDF5_PETSC
             self.viewer.pushFormat(format=format)
             plex.distributionSetName(distribution_name)
