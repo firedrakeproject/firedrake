@@ -247,3 +247,25 @@ class Ensemble(object):
             self.ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                         recvbuf=recvvec, source=source, recvtag=recvtag,
                                         status=status)
+
+    def isendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG):
+        """
+        Send a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        ensemble rank.
+
+        :arg fsend: The a :class:`.Function` to send
+        :arg dest: the rank to send to
+        :arg sendtag: the tag of the send message
+        :arg frecv: The a :class:`.Function` to receive into
+        :arg source: the rank to receive from
+        :arg recvtag: the tag of the received message
+        :returns: list of MPI.Request objects (one for each of fsend.split() and frecv.split()).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        # functions don't necessarily have to match
+        self._check_function(fsend)
+        self._check_function(frecv)
+        requests = []
+        requests.extend([self.ensemble_comm.Isend(dat.data_ro, dest=dest, tag=sendtag) for dat in fsend.dat])
+        requests.extend([self.ensemble_comm.Irecv(dat.data, source=source, tag=recvtag) for dat in frecv.dat])
+        return requests

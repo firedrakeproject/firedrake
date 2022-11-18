@@ -299,7 +299,8 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_sendrecv(ensemble, mesh, W, urank):
+@pytest.mark.parametrize("blocking", blocking)
+def test_sendrecv(ensemble, mesh, W, urank, blocking):
     ensemble_rank = ensemble.ensemble_comm.rank
     ensemble_size = ensemble.ensemble_comm.size
 
@@ -310,10 +311,16 @@ def test_sendrecv(ensemble, mesh, W, urank):
     urecv = Function(W).assign(0)
     u_expect = unique_function(mesh, src_rank, W)
 
-    sendrecv = ensemble.sendrecv
+    if blocking:
+        sendrecv = ensemble.sendrecv
+    else:
+        sendrecv = ensemble.isendrecv
 
-    sendrecv(usend, dst_rank, sendtag=ensemble_rank,
-             frecv=urecv, source=src_rank, recvtag=src_rank)
+    requests = sendrecv(usend, dst_rank, sendtag=ensemble_rank,
+                        frecv=urecv, source=src_rank, recvtag=src_rank)
+
+    if not blocking:
+        MPI.Request.Waitall(requests)
 
     assert errornorm(urecv, u_expect) < 1e-8
 
