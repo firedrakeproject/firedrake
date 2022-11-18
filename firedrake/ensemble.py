@@ -35,6 +35,14 @@ class Ensemble(object):
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
 
+    def __del__(self):
+        if hasattr(self, "comm"):
+            self.comm.Free()
+            del self.comm
+        if hasattr(self, "ensemble_comm"):
+            self.ensemble_comm.Free()
+            del self.ensemble_comm
+
     def _check_function(self, f, g=None):
         """
         Check if function f (and possibly a second function g) is a valid argument for ensemble mpi routines
@@ -117,13 +125,33 @@ class Ensemble(object):
         return [self.ensemble_comm.Ireduce(fdat.data, rdat.data, op=op, root=root)
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
-    def __del__(self):
-        if hasattr(self, "comm"):
-            self.comm.Free()
-            del self.comm
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
+    def bcast(self, f, root=0):
+        """
+        Broadcast a function f over :attr:`ensemble_comm` from rank root
+
+        :arg f: The :class:`.Function` to broadcast.
+        :arg root: rank to broadcast from
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        self._check_function(f)
+
+        with f.dat.vec as vec:
+            self.ensemble_comm.Bcast(vec.array, root=root)
+        return f
+
+    def ibcast(self, f, root=0):
+        """
+        Broadcast (non-blocking) a function f over :attr:`ensemble_comm` from rank root
+
+        :arg f: The :class:`.Function` to broadcast.
+        :arg root: rank to broadcast from
+        :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        """
+        self._check_function(f)
+
+        return [self.ensemble_comm.Ibcast(dat.data, root=root)
+                for dat in f.dat]
 
     def send(self, f, dest, tag=0):
         """

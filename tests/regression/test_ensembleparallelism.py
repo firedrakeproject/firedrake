@@ -239,6 +239,33 @@ def test_comm_manager_reduce(blocking):
 
 
 @pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize("root", roots)
+@pytest.mark.parametrize("blocking", blocking)
+def test_ensemble_bcast(ensemble, mesh, W, urank,
+                        root, blocking):
+
+    if blocking:
+        bcast = ensemble.bcast
+    else:
+        bcast = ensemble.ibcast
+
+    # check default root=0 works
+    if root is None:
+        requests = bcast(urank)
+        root = 0
+    else:
+        requests = bcast(urank, root=root)
+
+    if not blocking:
+        MPI.Request.Waitall(requests)
+
+    # broadcasted function
+    u_correct = unique_function(mesh, root, W)
+
+    assert errornorm(u_correct, urank) < 1e-4
+
+
+@pytest.mark.parallel(nprocs=6)
 def test_ensemble_solvers():
     # this test uses linearity of the equation to solve two problems
     # with different RHS on different subcommunicators,
