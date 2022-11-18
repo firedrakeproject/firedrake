@@ -281,7 +281,6 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
 def test_send_and_recv(ensemble, mesh, W, blocking):
     ensemble_rank = ensemble.ensemble_comm.rank
     ensemble_size = ensemble.ensemble_comm.size
-
     rank0 = 0
     rank1 = 1
 
