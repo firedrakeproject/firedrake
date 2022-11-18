@@ -102,6 +102,41 @@ class Ensemble(object):
         return [self.ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
+    def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
+        """
+        Reduce a function f into f_reduced over :attr:`ensemble_comm` to rank root
+
+        :arg f: The a :class:`.Function` to reduce.
+        :arg f_reduced: the result of the reduction on rank root.
+        :arg op: MPI reduction operator.
+        :arg root: rank to reduce to
+        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        """
+        self._check_function(f, f_reduced)
+
+        # need to use `vec` not `vec_wo` for f_reduced otherwise function will be blanked out
+        # when rank!=root because `vec_wo` doesn't copy over existing data into the pyop2 vector
+        with f_reduced.dat.vec as vout, f.dat.vec_ro as vin:
+            self.ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
+
+        return f_reduced
+
+    def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
+        """
+        Reduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm` to rank root
+
+        :arg f: The a :class:`.Function` to reduce.
+        :arg f_reduced: the result of the reduction on rank root.
+        :arg op: MPI reduction operator.
+        :arg root: rank to reduce to
+        :returns: list of MPI.Request objects (one for each of f.split()).
+        :raises ValueError: if function communicators mismatch each other or the ensemble spatial communicator, or is the functions are in different spaces
+        """
+        self._check_function(f, f_reduced)
+
+        return [self.ensemble_comm.Ireduce(fdat.data, rdat.data, op=op, root=root)
+                for fdat, rdat in zip(f.dat, f_reduced.dat)]
+
     def send(self, f, dest, tag=0):
         """
         Send (blocking) a function f over :attr:`ensemble_comm` to another
