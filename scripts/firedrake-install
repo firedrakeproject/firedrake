@@ -646,9 +646,7 @@ def get_petsc_options(minimal=False):
                      "--with-c2html=0",
                      "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                      # Parser generator
-                     "--download-bison",
-                     # For superlu_dist amongst others.
-                     "--with-cxx-dialect=C++11"}
+                     "--download-bison"}
     for pkg in get_minimal_petsc_packages():
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
