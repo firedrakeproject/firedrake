@@ -31,14 +31,14 @@ class Ensemble(object):
         # Internal split comm
         self._comm = internal_comm(self.comm)
         """The communicator for spatial parallelism, contains a
-        contiguous chunk of M processes from :attr:`comm`"""
+        contiguous chunk of M processes from :attr:`global_comm`"""
 
         # User ensemble comm
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         # Internal ensemble comm
         self._ensemble_comm = internal_comm(self.ensemble_comm)
         """The communicator for ensemble parallelism, contains all
-        processes in :attr:`comm` which have the same rank in
+        processes in :attr:`global_comm` which have the same rank in
         :attr:`comm`."""
 
         assert self.comm.size == M
