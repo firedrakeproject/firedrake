@@ -24,13 +24,13 @@ class Ensemble(object):
         self.global_comm = comm
         """The global communicator."""
 
-        self.comm = comm.Split(color=(rank // M), key=rank)
+        self.comm = self.global_comm.Split(color=(rank // M), key=rank)
         """The communicator for spatial parallelism, contains a
-        contiguous chunk of M processes from :attr:`comm`"""
+        contiguous chunk of M processes from :attr:`global_comm`"""
 
-        self.ensemble_comm = comm.Split(color=(rank % M), key=rank)
+        self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         """The communicator for ensemble parallelism, contains all
-        processes in :attr:`comm` which have the same rank in
+        processes in :attr:`global_comm` which have the same rank in
         :attr:`comm`."""
 
         assert self.comm.size == M
