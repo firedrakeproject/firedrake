@@ -73,6 +73,7 @@ jobs:
           xargs -l1 python -m pip install < requirements-git.txt
           python -m pip install pulp
           python -m pip install -U flake8
+          python -m pip install -U pytest-timeout
           python -m pip install .
 
       - name: Run linting
@@ -83,7 +84,7 @@ jobs:
       - name: Run tests
         shell: bash
         working-directory: PyOP2
-        run: pytest test -v --tb=native
+        run: pytest test -v --tb=native --timeout=600
 
       - name: Build documentation
         if: ${{ matrix.python-version == '3.10' }}
