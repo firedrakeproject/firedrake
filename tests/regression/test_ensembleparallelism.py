@@ -164,7 +164,7 @@ def test_comm_manager_allreduce(blocking):
 @pytest.mark.parametrize("root", roots)
 @pytest.mark.parametrize("blocking", blocking)
 def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
-    from numpy import zeros
+    from numpy import zeros, array
     u_reduce = Function(W).assign(10)
 
     if blocking:
@@ -203,10 +203,14 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
         for i in range(ensemble.ensemble_comm.size):
             if i != root:
                 if ensemble_rank == i:
-                    ensemble.ensemble_comm.Send(states[:1], dest=root, tag=i)
+                    not_root_state = array(states[:1])
+                    ensemble.ensemble_comm.Send(not_root_state, dest=root, tag=i)
+
                 elif ensemble_rank == root:
-                    ensemble.ensemble_comm.Recv(states[-1:], source=i, tag=i)
-                    assert states[0] > states[-1]
+                    root_state = array(states[:1])
+                    not_root_state = zeros(1, dtype=int)
+                    ensemble.ensemble_comm.Recv(not_root_state, source=i, tag=i)
+                    assert root_state[0] > not_root_state[0]
 
 
 @pytest.mark.parallel(nprocs=2)
