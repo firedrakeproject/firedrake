@@ -258,11 +258,11 @@ def test_real_space_assign():
     f = Function(V)
     f.assign(2)
     g = Function(V)
-    g.assign(2*f + f**3)
+    g.assign(2*f)
     h = Function(V)
     h.assign(0.0)
     assert np.allclose(float(f), 2.0)
-    assert np.allclose(float(g), 12.0)
+    assert np.allclose(float(g), 4.0)
     assert np.allclose(float(h), 0.0)
 
 
