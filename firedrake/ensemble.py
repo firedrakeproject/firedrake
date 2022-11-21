@@ -123,10 +123,12 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        # need to use `vec` not `vec_wo` for f_reduced otherwise function will be blanked out
-        # when rank!=root because `vec_wo` doesn't copy over existing data into the pyop2 vector
-        with f_reduced.dat.vec as vout, f.dat.vec_ro as vin:
-            self.ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
+        if self.ensemble_comm.rank == root:
+            with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
+                self.ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
+        else:
+            with f.dat.vec_ro as vin:
+                self.ensemble_comm.Reduce(vin.array_r, None, op=op, root=root)
 
         return f_reduced
 

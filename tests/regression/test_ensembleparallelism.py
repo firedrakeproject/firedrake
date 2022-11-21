@@ -187,6 +187,18 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     else:
         assert errornorm(Function(W).assign(10), u_reduce) < 1e-4
 
+    # check that u_reduce dat vector is still synchronised
+    ensemble_rank = ensemble.ensemble_comm.rank
+    spatial_rank = ensemble.comm.rank
+    if ensemble_rank == root:
+        from numpy import zeros
+        states = zeros(ensemble.comm.size, dtype=int)
+        with u_reduce.dat.vec as v:
+            states[spatial_rank] = v.stateGet()
+        ensemble.comm.Allgather(MPI.IN_PLACE, states)
+        for state in states:
+            assert state == states[0]
+
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("blocking", blocking)
