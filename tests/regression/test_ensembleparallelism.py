@@ -198,14 +198,22 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     # check that u_reduce dat vector is still synchronised
     ensemble_rank = ensemble.ensemble_comm.rank
     spatial_rank = ensemble.comm.rank
-    if ensemble_rank == root:
-        from numpy import zeros
-        states = zeros(ensemble.comm.size, dtype=int)
-        with u_reduce.dat.vec as v:
-            states[spatial_rank] = v.stateGet()
-        ensemble.comm.Allgather(MPI.IN_PLACE, states)
-        for state in states:
-            assert state == states[0]
+
+    states = zeros(ensemble.comm.size, dtype=int)
+    with u_reduce.dat.vec as v:
+        states[spatial_rank] = v.stateGet()
+    ensemble.comm.Allgather(MPI.IN_PLACE, states)
+    assert len(set(states)) == 1
+
+    # check that result vector has been accessed more on root
+    if blocking:
+        for i in range(ensemble.ensemble_comm.size):
+            if i != root:
+                if ensemble_rank == i:
+                    ensemble.ensemble_comm.Send(states[:1], dest=root, tag=i)
+                elif ensemble_rank == root:
+                    ensemble.ensemble_comm.Recv(states[-1:], source=i, tag=i)
+                    assert states[0] > states[-1]
 
 
 @pytest.mark.parallel(nprocs=2)
