@@ -23,6 +23,7 @@ jobs:
       PETSC_DIR: ${{ github.workspace }}/petsc
       PETSC_ARCH: default
       PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1 --with-c2html=0 --with-fortran-bindings=0
+    timeout-minutes: 60
 
     steps:
       - name: Install system dependencies
@@ -84,7 +85,8 @@ jobs:
       - name: Run tests
         shell: bash
         working-directory: PyOP2
-        run: pytest test -v --tb=native --timeout=600
+        run: pytest --tb=native --timeout=600 -v test
+        timeout-minutes: 10
 
       - name: Build documentation
         if: ${{ matrix.python-version == '3.10' }}
