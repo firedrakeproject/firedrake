@@ -114,8 +114,11 @@ class ASMPatchPC(PCBase):
 
     def update(self, pc):
         # FIXME this should be done internally by PCASM
-        for sub in self.asmpc.getASMSubKSP():
-            sub.getOperators()[0].setUnfactored()
+        try:
+            for sub in self.asmpc.getASMSubKSP():
+                sub.getOperators()[0].setUnfactored()
+        except PETSc.Error:
+            pass
         self.asmpc.setUp()
 
     def apply(self, pc, x, y):
