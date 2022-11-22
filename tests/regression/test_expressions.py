@@ -169,10 +169,60 @@ def test_tensor_expressions(expr, tfunctions):
     assert eval(expr)
 
 
-@pytest.mark.parametrize('expr', common_tests)
-def test_mixed_expressions(expr, mfunctions):
+def test_mixed_expressions(mfunctions):
     f, one, two = mfunctions
-    assert eval(expr)
+
+    f.sub(0).assign(one.sub(0))
+    assert evaluate(f.dat.data, (1, 0))
+    f.assign(0)
+
+    f.sub(1).assign(one.sub(1))
+    assert evaluate(f.dat.data, (0, 1))
+    f.assign(0)
+
+    two.sub(0).assign(one.sub(0))
+    assert evaluate(two.dat.data, (1, 2))
+    two.assign(2)
+
+    two.sub(1).assign(one.sub(1))
+    assert evaluate(two.dat.data, (2, 1))
+    two.assign(2)
+
+    two.sub(0).assign(one.sub(0) + two.sub(0))
+    assert evaluate(two.dat.data, (3, 2))
+    two.assign(2)
+
+    two.sub(1).assign(two.sub(1) - one.sub(1))
+    assert evaluate(two.dat.data, (2, 1))
+    two.assign(2)
+
+    one0 = one.sub(0)
+    one0 += one.sub(0)
+    assert evaluate(one.dat.data, (2, 1))
+    one.assign(1)
+
+    one1 = one.sub(1)
+    one1 -= one.sub(1)
+    assert evaluate(one.dat.data, (1, 0))
+
+
+def test_mixed_expressions_indexed_fs(msfunctions):
+    f, one, two = msfunctions
+
+    f.sub(0).assign(one)
+    assert evaluate(f.dat.data, (1, 0))
+    f.assign(0)
+
+    f.sub(1).assign(two)
+    assert evaluate(f.dat.data, (0, 2))
+    f.sub(0).assign(one)
+    assert evaluate(f.dat.data, (1, 2))
+
+    one.assign(2*f.sub(0) + 1)
+    assert evaluate(one.dat.data, 3)
+
+    two += f.sub(1)
+    assert evaluate(two.dat.data, 4)
 
 
 def test_iadd_combination(sfs):
@@ -194,7 +244,7 @@ def test_iadd_vector(sfs):
     assert np.allclose(f.dat.data_ro, 3)
 
 
-def test_different_fs_asign_fails(fs_combinations):
+def test_different_fs_assign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
     f1, f2 = fs_combinations
@@ -216,7 +266,7 @@ def test_assign_mfs_lincomp(mfs):
         assert np.allclose(f_, 1 + 2*2 + 3 * 4)
 
 
-def test_asign_to_nonindexed_subspace_fails(mfs):
+def test_assign_to_nonindexed_subspace_fails(mfs):
     """Assigning a Function on a non-indexed sub space of a mixed function
     space to a function on the mixed function space should fail."""
     for fs in mfs:
@@ -283,6 +333,21 @@ def test_assign_to_mfs_sub(cg1, vcg1):
 
     with pytest.raises(ValueError):
         w.assign(q.sub(1))
+
+
+def test_assign_to_vfs_sub(cg1, vcg1):
+    v = Function(cg1).assign(2)
+    w = Function(vcg1).assign(0)
+
+    w.sub(0).assign(v)
+    assert np.allclose(w.sub(0).dat.data_ro, 2)
+    assert np.allclose(w.sub(1).dat.data_ro, 0)
+
+    v.assign(w.sub(1))
+    assert np.allclose(v.dat.data_ro, 0)
+
+    v += w.sub(0)
+    assert np.allclose(v.dat.data_ro, 2)
 
 
 def test_assign_from_mfs_sub(cg1, vcg1):

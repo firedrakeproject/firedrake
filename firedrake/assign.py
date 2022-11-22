@@ -131,11 +131,11 @@ class Assigner:
             expression = expression.function
         expression = as_ufl(expression)
 
-        if not all(c.function_space() == assignee.function_space()
+        if not all(c.ufl_element() == assignee.ufl_element()
                    for c in extract_coefficients(expression)
                    if isinstance(c, Function)):
-            raise ValueError("All functions in the expression must be in the same "
-                             "function space as the assignee")
+            raise ValueError("All functions in the expression must have the same "
+                             "element as the assignee")
 
         self._assignee = assignee
         self._expression = expression
