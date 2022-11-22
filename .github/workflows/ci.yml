@@ -23,6 +23,7 @@ jobs:
       PETSC_DIR: ${{ github.workspace }}/petsc
       PETSC_ARCH: default
       PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1 --with-c2html=0 --with-fortran-bindings=0
+      RDMAV_FORK_SAFE: 1
     timeout-minutes: 60
 
     steps:
