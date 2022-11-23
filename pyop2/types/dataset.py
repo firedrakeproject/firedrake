@@ -376,7 +376,8 @@ class MixedDataSet(DataSet):
             return
         self._dsets = arg
         try:
-            # Try/except may not be necessary, someone needs to think about this...
+            # Try to choose the comm to be the same as the first set
+            # of the MixedDataSet
             comm = self._process_args(arg, dims)[0][0].comm
         except AttributeError:
             comm = None

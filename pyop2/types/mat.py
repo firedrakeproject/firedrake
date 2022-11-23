@@ -1113,7 +1113,7 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    with mpi.PyOP2Comm(x.comm) as comm:
+                    with mpi.temp_internal_comm(x.comm) as comm:
                         comm.bcast(a)
                     return y.scale(a)
                 else:
@@ -1130,7 +1130,7 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    with mpi.PyOP2Comm(x.comm) as comm:
+                    with mpi.temp_internal_comm(x.comm) as comm:
                         comm.bcast(a)
                     y.scale(a)
                 else:
@@ -1155,7 +1155,7 @@ class _DatMatPayload:
                         a[0] = x.array_r
                     else:
                         x.array_r
-                    with mpi.PyOP2Comm(x.comm) as comm:
+                    with mpi.temp_internal_comm(x.comm) as comm:
                         comm.bcast(a)
                     if y == z:
                         # Last two arguments are aliased.
