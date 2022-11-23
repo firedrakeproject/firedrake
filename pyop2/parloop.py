@@ -15,7 +15,7 @@ from pyop2.exceptions import KernelTypeError, MapValueError, SetTypeError
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
                                  MatKernelArg, MixedMatKernelArg, GlobalKernel)
 from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel, LoopyLocalKernel
-from pyop2.types import (Access, Global, Dat, DatView, MixedDat, Mat, Set,
+from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.utils import cached_property
 
@@ -146,6 +146,7 @@ class Parloop:
             raise ValueError("The argument dtypes do not match those for the local kernel")
 
         self.check_iterset(iterset, global_knl, arguments)
+        self._check_frozen_access_modes(global_knl.local_kernel, arguments)
 
         self.global_kernel = global_knl
         self.iterset = iterset
@@ -439,6 +440,19 @@ class Parloop:
             for j, m in enumerate(pl_arg.maps):
                 if m.iterset != iterset and m.iterset not in iterset:
                     raise MapValueError(f"Iterset of arg {i} map {j} does not match parloop iterset")
+
+    @classmethod
+    def _check_frozen_access_modes(cls, local_knl, arguments):
+        """Check that any frozen :class:`Dat` are getting accessed with the right access mode."""
+        for lknl_arg, pl_arg in zip(local_knl.arguments, arguments):
+            if isinstance(pl_arg.data, AbstractDat):
+                if any(
+                    d._halo_frozen and d._frozen_access_mode != lknl_arg.access
+                    for d in pl_arg.data
+                ):
+                    raise RuntimeError(
+                        "Dats with frozen halos must always be accessed with the same access mode"
+                    )
 
     @classmethod
     def prepare_reduced_globals(cls, arguments, global_knl):

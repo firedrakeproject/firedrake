@@ -1624,6 +1624,19 @@ class TestParLoopAPI:
         k = op2.Kernel("static void k(int *x) {}", "k")
         op2.par_loop(k, s1, d(op2.READ, m))
 
+    def test_frozen_dats_cannot_use_different_access_mode(self):
+        s1 = op2.Set(2)
+        s2 = op2.Set(3)
+        m = op2.Map(s1, s2, 3, [0]*6)
+        d = op2.Dat(s2**1, [0]*3, dtype=int)
+        k = op2.Kernel("static void k(int *x) {}", "k")
+
+        with d.frozen_halo(op2.INC):
+            op2.par_loop(k, s1, d(op2.INC, m))
+
+            with pytest.raises(RuntimeError):
+                op2.par_loop(k, s1, d(op2.WRITE, m))
+
 
 if __name__ == '__main__':
     import os

@@ -85,6 +85,9 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         self.halo_valid = True
         self._name = name or "dat_#x%x" % id(self)
 
+        self._halo_frozen = False
+        self._frozen_access_mode = None
+
     @utils.cached_property
     def _kernel_args_(self):
         return (self._data.ctypes.data, )
@@ -546,7 +549,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         :kwarg access_mode: Mode with which the data will subsequently
            be accessed."""
         halo = self.dataset.halo
-        if halo is None:
+        if halo is None or self._halo_frozen:
             return
         if not self.halo_valid and access_mode in {Access.READ, Access.RW}:
             halo.global_to_local_begin(self, Access.WRITE)
@@ -565,7 +568,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         :kwarg access_mode: Mode with which the data will subsequently
            be accessed."""
         halo = self.dataset.halo
-        if halo is None:
+        if halo is None or self._halo_frozen:
             return
         if not self.halo_valid and access_mode in {Access.READ, Access.RW}:
             halo.global_to_local_end(self, Access.WRITE)
@@ -582,7 +585,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
         :kwarg insert_mode: insertion mode (an access descriptor)"""
         halo = self.dataset.halo
-        if halo is None:
+        if halo is None or self._halo_frozen:
             return
         halo.local_to_global_begin(self, insert_mode)
 
@@ -592,10 +595,43 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
         :kwarg insert_mode: insertion mode (an access descriptor)"""
         halo = self.dataset.halo
-        if halo is None:
+        if halo is None or self._halo_frozen:
             return
         halo.local_to_global_end(self, insert_mode)
         self.halo_valid = False
+
+    @mpi.collective
+    def frozen_halo(self, access_mode):
+        """Temporarily disable halo exchanges inside a context manager.
+
+        :arg access_mode: Mode with which the data will subsequently be accessed.
+
+        This is useful in cases where one is repeatedly writing to a :class:`Dat` with
+        the same access descriptor since the intermediate updates can be skipped.
+        """
+        return frozen_halo(self, access_mode)
+
+    @mpi.collective
+    def freeze_halo(self, access_mode):
+        """Disable halo exchanges.
+
+        :arg access_mode: Mode with which the data will subsequently be accessed.
+
+        Note that some bookkeeping is needed when freezing halos. Prefer to use the
+        :meth:`Dat.frozen_halo` context manager.
+        """
+        if self._halo_frozen:
+            raise RuntimeError("Expected an unfrozen halo")
+        self._halo_frozen = True
+        self._frozen_access_mode = access_mode
+
+    @mpi.collective
+    def unfreeze_halo(self):
+        """Re-enable halo exchanges."""
+        if not self._halo_frozen:
+            raise RuntimeError("Expected a frozen halo")
+        self._halo_frozen = False
+        self._frozen_access_mode = None
 
 
 class DatView(AbstractDat):
@@ -835,6 +871,18 @@ class MixedDat(AbstractDat, VecAccessMixin):
             s.local_to_global_end(insert_mode)
 
     @mpi.collective
+    def freeze_halo(self, access_mode):
+        """Disable halo exchanges."""
+        for d in self:
+            d.freeze_halo(access_mode)
+
+    @mpi.collective
+    def unfreeze_halo(self):
+        """Re-enable halo exchanges."""
+        for d in self:
+            d.unfreeze_halo()
+
+    @mpi.collective
     def zero(self, subset=None):
         """Zero the data associated with this :class:`MixedDat`.
 
@@ -1033,3 +1081,27 @@ class MixedDat(AbstractDat, VecAccessMixin):
                     v.array[:] = array[offset:offset+size]
                     offset += size
             self.halo_valid = False
+
+
+class frozen_halo:
+    """Context manager handling the freezing and unfreezing of halos.
+
+    :param dat: The :class:`Dat` whose halo is to be frozen.
+    :param access_mode: Mode with which the :class:`Dat` will be accessed whilst
+        its halo is frozen.
+    """
+    def __init__(self, dat, access_mode):
+        self._dat = dat
+        self._access_mode = access_mode
+
+    def __enter__(self):
+        # Initialise the halo values (e.g. set to zero if INC'ing)
+        self._dat.global_to_local_begin(self._access_mode)
+        self._dat.global_to_local_end(self._access_mode)
+        self._dat.freeze_halo(self._access_mode)
+
+    def __exit__(self, *args):
+        # Finally do the halo exchanges
+        self._dat.unfreeze_halo()
+        self._dat.local_to_global_begin(self._access_mode)
+        self._dat.local_to_global_end(self._access_mode)
