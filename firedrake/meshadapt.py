@@ -184,10 +184,12 @@ class RiemannianMetric(ffunc.Function):
             "restrictAnisotropy": restrict_anisotropy,
         }
         plex = self._plex
-        met = self.copy().vec
+        bsize = self.dat.cdim
+        size = [self.dat.dataset.total_size * bsize] * 2
+        v = PETSc.Vec().createWithArray(self.dat.data_with_halos, size=size, bsize=bsize, comm=PETSc.COMM_SELF)
         det = plex.metricDeterminantCreate()
-        plex.metricEnforceSPD(self.vec, met, det, **kw)
-        met.copy(self.vec)
+        plex.metricEnforceSPD(v, v, det, **kw)
+        v.destroy()
         return self
 
     @PETSc.Log.EventDecorator()
@@ -254,18 +256,22 @@ class RiemannianMetric(ffunc.Function):
         if num_metrics == 1:
             return self
         plex = self._plex
-        met = self.copy().vec
-        v1 = metrics[0].vec
+        bsize = self.dat.cdim
+        size = [self.dat.dataset.total_size * bsize] * 2
+        v1 = PETSc.Vec().createWithArray(metrics[0].dat.data_ro_with_halos, size=size, bsize=bsize, comm=PETSc.COMM_SELF)
+        vout = PETSc.Vec().createWithArray(self.dat.data_with_halos, size=size, bsize=bsize, comm=PETSc.COMM_SELF)
         if num_metrics == 2:
-            plex.metricIntersection2(self.vec, v1, met)
+            plex.metricIntersection2(v1, vout, vout)
         elif num_metrics == 3:
-            v2 = metrics[1].vec
-            plex.metricIntersection3(self.vec, v1, v2, met)
+            v2 = PETSc.Vec().createWithArray(metrics[1].dat.data_ro_with_halos, size=size, bsize=bsize, comm=PETSc.COMM_SELF)
+            plex.metricIntersection3(v1, v2, vout, vout)
+            v2.destroy()
         else:
             raise NotImplementedError(
                 f"Can only intersect 1, 2 or 3 metrics, not {num_metrics+1}"
             )
-        met.copy(self.vec)
+        v1.destroy()
+        vout.destroy()
         return self
 
     @PETSc.Log.EventDecorator()
@@ -356,8 +362,12 @@ class MetricBasedAdaptor(AdaptorBase):
         :return: a new :class:`MeshGeometry`.
         """
         self.metric.enforce_spd(restrict_sizes=True, restrict_anisotropy=True)
-        metric = self.metric.reordered_vec
-        newplex = self.mesh.topology_dm.adaptMetric(metric, "Face Sets", "Cell Sets")
+        #metric = self.metric.reordered_vec
+        bsize = self.metric.dat.cdim
+        size = [self.metric.dat.dataset.total_size * bsize] * 2
+        v = PETSc.Vec().createWithArray(self.metric.dat.data_with_halos, size=size, bsize=bsize, comm=PETSc.COMM_SELF)
+        newplex = self.metric._plex.adaptMetric(v, "Face Sets", "Cell Sets")
+        v.destroy()
         return fmesh.Mesh(newplex, distribution_parameters={"partition": False})
 
     @PETSc.Log.EventDecorator("MetricBasedAdaptor.interpolate")
