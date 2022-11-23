@@ -13,11 +13,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # strategy:
-    #   # Don't immediately kill all if one Python version fails
-    #   fail-fast: false
-    #   matrix:
-    #     python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
+    strategy:
+      # Don't immediately kill all if one Python version fails
+      fail-fast: false
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
     env:
       CC: mpicc
       PETSC_DIR: ${{ github.workspace }}/petsc
@@ -37,7 +37,7 @@ jobs:
       - name: Set correct Python version
         uses: actions/setup-python@v2
         with:
-          python-version: '3.8' # ${{ matrix.python-version }}
+          python-version: ${{ matrix.python-version }}
 
       - name: Clone PETSc
         uses: actions/checkout@v2
