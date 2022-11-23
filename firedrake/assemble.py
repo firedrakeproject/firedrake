@@ -416,8 +416,7 @@ class FormAssembler(abc.ABC):
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
-        for parloop in self.parloops:
-            parloop()
+        self.execute_parloops()
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -435,6 +434,10 @@ class FormAssembler(abc.ABC):
             data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
             parloop.arguments[0].data = data
         self._tensor = tensor
+
+    def execute_parloops(self):
+        for parloop in self.parloops:
+            parloop()
 
     @cached_property
     def local_kernels(self):
@@ -546,6 +549,13 @@ class OneFormAssembler(FormAssembler):
     @property
     def result(self):
         return self._tensor
+
+    def execute_parloops(self):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with self._tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops:
+                parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
