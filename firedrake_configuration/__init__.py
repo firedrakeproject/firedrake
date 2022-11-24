@@ -7,6 +7,7 @@ itself is broken."""
 import json
 import os
 import sys
+import petsc4py
 
 # Attempt to read configuration from file.
 try:
@@ -23,6 +24,18 @@ except IOError:
 
     except IOError:
         _config = None
+
+
+def petsc_packages():
+    conf = petsc4py.get_config()
+    with open(os.path.join(conf["PETSC_DIR"], conf["PETSC_ARCH"], "include", "petscconf.h"), "r") as f:
+        *_, packages = next(line for line in f if line.startswith("#define PETSC_HAVE_PACKAGES")).split()
+    return set(packages[2:-2].split(":"))
+
+
+options = _config.get("options", {})
+options["with_parmetis"] = "parmetis" in petsc_packages()
+_config["options"] = options
 
 
 def get_config():
