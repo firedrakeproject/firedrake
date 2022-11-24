@@ -275,6 +275,23 @@ def test_assign_to_nonindexed_subspace_fails(mfs):
             Function(mfs).assign(Function(f))
 
 
+def test_assign_with_different_meshes_fails():
+    m1 = UnitSquareMesh(5, 5)
+    m2 = UnitSquareMesh(5, 5)
+
+    V1 = FunctionSpace(m1, "CG", 3)
+    V2 = FunctionSpace(m2, "CG", 3)
+
+    u1 = Function(V1).assign(1)
+    u2 = Function(V2).assign(2)
+
+    with pytest.raises(ValueError):
+        u2.assign(u1)
+
+    with pytest.raises(ValueError):
+        u1 += u2
+
+
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 

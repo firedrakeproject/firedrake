@@ -131,11 +131,14 @@ class Assigner:
             expression = expression.function
         expression = as_ufl(expression)
 
-        if not all(c.ufl_element() == assignee.ufl_element()
-                   for c in extract_coefficients(expression)
-                   if isinstance(c, Function)):
-            raise ValueError("All functions in the expression must have the same "
-                             "element as the assignee")
+        for coeff in extract_coefficients(expression):
+            if isinstance(coeff, Function):
+                if coeff.ufl_element() != assignee.ufl_element():
+                    raise ValueError("All functions in the expression must have the same "
+                                     "element as the assignee")
+                if coeff.ufl_domain() != assignee.ufl_domain():
+                    raise ValueError("All functions in the expression must use the same "
+                                     "mesh as the assignee")
 
         self._assignee = assignee
         self._expression = expression
