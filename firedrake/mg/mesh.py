@@ -117,6 +117,7 @@ class HierarchyBase(object):
 def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
                         callbacks=None,
                         distribution_parameters=None):
+    from firedrake_configuration import get_config
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     meshes = [cmesh]
@@ -124,6 +125,8 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
         before, after = callbacks
     else:
         before = after = lambda dm, i: None
+    if distribution_parameters is None:
+        distribution_parameters = {}
 
     for i in range(refinement_levels*refinements_per_level):
         cmesh.init()
@@ -165,9 +168,19 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
             rdmredist = rdm.clone()
             if i % refinements_per_level == 0:
                 after(rdmredist, i)
-            # TODO: configuration for setting partitioner
+            partitioner_type = distribution_parameters.get("partitioner_type")
+            if partitioner_type is None:
+                if IntType.itemsize == 8 or rmesh.topology_dm.isDistributed():
+                    if get_config().get("options", {}).get("with_parmetis", False):
+                        partitioner_type = "parmetis"
+                    else:
+                        partitioner_type = "ptscotch"
+                else:
+                    partitioner_type = "chaco"
             part = rdmredist.getPartitioner()
-            part.setType(part.Type.PARMETIS)
+            part.setType({"chaco": part.Type.CHACO,
+                          "ptscotch": part.Type.PTSCOTCH,
+                          "parmetis": part.Type.PARMETIS}[partitioner_type])
             part.setFromOptions()
             rdmredist.removeLabel("pyop2_ghost")
             rdmredist.removeLabel("pyop2_owned")
