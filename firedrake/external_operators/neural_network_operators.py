@@ -268,7 +268,9 @@ class PytorchOperator(PointnetOperator):
 
         # Process the inputs
         space = self.ufl_function_space()
-        ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
+        # Once Interp is set up for ExternalOperator operands then this should be fine!
+        # ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
+        ops = self.operator_inputs()
 
         # Pre forward callback
         torch_op = self._pre_forward_callback(*ops)
@@ -280,7 +282,7 @@ class PytorchOperator(PointnetOperator):
         res = self._post_forward_callback(val, torch_op, model_tape)
 
         # Compute the jacobian
-        #if self.derivatives != (0,)*len(self.ufl_operands):
+        # if self.derivatives != (0,)*len(self.ufl_operands):
         #    res = self._evaluate_jacobian(val,  torch_op)
 
         # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
@@ -307,7 +309,7 @@ class PytorchOperator(PointnetOperator):
         return tuple(Function(fct_space, val=grad_Wi).vector() for grad_Wi, fct_space in zip(grad_W, cst_fct_spaces))
 
     @assemble_method(0, (0,))
-    def assemble(self, *args, **kwargs):
+    def assemble_model(self, *args, **kwargs):
         return self._evaluate(*args, **kwargs)
 
     @assemble_method(1, (0, 1))
@@ -336,6 +338,8 @@ class PytorchOperator(PointnetOperator):
             pass
         else:
             # Gradient with respect to parameters
+            # Work out the right thing to do for updating parameters
+            # self._update_model_params()
             res, = self.evaluate_backprop(w.vector(), (idx - n_inputs,), (self.ufl_operands[idx],))
             # PyOP2 flattens out DataCarrier object by destructively modifying shape
             # This does the inverse of that operation to get the parameters of the N in the right format.
