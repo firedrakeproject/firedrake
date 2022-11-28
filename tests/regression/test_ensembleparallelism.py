@@ -163,7 +163,7 @@ def test_comm_manager_allreduce(blocking):
 @pytest.mark.parametrize("root", roots)
 @pytest.mark.parametrize("blocking", blocking)
 def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
-    from numpy import zeros, array
+    from numpy import zeros
     u_reduce = Function(W).assign(10)
     if blocking:
         reduction = ensemble.reduce
@@ -187,16 +187,6 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
         assert errornorm(Function(W).assign(10), u_reduce) < 1e-12
 
     # check that u_reduce dat vector is still synchronised
-    spatial_rank = ensemble.comm.rank
-
-    states = zeros(ensemble.comm.size, dtype=int)
-    with u_reduce.dat.vec as v:
-        states[spatial_rank] = v.stateGet()
-    ensemble.comm.Allgather(MPI.IN_PLACE, states)
-    assert len(set(states)) == 1
-
-    # check that u_reduce dat vector is still synchronised
-    ensemble_rank = ensemble.ensemble_comm.rank
     spatial_rank = ensemble.comm.rank
 
     states = zeros(ensemble.comm.size, dtype=int)
