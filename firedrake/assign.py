@@ -5,6 +5,7 @@ import numpy as np
 from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
 import pytools
+import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -140,6 +141,12 @@ class Assigner:
                     raise ValueError("All functions in the expression must use the same "
                                      "mesh as the assignee")
 
+        if (subset and type(assignee.ufl_element()) == ufl.MixedElement
+                and any(el.family() == "Real"
+                        for el in assignee.ufl_element().sub_elements())):
+            raise ValueError("Subset is not a valid argument for assigning to a mixed "
+                             "element including a real element")
+
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
@@ -159,15 +166,12 @@ class Assigner:
                 "Use Function.assign instead."
             )
 
-        if self._is_real_space:
-            self._assign_global(self._assignee.dat, [f.dat for f in self._functions])
-        else:
-            # If mixed, loop over individual components
-            for assignee_dat, *func_dats in zip(self._assignee.dat.split,
-                                                *(f.dat.split for f in self._functions)):
-                self._assign_single_dat(assignee_dat, func_dats)
-                # Halo values are also updated
-                assignee_dat.halo_valid = True
+        # If mixed, loop over individual components
+        for assignee_dat, *func_dats in zip(self._assignee.dat.split,
+                                            *(f.dat.split for f in self._functions)):
+            self._assign_single_dat(assignee_dat, func_dats)
+            # Halo values are also updated
+            assignee_dat.halo_valid = True
 
     @cached_property
     def _constants(self):
@@ -193,13 +197,6 @@ class Assigner:
     def _indices(self):
         return self._subset.indices if self._subset else ...
 
-    @property
-    def _is_real_space(self):
-        return self._assignee.function_space().ufl_element().family() == "Real"
-
-    def _assign_global(self, assignee_global, function_globals):
-        assignee_global.data[self._indices] = self._compute_rvalue(function_globals)
-
     # TODO: It would be more efficient in permissible cases to use VecMAXPY instead of numpy operations.
     def _assign_single_dat(self, assignee_dat, function_dats):
         assignee_dat.data_with_halos[self._indices] = self._compute_rvalue(function_dats)
@@ -207,10 +204,7 @@ class Assigner:
     def _compute_rvalue(self, function_dats=()):
         # There are two components to the rvalue: weighted functions (in the same function space),
         # and constants (e.g. u.assign(2*v + 3)).
-        if self._is_real_space:
-            func_data = np.array([f.data_ro[self._indices] for f in function_dats])
-        else:
-            func_data = np.array([f.data_ro_with_halos[self._indices] for f in function_dats])
+        func_data = np.array([f.data_ro_with_halos[self._indices] for f in function_dats])
         func_rvalue = (func_data.T @ self._function_weights).T
         const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
         const_rvalue = const_data.T @ self._constant_weights
