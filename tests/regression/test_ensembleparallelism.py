@@ -101,7 +101,7 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         requests = ensemble.iallreduce(urank, u_reduce)
         MPI.Request.Waitall(requests)
 
-    assert errornorm(urank_sum, u_reduce) < 1e-4
+    assert errornorm(urank_sum, u_reduce) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -184,9 +184,9 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
 
     # only u_reduce on rank root should be modified
     if ensemble.ensemble_comm.rank == root:
-        assert errornorm(urank_sum, u_reduce) < 1e-4
+        assert errornorm(urank_sum, u_reduce) < 1e-12
     else:
-        assert errornorm(Function(W).assign(10), u_reduce) < 1e-4
+        assert errornorm(Function(W).assign(10), u_reduce) < 1e-12
 
     # check that u_reduce dat vector is still synchronised
     ensemble_rank = ensemble.ensemble_comm.rank
@@ -277,7 +277,7 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
     # broadcasted function
     u_correct = unique_function(mesh, root, W)
 
-    assert errornorm(u_correct, urank) < 1e-4
+    assert errornorm(u_correct, urank) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -307,7 +307,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
             MPI.Request.waitall(send_requests)
             MPI.Request.waitall(recv_requests)
 
-        assert errornorm(urecv, usend) < 1e-8
+        assert errornorm(urecv, usend) < 1e-12
 
     elif ensemble_rank == rank1:
         recv_requests = recv(urecv, source=rank0, tag=rank0)
@@ -317,7 +317,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
             MPI.Request.waitall(send_requests)
             MPI.Request.waitall(recv_requests)
 
-        assert errornorm(urecv, usend) < 1e-8
+        assert errornorm(urecv, usend) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -344,7 +344,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     if not blocking:
         MPI.Request.Waitall(requests)
 
-    assert errornorm(urecv, u_expect) < 1e-8
+    assert errornorm(urecv, u_expect) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -382,4 +382,4 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     usum = Function(W)
     ensemble.allreduce(u_separate, usum)
 
-    assert errornorm(u_combined, usum) < 1e-4
+    assert errornorm(u_combined, usum) < 1e-8
