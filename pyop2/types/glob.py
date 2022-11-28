@@ -129,6 +129,18 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         self._data[:] = utils.verify_reshape(value, self.dtype, self.dim)
 
     @property
+    def data_with_halos(self):
+        return self.data
+
+    @property
+    def data_ro_with_halos(self):
+        return self.data_ro
+
+    @property
+    def split(self):
+        return (self,)
+
+    @property
     def nbytes(self):
         """Return an estimate of the size of the data associated with this
         :class:`Global` in bytes. This will be the correct size of the
