@@ -198,20 +198,6 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
     assert len(set(states)) == 1
 
-    # check that result vector has been accessed more on root
-    if blocking:
-        for i in range(ensemble.ensemble_comm.size):
-            if i != root:
-                if ensemble_rank == i:
-                    not_root_state = array(states[:1])
-                    ensemble.ensemble_comm.Send(not_root_state, dest=root, tag=i)
-
-                elif ensemble_rank == root:
-                    root_state = array(states[:1])
-                    not_root_state = zeros(1, dtype=int)
-                    ensemble.ensemble_comm.Recv(not_root_state, source=i, tag=i)
-                    assert root_state[0] > not_root_state[0]
-
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("blocking", blocking)
