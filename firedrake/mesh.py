@@ -12,7 +12,7 @@ import abc
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, PyOP2Comm
+    MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple, tuplify
 
@@ -308,7 +308,7 @@ def _from_triangle(filename, dim, comm):
     """
     basename, ext = os.path.splitext(filename)
 
-    with PyOP2Comm(comm) as icomm:
+    with temp_internal_comm(comm) as icomm:
         if icomm.rank == 0:
             try:
                 facetfile = open(basename+".face")
@@ -379,7 +379,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
-    with PyOP2Comm(comm) as icomm:
+    with temp_internal_comm(comm) as icomm:
         # These types are /correct/, DMPlexCreateFromCellList wants int
         # and double (not PetscInt, PetscReal).
         if comm.rank == 0:
