@@ -85,7 +85,7 @@ objects and Python's internal garbage collector. If you previously
 disabled the Python garbage collector in your Firedrake scripts, we now
 recommend you turn garbage collection back on. Randomly hanging or
 deadlocking parallel code should be debugged and any suspected issues
-reported by `getting in touch <contact.html>`_.
+reported by :doc:`getting in touch <contact>`.
 
 Using MPI Communicators
 =======================
