@@ -65,7 +65,7 @@ class Set:
     @utils.validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), ex.SizeTypeError),
                          ('name', str, ex.NameTypeError))
     def __init__(self, size, name=None, halo=None, comm=None):
-        self.comm = mpi.dup_comm(comm)
+        self.comm = mpi.internal_comm(comm)
         if isinstance(size, numbers.Integral):
             size = [size] * 3
         size = utils.as_tuple(size, numbers.Integral, 3)
@@ -77,6 +77,12 @@ class Set:
         self._partition_size = 1024
         # A cache of objects built on top of this set
         self._cache = {}
+
+    def __del__(self):
+        # Cannot use hasattr here, since child classes define `__getattr__`
+        # This causes infinite recursion when looked up!
+        if "comm" in self.__dict__:
+            mpi.decref(self.comm)
 
     @utils.cached_property
     def core_size(self):
@@ -219,7 +225,7 @@ class GlobalSet(Set):
     _argtypes_ = ()
 
     def __init__(self, comm=None):
-        self.comm = mpi.dup_comm(comm)
+        self.comm = mpi.internal_comm(comm)
         self._cache = {}
 
     @utils.cached_property
@@ -304,6 +310,7 @@ class ExtrudedSet(Set):
     @utils.validate_type(('parent', Set, TypeError))
     def __init__(self, parent, layers, extruded_periodic=False):
         self._parent = parent
+        self.comm = mpi.internal_comm(parent.comm)
         try:
             layers = utils.verify_reshape(layers, dtypes.IntType, (parent.total_size, 2))
             self.constant_layers = False
@@ -341,7 +348,6 @@ class ExtrudedSet(Set):
     def __getattr__(self, name):
         """Returns a :class:`Set` specific attribute."""
         value = getattr(self._parent, name)
-        setattr(self, name, value)
         return value
 
     def __contains__(self, set):
@@ -385,6 +391,8 @@ class Subset(ExtrudedSet):
     @utils.validate_type(('superset', Set, TypeError),
                          ('indices', (list, tuple, np.ndarray), TypeError))
     def __init__(self, superset, indices):
+        self.comm = mpi.internal_comm(superset.comm)
+
         # sort and remove duplicates
         indices = np.unique(indices)
         if isinstance(superset, Subset):
@@ -420,7 +428,6 @@ class Subset(ExtrudedSet):
     def __getattr__(self, name):
         """Returns a :class:`Set` specific attribute."""
         value = getattr(self._superset, name)
-        setattr(self, name, value)
         return value
 
     def __pow__(self, e):
@@ -528,8 +535,12 @@ class MixedSet(Set, caching.ObjectCached):
         assert all(s is None or isinstance(s, GlobalSet) or ((s.layers == self._sets[0].layers).all() if s.layers is not None else True) for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
-        self.comm = functools.reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
+        self.comm = mpi.internal_comm(functools.reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets)))
         self._initialized = True
+
+    def __del__(self):
+        if self._initialized and hasattr(self, "comm"):
+            mpi.decref(self.comm)
 
     @utils.cached_property
     def _kernel_args_(self):

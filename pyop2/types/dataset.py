@@ -29,11 +29,18 @@ class DataSet(caching.ObjectCached):
             return
         if isinstance(iter_set, Subset):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
+        self.comm = mpi.internal_comm(iter_set.comm)
         self._set = iter_set
         self._dim = utils.as_tuple(dim, numbers.Integral)
         self._cdim = np.prod(self._dim).item()
         self._name = name or "dset_#x%x" % id(self)
         self._initialized = True
+
+    def __del__(self):
+        # Cannot use hasattr here, since we define `__getattr__`
+        # This causes infinite recursion when looked up!
+        if "comm" in self.__dict__:
+            mpi.decref(self.comm)
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
@@ -59,7 +66,6 @@ class DataSet(caching.ObjectCached):
     def __getattr__(self, name):
         """Returns a Set specific attribute."""
         value = getattr(self.set, name)
-        setattr(self, name, value)
         return value
 
     def __getitem__(self, idx):
@@ -202,10 +208,13 @@ class GlobalDataSet(DataSet):
     def __init__(self, global_):
         """
         :param global_: The :class:`Global` on which this object is based."""
-
+        if self._initialized:
+            return
         self._global = global_
+        self.comm = mpi.internal_comm(global_.comm)
         self._globalset = GlobalSet(comm=self.comm)
         self._name = "gdset_#x%x" % id(self)
+        self._initialized = True
 
     @classmethod
     def _cache_key(cls, *args):
@@ -226,11 +235,6 @@ class GlobalDataSet(DataSet):
     def name(self):
         """Returns the name of the data set."""
         return self._global._name
-
-    @utils.cached_property
-    def comm(self):
-        """Return the communicator on which the set is defined."""
-        return self._global.comm
 
     @utils.cached_property
     def set(self):
@@ -371,6 +375,13 @@ class MixedDataSet(DataSet):
         if self._initialized:
             return
         self._dsets = arg
+        try:
+            # Try to choose the comm to be the same as the first set
+            # of the MixedDataSet
+            comm = self._process_args(arg, dims)[0][0].comm
+        except AttributeError:
+            comm = None
+        self.comm = mpi.internal_comm(comm)
         self._initialized = True
 
     @classmethod

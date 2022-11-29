@@ -44,16 +44,20 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
             self.__init__(dim._dim, None, dtype=dim.dtype,
                           name="copy_of_%s" % dim.name, comm=dim.comm)
             dim.copy(self)
-            return
-        self._dim = utils.as_tuple(dim, int)
-        self._cdim = np.prod(self._dim).item()
-        EmptyDataMixin.__init__(self, data, dtype, self._dim)
-        self._buf = np.empty(self.shape, dtype=self.dtype)
-        self._name = name or "global_#x%x" % id(self)
-        self.comm = comm
-        # Object versioning setup
-        petsc_counter = (self.comm and self.dtype == PETSc.ScalarType)
-        VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
+        else:
+            self._dim = utils.as_tuple(dim, int)
+            self._cdim = np.prod(self._dim).item()
+            EmptyDataMixin.__init__(self, data, dtype, self._dim)
+            self._buf = np.empty(self.shape, dtype=self.dtype)
+            self._name = name or "global_#x%x" % id(self)
+            self.comm = mpi.internal_comm(comm)
+            # Object versioning setup
+            petsc_counter = (comm and self.dtype == PETSc.ScalarType)
+            VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
+
+    def __del__(self):
+        if hasattr(self, "comm"):
+            mpi.decref(self.comm)
 
     @utils.cached_property
     def _kernel_args_(self):

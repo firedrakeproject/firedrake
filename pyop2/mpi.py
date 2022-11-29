@@ -37,16 +37,28 @@
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 import atexit
+import gc
+import glob
+import os
+import tempfile
+
+from pyop2.configuration import configuration
+from pyop2.exceptions import CompilationError
+from pyop2.logger import warning, debug, logger, DEBUG
 from pyop2.utils import trim
 
 
-__all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "dup_comm")
+__all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "internal_comm", "is_pyop2_comm", "incref", "decref", "temp_internal_comm")
 
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
-COMM_WORLD = PETSc.COMM_WORLD.tompi4py()
+COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
+COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
 
-COMM_SELF = PETSc.COMM_SELF.tompi4py()
+COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
+COMM_SELF.Set_name("PYOP2_COMM_SELF")
+
+PYOP2_FINALIZED = False
 
 # Exposition:
 #
@@ -90,13 +102,22 @@ COMM_SELF = PETSc.COMM_SELF.tompi4py()
 # outstanding duplicated communicators.
 
 
+def collective(fn):
+    extra = trim("""
+    This function is logically collective over MPI ranks, it is an
+    error to call it on fewer than all the ranks in MPI communicator.
+    """)
+    fn.__doc__ = "%s\n\n%s" % (trim(fn.__doc__), extra) if fn.__doc__ else extra
+    return fn
+
+
 def delcomm_outer(comm, keyval, icomm):
     """Deleter for internal communicator, removes reference to outer comm.
 
     :arg comm: Outer communicator.
     :arg keyval: The MPI keyval, should be ``innercomm_keyval``.
     :arg icomm: The inner communicator, should have a reference to
-        ``comm`.
+        ``comm``.
     """
     if keyval != innercomm_keyval:
         raise ValueError("Unexpected keyval")
@@ -118,63 +139,260 @@ innercomm_keyval = MPI.Comm.Create_keyval(delete_fn=delcomm_outer)
 # Outer communicator attribute (attaches user comm to inner communicator)
 outercomm_keyval = MPI.Comm.Create_keyval()
 
+# Comm used for compilation, stashed on the internal communicator
+compilationcomm_keyval = MPI.Comm.Create_keyval()
+
 # List of internal communicators, must be freed at exit.
 dupped_comms = []
 
 
-def dup_comm(comm_in=None):
+def is_pyop2_comm(comm):
+    """Returns ``True`` if ``comm`` is a PyOP2 communicator,
+    False if `comm` another communicator.
+    Raises exception if ``comm`` is not a communicator.
+
+    :arg comm: Communicator to query
+    """
+    global PYOP2_FINALIZED
+    if isinstance(comm, PETSc.Comm):
+        ispyop2comm = False
+    elif comm == MPI.COMM_NULL:
+        if not PYOP2_FINALIZED:
+            raise ValueError("Communicator passed to is_pyop2_comm() is COMM_NULL")
+        else:
+            ispyop2comm = True
+    elif isinstance(comm, MPI.Comm):
+        ispyop2comm = bool(comm.Get_attr(refcount_keyval))
+    else:
+        raise ValueError(f"Argument passed to is_pyop2_comm() is a {type(comm)}, which is not a recognised comm type")
+    return ispyop2comm
+
+
+def pyop2_comm_status():
+    """ Prints the reference counts for all comms PyOP2 has duplicated
+    """
+    status_string = 'PYOP2 Communicator reference counts:\n'
+    status_string += '| Communicator name                      | Count |\n'
+    status_string += '==================================================\n'
+    for comm in dupped_comms:
+        if comm == MPI.COMM_NULL:
+            null = 'COMM_NULL'
+            status_string += f'| {null:39}| {0:5d} |\n'
+        else:
+            refcount = comm.Get_attr(refcount_keyval)[0]
+            if refcount is None:
+                refcount = -999
+            status_string += f'| {comm.name:39}| {refcount:5d} |\n'
+    return status_string
+
+
+class temp_internal_comm:
+    """ Use a PyOP2 internal communicator and
+    increment and decrement the internal comm.
+    :arg comm: Any communicator
+    """
+    def __init__(self, comm):
+        self.user_comm = comm
+        self.internal_comm = internal_comm(self.user_comm)
+
+    def __del__(self):
+        decref(self.internal_comm)
+
+    def __enter__(self):
+        """ Returns an internal comm that will be safely decref'd
+        when the context manager is destroyed
+
+        :returns pyop2_comm: A PyOP2 internal communicator
+        """
+        return self.internal_comm
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+
+def internal_comm(comm):
+    """ Creates an internal comm from the user comm.
+    If comm is None, create an internal communicator from COMM_WORLD
+    :arg comm: A communicator or None
+
+    :returns pyop2_comm: A PyOP2 internal communicator
+    """
+    # Parse inputs
+    if comm is None:
+        # None will be the default when creating most objects
+        comm = COMM_WORLD
+    elif isinstance(comm, PETSc.Comm):
+        comm = comm.tompi4py()
+
+    # Check for invalid inputs
+    if comm == MPI.COMM_NULL:
+        raise ValueError("MPI_COMM_NULL passed to internal_comm()")
+    elif not isinstance(comm, MPI.Comm):
+        raise ValueError("Don't know how to dup a %r" % type(comm))
+
+    # Handle a valid input
+    if is_pyop2_comm(comm):
+        incref(comm)
+        pyop2_comm = comm
+    else:
+        pyop2_comm = dup_comm(comm)
+    return pyop2_comm
+
+
+def incref(comm):
+    """ Increment communicator reference count
+    """
+    assert is_pyop2_comm(comm)
+    refcount = comm.Get_attr(refcount_keyval)
+    refcount[0] += 1
+
+
+def decref(comm):
+    """ Decrement communicator reference count
+    """
+    if not PYOP2_FINALIZED:
+        assert is_pyop2_comm(comm)
+        refcount = comm.Get_attr(refcount_keyval)
+        refcount[0] -= 1
+        if refcount[0] == 0:
+            free_comm(comm)
+    elif comm != MPI.COMM_NULL:
+        free_comm(comm)
+
+
+def dup_comm(comm_in):
     """Given a communicator return a communicator for internal use.
 
-    :arg comm_in: Communicator to duplicate.  If not provided,
-        defaults to COMM_WORLD.
+    :arg comm_in: Communicator to duplicate
 
-    :returns: An mpi4py communicator."""
-    if comm_in is None:
-        comm_in = COMM_WORLD
-    if isinstance(comm_in, PETSc.Comm):
-        comm_in = comm_in.tompi4py()
-    elif not isinstance(comm_in, MPI.Comm):
-        raise ValueError("Don't know how to dup a %r" % type(comm_in))
-    if comm_in == MPI.COMM_NULL:
-        return comm_in
-    refcount = comm_in.Get_attr(refcount_keyval)
-    if refcount is not None:
-        # Passed an existing PyOP2 comm, return it
-        comm_out = comm_in
-        refcount[0] += 1
+    :returns internal_comm: An internal (PyOP2) communicator."""
+    assert not is_pyop2_comm(comm_in)
+
+    # Check if communicator has an embedded PyOP2 comm.
+    internal_comm = comm_in.Get_attr(innercomm_keyval)
+    if internal_comm is None:
+        # Haven't seen this comm before, duplicate it.
+        internal_comm = comm_in.Dup()
+        comm_in.Set_attr(innercomm_keyval, internal_comm)
+        internal_comm.Set_attr(outercomm_keyval, comm_in)
+        # Name
+        internal_comm.Set_name(f"{comm_in.name or comm_in.py2f()}_DUP")
+        # Refcount
+        internal_comm.Set_attr(refcount_keyval, [0])
+        incref(internal_comm)
+        # Remember we need to destroy it.
+        dupped_comms.append(internal_comm)
+    elif is_pyop2_comm(internal_comm):
+        # Inner comm is a PyOP2 comm, return it
+        incref(internal_comm)
     else:
-        # Check if communicator has an embedded PyOP2 comm.
-        comm_out = comm_in.Get_attr(innercomm_keyval)
-        if comm_out is None:
-            # Haven't seen this comm before, duplicate it.
-            comm_out = comm_in.Dup()
-            comm_in.Set_attr(innercomm_keyval, comm_out)
-            comm_out.Set_attr(outercomm_keyval, comm_in)
-            # Refcount
-            comm_out.Set_attr(refcount_keyval, [1])
-            # Remember we need to destroy it.
-            dupped_comms.append(comm_out)
+        raise ValueError("Inner comm is not a PyOP2 comm")
+    return internal_comm
+
+
+@collective
+def create_split_comm(comm):
+    """ Create a split communicator based on either shared memory access
+    if using MPI >= 3, or shared local disk access if using MPI <= 3.
+    Used internally for creating compilation communicators
+
+    :arg comm: A communicator to split
+
+    :return split_comm: A split communicator
+    """
+    if MPI.VERSION >= 3:
+        debug("Creating compilation communicator using MPI_Split_type")
+        split_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+        debug("Finished creating compilation communicator using MPI_Split_type")
+    else:
+        debug("Creating compilation communicator using MPI_Split + filesystem")
+        if comm.rank == 0:
+            if not os.path.exists(configuration["cache_dir"]):
+                os.makedirs(configuration["cache_dir"], exist_ok=True)
+            tmpname = tempfile.mkdtemp(prefix="rank-determination-",
+                                       dir=configuration["cache_dir"])
         else:
-            refcount = comm_out.Get_attr(refcount_keyval)
-            if refcount is None:
-                raise ValueError("Inner comm without a refcount")
-            refcount[0] += 1
-    return comm_out
-
-
-# Comm used for compilation, stashed on the internal communicator
-compilationcomm_keyval = MPI.Comm.Create_keyval()
+            tmpname = None
+        tmpname = comm.bcast(tmpname, root=0)
+        if tmpname is None:
+            raise CompilationError("Cannot determine sharedness of filesystem")
+        # Touch file
+        debug("Made tmpdir %s" % tmpname)
+        with open(os.path.join(tmpname, str(comm.rank)), "wb"):
+            pass
+        comm.barrier()
+        ranks = sorted(int(os.path.basename(name))
+                       for name in glob.glob("%s/[0-9]*" % tmpname))
+        debug("Creating compilation communicator using filesystem colors")
+        split_comm = comm.Split(color=min(ranks), key=comm.rank)
+        debug("Finished creating compilation communicator using filesystem colors")
+    # Name
+    split_comm.Set_name(f"{comm.name or comm.py2f()}_COMPILATION")
+    # Refcount
+    split_comm.Set_attr(refcount_keyval, [0])
+    incref(split_comm)
+    return split_comm
 
 
 def get_compilation_comm(comm):
     return comm.Get_attr(compilationcomm_keyval)
 
 
-def set_compilation_comm(comm, inner):
-    comm.Set_attr(compilationcomm_keyval, inner)
+def set_compilation_comm(comm, comp_comm):
+    """Stash the compilation communicator (``comp_comm``) on the
+    PyOP2 communicator ``comm``
+
+    :arg comm: A PyOP2 Communicator
+    :arg comp_comm: The compilation communicator
+    """
+    if not is_pyop2_comm(comm):
+        raise ValueError("Compilation communicator must be stashed on a PyOP2 comm")
+
+    # Check if the compilation communicator is already set
+    old_comp_comm = comm.Get_attr(compilationcomm_keyval)
+    if old_comp_comm is not None:
+        if is_pyop2_comm(old_comp_comm):
+            raise ValueError("Compilation communicator is not a PyOP2 comm, something is very broken!")
+        else:
+            decref(old_comp_comm)
+
+    if not is_pyop2_comm(comp_comm):
+        raise ValueError(
+            "Communicator used for compilation communicator must be a PyOP2 communicator.\n"
+            "Use pyop2.mpi.dup_comm() to create a PyOP2 comm from an existing comm.")
+    else:
+        # Stash `comp_comm` as an attribute on `comm`
+        comm.Set_attr(compilationcomm_keyval, comp_comm)
 
 
-def free_comm(comm, remove=True):
+@collective
+def compilation_comm(comm):
+    """Get a communicator for compilation.
+
+    :arg comm: The input communicator, must be a PyOP2 comm.
+    :returns: A communicator used for compilation (may be smaller)
+    """
+    if not is_pyop2_comm(comm):
+        raise ValueError("Compilation communicator is not a PyOP2 comm")
+    # Should we try and do node-local compilation?
+    if configuration["node_local_compilation"]:
+        retcomm = get_compilation_comm(comm)
+        if retcomm is not None:
+            debug("Found existing compilation communicator")
+            debug(f"{retcomm.name}")
+        else:
+            retcomm = create_split_comm(comm)
+            set_compilation_comm(comm, retcomm)
+            # Add to list of known duplicated comms
+            debug(f"Appending compiler comm {retcomm.name} to list of comms")
+            dupped_comms.append(retcomm)
+    else:
+        retcomm = comm
+    incref(retcomm)
+    return retcomm
+
+
+def free_comm(comm):
     """Free an internal communicator.
 
     :arg comm: The communicator to free.
@@ -183,21 +401,8 @@ def free_comm(comm, remove=True):
     This only actually calls MPI_Comm_free once the refcount drops to
     zero.
     """
-    if comm == MPI.COMM_NULL:
-        return
-    refcount = comm.Get_attr(refcount_keyval)
-    if refcount is None:
-        # Not a PyOP2 communicator, check for an embedded comm.
-        comm = comm.Get_attr(innercomm_keyval)
-        if comm is None:
-            raise ValueError("Trying to destroy communicator not known to PyOP2")
-        refcount = comm.Get_attr(refcount_keyval)
-        if refcount is None:
-            raise ValueError("Inner comm without a refcount")
-
-    refcount[0] -= 1
-
-    if refcount[0] == 0:
+    if comm != MPI.COMM_NULL:
+        assert is_pyop2_comm(comm)
         ocomm = comm.Get_attr(outercomm_keyval)
         if ocomm is not None:
             icomm = ocomm.Get_attr(innercomm_keyval)
@@ -206,44 +411,58 @@ def free_comm(comm, remove=True):
             else:
                 ocomm.Delete_attr(innercomm_keyval)
             del icomm
-        if remove:
-            # Only do this if not called from free_comms.
+        try:
             dupped_comms.remove(comm)
+        except ValueError:
+            debug(f"{comm.name} is not in list of known comms, probably already freed")
+            debug(f"Known comms are {[d.name for d in dupped_comms if d != MPI.COMM_NULL]}")
         compilation_comm = get_compilation_comm(comm)
-        if compilation_comm is not None:
-            compilation_comm.Free()
+        if compilation_comm == MPI.COMM_NULL:
+            comm.Delete_attr(compilationcomm_keyval)
+        elif compilation_comm is not None:
+            free_comm(compilation_comm)
+            comm.Delete_attr(compilationcomm_keyval)
         comm.Free()
+    else:
+        warning('Attempt to free MPI_COMM_NULL')
 
 
 @atexit.register
-def free_comms():
+def _free_comms():
     """Free all outstanding communicators."""
+    global PYOP2_FINALIZED
+    PYOP2_FINALIZED = True
+    if logger.level > DEBUG:
+        debug = lambda string: None
+    else:
+        debug = lambda string: print(string)
+    debug("PyOP2 Finalizing")
+    # Collect garbage as it may hold on to communicator references
+    debug("Calling gc.collect()")
+    gc.collect()
+    debug(pyop2_comm_status())
+    debug(f"Freeing comms in list (length {len(dupped_comms)})")
     while dupped_comms:
-        c = dupped_comms.pop()
+        c = dupped_comms[-1]
         refcount = c.Get_attr(refcount_keyval)
-        for _ in range(refcount[0]):
-            free_comm(c, remove=False)
+        debug(f"Freeing {c.name}, which has refcount {refcount[0]}")
+        free_comm(c)
     for kv in [refcount_keyval,
                innercomm_keyval,
                outercomm_keyval,
                compilationcomm_keyval]:
         MPI.Comm.Free_keyval(kv)
+    COMM_WORLD.Free()
+    COMM_SELF.Free()
 
 
 def hash_comm(comm):
     """Return a hashable identifier for a communicator."""
-    # dup_comm returns a persistent internal communicator so we can
-    # use its id() as the hash since this is stable between invocations.
-    return id(dup_comm(comm))
-
-
-def collective(fn):
-    extra = trim("""
-    This function is logically collective over MPI ranks, it is an
-    error to call it on fewer than all the ranks in MPI communicator.
-    """)
-    fn.__doc__ = "%s\n\n%s" % (trim(fn.__doc__), extra) if fn.__doc__ else extra
-    return fn
+    if not is_pyop2_comm(comm):
+        raise ValueError("`comm` passed to `hash_comm()` must be a PyOP2 communicator")
+    # `comm` must be a PyOP2 communicator so we can use its id()
+    # as the hash and this is stable between invocations.
+    return id(comm)
 
 
 # Install an exception hook to MPI Abort if an exception isn't caught
