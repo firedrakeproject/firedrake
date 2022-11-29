@@ -354,7 +354,15 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=form.ufl_domains()[0]._comm
+        )
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Function(test.function_space())
@@ -1180,7 +1188,12 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global((1,), self._iterset.layers-2, dtype=numpy.int32)
+    glob = op2.Global(
+        (1,),
+        self._iterset.layers-2,
+        dtype=numpy.int32,
+        comm=self._iterset.comm
+    )
     return op2.GlobalParloopArg(glob)
 
 

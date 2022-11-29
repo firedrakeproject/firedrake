@@ -161,3 +161,7 @@ class LinearSolver(OptionsManager):
         r = self.ksp.getConvergedReason()
         if r < 0:
             raise ConvergenceError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
+
+        # Grab the comm associated with `x` and call PETSc's garbage cleanup routine
+        comm = x.function_space().mesh()._comm
+        PETSc.garbage_cleanup(comm=comm)
