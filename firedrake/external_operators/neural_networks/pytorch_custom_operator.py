@@ -2,7 +2,7 @@ import torch
 import torch.autograd as torch_ad
 
 from firedrake.assemble import assemble
-from neural_network_operators import NeuralNet
+from firedrake.external_operators.neural_networks import NeuralNet
 
 
 class CustomOperator(torch_ad.Function):

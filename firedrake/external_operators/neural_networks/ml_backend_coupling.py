@@ -1,8 +1,9 @@
 from functools import partial
 
 from ufl.form import Form
-from neural_network_operators import NeuralNet
-from backends import get_backend
+
+from firedrake.external_operators.neural_networks import NeuralNet
+from firedrake.external_operators.neural_networks.backends import get_backend
 
 
 class HybridLoss(object):

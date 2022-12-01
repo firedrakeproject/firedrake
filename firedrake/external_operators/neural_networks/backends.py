@@ -1,7 +1,7 @@
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 
-from pytorch_custom_operator import CustomOperator
+from firedrake.external_operators.neural_networks.pytorch_custom_operator import CustomOperator
 
 import firedrake.utils as utils
 
