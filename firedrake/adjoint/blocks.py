@@ -402,7 +402,7 @@ class PointwiseOperatorBlock(Block, Backend):
 
         """
         # If the ExternalOperator isn't a neural net we can go with the normal procedure
-        if not isinstance(self.point_op, self.backend.PointnetOperator):
+        if not isinstance(self.point_op, self.backend.NeuralNet):
             return Block.evaluate_adj(self, markings=markings)
 
         outputs = self.get_outputs()
