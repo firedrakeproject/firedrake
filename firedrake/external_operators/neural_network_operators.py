@@ -189,6 +189,17 @@ class PytorchOperator(PointnetOperator):
             raise ImportError("Error when trying to import PyTorch")
         return torch
 
+    # Stash the output of the neural network for conserving the PyTorch tape
+    # -> This enables to only traverse the graph once instead of running multiple
+    #    forward pass for evaluation and backpropagation.
+    @property
+    def model_output(self):
+        return self.operator_data.get('model_output')
+
+    @model_output.setter
+    def model_output(self, output):
+        self.operator_data['model_output'] = output
+
     # --- Callbacks ---
 
     def _pre_forward_callback(self, *args, **kwargs):
@@ -264,7 +275,7 @@ class PytorchOperator(PointnetOperator):
 
         # Explictly set the eval mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
-        model.eval()
+        # model.eval()
 
         # Process the inputs
         space = self.ufl_function_space()
@@ -277,6 +288,9 @@ class PytorchOperator(PointnetOperator):
 
         # Vectorized forward pass
         val = model(torch_op)
+
+        # TODO: We should now remove the `model_tape` system as the tape is conserved in `model_output`
+        self.model_output = val
 
         # Post forward callback
         res = self._post_forward_callback(val, torch_op, model_tape)
@@ -293,7 +307,7 @@ class PytorchOperator(PointnetOperator):
 
         # Explictly set the train mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
-        model.train()
+        # model.train()
 
         return self.assign(result)
 
