@@ -12,15 +12,15 @@ from firedrake import utils
 from pyop2.datatypes import ScalarType
 
 
-class PointnetOperator(AbstractExternalOperator):
-    r"""A :class:`PointnetOperator`: is an implementation of ExternalOperator that is defined through
+class NeuralNet(AbstractExternalOperator):
+    r"""A :class:`NeuralNet`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
         r"""
-        :param operands: operands on which act the :class:`PointnetOperator`.
+        :param operands: operands on which act the :class:`NeuralNet`.
         :param function_space: the :class:`.FunctionSpace`,
         or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
         Alternatively, another :class:`Function` may be passed here and its function space
@@ -138,7 +138,7 @@ class PointnetOperator(AbstractExternalOperator):
                                                                add_kwargs=add_kwargs)
 
 
-class PytorchOperator(PointnetOperator):
+class PytorchOperator(NeuralNet):
     r"""A :class:`PytorchOperator`: is an implementation of ExternalOperator that is defined through
     a given PyTorch model N and whose values correspond to the output of the neural network represented by N.
     The inputs of N are obtained by interpolating `self.ufl_operands[0]` into `self.function_space`.
@@ -173,7 +173,7 @@ class PytorchOperator(PointnetOperator):
         :param params_version: a dictionary keeping track of the model parameters version, to inform if whether we need to update them.
         """
 
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+        NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                   result_coefficient=result_coefficient, argument_slots=argument_slots,
                                   val=val, name=name, dtype=dtype,
                                   operator_data=operator_data, params_version=params_version, nparams=nparams)
@@ -374,12 +374,12 @@ class PytorchOperator(PointnetOperator):
         self._assign_params(params)
 
 
-class TensorFlowOperator(PointnetOperator):
+class TensorFlowOperator(NeuralNet):
     r"""A :class:`TensorFlowOperator` ... TODO :
      """
 
     def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
+        NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
         raise NotImplementedError('TensorFlowOperator not implemented yet!')
 
 
