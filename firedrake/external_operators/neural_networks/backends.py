@@ -35,7 +35,7 @@ class PytorchBackend(AbstractMLBackend):
     def to_ml_backend(self, x):
         return self.backend.tensor(x.dat.data, requires_grad=True)
 
-    def from_ml_backend(x, V, cofunction=False):
+    def from_ml_backend(self, x, V, cofunction=False):
         if cofunction:
             u = Cofunction(V.dual())
         else:
