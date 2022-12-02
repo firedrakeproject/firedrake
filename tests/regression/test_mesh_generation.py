@@ -462,13 +462,18 @@ def test_boxmesh_kind(kind, num_cells):
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_split_comm_mg_mesh():
+def test_split_comm_dm_mesh():
     nspace = 2
     rank = COMM_WORLD.rank
 
     # split global comm into 2 comms of size 2
     comm = COMM_WORLD.Split(color=(rank // nspace), key=rank)
 
+    # check that dm comm is used, not COMM_WORLD
     mesh = UnitIntervalMesh(4, comm=comm)
     dm = mesh.topology_dm
-    mesh = Mesh(dm)  # noqa: F841
+    mesh0 = Mesh(dm)  # noqa: F841
+
+    # check that comm argument is ignored
+    bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
+    mesh1 = Mesh(dm, comm=bad_comm)  # noqa: F841

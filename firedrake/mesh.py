@@ -2043,12 +2043,11 @@ def Mesh(meshfile, **kwargs):
     import firedrake.function as function
 
     if isinstance(meshfile, PETSc.DMPlex):
-        default_comm = meshfile.comm.tompi4py()
+        user_comm = meshfile.comm.tompi4py()
     else:
-        default_comm = COMM_WORLD
+        user_comm = kwargs.get("comm", COMM_WORLD)
 
     name = kwargs.get("name", DEFAULT_MESH_NAME)
-    user_comm = kwargs.get("comm", default_comm)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
@@ -2079,9 +2078,6 @@ def Mesh(meshfile, **kwargs):
     geometric_dim = kwargs.get("dim", None)
     if isinstance(meshfile, PETSc.DMPlex):
         plex = meshfile
-        # Check that the plex is defined over the same comm as the user has specified
-        if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
