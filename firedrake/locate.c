@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <spatialindex/capi/sidx_api.h>
-
+#include <assert.h>
 #include <evaluate.h>
 
 int locate_cell(struct Function *f,
@@ -57,6 +57,7 @@ int locate_cell(struct Function *f,
                     }
                     /* Then, if it's closer than the last (i.e. less negative), we assume we
                        must have found our cell until told otherwise */
+                    assert(current_closest_ref_coord < 0.0);
                     if(current_closest_ref_coord > closest_ref_coord){
                         closest_ref_coord = current_closest_ref_coord;
                         cell = ids[i];
