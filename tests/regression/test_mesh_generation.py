@@ -469,7 +469,6 @@ def test_split_comm_mg_mesh():
     # split global comm into 2 comms of size 2
     comm = COMM_WORLD.Split(color=(rank // nspace), key=rank)
 
-    basemesh = UnitIntervalMesh(4, comm=comm)
-
-    # MeshHierarchy will use the mesh dmplex to construct new meshes
-    mh = MeshHierarchy(basemesh, 1)  # noqa: F841
+    mesh = UnitIntervalMesh(4, comm=comm)
+    dm = mesh.topology_dm
+    mesh = Mesh(dm)  # noqa: F841
