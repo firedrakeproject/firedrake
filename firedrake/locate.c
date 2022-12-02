@@ -55,9 +55,9 @@ int locate_cell(struct Function *f,
                             current_closest_ref_coord = 1.0 - ref_coords->X[j];
                         }
                     }
-                    /* Then, if it's lower than the last, we assume we must have found our
-                       cell until told otherwise */
-                    if(current_closest_ref_coord < closest_ref_coord){
+                    /* Then, if it's closer than the last (i.e. less negative), we assume we
+                       must have found our cell until told otherwise */
+                    if(current_closest_ref_coord > closest_ref_coord){
                         closest_ref_coord = current_closest_ref_coord;
                         cell = ids[i];
                     }
