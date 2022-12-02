@@ -215,3 +215,11 @@ def test_nonblocking_send_recv():
         assert assemble((u - u_expect)**2*dx) < 1e-8
     else:
         assert norm(u) < 1e-8
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_mg_mesh():
+    nspace = 2
+    ensemble = Ensemble(COMM_WORLD, nspace)
+    basemesh = UnitIntervalMesh(4, comm=ensemble.comm)
+    mh = MeshHierarchy(basemesh, 1)

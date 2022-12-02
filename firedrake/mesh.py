@@ -2042,8 +2042,13 @@ def Mesh(meshfile, **kwargs):
     """
     import firedrake.function as function
 
+    if isinstance(meshfile, PETSc.DMPlex):
+        default_comm = meshfile.comm.tompi4py()
+    else:
+        default_comm = COMM_WORLD
+
     name = kwargs.get("name", DEFAULT_MESH_NAME)
-    user_comm = kwargs.get("comm", COMM_WORLD)
+    user_comm = kwargs.get("comm", default_comm)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
