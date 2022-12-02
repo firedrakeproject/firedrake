@@ -472,4 +472,4 @@ def test_split_comm_mg_mesh():
     basemesh = UnitIntervalMesh(4, comm=comm)
 
     # MeshHierarchy will use the mesh dmplex to construct new meshes
-    mh = MeshHierarchy(basemesh, 1)
+    mh = MeshHierarchy(basemesh, 1)  # noqa: F841
