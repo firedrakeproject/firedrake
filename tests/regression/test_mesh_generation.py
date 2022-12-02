@@ -459,3 +459,17 @@ def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
     m.init()
     assert m.num_cells() == num_cells
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_split_comm_mg_mesh():
+    nspace = 2
+    rank = COMM_WORLD.rank
+
+    # split global comm into 2 comms of size 2
+    comm = COMM_WORLD.Split(color=(rank // nspace), key=rank)
+
+    basemesh = UnitIntervalMesh(4, comm=comm)
+
+    # MeshHierarchy will use the mesh dmplex to construct new meshes
+    mh = MeshHierarchy(basemesh, 1)
