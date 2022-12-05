@@ -1725,6 +1725,7 @@ def PeriodicBoxMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        comm=comm,
     )
 
     old_coordinates = m.coordinates
