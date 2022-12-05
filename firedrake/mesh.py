@@ -2019,8 +2019,8 @@ def Mesh(meshfile, **kwargs):
 
     :param comm: the communicator to use when creating the mesh.  If
            not supplied, then the mesh will be created on COMM_WORLD.
-           Ignored if ``meshfile`` is a DMPlex object (in which case
-           the communicator will be taken from there).
+           If ``meshfile`` is a DMPlex object then must be indentical
+           to or congruent with the DMPlex communicator.
 
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
@@ -2042,11 +2042,7 @@ def Mesh(meshfile, **kwargs):
     """
     import firedrake.function as function
 
-    if isinstance(meshfile, PETSc.DMPlex):
-        user_comm = meshfile.comm.tompi4py()
-    else:
-        user_comm = kwargs.get("comm", COMM_WORLD)
-
+    user_comm = kwargs.get("comm", COMM_WORLD)
     name = kwargs.get("name", DEFAULT_MESH_NAME)
     reorder = kwargs.get("reorder", None)
     if reorder is None:
@@ -2078,6 +2074,8 @@ def Mesh(meshfile, **kwargs):
     geometric_dim = kwargs.get("dim", None)
     if isinstance(meshfile, PETSc.DMPlex):
         plex = meshfile
+        if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
