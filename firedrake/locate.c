@@ -16,16 +16,16 @@ int locate_cell(struct Function *f,
 {
     RTError err;
     int cell = -1;
+#ifdef COMPUTE_DISTANCE_TO_CELL
+    /* Assume that data_ is a ReferenceCoords object */
+    struct ReferenceCoords *ref_coords = (struct ReferenceCoords *) data_;
+    double closest_ref_coord = DBL_MAX;
+    double current_closest_ref_coord =  -0.5;
+#endif
 
     if (f->sidx) {
         int64_t *ids = NULL;
         uint64_t nids = 0;
-        /* Assume that data_ is a ReferenceCoords object */
-        struct ReferenceCoords *ref_coords = (struct ReferenceCoords *) data_;
-#ifdef COMPUTE_DISTANCE_TO_CELL
-        double closest_ref_coord = DBL_MAX;
-        double current_closest_ref_coord =  -0.5;
-#endif
         /* We treat our list of candidate cells (ids) from libspatialindex's
             Index_Intersects_id  as our source of truth: the point must be in
             one of the cells. */
@@ -83,6 +83,17 @@ int locate_cell(struct Function *f,
                     cell = c;
                     break;
                 }
+#ifdef COMPUTE_DISTANCE_TO_CELL
+                else {
+                    /* As above, but for the case where we don't have a spatial index. */
+                    current_closest_ref_coord = compute_distance_to_cell(ref_coords->X, dim);
+                    assert(0.0 < current_closest_ref_coord);
+                    if (current_closest_ref_coord < closest_ref_coord) {
+                        closest_ref_coord = current_closest_ref_coord;
+                        cell = c;
+                    }
+                }
+#endif
             }
         }
         else {

@@ -257,12 +257,12 @@ def compute_distance_to_cell(ufl_cell, tolerance):
         The C code for the distance computation.
     """
     # Append code for compute_distance_to_cell which will be used by locate_cell.c
-    # if it is defined. For now we ignore the tolerance.
+    # if it is defined.
     if ufl_cell == ufl.vertex:
         # todo
         return ""
     elif ufl_cell == ufl.interval:
-        return src_compute_distance_to_cell_interval()
+        return src_compute_distance_to_cell_interval(tolerance)
     elif ufl_cell == ufl.triangle:
         # todo
         return ""
@@ -283,7 +283,7 @@ def compute_distance_to_cell(ufl_cell, tolerance):
         return ""
 
 
-def src_compute_distance_to_cell_interval():
+def src_compute_distance_to_cell_interval(tolerance):
     """Generate C code for computing the distance to a reference
     interval.
 
