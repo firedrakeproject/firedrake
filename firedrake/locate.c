@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <spatialindex/capi/sidx_api.h>
-#include <assert.h>
+#ifdef COMPUTE_DISTANCE_TO_CELL
+#include <float.h>
+#include <assert.h>  /* for DBL_MAX */
+#endif
 #include <evaluate.h>
 
 int locate_cell(struct Function *f,
@@ -19,8 +22,10 @@ int locate_cell(struct Function *f,
         uint64_t nids = 0;
         /* Assume that data_ is a ReferenceCoords object */
         struct ReferenceCoords *ref_coords = (struct ReferenceCoords *) data_;
-        double closest_ref_coord = 0.0;
-        double current_closest_ref_coord = 0.5;
+#ifdef COMPUTE_DISTANCE_TO_CELL
+        double closest_ref_coord = DBL_MAX;
+        double current_closest_ref_coord =  -0.5;
+#endif
         /* We treat our list of candidate cells (ids) from libspatialindex's
             Index_Intersects_id  as our source of truth: the point must be in
             one of the cells. */
@@ -36,33 +41,27 @@ int locate_cell(struct Function *f,
                     cell = ids[i];
                     break;
                 }
+#ifdef COMPUTE_DISTANCE_TO_CELL
                 else {
                     /* Cell not found, but could be on cell boundary. We therefore look
                        at our reference coordinates and find the point closest to being
                        inside the reference cell. If we don't find a cell using try_candidate
                        we assume that this process has found our cell. */
-                    /* First we must find the the reference coordinate which is closest to
-                       the interval [0, 1] without being in it (if all reference coordinates
-                       were in the interval we would have already found our cell!). We do
-                       this by storing the distance of each coordinate dimension from the
-                       interval. Note that ref_coords was updated as data_ by try_candidate. */
-                    current_closest_ref_coord = -1.0;
-                    for (uint64_t j = 0; j < dim; j++) {
-                        if(ref_coords->X[j] < 0.0 && current_closest_ref_coord < ref_coords->X[j]) {
-                            current_closest_ref_coord = ref_coords->X[j];
-                        }
-                        else if(1.0 - ref_coords->X[j] < 0.0 && current_closest_ref_coord < 1.0 - ref_coords->X[j]) {
-                            current_closest_ref_coord = 1.0 - ref_coords->X[j];
-                        }
-                    }
-                    /* Then, if it's closer than the last (i.e. less negative), we assume we
-                       must have found our cell until told otherwise */
-                    assert(current_closest_ref_coord < 0.0);
-                    if(current_closest_ref_coord > closest_ref_coord){
+                    /* We use the compute_distance_to_cell function prepended to this file
+                       which is specialised to the reference cell the local coordinates are
+                       defined on. The function returns a negative value if the point is
+                       inside the reference cell. Note that ref_coords was updated as data_
+                       by try_candidate. */
+                    current_closest_ref_coord = compute_distance_to_cell(ref_coords->X, dim);
+                    /* If current_closest_ref_coord were in the reference cell it would
+                       already have been found! */
+                    assert(0.0 < current_closest_ref_coord);
+                    if (current_closest_ref_coord < closest_ref_coord) {
                         closest_ref_coord = current_closest_ref_coord;
                         cell = ids[i];
                     }
                 }
+#endif
             }
         }
         else {

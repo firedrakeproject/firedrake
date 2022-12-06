@@ -40,7 +40,7 @@ def src_locate_cell(mesh, tolerance=None):
                             forward_args=["void*", "double*", "int*"],
                             kernel_name="to_reference_coords_kernel",
                             wrapper_name="wrap_to_reference_coords"))
-
+    src.append(compute_distance_to_cell(mesh.ufl_cell(), tolerance))
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
@@ -239,3 +239,70 @@ int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int lay
 """
 
     return evaluate_template_c % code
+
+
+def compute_distance_to_cell(ufl_cell, tolerance):
+    """Generate C code for computing the distance to a cell.
+
+    Parameters
+    ----------
+    ufl_cell : ufl.Cell
+        The cell to compute the distance to.
+    tolerance : float
+        The tolerance to use for the distance computation.
+
+    Returns
+    -------
+    code : str
+        The C code for the distance computation.
+    """
+    # Append code for compute_distance_to_cell which will be used by locate_cell.c
+    # if it is defined. For now we ignore the tolerance.
+    if ufl_cell == ufl.vertex:
+        # todo
+        return ""
+    elif ufl_cell == ufl.interval:
+        return src_compute_distance_to_cell_interval()
+    elif ufl_cell == ufl.triangle:
+        # todo
+        return ""
+    elif ufl_cell == ufl.tetrahedron:
+        # todo
+        return ""
+    elif ufl_cell == ufl.prism:
+        # todo
+        return ""
+    elif ufl_cell == ufl.pyramid:
+        # todo
+        return ""
+    elif ufl_cell == ufl.quadrilateral:
+        # todo
+        return ""
+    elif ufl_cell == ufl.hexahedron:
+        # todo
+        return ""
+
+
+def src_compute_distance_to_cell_interval():
+    """Generate C code for computing the distance to a reference
+    interval.
+
+    If the point is inside the interval, the distance is negative.
+
+    Returns
+    -------
+    code : str
+        The C code for the distance computation.
+    """
+    return """
+#define COMPUTE_DISTANCE_TO_CELL
+#include <assert.h>
+double compute_distance_to_cell(double *X, int dim)
+{
+    assert(dim == 1);
+    if (X[0] > 1.0)
+        return X[0] - 1.0;
+    else
+        return -X[0];
+}
+"""
