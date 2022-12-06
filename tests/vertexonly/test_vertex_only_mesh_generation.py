@@ -217,3 +217,19 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     vm = VertexOnlyMesh(m, coords, tolerance=None)
     assert vm.cell_set.size == 0
+
+
+def test_missing_points_behaviour(parentmesh):
+    """
+    Generate points outside of the parentmesh and check we get the expected
+    error behaviour
+    """
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
+    assert len(inputcoord) == 1
+    # No error by default
+    vm = VertexOnlyMesh(parentmesh, inputcoord)
+    assert vm.cell_set.size == 0
+    with pytest.raises(ValueError):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
