@@ -343,20 +343,27 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         if base_layer != -1:
             raise ValueError("Can't specify both layers and base_layer")
 
+    layer_height = height/base_layer
     meshes = []
     for m, layer in zip(base_hierarchy._meshes, layers):
         ext = firedrake.ExtrudedMesh(m, layer, kernel=kernel,
-                                     layer_height=height/layer,
+                                     layer_height=layer_height,
                                      extrusion_type=extrusion_type,
                                      gdim=gdim)
         meshes.append(ext)
         if hasattr(m, "redist"):
             ext_orig = firedrake.ExtrudedMesh(m.redist.orig, layer, kernel=kernel,
-                                              layer_height=height/layer,
+                                              layer_height=layer_height,
                                               extrusion_type=extrusion_type,
                                               gdim=gdim)
             pointmigrationsf = m.redist.pointmigrationsf
             ext.redist = RedistMesh(ext_orig, pointmigrationsf)
+        layer_height /= refinement_ratio
+        try:
+            len(layer_height)
+            layer_height = np.repeat(layer_height, refinement_ratio)
+        except TypeError:
+            pass
 
     return HierarchyBase(meshes,
                          base_hierarchy.coarse_to_fine_cells,

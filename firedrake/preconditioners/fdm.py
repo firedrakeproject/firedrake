@@ -406,12 +406,12 @@ class FDMPC(PCBase):
             De = self.work_mats[common_key]
             data = self.work_csr[2]
             for e in range(self.nel):
+                rindices = get_rindices(e, result=rindices)
+                cindices = get_cindices(e, result=cindices)
+
                 data = self.get_coefs(e, result=data)
                 De.setValuesCSR(*self.work_csr)
                 De.assemble()
-
-                rindices = get_rindices(e, result=rindices)
-                cindices = get_cindices(e, result=cindices)
                 Ae = assemble_element_mat(De, result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
 
@@ -445,7 +445,7 @@ class FDMPC(PCBase):
         else:
             self.work_csr = (None, None, None)
             self.work_mats[common_key] = None
-            self.work_mats[(Vrow, Vcol)] = None
+            self.work_mats[Vrow, Vcol] = None
         del rindices
         del cindices
         if RtAP.buff:
@@ -630,9 +630,11 @@ class FDMPC(PCBase):
             phi0 = e0.tabulate(1, pts)
 
             moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-            A10 = moments(phi1[(0, )], phi0[(1, )])
-            A11 = moments(phi1[(0, )], phi1[(0, )])
             A00 = moments(phiq[(0, )], phi0[(0, )])
+            A11 = moments(phi1[(0, )], phi1[(0, )])
+            A10 = moments(phi1[(0, )], phi0[(1, )])
+            A10 = numpy.linalg.solve(A11, A10)
+            A11 = numpy.eye(A11.shape[0])
 
             Ihat = mass_matrix(ndim, formdegree, A00, A11)
             Dhat = diff_matrix(ndim, formdegree, A00, A11, A10)
