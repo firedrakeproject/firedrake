@@ -40,7 +40,7 @@ def src_locate_cell(mesh, tolerance=None):
                             forward_args=["void*", "double*", "int*"],
                             kernel_name="to_reference_coords_kernel",
                             wrapper_name="wrap_to_reference_coords"))
-    src.append(compute_distance_to_cell(mesh.ufl_cell(), tolerance))
+    src.append(compute_distance_to_cell(mesh.ufl_cell()))
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
@@ -183,12 +183,15 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "non_extr_comment_out": "//" if not extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
+        "tolerance": contains_eps,
     }
 
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
 };
+
+static double tolerance = %(tolerance)s; /* used in locate_cell */
 
 static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, %(ScalarType)s *C)
 {
@@ -241,15 +244,13 @@ int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int lay
     return evaluate_template_c % code
 
 
-def compute_distance_to_cell(ufl_cell, tolerance):
+def compute_distance_to_cell(ufl_cell):
     """Generate C code for computing the distance to a cell.
 
     Parameters
     ----------
     ufl_cell : ufl.Cell
         The cell to compute the distance to.
-    tolerance : float
-        The tolerance to use for the distance computation.
 
     Returns
     -------
@@ -262,7 +263,7 @@ def compute_distance_to_cell(ufl_cell, tolerance):
         # todo
         return ""
     elif ufl_cell == ufl.interval:
-        return src_compute_distance_to_cell_interval(tolerance)
+        return src_compute_distance_to_cell_interval()
     elif ufl_cell == ufl.triangle:
         # todo
         return ""
@@ -283,9 +284,9 @@ def compute_distance_to_cell(ufl_cell, tolerance):
         return ""
 
 
-def src_compute_distance_to_cell_interval(tolerance):
+def src_compute_distance_to_cell_interval():
     """Generate C code for computing the distance to a reference
-    interval.
+    interval as at FIAT.reference_element.UFCTriangle.
 
     If the point is inside the interval, the distance is negative.
 
@@ -295,7 +296,7 @@ def src_compute_distance_to_cell_interval(tolerance):
         The C code for the distance computation.
     """
     return """
-#define COMPUTE_DISTANCE_TO_CELL
+#define COMPUTE_DISTANCE_TO_CELL /* Opens necessary code paths in locate.c */
 #include <assert.h>
 double compute_distance_to_cell(double *X, int dim)
 {

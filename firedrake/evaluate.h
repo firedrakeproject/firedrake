@@ -50,7 +50,8 @@ extern int locate_cell(struct Function *f,
 		       int dim,
 		       inside_predicate try_candidate,
 		       inside_predicate_xtr try_candidate_xtr,
-		       void *data_);
+		       void *data_,
+		       double tolerance);
 
 extern int evaluate(struct Function *f,
 		    double *x,

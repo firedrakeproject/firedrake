@@ -3,7 +3,7 @@
 #include <spatialindex/capi/sidx_api.h>
 #ifdef COMPUTE_DISTANCE_TO_CELL
 #include <float.h>
-#include <assert.h>  /* for DBL_MAX */
+#include <assert.h>
 #endif
 #include <evaluate.h>
 
@@ -12,10 +12,13 @@ int locate_cell(struct Function *f,
         int dim,
         inside_predicate try_candidate,
         inside_predicate_xtr try_candidate_xtr,
-        void *data_)
+        void *data_,
+        double tolerance)
 {
     RTError err;
     int cell = -1;
+    /* COMPUTE_DISTANCE_TO_CELL is defined when we provide a
+       compute_distance_to_cell function. This is done in pointquery_utils.py */
 #ifdef COMPUTE_DISTANCE_TO_CELL
     /* Assume that data_ is a ReferenceCoords object */
     struct ReferenceCoords *ref_coords = (struct ReferenceCoords *) data_;
@@ -27,7 +30,7 @@ int locate_cell(struct Function *f,
         int64_t *ids = NULL;
         uint64_t nids = 0;
         /* We treat our list of candidate cells (ids) from libspatialindex's
-            Index_Intersects_id  as our source of truth: the point must be in
+            Index_Intersects_id as our source of truth: the point must be in
             one of the cells. */
         err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
         if (err != RT_None) {
@@ -54,7 +57,7 @@ int locate_cell(struct Function *f,
                        by try_candidate. */
                     current_closest_ref_coord = compute_distance_to_cell(ref_coords->X, dim);
                     /* If current_closest_ref_coord were in the reference cell it would
-                       already have been found! */
+-                       already have been found! */
                     assert(0.0 < current_closest_ref_coord);
                     if (current_closest_ref_coord < closest_ref_coord) {
                         closest_ref_coord = current_closest_ref_coord;
@@ -110,5 +113,11 @@ int locate_cell(struct Function *f,
             }
         }
     }
+    #ifdef COMPUTE_DISTANCE_TO_CELL
+    if (closest_ref_coord > tolerance) {
+        /* Out point is outside the allowed tolerance! */
+        cell = -1;
+    }
+    #endif
     return cell;
 }
