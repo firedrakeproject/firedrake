@@ -169,6 +169,7 @@ class Ensemble(object):
     def ibcast(self, f, root=0):
         """
         Broadcast (non-blocking) a function f over :attr:`ensemble_comm` from rank root
+
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from
         :returns: list of MPI.Request objects (one for each of f.split()).

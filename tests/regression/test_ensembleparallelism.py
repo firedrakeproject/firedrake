@@ -207,7 +207,6 @@ def test_comm_manager_reduce(blocking):
         reduction = ensemble.ireduce
 
     mesh = UnitSquareMesh(1, 1, comm=ensemble.global_comm)
-
     mesh2 = UnitSquareMesh(2, 2, comm=ensemble.ensemble_comm)
 
     V = FunctionSpace(mesh, "CG", 1)
