@@ -114,8 +114,8 @@ int locate_cell(struct Function *f,
         }
     }
     #ifdef COMPUTE_DISTANCE_TO_CELL
-    if (closest_ref_coord > tolerance) {
-        /* Out point is outside the allowed tolerance! */
+    if (tolerance < closest_ref_coord && closest_ref_coord < DBL_MAX) {
+        /* Our point is outside the allowed tolerance! */
         cell = -1;
     }
     #endif
