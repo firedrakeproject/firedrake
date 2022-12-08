@@ -301,9 +301,27 @@ def src_compute_distance_to_cell_interval():
 double compute_distance_to_cell(double *X, int dim)
 {
     assert(dim == 1);
+    /* We use barycentric coordinates to determine if the point is inside
+       the reference cell. We two vertices which make the reference interval,
+       P0 = 0 and P1 = 1. Barycentric coordinates are defined as
+       X[0] = alpha * P0 + beta * P1 where alpha + beta = 1.0. The solution is
+       alpha = 1 - X[0] and beta = X[0]. If both alpha and beta are positive,
+       the point is inside the reference cell.
+
+       ---regionA---P0=0------P1=1---regionB---
+
+       If we are in regionA, alpha is negative and -alpha = X[0] - 1.0 is the
+       (positive) distance from P0.
+       If we are in regionB, beta is negative and -beta = -X[0] is the
+       (positive) distance from P1.
+       If we are in the interval we can just return -X[0] since we don't care
+       about how close to either vertex we are. */
+
+    /* Is alpha negative? */
     if (X[0] > 1.0)
         return X[0] - 1.0;
     else
+        /* Either beta is negative or we are in the interval */
         return -X[0];
 }
 """
