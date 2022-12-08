@@ -522,7 +522,7 @@ class FDMPC(PCBase):
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
         key = (mixed_form.signature(), mesh)
-        block_diagonal = False
+        block_diagonal = True
 
         if key not in self._coefficient_cache and False:
             M = assemble(mixed_form, mat_type="matfree",

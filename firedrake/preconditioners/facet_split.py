@@ -115,8 +115,8 @@ class FacetSplitPC(PCBase):
 
         def get_facet_element(e):
             cell = e.cell()
-            sub_cells = cell.sub_cells()
-            if e.sobolev_space() == HCurl and len(sub_cells) == 2 and cell.topological_dimension() == 3:
+            if e.sobolev_space() == HCurl and isinstance(cell, ufl.TensorProductCell):
+                sub_cells = cell.sub_cells()
                 degree = max(e.degree())
                 variant = e.variant()
                 Qc_elt = FiniteElement("Q", sub_cells[0], degree, variant=variant)
