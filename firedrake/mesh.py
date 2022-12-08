@@ -3,6 +3,7 @@ import ctypes
 import os
 import sys
 import ufl
+import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
@@ -35,7 +36,7 @@ __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked'
 _cells = {
     1: {2: "interval"},
     2: {3: "triangle", 4: "quadrilateral"},
-    3: {4: "tetrahedron"}
+    3: {4: "tetrahedron", 6: "hexahedron"}
 }
 
 
@@ -989,7 +990,6 @@ class MeshTopology(AbstractMeshTopology):
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
         if cell.is_simplex():
-            import FIAT
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1018,7 +1018,11 @@ class MeshTopology(AbstractMeshTopology):
 
             return dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
-
+        elif cell.cellname() == "hexahedron":
+            # TODO: Should change and use create_cell_closure() for all cell types.
+            topology = FIAT.ufc_cell(cell).get_topology()
+            closureSize = sum([len(ents) for _, ents in topology.items()])
+            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
