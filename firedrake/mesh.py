@@ -35,7 +35,7 @@ __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked'
 _cells = {
     1: {2: "interval"},
     2: {3: "triangle", 4: "quadrilateral"},
-    3: {4: "tetrahedron"}
+    3: {4: "tetrahedron", 6: "hexahedron"}
 }
 
 
