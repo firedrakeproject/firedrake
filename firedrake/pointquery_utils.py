@@ -318,10 +318,11 @@ double compute_distance_to_cell(double *X, int dim)
        about how close to either vertex we are. */
 
     /* Is alpha negative? */
-    if (X[0] > 1.0)
+    if (X[0] > 1.0) {
         return X[0] - 1.0;
-    else
+    } else {
         /* Either beta is negative or we are in the interval */
         return -X[0];
+    }
 }
 """
