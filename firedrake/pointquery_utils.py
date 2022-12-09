@@ -285,6 +285,9 @@ def compute_distance_to_cell(ufl_cell):
     elif ufl_cell == ufl.hexahedron:
         # todo
         return ""
+    else:
+        # Something unexpected like TensorProductCell
+        return ""
 
 
 def src_compute_distance_to_cell_interval():
