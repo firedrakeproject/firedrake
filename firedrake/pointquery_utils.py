@@ -284,10 +284,11 @@ def compute_distance_to_cell(ufl_cell):
 
 
 def src_compute_distance_to_cell_interval():
-    """Generate C code for computing the distance to a reference
-    interval as at FIAT.reference_element.UFCTriangle.
+    """Generate C code for computing the approximate distance to a
+    reference interval as at FIAT.reference_element.UFCTriangle.
 
     If the point is inside the interval, the distance is negative.
+    Note that in this case the distance outputted is exact.
 
     Returns
     -------
@@ -328,8 +329,8 @@ double compute_distance_to_cell(double *X, int dim)
 
 
 def src_compute_distance_to_cell_triangle():
-    """Generate C code for computing the distance to a reference
-    triangle as at FIAT.reference_element.UFCTriangle.
+    """Generate C code for computing the aproximate distance to a
+    reference triangle as at FIAT.reference_element.UFCTriangle.
 
     If the point is inside the triangle, the distance is negative.
 
@@ -338,96 +339,70 @@ def src_compute_distance_to_cell_triangle():
     code : str
         The C code for the distance computation.
     """
-    return r"""
+    return """
 #define COMPUTE_DISTANCE_TO_CELL /* Opens necessary code paths in locate.c */
 #include <assert.h>
 double compute_distance_to_cell(double *X, int dim)
 {
     /* We use barycentric coordinates to determine if the point is inside
        the reference cell. We have three vertices which make the reference
-       triangle, P0 = (1, 0), P1 = (0, 1) and P2 = (0, 0). Barycentric
-       coordinates are defined as
-       X[0] = alpha * P0 + beta * P1 + gamma * P2 where alpha + beta + gamma = 1.0.
-       The solution is alpha = X[0], and beta = X[1] and gamma = 1 - X[0] - X[1].
-       If all three are positive, the point is inside the reference cell.
-       Below is a diagram of the cell:
+       triangle, P0 = (1, 0), P1 = (0, 1) and P2 = (0, 0). Below is a
+       diagram of the cell:
 
                 y-axis
-                |                  /
-       regionD1 |  regionD2  /
-                |     /
-            ---P1
-        regionA | \
+                |
+                |
+          (1,0) P1
+                | \
                 |  \
-                |   \    regionE
-                |    \                          /
-                |  T  \                    /
-                |      \              /
-                |       \        /
-                |        \  /     regionC2
+                |   \
+                |    \
+                |  T  \
+                |      \
+                |       \
+                |        \
             ---P2--------P0--- x-axis
-        regionF | regionB |  regionC1
+          (0,0) |         (0,1)
 
-        If we are in regionA, alpha is negative and beta is in [0,1]. We
-        are closest to the edge P1P2. The (positive) distance from the
-        triangle is -alpha = -X[0].
+    Barycentric coordinates are defined as
+      X[0] = alpha * P0 + beta * P1 + gamma * P2 where
+      alpha + beta + gamma = 1.0.
+    The solution is
+      alpha = X[0]
+      beta = X[1] and
+      gamma = 1 - X[0] - X[1].
+    If all three are positive, the point is inside the reference cell.
+    If any is negative, we are outside it. The negative barycentric coordinate
+    which is closest to 0.0 is a reasonable approximation of the closest point
+    to the triangle.
 
-        If we are in regionB, beta is negative and alpha is in [0,1]. We
-        are closest to the edge P0P2. The (positive) distance from the
-        triangle is -beta = -X[1].
-
-        If we are in regionF, both alpha and beta are negative and gamma
-        is positive. We are closest to the vertex P2. The (positive)
-        distance from the triangle is sqrt(X[0]*X[0] + X[1]*X[1]).
-
-        If we are in regionC1, gamma is always negative, alpha is always
-        greater than 1 and beta is always negative.
-        If we are in regionC2, gamma is always negative, alpha is always
-        greater than 1 and beta is always positive.
-        We are closest to the vertex P0. The (positive) distance
-        from the triangle is sqrt((X[0]-1)*(X[0]-1) + X[1]*X[1]).
-
-        If we are in regionD1, gamma is always negative, beta is always
-        greater than 1, and alpha is always negative.
-        If we are in regionD2, gamma is always negative, beta is always
-        greater than 1, and alpha is always positive.
-        We are closest to the vertex P1. The (positive) distance
-        from the triangle is sqrt(X[0]*X[0] + (X[1]-1)*(X[1]-1)).
-
-        If we are in regionE, ONLY gamma is negative and we are closest to the
-        edge P0P1. abs(X[0] - X[1] - 1)/sqrt(2) is the (positive) distance
-        from the triangle. */
+    */
     assert(dim == 2);
     double alpha = X[0];
     double beta = X[1];
     double gamma = 1.0 - X[0] - X[1];
     if (alpha > 0.0 && beta > 0.0 && gamma > 0.0) {
-        /* Inside the triangle */
+        /* We are inside the triangle */
         return -alpha;
-    } else if (alpha < 0.0 && 0.0 < beta && beta < 1.0) {
-        /* regionA */
-        return -alpha;
-    } else if (beta < 0.0 && 0.0 < alpha && alpha < 1.0) {
-        /* regionB */
-        return -beta;
-    } else if (alpha < 0.0 && beta < 0.0 && gamma > 0.0) {
-        /* regionF */
-        return sqrt(alpha*alpha + beta*beta);
-    } else if (alpha > 1.0 && beta > 0.0 && gamma < 0.0) {
-        /* region C1 */
-        return sqrt((alpha-1.0)*(alpha-1.0) + beta*beta);
-    } else if (alpha > 1.0 && beta < 0.0 && gamma < 0.0) {
-        /* region C2 */
-        return sqrt((alpha-1.0)*(alpha-1.0) + beta*beta);
-    } else if (alpha > 0.0 && beta > 1.0 && gamma < 0.0) {
-        /* region D1 */
-        return sqrt(alpha*alpha + (beta-1.0)*(beta-1.0));
-    } else if (alpha < 0.0 && beta > 1.0 && gamma < 0.0) {
-        /* region D2 */
-        return sqrt(alpha*alpha + (beta-1.0)*(beta-1.0));
     } else {
-        /* regionE */
-        return fabs(alpha - beta - 1.0)/sqrt(2.0);
+        /* We are outside the triangle */
+        /* Find the negative alpha, beta or gamma closest to 0.0 */
+        if (alpha < 0.0 && beta > 0.0 && gamma > 0.0) {
+            return -alpha;
+        } else if (alpha > 0.0 && beta < 0.0 && gamma > 0.0) {
+            return -beta;
+        } else if (alpha > 0.0 && beta > 0.0 && gamma < 0.0) {
+            return -gamma;
+        } else if (alpha < 0.0 && beta < 0.0 && gamma > 0.0) {
+            return alpha > beta ? -alpha : -beta;
+        } else if (alpha < 0.0 && beta > 0.0 && gamma < 0.0) {
+            return alpha > gamma ? -alpha : -gamma;
+        } else if (alpha > 0.0 && beta < 0.0 && gamma < 0.0) {
+            return beta > gamma ? -beta : -gamma;
+        } else {
+            /* All are negative */
+            return alpha > beta ? (alpha > gamma ? -alpha : -gamma) : (beta > gamma ? -beta : -gamma);
+        }
     }
 }
 """
