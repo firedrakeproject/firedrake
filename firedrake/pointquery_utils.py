@@ -245,7 +245,11 @@ int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int lay
 
 
 def compute_distance_to_cell(ufl_cell):
-    """Generate C code for computing the distance to a cell.
+    """Generate C code for computing the approximate
+    (within an order of magnitude) distance to a cell.
+
+    If the return value of the generated code is negative,
+    the point is guaranteed to be inside the cell.
 
     Parameters
     ----------
