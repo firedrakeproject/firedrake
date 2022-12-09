@@ -243,8 +243,12 @@ def test_outside_boundary_behaviour(parentmesh):
     """
     inputcoord = np.full((1, parentmesh.geometric_dimension()), 0.0-1e-15)
     assert len(inputcoord) == 1
+    # Tolerance is too small to pick up point
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
+    # Tolerance is large enough to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
 
 
 def test_inside_boundary_behaviour(parentmesh):
@@ -255,5 +259,9 @@ def test_inside_boundary_behaviour(parentmesh):
     """
     inputcoord = np.full((1, parentmesh.geometric_dimension()), 0.0+1e-15)
     assert len(inputcoord) == 1
+    # Tolerance is large enough to pick up point
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
     assert vm.cell_set.size == 1
+    # Tolerance is too small to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0
