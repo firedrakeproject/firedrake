@@ -187,16 +187,19 @@ The ensemble sub-communicator is then available through the method :attr:`~.Ense
 MPI communications across the spatial sub-communicator (i.e., within
 an ensemble member) are handled automatically by Firedrake, whilst MPI
 communications across the ensemble sub-communicator (i.e., between ensemble
-members) are handled through methods of :class:`~.Ensemble`. Currently only
-global reductions are supported.
+members) are handled through methods of :class:`~.Ensemble`. Currently 
+send/recv, reductions and broadcasts are supported, as well as their
+non-blocking variants.
 
 .. code-block:: python3
 
+    my_ensemble.send(u, dest)
+    my_ensemble.recv(u, source)
+
+    my_ensemble.reduce(u, usum, root)
     my_ensemble.allreduce(u, usum)
 
-Other forms of MPI communication (:meth:`~.Ensemble.send`,
-:meth:`~.Ensemble.recv`, :meth:`~.Ensemble.isend`,
-:meth:`~.Ensemble.irecv`) are specified but not currently implemented.
+    my_ensemble.bcast(u, root)
 
 .. _MPI: http://mpi-forum.org/
 .. _STREAMS: http://www.cs.virginia.edu/stream/
