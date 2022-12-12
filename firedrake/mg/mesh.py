@@ -217,7 +217,8 @@ def RedistMeshHierarchy(cmesh, refinement_levels, refinements_per_level=1,
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
                   reorder=None,
-                  distribution_parameters=None, callbacks=None):
+                  distribution_parameters=None, callbacks=None,
+                  mesh_builder=firedrake.Mesh):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     :arg mesh: the coarse :func:`~.Mesh` to refine
