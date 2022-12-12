@@ -78,7 +78,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
 
         from ufl import (InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement,
-                         FiniteElement, EnrichedElement, TensorProductElement, HCurl)
+                         FiniteElement, EnrichedElement, TensorProductElement, TensorProductCell, HCurl)
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
@@ -115,7 +115,7 @@ class FacetSplitPC(PCBase):
 
         def get_facet_element(e):
             cell = e.cell()
-            if e.sobolev_space() == HCurl and isinstance(cell, ufl.TensorProductCell):
+            if e.sobolev_space() == HCurl and isinstance(cell, TensorProductCell):
                 sub_cells = cell.sub_cells()
                 degree = max(e.degree())
                 variant = e.variant()
