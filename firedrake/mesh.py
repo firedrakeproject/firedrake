@@ -269,7 +269,7 @@ def _from_netgen(ngmesh, comm=None):
             V = ngmesh.Coordinates()
             T = ngmesh.Elements3D().NumPy()["nodes"]
             T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            plex = _from_cell_list(3, T, V, comm, name=None)
+            plex = PETSc.DMPlex().createFromCellList(3, T, V, comm=comm) 
             plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
             vStart, vEnd = plex.getDepthStratum(0)   # vertices
             for e in ngmesh.Elements2D():
@@ -280,9 +280,9 @@ def _from_netgen(ngmesh, comm=None):
                 plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
             return plex
         else:
-            plex = PETSc.DMPlex().createFromCellList(2,
-                                                    np.zeros((0,3), dtype=np.int32),
-                                                    np.zeros((0,2), dtype=np.double),
+            plex = PETSc.DMPlex().createFromCellList(3,
+                                                    np.zeros((0,4), dtype=np.int32),
+                                                    np.zeros((0,3), dtype=np.double),
                                                     comm=comm)
             return plex
     elif ngmesh.dim == 2:
