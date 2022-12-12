@@ -354,7 +354,15 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=form.ufl_domains()[0]._comm
+        )
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Function(test.function_space())
@@ -416,8 +424,7 @@ class FormAssembler(abc.ABC):
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
-        for parloop in self.parloops:
-            parloop()
+        self.execute_parloops()
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -435,6 +442,10 @@ class FormAssembler(abc.ABC):
             data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
             parloop.arguments[0].data = data
         self._tensor = tensor
+
+    def execute_parloops(self):
+        for parloop in self.parloops:
+            parloop()
 
     @cached_property
     def local_kernels(self):
@@ -546,6 +557,13 @@ class OneFormAssembler(FormAssembler):
     @property
     def result(self):
         return self._tensor
+
+    def execute_parloops(self):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with self._tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops:
+                parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
@@ -1170,7 +1188,12 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global((1,), self._iterset.layers-2, dtype=numpy.int32)
+    glob = op2.Global(
+        (1,),
+        self._iterset.layers-2,
+        dtype=numpy.int32,
+        comm=self._iterset.comm
+    )
     return op2.GlobalParloopArg(glob)
 
 

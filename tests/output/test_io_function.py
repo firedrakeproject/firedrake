@@ -33,6 +33,14 @@ def _get_mesh(cell_type, comm):
     elif cell_type == "quadrilateral":
         mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"),
                     name=mesh_name, comm=comm)
+    elif cell_type == "hexahedral":
+        # cube_hex contains all 8 possible facet orientations.
+        mesh = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"),
+                    name=mesh_name, comm=comm)
+    elif cell_type == "hexahedral_möbius_solid":
+        # möbius_solid is missing facet orientations 2 and 5.
+        mesh = Mesh(join(cwd, "..", "meshes", "möbius_solid.msh"),
+                    name=mesh_name, comm=comm)
     elif cell_type == "triangle_small":
         # Sanity check
         mesh = UnitSquareMesh(2, 1, name=mesh_name)
@@ -159,6 +167,9 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
                                                 ("quadrilateral", "DQ", 7),
                                                 ("quadrilateral", "S", 5),
                                                 ("quadrilateral", "DPC", 5),
+                                                ("hexahedral", "Q", 5),
+                                                ("hexahedral", "DQ", 4),
+                                                ("hexahedral_möbius_solid", "Q", 6),
                                                 ("triangle_periodic", "P", 4),
                                                 ("tetrahedra_periodic", "P", 4)])
 def test_io_function_base(cell_family_degree, tmpdir):
