@@ -522,6 +522,8 @@ def RectangleMesh(
     ny,
     Lx,
     Ly,
+    originX=0.,
+    originY=0.,
     quadrilateral=False,
     reorder=None,
     diagonal="left",
@@ -554,9 +556,9 @@ def RectangleMesh(
 
     The boundary edges in this mesh are numbered as follows:
 
-    * 1: plane x == 0
+    * 1: plane x == originX
     * 2: plane x == Lx
-    * 3: plane y == 0
+    * 3: plane y == originY
     * 4: plane y == Ly
     """
 
@@ -564,8 +566,8 @@ def RectangleMesh(
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
-    ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    xcoords = np.linspace(originX, Lx, nx + 1, dtype=np.double)
+    ycoords = np.linspace(originY, Ly, ny + 1, dtype=np.double)
     return TensorRectangleMesh(
         xcoords,
         ycoords,
