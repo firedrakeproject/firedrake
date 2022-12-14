@@ -82,8 +82,21 @@ def poisson_residual(u, f, V):
     return assemble(F)
 
 
+# Set of Firedrake operations that will be composed with PyTorch operations
+def solve_poisson(u, f, V):
+    """Solve Poisson problem"""
+    v = TestFunction(V)
+    F = (inner(grad(u), grad(v)) + inner(u, v) - inner(f, v)) * dx
+    bcs = [DirichletBC(V, Constant(1.0), "on_boundary")]
+    # Solve PDE
+    solve(F == 0, u, bcs=bcs)
+    # Assemble Firedrake loss
+    return assemble(u ** 2 * dx)
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_loss_backward(V, f_exact):
+def test_pytorch_loss_backward(V, f_exact):
+    """Add doc """
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -115,7 +128,7 @@ def test_loss_backward(V, f_exact):
     # Compute PyTorch loss
     loss = (residual_P ** 2).sum()
 
-    # Check backpropagation API
+    # -- Check backpropagation API -- #
     loss.backward()
 
     # Check that gradients were propagated to model parameters
@@ -123,10 +136,66 @@ def test_loss_backward(V, f_exact):
     # -> This is checked in `test_taylor_hybrid_operator`
     assert all([θi.grad is not None for θi in model.parameters()])
 
+    # -- Check forward operator -- #
+    y_F = pytorch_backend.from_ml_backend(y_P, V)
+    residual_F = poisson_residual(y_F, f_exact, V)
+    residual_P_exact = pytorch_backend.to_ml_backend(residual_F)
+
+    assert (residual_P - residual_P_exact).detach().norm() < 1e-10
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_firedrake_loss_backward(V, f_exact):
+    """Add doc """
+
+    # Instantiate model
+    model = EncoderDecoder(V.dim())
+
+    # Set double precision
+    model.double()
+
+    # Check that gradients are initially set to None
+    assert all([θi.grad is None for θi in model.parameters()])
+
+    # Get machine learning backend (default: PyTorch)
+    pytorch_backend = get_backend()
+
+    # Model input
+    f = Function(V)
+
+    # Convert f to torch.Tensor
+    f_P = pytorch_backend.to_ml_backend(f)
+
+    # Forward pass
+    y_P = model(f_P)
+
+    # Construct the HybridOperator that takes a callable representing the Firedrake operations
+    G = HybridOperator(solve_poisson, control_space=V)
+
+    # Solve Poisson problem and compute the loss defined as the L2-norm of the solution
+    # -> `loss_P` is a torch.Tensor
+    loss_P = G(y_P, f_exact, V)
+
+    # -- Check backpropagation API -- #
+    loss_P.backward()
+
+    # Check that gradients were propagated to model parameters
+    # This test doesn't check the correctness of these gradients
+    # -> This is checked in `test_taylor_hybrid_operator`
+    assert all([θi.grad is not None for θi in model.parameters()])
+
+    # -- Check forward operator -- #
+    y_F = pytorch_backend.from_ml_backend(y_P, V)
+    loss_F = solve_poisson(y_F, f_exact, V)
+    loss_P_exact = pytorch_backend.to_ml_backend(loss_F)
+
+    assert (loss_P - loss_P_exact).detach().norm() < 1e-10
+
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_taylor_hybrid_operator(V, f_exact):
     G = HybridOperator(poisson_residual, control_space=V)
+    # G = HybridOperator(solve_poisson, control_space=V)
     # Make callable for taylor test
     Ghat = lambda x: G(x, f_exact, V)
     # `gradcheck` is likey to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
