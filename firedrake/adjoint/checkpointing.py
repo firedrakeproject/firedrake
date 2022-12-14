@@ -6,6 +6,7 @@ import tempfile
 import os
 import shutil
 import atexit
+from abc import ABC, abstractmethod
 _stop_disk_checkpointing = 1
 _checkpoint_init_data = False
 
@@ -233,7 +234,19 @@ def checkpointable_mesh(mesh):
         return outfile.load_mesh(mesh.name)
 
 
-class CheckpointFunction:
+class CheckpointBase(ABC):
+    """A base class for indirect pyadjoint checkpoints.
+
+    The class constructor should somehow store the object to be
+    checkpointed."""
+
+    @abstractmethod
+    def restore(self):
+        """Recover and return the checkpointed object."""
+        pass
+
+
+class CheckpointFunction(CheckpointBase):
     """Metadata for a Function checkpointed to disk.
 
     An object of this class replaces the :class:`~firedrake.Function` stored as
