@@ -33,3 +33,35 @@ class HybridLoss(object):
         # y = convert_to_torch(assembled_N)
         # yy = convert_to_torch(Function(V))
         # return L(yy, y_target)
+
+
+class HybridOperator(object):
+    """
+    F: Firedrake operator
+    """
+    def __init__(self, F, control_space=None, backend='pytorch'):
+        # Add sugar syntax if F not a callable (e.g. Form or ExternalOperator)
+        self.F = F
+        self.backend = get_backend(backend)
+        self.custom_operator = self.backend.custom_operator
+        self.control_space = control_space
+
+    def __call__(self, ω, *x):
+        r"""
+            ω can be model parameters, firedrake object or list of firedrake object
+            Example: Let y = f(x; θ) with f a neural network of inputs x and parameters θ
+
+                1) ω = θ (Inverse problem using ExternalOperator)
+                    ...
+                2) ω = y (PINNs)
+                    ...
+        """
+        # w can be list/tuple of model parameters or firedrake type.
+        # Converter checks first firedrake type if not check if list/tuple check
+        # all elements are parameters type and then return Constant subclass (PyTorchParams)
+        ω_F = self.backend.from_ml_backend(ω, self.control_space)
+        if not isinstance(ω, (tuple, list)):
+            ω = (ω,)
+        metadata = {'F': self.F, 'ω_F': ω_F, 'ω': ω, 'x': x}
+        φ = partial(self.custom_operator, metadata)
+        return φ(*ω)
