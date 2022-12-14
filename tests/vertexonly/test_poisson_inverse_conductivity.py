@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation, continue_annotation, set_working_tape
+from pyadjoint.tape import get_working_tape, pause_annotation
 
 
 @pytest.fixture(autouse=True)
@@ -28,12 +28,6 @@ def handle_annotation():
 def test_poisson_inverse_conductivity():
     # Have to import inside test to make sure cleanup fixtures work as intended
     from firedrake_adjoint import Control, ReducedFunctional, minimize
-
-    # Manually set up annotation since test suite may have stopped it
-    tape = get_working_tape()
-    tape.clear_tape()
-    set_working_tape(tape)
-    continue_annotation()
 
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
@@ -98,7 +92,3 @@ def test_poisson_inverse_conductivity():
 
     # Estimate q using Newton-CG which evaluates the hessian action
     minimize(Ĵ, method='Newton-CG', options={'disp': True})
-
-    # Make sure annotation is stopped
-    tape.clear_tape()
-    pause_annotation()

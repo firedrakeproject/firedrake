@@ -16,7 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
-from pkg_resources import parse_version
+from pkg_resources.extern.packaging.version import Version, InvalidVersion
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -146,25 +146,6 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
             # Accidentally (?) running firedrake-update with python2.
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
     sys.exit(1)
-
-# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
-# But only for Linux
-if platform.system() == "Linux":
-    # Get the cpu information
-    cpuinfostring = os.popen('lscpu').read()
-    # Check if it is a tigerlake processor
-    if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
-        # Get the compiler versions
-        gccversionstring = os.popen('gcc -dumpfullversion').read()
-
-        gppversionstring = os.popen('g++ -dumpfullversion').read()
-
-        gfortranversionstring = os.popen('gfortran -dumpfullversion').read()
-
-        # Check if the combination is a problem
-        if parse_version(gccversionstring) < parse_version("9.4") or parse_version(gppversionstring) < parse_version("9.4") or parse_version(gfortranversionstring) < parse_version("9.4"):
-            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
-            sys.exit(1)
 
 branches = {}
 
@@ -500,6 +481,86 @@ where shortname is one of the names given below:
     sys.exit(0)
 
 
+def sniff_compiler(exe):
+    """Obtain the correct compiler class by calling the compiler executable.
+    Attempt to determine the compiler version number.
+
+        :arg cpp: If set to True will use the C++ compiler rather than
+            the C compiler to determine the version number.
+    :arg exe: String with name or path to compiler executable
+    :returns: A compiler class
+    """
+    # NAME
+    try:
+        output = subprocess.run(
+            [exe, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+    except (subprocess.CalledProcessError, UnicodeDecodeError):
+        output = ""
+    # Find the name of the compiler family
+    if output.startswith("gcc") or output.startswith("g++") or output.startswith("GNU"):
+        name = "GNU"
+    elif output.startswith("clang"):
+        name = "clang"
+    elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
+        name = "clang"
+    elif output.startswith("icc"):
+        name = "Intel"
+    elif "Cray" in output.split("\n")[0]:
+        # Cray is more awkward eg:
+        # Cray clang version 11.0.4  (<some_hash>)
+        # gcc (GCC) 9.3.0 20200312 (Cray Inc.)
+        name = "Cray"
+    else:
+        name = "unknown"
+    # VERSION
+    try:
+        output = subprocess.run(
+            [exe, "-dumpversion"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+        version = Version(output)
+    except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+        version = None
+    return name, version
+
+
+# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
+# But only for Linux
+if platform.system() == "Linux":
+    # Get the cpu information
+    try:
+        cpuinfostring = subprocess.run(
+            ["lscpu"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+    except (subprocess.CalledProcessError, UnicodeDecodeError):
+        output = ""
+    # Check if it is a tigerlake processor ie: "i3-11", "i5-11", "i7-11"
+    if any(bad_cpu in cpuinfostring for bad_cpu in ["i3-11", "i5-11", "i7-11"]):
+        # Get the compiler names and versions
+        cc = sniff_compiler(args.mpicc or "gcc")
+        cxx = sniff_compiler(args.mpicxx or "g++")
+        fortran = sniff_compiler(args.mpif90 or "gfortran")
+        # Check if the combination is a problem
+        if any(map(lambda compiler: compiler[0] == "GNU" and compiler[1] < Version("9.4"), [cc, cxx, fortran])):
+            print(
+                "\nUsing a Tiger Lake (or newer) CPU with gcc, g++ and gfortran version<=9.3 is not possible."
+                " Please install at least gcc, g++ and gfortran version 9.4.0 or later"
+            )
+            sys.exit(1)
+
+
 @atexit.register
 def print_log_location():
     log.info("\n\n%s log saved in %s" % (mode.capitalize(), logfile))
@@ -646,9 +707,7 @@ def get_petsc_options(minimal=False):
                      "--with-c2html=0",
                      "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
                      # Parser generator
-                     "--download-bison",
-                     # For superlu_dist amongst others.
-                     "--with-cxx-dialect=C++11"}
+                     "--download-bison"}
     for pkg in get_minimal_petsc_packages():
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
@@ -982,7 +1041,11 @@ def clean(package):
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
-            check_call([python, "setup.py", "clean"])
+            if os.path.isfile("setup.py"):
+                check_call([python, "setup.py", "clean"])
+            else:  # PEP 518 build system
+                if os.path.exists("build") and os.path.isdir("build"):
+                    shutil.rmtree("build")
 
 
 def pip_uninstall(package):
@@ -1208,7 +1271,8 @@ def build_and_install_libsupermesh():
                        "-DMPI_Fortran_COMPILER=" + f90,
                        "-DCMAKE_Fortran_COMPILER=" + f90,
                        "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
-                if osname == "Darwin":
+                fortran, version = sniff_compiler(f90)
+                if fortran == "GNU" and version >= Version("10"):
                     # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
                     # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
                     cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
@@ -1969,8 +2033,7 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         # Ensure pytest is at the latest version
-        log.info("We use pytest==6.2.5 until the issue with pytest==7.0.0 is resolved.\n")
-        run_pip(["install", "-U", "pytest==6.2.5"])
+        run_pip(["install", "-U", "pytest"])
 
 with environment(**compiler_env):
     with pipargs("--no-deps"):
