@@ -1,10 +1,21 @@
+import functools
+
 import torch
 import torch.autograd as torch_ad
 
 from ufl.algorithms.ad import expand_derivatives
 from firedrake import adjoint, action, derivative
 from firedrake.assemble import assemble
-from firedrake.external_operators.neural_networks import NeuralNet
+from firedrake.external_operators.neural_networks import NeuralNet, get_backend
+#from firedrake.external_operators.neural_networks.backends import get_backend # PytorchBackend
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+
+from pyadjoint.reduced_functional import ReducedFunctional
+from pyadjoint.control import Control
+
+
+backend = get_backend('pytorch')
 
 
 class CustomOperator(torch_ad.Function):
@@ -79,6 +90,68 @@ class CustomOperator(torch_ad.Function):
         import ipdb; ipdb.set_trace()
         w = convert_to_torch(w)
         """
+
+
+class CustomOperatorRF(torch_ad.Function):
+    """
+    We can implement our own custom autograd Functions by subclassing
+    torch.autograd.Function and implementing the forward and backward passes
+    which operate on Tensors.
+    """
+
+    # This method is wrapped by something cancelling annotation (probably 'with torch.no_grad()')
+    @staticmethod
+    def forward(ctx, metadata, *θ):
+        """
+        In the forward pass we receive a Tensor containing the input and return
+        a Tensor containing the output. ctx is a context object that can be used
+        to stash information for backward computation. You can cache arbitrary
+        objects for use in the backward pass using the ctx.save_for_backward method.
+        """
+        # What about θ ? Does the fact that we don't use it indicates that conversion
+        # of control should occur here inside forward ?
+        F = metadata['F']
+        ω_F = metadata['ω_F']
+        x = metadata['x']
+        # Should we turn annotation pyadjoint also if not turned on ?
+        # Need to turn torch autograd annotation on as F may contain PyTorch operations via ExternalOperator(s)
+        # This is because in `forward` annotation is switched off
+        with torch.enable_grad():
+            y_F = F(ω_F, *x)
+        metadata['V'] = backend.get_function_space(y_F)
+        metadata['rF'] = functools.partial(ReducedFunctional, y_F)
+        ctx.metadata.update(metadata)
+        y = backend.to_ml_backend(y_F)
+        # Is detach really necessary ?
+        return y.detach()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        In the backward pass we receive a Tensor containing the gradient of the loss
+        with respect to the output, and we need to compute the gradient of the loss
+        with respect to the input.
+        """
+        rF = ctx.metadata['rF']
+        ω_F = ctx.metadata['ω_F']
+        ω = ctx.metadata['ω']
+        V = ctx.metadata['V']
+
+        adj_input = backend.from_ml_backend(grad_output, V)
+        if isinstance(adj_input, (Function, Cofunction)):
+            adj_input = adj_input.vector()
+        # List ?
+        c = Control(ω_F)
+        rF = rF(c, scale=adj_input)
+        # Does it need to be inside torch grad and pyadjoint grad contexts ?
+        with torch.enable_grad():
+            Δω = rF.derivative()
+        # None is for metadata arg in `forward`
+        # Is the conversion strict in the control case or does it depend on the user case.
+        # -> What about theta... ?
+        if not isinstance(Δω, (list, tuple)):
+            Δω = (Δω,)
+        return None, *[backend.to_ml_backend(Δωi) for Δωi in Δω]
 
 
 def to_pytorch(*args, **kwargs):
