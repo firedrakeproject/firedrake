@@ -2,7 +2,7 @@ import numbers
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
-from firedrake.adjoint.blocks import AssembleBlock, PointwiseOperatorBlock
+from firedrake.adjoint.blocks import AssembleBlock
 
 
 def annotate_assemble(assemble):
@@ -19,13 +19,15 @@ def annotate_assemble(assemble):
             output = assemble(*args, **kwargs)
 
         from firedrake.function import Function
+        from firedrake.cofunction import Cofunction
+
         form = args[0]
-        if isinstance(output, (numbers.Complex, Function)):
+        if isinstance(output, (numbers.Complex, Function, Cofunction)):
             # Assembling a 0-form or a BaseFormOperator (e.g. Interp)
             if not annotate:
                 return output
 
-            if not isinstance(output, (float, Function)):
+            if not isinstance(output, (float, Function, Cofunction)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
 
             tape = get_working_tape()
