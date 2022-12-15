@@ -2178,7 +2178,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # variable-height layers need to be present for the maximum number
         # of extruded layers
         num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
-        num_layers = mesh.comm.allreduce(num_layers, op=MPI.MAX)
+        num_layers = mesh._comm.allreduce(num_layers, op=MPI.MAX)
 
         # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
@@ -2353,7 +2353,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
 
         # check all ranks have the same vertexcoords so that check is valid
         # NOTE this operation scales with number of vertices and ranks
-        _, allequal = mesh.comm.allreduce((vertexcoords, True), op=op)
+        _, allequal = mesh._comm.allreduce((vertexcoords, True), op=op)
         op.Free()
         if not allequal:
             raise ValueError("Cannot check for missing points if different vertices on each MPI rank!")
@@ -2361,7 +2361,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         # Check for missing points
         nlocal = len(swarm.getField("parentcellnum"))
         swarm.restoreField("parentcellnum")
-        nglobal = mesh.comm.allreduce(nlocal, op=MPI.SUM)
+        nglobal = mesh._comm.allreduce(nlocal, op=MPI.SUM)
         ninput = len(vertexcoords)
         if nglobal < ninput:
             msg = f"{ninput - nglobal} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
@@ -2481,7 +2481,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
-    swarm = PETSc.DMSwarm().create(comm=plex.comm)
+    swarm = PETSc.DMSwarm().create(comm=parent_mesh._comm)
 
     # Set swarm DM dimension to match DMPlex dimension
     # NB: Unlike a DMPlex, this does not correspond to the topological
@@ -2550,7 +2550,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
         vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
 
     num_vertices = len(vertex_coords)
-    max_num_vertices = parent_mesh.comm.allreduce(num_vertices, op=MPI.MAX)
+    max_num_vertices = parent_mesh._comm.allreduce(num_vertices, op=MPI.MAX)
 
     gdim = parent_mesh.geometric_dimension()
     tdim = parent_mesh.topological_dimension()
