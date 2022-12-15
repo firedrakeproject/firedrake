@@ -38,9 +38,8 @@ class PytorchBackend(AbstractMLBackend):
 
     @utils.cached_property
     def custom_operator(self):
-        from firedrake.external_operators.neural_networks.pytorch_custom_operator import CustomOperatorRF
-        # return CustomOperator().apply
-        return CustomOperatorRF().apply
+        from firedrake.external_operators.neural_networks.pytorch_custom_operator import FiredrakeTorchOperator
+        return FiredrakeTorchOperator().apply
 
     def to_ml_backend(self, x):
         # Work out what's the right thing to do here ?
