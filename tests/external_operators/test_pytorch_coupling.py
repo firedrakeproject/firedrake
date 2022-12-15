@@ -83,8 +83,9 @@ def poisson_residual(u, f, V):
 
 
 # Set of Firedrake operations that will be composed with PyTorch operations
-def solve_poisson(u, f, V):
+def solve_poisson(f, V):
     """Solve Poisson problem"""
+    u = Function(V)
     v = TestFunction(V)
     F = (inner(grad(u), grad(v)) + inner(u, v) - inner(f, v)) * dx
     bcs = [DirichletBC(V, Constant(1.0), "on_boundary")]
@@ -92,6 +93,15 @@ def solve_poisson(u, f, V):
     solve(F == 0, u, bcs=bcs)
     # Assemble Firedrake loss
     return assemble(u ** 2 * dx)
+
+
+@pytest.fixture(params=['poisson_residual', 'solve_poisson'])
+def firedrake_operator(request, f_exact, V):
+    # Return firedrake operator and the corresponding non-control arguments
+    if request.param == 'poisson_residual':
+        return poisson_residual, (f_exact, V)
+    elif request.param == 'solve_poisson':
+        return solve_poisson, (V,)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -119,11 +129,18 @@ def test_pytorch_loss_backward(V, f_exact):
     # Forward pass
     y_P = model(f_P)
 
+    # Set control
+    u_F = Function(V)
+    c = Control(u_F)
+
+    # Set reduced functional which expresses the Firedrake operations in terms of the control
+    Jhat = ReducedFunctional(poisson_residual(u_F, f_exact, V), c)
+
     # Construct the HybridOperator that takes a callable representing the Firedrake operations
-    G = HybridOperator(poisson_residual, control_space=V)
+    G = HybridOperator(Jhat)
 
     # Compute Poisson residual in Firedrake using HybridOperator: `residual_P` is a torch.Tensor
-    residual_P = G(y_P, f_exact, V)
+    residual_P = G(y_P)
 
     # Compute PyTorch loss
     loss = (residual_P ** 2).sum()
@@ -161,20 +178,27 @@ def test_firedrake_loss_backward(V, f_exact):
     pytorch_backend = get_backend()
 
     # Model input
-    f = Function(V)
+    λ = Function(V)
 
     # Convert f to torch.Tensor
-    f_P = pytorch_backend.to_ml_backend(f)
+    λ_P = pytorch_backend.to_ml_backend(λ)
 
     # Forward pass
-    y_P = model(f_P)
+    f_P = model(λ_P)
+
+    # Set control
+    f = Function(V)
+    c = Control(f)
+
+    # Set reduced functional which expresses the Firedrake operations in terms of the control
+    Jhat = ReducedFunctional(solve_poisson(f, V), c)
 
     # Construct the HybridOperator that takes a callable representing the Firedrake operations
-    G = HybridOperator(solve_poisson, control_space=V)
+    G = HybridOperator(Jhat)
 
     # Solve Poisson problem and compute the loss defined as the L2-norm of the solution
     # -> `loss_P` is a torch.Tensor
-    loss_P = G(y_P, f_exact, V)
+    loss_P = G(f_P)
 
     # -- Check backpropagation API -- #
     loss_P.backward()
@@ -185,20 +209,24 @@ def test_firedrake_loss_backward(V, f_exact):
     assert all([θi.grad is not None for θi in model.parameters()])
 
     # -- Check forward operator -- #
-    y_F = pytorch_backend.from_ml_backend(y_P, V)
-    loss_F = solve_poisson(y_F, f_exact, V)
+    f_F = pytorch_backend.from_ml_backend(f_P, V)
+    loss_F = solve_poisson(f_F, V)
     loss_P_exact = pytorch_backend.to_ml_backend(loss_F)
 
     assert (loss_P - loss_P_exact).detach().norm() < 1e-10
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_taylor_hybrid_operator(V, f_exact):
-    G = HybridOperator(poisson_residual, control_space=V)
-    # G = HybridOperator(solve_poisson, control_space=V)
-    # Make callable for taylor test
-    Ghat = lambda x: G(x, f_exact, V)
+def test_taylor_hybrid_operator(firedrake_operator, V):
+    # Control value
+    ω = Function(V)
+    # Get Firedrake operator and other operator arguments
+    fd_op, args = firedrake_operator
+    # Set reduced functional
+    Jhat = ReducedFunctional(fd_op(ω, *args), Control(ω))
+    # Define the hybrid operator
+    G = HybridOperator(Jhat)
     # `gradcheck` is likey to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
     x_P = torch.rand(V.dim(), dtype=torch.double, requires_grad=True)
-    # Taylor test
-    torch.autograd.gradcheck(Ghat, x_P)
+    # Taylor test (`eps` is the perturbation)
+    torch.autograd.gradcheck(G, x_P, eps=1e-6)
