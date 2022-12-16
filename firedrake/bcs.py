@@ -265,7 +265,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, method=None):
+    def __init__(self, V, g, sub_domain, weight=1.0,method=None):
         if method == "geometric":
             raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
         if method not in {None, "topological"}:
@@ -283,6 +283,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         self.function_arg = g
         self._original_arg = g
         self.is_linear = True
+        self.weight = weight
         self.Jp_eq_J = True
 
     def dirichlet_bcs(self):
