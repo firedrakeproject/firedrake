@@ -1,3 +1,4 @@
+import collections
 import numpy as np
 import ufl
 
@@ -10,6 +11,7 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 
 import firedrake.utils as utils
 from firedrake.adjoint.constant import ConstantMixin
+
 
 __all__ = ['Constant']
 
@@ -135,16 +137,100 @@ class Constant(ufl.Coefficient, ConstantMixin):
             raise ValueError(e)
 
     def __iadd__(self, o):
-        raise NotImplementedError("Augmented assignment to Constant not implemented")
+        raise NotImplementedError("Augmented assignment to %s not implemented" % str(type(self)))
 
     def __isub__(self, o):
-        raise NotImplementedError("Augmented assignment to Constant not implemented")
+        raise NotImplementedError("Augmented assignment to %s not implemented" % str(type(self)))
 
     def __imul__(self, o):
-        raise NotImplementedError("Augmented assignment to Constant not implemented")
+        raise NotImplementedError("Augmented assignment to %s not implemented" % str(type(self)))
 
     def __idiv__(self, o):
-        raise NotImplementedError("Augmented assignment to Constant not implemented")
+        raise NotImplementedError("Augmented assignment to %s not implemented" % str(type(self)))
 
     def __str__(self):
         return ufl2unicode(self)
+
+
+class PytorchParams(Constant):
+
+    """A "constant" coefficient
+
+    A :class:`Constant` takes one value over the whole
+    :func:`~.Mesh`. The advantage of using a :class:`Constant` in a
+    form rather than a literal value is that the constant will be
+    passed as an argument to the generated kernel which avoids the
+    need to recompile the kernel if the form is assembled for a
+    different value of the constant.
+
+    :arg value: the value of the constant.  May either be a scalar, an
+         iterable of values (for a vector-valued constant), or an iterable
+         of iterables (or numpy array with 2-dimensional shape) for a
+         tensor-valued constant.
+
+    :arg domain: an optional :func:`~.Mesh` on which the constant is defined.
+
+    .. note::
+
+       If you intend to use this :class:`Constant` in a
+       :class:`~ufl.form.Form` on its own you need to pass a
+       :func:`~.Mesh` as the domain argument.
+    """
+
+    def __init__(self, params):
+        from firedrake.external_operators.neural_networks.backends import get_backend
+        self.backend = get_backend('pytorch')
+
+        params = (params,) if not isinstance(params, collections.abc.Sequence) else params
+
+        if not all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in params]):
+            raise TypeError('Expecting parameters of type %s' % str(self.backend.nn.parameter.Parameter))
+
+        self.params = params
+
+    def __add__(self, value):
+        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in value]):
+            # Delegate to Pytorch: 1) the `+` operation and 2) the compatibility check on parameters in `value`
+            # If parameters in value don't match -> let PyTorch cause the detailed error message
+            θ = []
+            # Should the addition be annotated here ?
+            # Is it the right thing to not make a new object ?
+            # At least keeping the same PyTorch object is (I think) the right thing to do since we don't want
+            # to do things behind PyTorch's back by making new objects
+            for a, b in zip(self.params, value):
+                # θi will have a Clone block on its tape: is that desired
+                # How should AD policy be here ? Note that if we detach
+                # then θi won't have requires_grad=True.
+                θi = a.clone()
+                θi += b
+                θ.append(θi)
+            return PytorchParams(θ)
+
+        raise ValueError('Cannot add %s' % value)
+
+    def __mul__(self, value):
+        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in value]):
+            # Delegate to Pytorch: 1) the `*` operation and 2) the compatibility check on parameters in `value`
+            # If parameters in value don't match -> let PyTorch cause the detailed error message
+            θ = []
+            # Same comments than for __add__
+            for a, b in zip(self.params, value):
+                θi = a.clone()
+                θi *= b
+                θ.append(θi)
+            return PytorchParams(θ)
+
+        raise ValueError('Cannot multiply %s' % value)
+
+    def __str__(self):
+        # Delegate to torch Parameter class
+        return str(self.params)
+
+    def evaluate(self, x, mapping, component, index_values):
+        raise NotImplementedError("Evaluation of %s objects is not implemented" % str(type(self)))
+
+    def values(self):
+        raise NotImplementedError("Accessing values of %s objects is not implemented" % str(type(self)))
+
+    def assign(self, value):
+        raise NotImplementedError("Assignment of %s objects is not implemented" % str(type(self)))
