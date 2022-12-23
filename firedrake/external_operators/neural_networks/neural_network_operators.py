@@ -374,20 +374,11 @@ class PytorchOperator(NeuralNet):
         self._assign_params(params)
 
 
-class TensorFlowOperator(NeuralNet):
-    r"""A :class:`TensorFlowOperator` ... TODO :
-     """
-
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data):
-        NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
-        raise NotImplementedError('TensorFlowOperator not implemented yet!')
-
 
 # Helper functions #
 def neuralnet(model, function_space, inputs_format=0):
 
     torch_module = type(None)
-    tensorflow_module = type(None)
 
     # Checks
     try:
@@ -401,11 +392,8 @@ def neuralnet(model, function_space, inputs_format=0):
     if isinstance(model, torch_module):
         operator_data = {'framework': 'PyTorch', 'model': model, 'inputs_format': inputs_format}
         return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
-    elif isinstance(model, tensorflow_module):
-        operator_data = {'framework': 'TensorFlow', 'model': model, 'inputs_format': inputs_format}
-        return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
     else:
-        error("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
+        error("Expecting one of the following library : PyTorch and that the library has been installed")
 
 
 def ml_get_params(model, framework, inputs_format):
