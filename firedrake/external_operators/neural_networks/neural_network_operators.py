@@ -209,27 +209,24 @@ class PytorchOperator(NeuralNet):
     def model_output(self, output):
         self.operator_data['model_output'] = output
 
-    # --- Callbacks ---
+    @utils.cached_property
+    def torch_grad_enabled(self):
+        # Default: set PyTorch annotation on, unless otherwise specified.
+        return self.operator_data.get('torch_grad_enabled', True)
 
-    def _pre_forward_callback(self, *args, **kwargs):
+    # --- Callbacks --- #
+
+    def _pre_forward_callback(self, *args, unsqueeze=True, **kwargs):
         # If several operands for inputs, the user needs to overwrite this function
         # in order to state how the operands are linked to the inputs
         if len(args) > 1:
             raise ValueError('%s has more than one operand: You need to specify how to use the operands to construct the model inputs via _pre_forward_callback' % type(self).__name__)
-        op = args[0]
-        torch_op = self.ml_backend.tensor(op.dat.data_ro, requires_grad=True)
-        return self.ml_backend.unsqueeze(torch_op, self.inputs_format)
+        x_F, = args
+        return self.ml_backend.to_ml_backend(x_F, unsqueeze=unsqueeze, unsqueeze_dim=self.inputs_format)
 
-    def _post_forward_callback(self, N, x, model_tape=False, **kwargs):
-        #if self.derivatives == (0,)*len(self.ufl_operands):
-        #    N = N.squeeze(self.inputs_format)
-        #    if model_tape:
-        #        return N
-        #    return N.detach()
-        N = N.squeeze(self.inputs_format)
-        if model_tape:
-            return N
-        return N.detach()
+    def _post_forward_callback(self, y_P):
+        space = self.ufl_function_space()
+        return self.ml_backend.from_ml_backend(y_P, space)
 
     # --- Evaluation ---
 
@@ -279,46 +276,28 @@ class PytorchOperator(NeuralNet):
                     or
                     - construct another pointwise operator that will do this job and pass it in as argument
         """
-        model_tape = kwargs.get('model_tape', False)
         model = self.model
 
-        # Explictly set the eval mode does matter for
-        # networks having different behaviours for training/evaluating (e.g. Dropout)
-        # model.eval()
-
         # Process the inputs
-        space = self.ufl_function_space()
         # Once Interp is set up for ExternalOperator operands then this should be fine!
         # ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
         ops = self.operator_inputs()
 
-        # Pre forward callback
-        torch_op = self._pre_forward_callback(*ops)
+        # By default PyTorch annotation is on (i.e. equivalent to `with torch.enable_grad()`)
+        with self.backend.set_grad_enabled(self.torch_grad_enabled):
+            # Pre forward callback
+            x_P = self._pre_forward_callback(*ops)
 
-        # Vectorized forward pass
-        val = model(torch_op)
+            # Vectorized forward pass
+            y_P = model(x_P)
 
-        # TODO: We should now remove the `model_tape` system as the tape is conserved in `model_output`
-        self.model_output = val
+            # TODO: We should now remove the `model_tape` system as the tape is conserved in `model_output`
+            self.model_output = y_P
 
-        # Post forward callback
-        res = self._post_forward_callback(val, torch_op, model_tape)
+            # Post forward callback
+            y_F = self._post_forward_callback(y_P)
 
-        # Compute the jacobian
-        # if self.derivatives != (0,)*len(self.ufl_operands):
-        #    res = self._evaluate_jacobian(val,  torch_op)
-
-        # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
-        if model_tape:
-            return res
-        result = Function(space)
-        result.dat.data[:] = res
-
-        # Explictly set the train mode does matter for
-        # networks having different behaviours for training/evaluating (e.g. Dropout)
-        # model.train()
-
-        return self.assign(result)
+        return y_F
 
     def evaluate_backprop(self, x, params_idx, controls):
         outputs = self._evaluate(model_tape=True)
