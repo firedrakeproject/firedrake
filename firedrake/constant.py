@@ -179,7 +179,7 @@ class PytorchParams(Constant):
 
     def __init__(self, params):
         from firedrake.external_operators.neural_networks.backends import get_backend
-        self.backend = get_backend('pytorch')
+        self.backend = get_backend('pytorch').backend
 
         params = (params,) if not isinstance(params, collections.abc.Sequence) else params
 
@@ -187,6 +187,13 @@ class PytorchParams(Constant):
             raise TypeError('Expecting parameters of type %s' % str(self.backend.nn.parameter.Parameter))
 
         self.params = params
+        #
+        self._hash = None
+        cell = None
+        domain = None
+        e = ufl.FiniteElement("Real", cell, 0)
+        fs = ufl.FunctionSpace(domain, e)
+        ufl.Coefficient.__init__(self, fs)
 
     def __add__(self, value):
         if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in value]):
@@ -222,9 +229,15 @@ class PytorchParams(Constant):
 
         raise ValueError('Cannot multiply %s' % value)
 
+    def _ufl_compute_hash_(self):
+        "Default hash of PytorchParams just hash the repr string."
+        return hash(repr(self))
+
+    def __repr__(self):
+        return 'PytorchParams(%s)' % ', '.join('θ_%s' % i for i in range(len(self.params)))
+
     def __str__(self):
-        # Delegate to torch Parameter class
-        return str(self.params)
+        return 'PytorchParams(%s)' % ', '.join('θ_%s {%s}' % (i, np.array(θi.shape)) for i, θi in enumerate(self.params))
 
     def evaluate(self, x, mapping, component, index_values):
         raise NotImplementedError("Evaluation of %s objects is not implemented" % str(type(self)))
