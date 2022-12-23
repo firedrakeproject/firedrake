@@ -5,6 +5,7 @@ from ufl.referencevalue import ReferenceValue
 from ufl.log import error
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
+from firedrake.external_operators.neural_networks.backends import get_backend
 from firedrake.function import Function
 from firedrake.constant import Constant
 from firedrake import utils
@@ -16,6 +17,8 @@ class NeuralNet(AbstractExternalOperator):
     r"""A :class:`NeuralNet`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
+
+    _backend_name = None
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
@@ -65,10 +68,22 @@ class NeuralNet(AbstractExternalOperator):
         else:
             self._params_version = {'version': 1, 'params': self.operator_params()}
 
-    @property
-    def framework(self):
-        # PyTorch by default
-        return self.operator_data.get('framework') or 'PyTorch'
+    @utils.cached_property
+    def ml_backend(self):
+        """Get the ML backend class"""
+        # Use class attribute instead of `operator_data` since ML backend is needed
+        # when we add model params to operands, i.e. before hitting the base AbstractExternalOperator class.
+        return get_backend(self._backend_name)
+
+    @utils.cached_property
+    def backend(self):
+        """Shortcut to get the actual backend
+
+           Example: For a PyTorch backend we have:
+            - self.ml_backend -> PyTorchBackend
+            - self.backend -> torch
+        """
+        return self.ml_backend.backend
 
     @property
     def model(self):
@@ -80,7 +95,7 @@ class NeuralNet(AbstractExternalOperator):
         return len(tuple(self.model.parameters()))
 
     def get_params(self):
-        return ml_get_params(self.model, self.framework, self.inputs_format)
+        return self.ml_backend.get_params(self.model)
 
     # @property
     def operator_inputs(self):
@@ -154,6 +169,8 @@ class PytorchOperator(NeuralNet):
         its inputs.
      """
 
+    _backend_name = 'pytorch'
+
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
                  val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
         r"""
@@ -180,14 +197,6 @@ class PytorchOperator(NeuralNet):
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
-
-    @utils.cached_property
-    def ml_backend(self):
-        try:
-            import torch
-        except ImportError:
-            raise ImportError("Error when trying to import PyTorch")
-        return torch
 
     # Stash the output of the neural network for conserving the PyTorch tape
     # -> This enables to only traverse the graph once instead of running multiple
@@ -229,11 +238,11 @@ class PytorchOperator(NeuralNet):
         N = N.squeeze(self.inputs_format)
         if sum(self.derivatives[-self.nparams:]) > 0:
             # When we want to compute: \frac{\partial{N}}{\partial{params_i}}
-            return self.ml_backend.zeros(len(x))
+            return self.backend.zeros(len(x))
 
-        gradient, = self.ml_backend.autograd.grad(outputs=N, inputs=x,
-                                                  grad_outputs=self.ml_backend.ones_like(N),
-                                                  retain_graph=True)
+        gradient, = self.backend.autograd.grad(outputs=N, inputs=x,
+                                               grad_outputs=self.backend.ones_like(N),
+                                               retain_graph=True)
         return gradient.squeeze(self.inputs_format)
 
     def _eval_update_weights(evaluate):
@@ -314,8 +323,8 @@ class PytorchOperator(NeuralNet):
     def evaluate_backprop(self, x, params_idx, controls):
         outputs = self._evaluate(model_tape=True)
         params = list(p for i, p in enumerate(self.model.parameters()) if i in params_idx)
-        grad_W = self.ml_backend.autograd.grad(outputs, params,
-                                               grad_outputs=[self.ml_backend.tensor(x.dat.data_ro)],
+        grad_W = self.backend.autograd.grad(outputs, params,
+                                               grad_outputs=[self.backend.tensor(x.dat.data_ro)],
                                                retain_graph=True)
 
         grad_W = self._reshape_model_parameters(*grad_W)
@@ -363,9 +372,9 @@ class PytorchOperator(NeuralNet):
     # --- Update parameters ---
 
     def _assign_params(self, params):
-        with self.ml_backend.no_grad():
+        with self.backend.no_grad():
             for model_param, new_param in zip(self.model.parameters(), params):
-                new_param = self.ml_backend.tensor(new_param.dat.data_ro)
+                new_param = self.backend.tensor(new_param.dat.data_ro)
                 model_param.copy_(new_param)
 
     def _update_model_params(self):
@@ -374,33 +383,19 @@ class PytorchOperator(NeuralNet):
         self._assign_params(params)
 
 
+# Helper function #
+def neuralnet(model, function_space, inputs_format=0, backend='pytorch'):
 
-# Helper functions #
-def neuralnet(model, function_space, inputs_format=0):
-
-    torch_module = type(None)
-
-    # Checks
-    try:
-        import torch
-        torch_module = torch.nn.modules.module.Module
-    except ImportError:
-        pass
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')
 
-    if isinstance(model, torch_module):
-        operator_data = {'framework': 'PyTorch', 'model': model, 'inputs_format': inputs_format}
+    operator_data = {'model': model, 'inputs_format': inputs_format}
+    if backend == 'pytorch':
         return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
     else:
-        error("Expecting one of the following library : PyTorch and that the library has been installed")
-
-
-def ml_get_params(model, framework, inputs_format):
-    # PyTorch by default
-    framework = framework or 'PyTorch'
-    if framework == 'PyTorch':
-        # .detach() is a safer way than .data() for the exclusion of subgraphs from gradient computation.
-        return tuple(param.detach() for param in model.parameters())
-    else:
-        raise NotImplementedError(framework + ' operator is not implemented yet.')
+        error_msg = """ The backend: "%s" is not implemented!
+        -> You can do so by sublcassing the `NeuralNet` class and make your own neural network class
+           for that backend!
+        See, for example, the `firedrake.external_operators.PytorchOperator` class associated with the PyTorch backend.
+                    """ % backend
+        raise NotImplementedError(error_msg)
