@@ -1,5 +1,7 @@
 import pytest
 from firedrake import *
+from firedrake.external_operators.neural_networks.backends import PytorchBackend
+
 try:
     import torch
 except ImportError:
@@ -64,7 +66,8 @@ def test_PyTorch_operator_model_attribute(mesh, model):
     nP = neuralnet(fc, function_space=V, inputs_format=1)
     nP2 = nP(u)
 
-    assert nP2.framework == 'PyTorch'
+    assert nP2._backend_name == 'pytorch'
+    assert isinstance(nP2.ml_backend, PytorchBackend)
     assert fc == nP2.model
 
     for batch_idx in range(500):
