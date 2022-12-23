@@ -1,7 +1,7 @@
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
-from firedrake.constant import Constant
+from firedrake.constant import Constant, PytorchParams
 
 import firedrake.utils as utils
 
@@ -11,13 +11,30 @@ class AbstractMLBackend(object):
     def backend(self):
         raise NotImplementedError
 
-    def to_ml_backend(self, x):
+    def params_type(self):
+        """Return Firedrake type representing model parameters for that backend"""
         raise NotImplementedError
 
-    def from_ml_backend(self, x, V, cofunction=None):
+    def get_params(self, model):
+        """Return model parameters"""
+        raise NotImplementedError
+
+    def to_ml_backend(self, x):
+        """Convert from Firedrake to ML backend
+
+           x: Firedrake object
+        """
+        raise NotImplementedError
+
+    def from_ml_backend(self, x, V):
+        """Convert from ML backend to Firedrake
+
+           x: ML backend object
+        """
         raise NotImplementedError
 
     def get_function_space(self, x):
+        """Get function space out of x"""
         if isinstance(x, (Function, Cofunction)):
             return x.function_space()
         elif isinstance(x, float):
@@ -41,14 +58,26 @@ class PytorchBackend(AbstractMLBackend):
         from firedrake.external_operators.neural_networks.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator().apply
 
-    def to_ml_backend(self, x):
+    @utils.cached_property
+    def params_type(self):
+        return PytorchParams
+
+    def get_params(self, model):
+        # .detach() is a safer way than .data() for the exclusion of subgraphs from gradient computation.
+        # TODO: Do we really want to detach ?
+        return list(model.parameters())
+
+    def to_ml_backend(self, x, unsqueeze=True, unsqueeze_dim=0):
         # Work out what's the right thing to do here ?
         requires_grad = True
         if isinstance(x, (Function, Cofunction, Vector)):
-            x_P = self.backend.tensor(x.dat.data, requires_grad=requires_grad)
+            # Should we use `.dat.data` instead of `.dat.data_ro` to increase the state counter ?
+            x_P = self.backend.tensor(x.dat.data_ro, requires_grad=requires_grad)
             # Default behaviour: unsqueeze after converting to PyTorch
             # Shape: [1, x.dat.shape]
-            return x_P.unsqueeze(0)
+            if unsqueeze:
+                x_P = x_P.unsqueeze(unsqueeze_dim)
+            return x_P
         # Add case subclass constant representing theta
         # elif isinstance(x, ...):
         elif isinstance(x, Constant):
