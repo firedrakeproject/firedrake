@@ -7,7 +7,7 @@ from ufl.log import error
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.external_operators.neural_networks.backends import get_backend
 from firedrake.function import Function
-from firedrake.constant import Constant
+from firedrake.constant import Constant, PytorchParams
 from firedrake import utils
 
 from pyop2.datatypes import ScalarType
@@ -21,7 +21,7 @@ class NeuralNet(AbstractExternalOperator):
     _backend_name = None
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
+                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None):
         r"""
         :param operands: operands on which act the :class:`NeuralNet`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -41,6 +41,7 @@ class NeuralNet(AbstractExternalOperator):
         """
 
         # Add the weights in the operands list and update the derivatives multiindex
+        """
         last_op = operands[-1]
         init_weights = (isinstance(last_op, ReferenceValue) and isinstance(last_op.ufl_operands[0], Constant))
         init_weights = init_weights or isinstance(last_op, Constant)
@@ -57,6 +58,11 @@ class NeuralNet(AbstractExternalOperator):
                 # Type exception is caught later
                 if isinstance(derivatives, tuple):
                     derivatives += (0,)
+        """
+
+        # Add the Firedrake object representing model parameters into the operands and update
+        # derivative multi-index accordingly for syntactic sugar purposes: e.g. N(u; v*) -> N(u, θ; v*)
+        operands, derivatives = self._add_model_params_to_operands(operands, derivatives, operator_data)
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           result_coefficient=result_coefficient, argument_slots=argument_slots,
@@ -85,25 +91,40 @@ class NeuralNet(AbstractExternalOperator):
         """
         return self.ml_backend.backend
 
+    def _add_model_params_to_operands(self, operands, derivatives, operator_data):
+        """Augment operands and derivative multi-index with the model parameters of the model. This facilitates having
+           a simpler syntax by writing, for example, `N(u; v*)` instead of `N(u, θ; v*)` where θ refers to the model params.
+
+           In particular, since θ is initially a PyTorch object and its Firedrake representation is an internal implementation detail
+           and don't need to be exposed.
+
+           Note that having θ inside the operands is crucial for symbolic reasons, e.g. for differentiating N wrt model parameters.
+        """
+        last_op = operands[-1]
+        init_weights = (isinstance(last_op, ReferenceValue) and isinstance(last_op.ufl_operands[0], self.ml_backend.params_type))
+        init_weights = init_weights or isinstance(last_op, self.ml_backend.params_type)
+        if not init_weights:
+            params_val = self.ml_backend.get_params(operator_data['model'])
+            operands += (self.ml_backend.params_type(params_val),)
+            # Type exception is caught later
+            if isinstance(derivatives, tuple):
+                derivatives += (0,)
+        return operands, derivatives
+
     @property
     def model(self):
         return self.operator_data['model']
-
-    @utils.cached_property
-    def nparams(self):
-        # Number of parameter representations (i.e. number of Constant representing model parameters)
-        return len(tuple(self.model.parameters()))
 
     def get_params(self):
         return self.ml_backend.get_params(self.model)
 
     # @property
     def operator_inputs(self):
-        return self.ufl_operands[:-self.nparams]
+        return self.ufl_operands[:-1]
 
     # @property
     def operator_params(self):
-        return self.ufl_operands[-self.nparams:]
+        return self.ufl_operands[-1]
 
     @property
     def inputs_format(self):
@@ -143,7 +164,6 @@ class NeuralNet(AbstractExternalOperator):
                                argument_slots=(), name=None, operator_data=None, val=None, add_kwargs={}):
         "Overwrite _ufl_expr_reconstruct to pass on params_version"
         add_kwargs['params_version'] = self._params_version
-        add_kwargs['nparams'] = self.nparams
         return AbstractExternalOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
                                                                derivatives=derivatives,
                                                                val=val, name=name,
@@ -172,7 +192,7 @@ class PytorchOperator(NeuralNet):
     _backend_name = 'pytorch'
 
     def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
+                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None):
         r"""
         :param operands: operands on which act the :class:`PytorchOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -193,7 +213,7 @@ class PytorchOperator(NeuralNet):
         NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                   result_coefficient=result_coefficient, argument_slots=argument_slots,
                                   val=val, name=name, dtype=dtype,
-                                  operator_data=operator_data, params_version=params_version, nparams=nparams)
+                                  operator_data=operator_data, params_version=params_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
