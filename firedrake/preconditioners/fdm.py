@@ -221,11 +221,16 @@ class FDMPC(PCBase):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
+        bc_rows = dict()
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
             cell_to_local, nel = glonum_fun(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
+
+            own = Vsub.dof_dset.layout_vec.getLocalSize()
+            bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
+            bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
 
         # get coefficients on a given cell
         coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
@@ -245,7 +250,6 @@ class FDMPC(PCBase):
         self.work_mats = dict()
 
         Pmats = dict()
-        bc_rows = dict()
         addv = PETSc.InsertMode.ADD_VALUES
         symmetric = pmat_type.endswith("sbaij")
 
@@ -273,9 +277,7 @@ class FDMPC(PCBase):
                 d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
                 preallocator.destroy()
                 if on_diag:
-                    bdofs = numpy.nonzero(d_nnz == 0)[0].astype(PETSc.IntType)
-                    bc_rows[Vrow] = Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
-                    d_nnz[d_nnz == 0] = 1
+                    numpy.maximum(d_nnz, 1, out=d_nnz)
 
                 P = PETSc.Mat().create(comm=V.comm)
                 P.setType(ptype)
