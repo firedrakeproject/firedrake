@@ -8,7 +8,7 @@ digraph triage {
     venv_activated [label="venv activated?"];
     install_script_up_to_date [label="Install script\nup to date?"];
     using_anaconda [label="Using\nAnaconda?"];
-    python_version [label="Python 3.6?"];
+    python_version [label="Python <3.7?"];
     using_macos [label="Using\nMacOS?"];
     using_homebrew [label="Using\nHomebrew?"];
     url_error [label="URL Error with SSL\ncertificate failure?"];
