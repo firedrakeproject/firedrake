@@ -103,12 +103,11 @@ System requirements
 -------------------
 
 Firedrake requires Python 3.7.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
-or 3.10.x are required. Many externally managed dependencies such as VTK
-have yet to create binary wheels for 3.11.x, but we have generated these
-for the major supported platforms.
-The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
-or later, the system installed Python 3 is supported and tested. On
-MacOS, the homebrew_ installed Python 3 is supported and tested::
+to 3.11.x is required since these are the only versions for which VTK binary
+packages are currently available. The installation script is tested on Ubuntu
+and MacOS X. On Ubuntu 20.04 or later, the system installed Python 3 is
+supported and tested. On MacOS, the homebrew_ installed Python 3 is supported
+and tested::
 
   brew install python3
 
@@ -132,8 +131,8 @@ they have the system dependencies:
 * flex, bison
 
 Firedrake has been successfully installed on Windows 10 using the
-Windows Subsystem for Linux. There are more detailed instructions for
-WSL_ on the Firedrake wiki.
+Windows Subsystem for Linux. There are more detailed
+`instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
 Installation on previous versions of Windows is unlikely to work.
 
 System anti-requirements
@@ -193,9 +192,10 @@ If not, feel free to ask for more help in our
 
 .. graphviz:: install-debug.dot
 
-If you don't see the issue you're experiencing in this chart, please ask
-us on Slack or create a post on github discussions_.
-To help us diagnose what's going wrong, **please include the following log files**:
+If you don't see the issue you're experiencing in this chart, please
+ask us on Slack or report a bug by creating a new `github discussion
+<https://github.com/firedrakeproject/firedrake/discussions>`__. To help us
+diagnose what's going wrong, **please include the following log files**:
 
 * ``firedrake-install.log`` from Firedrake, which you can find in the
   directory where you invoked ``firedrake-install`` from
@@ -265,6 +265,3 @@ packages for which these are also dependencies.
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _PETSc: https://www.mcs.anl.gov/petsc/
-.. _discussions: https://github.com/firedrakeproject/firedrake/discussions
-.. _issue: https://github.com/firedrakeproject/firedrake/issues
-.. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
