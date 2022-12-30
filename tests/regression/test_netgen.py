@@ -6,6 +6,10 @@ import netgen
 import numpy as np
 import pytest
 import gc
+from petsc4py import PETSc
+
+
+printf = lambda msg : PETSc.Sys.Print(msg)
 
 def poisson(h, degree=2):
     comm = MPI.COMM_WORLD
@@ -211,6 +215,7 @@ def test_firedrake_Adaptivity_netgen():
     labels = comm.bcast(labels, root=0)
     msh = Mesh(ngmsh)
     for i in range(max_iterations):
+        printf("level {}".format(i))
         lam, uh, V = Solve(msh,labels)
         marked = Mark(msh, uh, lam)
         msh = Mesh(Refine(msh, marked))

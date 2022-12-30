@@ -296,6 +296,12 @@ def _from_netgen(ngmesh, comm=None):
             for e in ngmesh.Elements1D():
                 join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+            if not((1 ==  ngmesh.Elements2D().NumPy()["index"]).all()):
+                print("Labeling some cells ;)")
+                for e in ngmesh.Elements2D():
+                    join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
+                    plex.setLabelValue(dmcommon.CELL_SETS_LABEL, join[0], int(e.index))
+
             return plex
         else:
             plex = PETSc.DMPlex().createFromCellList(2,
