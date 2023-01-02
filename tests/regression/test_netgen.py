@@ -151,47 +151,28 @@ def test_firedrake_Adaptivity_netgen():
         frac = .95
         delfrac = .05
         part = .2
-        with eta.dat.vec as etaVec:
-            markedVec = etaVec.duplicate()
-            markedVec.set(0)
-            sum_eta = etaVec.sum()
-            if sum_eta < tolerance:
-                return markedVec
-            eta_max = etaVec.max()[1]
-            sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
-            markedVec0 = etaVec0.duplicate()
-            sct(etaVec,etaVec0)
-            if etaVec.getComm().getRank() == 0:
-                eta = etaVec0.getArray()
-                marked = np.zeros(eta.size, dtype='bool')
-                sum_marked_eta = 0.
-                while sum_marked_eta < part*sum_eta:
-                    new_marked = (~marked) & (eta > frac*eta_max)
-                    sum_marked_eta += sum(eta[new_marked])
-                    marked += new_marked
-                    frac -= delfrac
-                markedVec0.getArray()[:] = 1.0*marked[:]
-            sct(markedVec0,markedVec,mode=PETSc.Scatter.Mode.REVERSE)
-            return markedVec
-
-    def Refine(msh, marked):
-        marked0 = marked
-        getIdx = msh._cell_numbering.getOffset
-        if msh.sfBCInv is not None:
-            getIdx = lambda x : x
-            _, marked0 = msh.topology_dm.distributeField(msh.sfBCInv,msh._cell_numbering,marked)
-        if comm.Get_rank() == 0: 
-            mark = marked0.getArray()
-            for i,el in enumerate(msh.netgen_mesh.Elements2D()):
-                if mark[getIdx(i)]:
-                    el.SetRefinementFlag(1)
-                else:
-                    el.SetRefinementFlag(0)
-            msh.netgen_mesh.RefineFlaged(0, True)
-            return msh.netgen_mesh
-        else:
-            return netgen.libngpy._meshing.Mesh(2)
-
+        mark = Function(W)
+        with mark.dat.vec as markedVec:
+            with eta.dat.vec as etaVec:
+                sum_eta = etaVec.sum()
+                if sum_eta < tolerance:
+                    return markedVec
+                eta_max = etaVec.max()[1]
+                sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
+                markedVec0 = etaVec0.duplicate()
+                sct(etaVec,etaVec0)
+                if etaVec.getComm().getRank() == 0:
+                    eta = etaVec0.getArray()
+                    marked = np.zeros(eta.size, dtype='bool')
+                    sum_marked_eta = 0.
+                    while sum_marked_eta < part*sum_eta:
+                        new_marked = (~marked) & (eta > frac*eta_max)
+                        sum_marked_eta += sum(eta[new_marked])
+                        marked += new_marked
+                        frac -= delfrac
+                    markedVec0.getArray()[:] = 1.0*marked[:]
+                sct(markedVec0,markedVec,mode=PETSc.Scatter.Mode.REVERSE)
+        return mark
     tolerance = 1e-16
     max_iterations = 15
     exact = 3.375610652693620492628**2
@@ -217,7 +198,8 @@ def test_firedrake_Adaptivity_netgen():
     for i in range(max_iterations):
         printf("level {}".format(i))
         lam, uh, V = Solve(msh,labels)
-        marked = Mark(msh, uh, lam)
-        msh = Mesh(Refine(msh, marked))
+        mark = Mark(msh, uh, lam)
+        msh = msh.Refine(mark)
+        File("Sol.pvd").write(uh)
     assert(abs(lam-exact)<1e-2)
 

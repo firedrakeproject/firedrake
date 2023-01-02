@@ -10,6 +10,7 @@ from ufl.classes import ReferenceGrad
 import enum
 import numbers
 import abc
+from copy import copy
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -2178,6 +2179,28 @@ def Mesh(meshfile, **kwargs):
         #Adding NetGen mesh and inverse sfBC as attributes
         mesh.netgen_mesh = meshfile
         mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
+        mesh.comm = user_comm
+        #Refine Method
+        def Refine(self, mark):
+            with mark.dat.vec as marked:
+                marked0 = marked
+                getIdx = self._cell_numbering.getOffset
+                if self.sfBCInv is not None:
+                    getIdx = lambda x : x
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,self._cell_numbering,marked)
+                if self.comm.Get_rank() == 0:
+                    mark = marked0.getArray()
+                    for i,el in enumerate(self.netgen_mesh.Elements2D()):
+                        if mark[getIdx(i)]:
+                            el.SetRefinementFlag(1)
+                        else:
+                            el.SetRefinementFlag(0)
+                    self.netgen_mesh.RefineFlaged(0, True)
+                    return Mesh(self.netgen_mesh)
+                else:
+                    return Mesh(netgen.libngpy._meshing.Mesh(2))
+
+        setattr(MeshGeometry, "Refine", Refine)
     return mesh
 
 
