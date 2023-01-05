@@ -618,7 +618,7 @@ class PlaneSmoother(object):
         ndof = 0
         for p_ in closure_of_p:
             (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
-            bary += data[offset : offset + dof].reshape(dof, gdim).sum(axis=0)
+            bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
             ndof += dof
         bary /= ndof
         return bary
