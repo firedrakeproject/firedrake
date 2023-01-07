@@ -4,12 +4,12 @@ from netgen.geom2d import SplineGeometry
 from netgen.occ import *
 import netgen
 import numpy as np
-import pytest
 import gc
 from petsc4py import PETSc
 
 
-printf = lambda msg : PETSc.Sys.Print(msg)
+printf = lambda msg: PETSc.Sys.Print(msg)
+
 
 def poisson(h, degree=2):
     comm = MPI.COMM_WORLD
@@ -23,7 +23,7 @@ def poisson(h, degree=2):
         ngmesh = netgen.libngpy._meshing.Mesh(2)
         labels = None
 
-    labels = comm.bcast(labels, root=0) 
+    labels = comm.bcast(labels, root=0)
     msh = Mesh(ngmesh)
     # Setting up the problem
     V = FunctionSpace(msh, "CG", degree)
@@ -49,6 +49,7 @@ def poisson(h, degree=2):
     f.interpolate(sin(x)*sin(y))
     return sqrt(assemble(inner(u - f, u - f) * dx)), u, f
 
+
 def poisson3D(h, degree=2):
     comm = MPI.COMM_WORLD
     # Setting up Netgen geometry and mesh
@@ -62,7 +63,7 @@ def poisson3D(h, degree=2):
         ngmesh = netgen.libngpy._meshing.Mesh(3)
         labels = None
 
-    labels = comm.bcast(labels, root=0) 
+    labels = comm.bcast(labels, root=0)
     msh = Mesh(ngmesh)
 
     # Setting up the problem
@@ -90,6 +91,7 @@ def poisson3D(h, degree=2):
     S = sqrt(assemble(inner(u - f, u - f) * dx))
     return S
 
+
 def test_firedrake_Poisson_netgen():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
@@ -99,7 +101,7 @@ def test_firedrake_Poisson_netgen():
 
 
 def test_firedrake_Poisson3D_netgen():
-    diff = np.array([poisson3D(h) for h in [2,1,1/2]])
+    diff = np.array([poisson3D(h) for h in [2, 1, 1/2]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
@@ -112,7 +114,7 @@ def test_firedrake_Adaptivity_netgen():
     from petsc4py import PETSc
     from slepc4py import SLEPc
 
-    def Solve(msh,labels):
+    def Solve(msh, labels):
         V = FunctionSpace(msh, "CG", 2)
         u = TrialFunction(V)
         v = TestFunction(V)
@@ -160,7 +162,7 @@ def test_firedrake_Adaptivity_netgen():
                 eta_max = etaVec.max()[1]
                 sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
                 markedVec0 = etaVec0.duplicate()
-                sct(etaVec,etaVec0)
+                sct(etaVec, etaVec0)
                 if etaVec.getComm().getRank() == 0:
                     eta = etaVec0.getArray()
                     marked = np.zeros(eta.size, dtype='bool')
@@ -171,7 +173,7 @@ def test_firedrake_Adaptivity_netgen():
                         marked += new_marked
                         frac -= delfrac
                     markedVec0.getArray()[:] = 1.0*marked[:]
-                sct(markedVec0,markedVec,mode=PETSc.Scatter.Mode.REVERSE)
+                sct(markedVec0, markedVec, mode=PETSc.Scatter.Mode.REVERSE)
         return mark
     tolerance = 1e-16
     max_iterations = 15
@@ -197,9 +199,8 @@ def test_firedrake_Adaptivity_netgen():
     msh = Mesh(ngmsh)
     for i in range(max_iterations):
         printf("level {}".format(i))
-        lam, uh, V = Solve(msh,labels)
+        lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.Refine(mark)
         File("Sol.pvd").write(uh)
-    assert(abs(lam-exact)<1e-2)
-
+    assert (abs(lam-exact) < 1e-2)

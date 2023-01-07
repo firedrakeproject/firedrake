@@ -10,7 +10,6 @@ from ufl.classes import ReferenceGrad
 import enum
 import numbers
 import abc
-from copy import copy
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -264,20 +263,20 @@ def _from_netgen(ngmesh, comm=None):
     TODO: Right now we construct NetGen mesh on a single worker, load it in Firedrake
     and then distribute. We should find a way of taking adventage of the fact that
     NetGen can act as a parallel mesher.
-    """ 
+    """
     if ngmesh.dim == 3:
         if comm.Get_rank() == 0:
             V = ngmesh.Coordinates()
             T = ngmesh.Elements3D().NumPy()["nodes"]
             T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            surfMesh,dim = False,3
+            surfMesh, dim = False, 3
             if len(T) == 0:
-                surfMesh,dim = True,2
+                surfMesh, dim = True, 2
                 T = ngmesh.Elements2D().NumPy()["nodes"]
                 T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            plex = PETSc.DMPlex().createFromCellList(dim, T, V, comm=comm) 
+            plex = PETSc.DMPlex().createFromCellList(dim, T, V, comm=comm)
             plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
-            vStart, vEnd = plex.getDepthStratum(0)   # vertices
+            vStart, vEnd = plex.getDepthStratum(0)
             if surfMesh:
                 for e in ngmesh.Elements1D():
                     join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
@@ -292,9 +291,9 @@ def _from_netgen(ngmesh, comm=None):
             return plex
         else:
             plex = PETSc.DMPlex().createFromCellList(3,
-                                                    np.zeros((0,4), dtype=np.int32),
-                                                    np.zeros((0,3), dtype=np.double),
-                                                    comm=comm)
+                                                     np.zeros((0, 4), dtype=np.int32),
+                                                     np.zeros((0, 3), dtype=np.double),
+                                                     comm=comm)
             return plex
     elif ngmesh.dim == 2:
         if comm.Get_rank() == 0:
@@ -307,8 +306,7 @@ def _from_netgen(ngmesh, comm=None):
             for e in ngmesh.Elements1D():
                 join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-            if not((1 ==  ngmesh.Elements2D().NumPy()["index"]).all()):
-                print("Labeling some cells ;)")
+            if not ((1 == ngmesh.Elements2D().NumPy()["index"]).all()):
                 for e in ngmesh.Elements2D():
                     join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
                     plex.setLabelValue(dmcommon.CELL_SETS_LABEL, join[0], int(e.index))
@@ -316,9 +314,9 @@ def _from_netgen(ngmesh, comm=None):
             return plex
         else:
             plex = PETSc.DMPlex().createFromCellList(2,
-                                                    np.zeros((0,3), dtype=np.int32),
-                                                    np.zeros((0,2), dtype=np.double),
-                                                    comm=comm)
+                                                     np.zeros((0, 3), dtype=np.int32),
+                                                     np.zeros((0, 2), dtype=np.double),
+                                                     comm=comm)
             return plex
 
     else:
@@ -2186,21 +2184,22 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        #Adding NetGen mesh and inverse sfBC as attributes
+        # Adding NetGen mesh and inverse sfBC as attributes
         mesh.netgen_mesh = meshfile
         mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
         mesh.comm = user_comm
-        #Refine Method
+        # Refine Method
+
         def Refine(self, mark):
             with mark.dat.vec as marked:
                 marked0 = marked
                 getIdx = self._cell_numbering.getOffset
                 if self.sfBCInv is not None:
-                    getIdx = lambda x : x
-                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,self._cell_numbering,marked)
+                    getIdx = lambda x: x
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv, self._cell_numbering, marked)
                 if self.comm.Get_rank() == 0:
                     mark = marked0.getArray()
-                    for i,el in enumerate(self.netgen_mesh.Elements2D()):
+                    for i, el in enumerate(self.netgen_mesh.Elements2D()):
                         if mark[getIdx(i)]:
                             el.SetRefinementFlag(1)
                         else:
