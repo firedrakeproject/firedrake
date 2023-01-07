@@ -270,15 +270,25 @@ def _from_netgen(ngmesh, comm=None):
             V = ngmesh.Coordinates()
             T = ngmesh.Elements3D().NumPy()["nodes"]
             T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            plex = PETSc.DMPlex().createFromCellList(3, T, V, comm=comm) 
+            surfMesh,dim = False,3
+            if len(T) == 0:
+                surfMesh,dim = True,2
+                T = ngmesh.Elements2D().NumPy()["nodes"]
+                T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
+            plex = PETSc.DMPlex().createFromCellList(dim, T, V, comm=comm) 
             plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
             vStart, vEnd = plex.getDepthStratum(0)   # vertices
-            for e in ngmesh.Elements2D():
-                join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-            for e in ngmesh.Elements1D():
-                join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-                plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
+            if surfMesh:
+                for e in ngmesh.Elements1D():
+                    join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.surfaces[1]))
+            else:
+                for e in ngmesh.Elements2D():
+                    join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
+                for e in ngmesh.Elements1D():
+                    join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
+                    plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
             return plex
         else:
             plex = PETSc.DMPlex().createFromCellList(3,
