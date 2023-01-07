@@ -171,48 +171,38 @@ In order to do so we begin by computing the value of the indicator using a piece
 
 
    def Mark(msh, uh, lam):
-       W = FunctionSpace(msh, "DG", 0)
-       w = TestFunction(W)
-       R_T = lam.real*uh + div(grad(uh))
-       n = FacetNormal(V.mesh())
-       h = CellDiameter(msh)
-       R_dT = dot(grad(uh), n)
-       eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
-       eta = eta.dat.data
-       eta_max = max(eta)
-       sum_eta = sum(eta)
-
-       # stop error estimate is less than tolerance
-       if sum_eta < tolerance:
-           exit()
-
-       frac = .95
-       delfrac = .05
-       part = .5
-       marked = np.zeros(eta.size, dtype='bool')
-       sum_marked_eta = 0.
-       while sum_marked_eta < part*sum_eta:
-           new_marked = (~marked) & (eta > frac*eta_max)
-           sum_marked_eta += sum(eta[new_marked])
-           marked += new_marked
-           frac -= delfrac
-       return marked
-
-Last we define the method that will take care of refining the mesh on the marked elements::
-
-
-   def Refine(msh, marked):
-       i = 0
-       for el in msh.netgen_mesh.Elements2D():
-           plex_idx = msh._cell_numbering.getOffset(i)
-           if marked[plex_idx]:
-               el.SetRefinementFlag(1)
-           else:
-               el.SetRefinementFlag(0)
-           i = i + 1
-       msh.netgen_mesh.RefineFlaged(0, True)
-       return msh.netgen_mesh
-
+        W = FunctionSpace(msh, "DG", 0)
+        w = TestFunction(W)
+        R_T = lam.real*uh + div(grad(uh))
+        n = FacetNormal(V.mesh())
+        h = CellDiameter(msh)
+        R_dT = dot(grad(uh), n)
+        eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
+        frac = .95
+        delfrac = .05
+        part = .2
+        mark = Function(W)
+        with mark.dat.vec as markedVec:
+            with eta.dat.vec as etaVec:
+                sum_eta = etaVec.sum()
+                if sum_eta < tolerance:
+                    return markedVec
+                eta_max = etaVec.max()[1]
+                sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
+                markedVec0 = etaVec0.duplicate()
+                sct(etaVec, etaVec0)
+                if etaVec.getComm().getRank() == 0:
+                    eta = etaVec0.getArray()
+                    marked = np.zeros(eta.size, dtype='bool')
+                    sum_marked_eta = 0.
+                    while sum_marked_eta < part*sum_eta:
+                        new_marked = (~marked) & (eta > frac*eta_max)
+                        sum_marked_eta += sum(eta[new_marked])
+                        marked += new_marked
+                        frac -= delfrac
+                    markedVec0.getArray()[:] = 1.0*marked[:]
+                sct(markedVec0, markedVec, mode=PETSc.Scatter.Mode.REVERSE)
+        return mark
 
 It is now time to define the solve, mark and refine loop that is at the heart of the adaptive method described here::
 
@@ -220,7 +210,7 @@ It is now time to define the solve, mark and refine loop that is at the heart of
        print(f"Refinement cycle {i}")
        lam, uh, V = Solve(msh)
        marked = Mark(msh, uh, lam)
-       msh = Mesh(Refine(msh, marked))
+       msh = msh.Refine(marked)
        outfile = File("output/Eig.pvd")
        outfile.write(uh)
 
