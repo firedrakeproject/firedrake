@@ -8,7 +8,6 @@ import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
-from ufl.log import GREEN
 
 import gem
 import gem.impero_utils as impero_utils
@@ -60,6 +59,8 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     cpu_time = time.time()
 
     assert isinstance(form, Form)
+
+    GREEN = "\033[1;37;32m%s\033[0m"
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
