@@ -1414,7 +1414,8 @@ def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
     log.info("Installing documentation dependencies")
-    run_pip(["install", "-U", "sphinx"])
+    log.info("We use 6.1.1 until the issue with 6.1.2 (https://github.com/sphinx-doc/sphinx/issues/11115) is resolved.\n")
+    run_pip(["install", "-U", "sphinx==6.1.1"])
     run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
     run_pip(["install", "-U", "bibtexparser"])
