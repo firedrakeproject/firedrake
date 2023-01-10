@@ -277,3 +277,17 @@ Citations().add("Kolev2009", """
   url =          {https://www.jstor.org/stable/43693530}
 }
 """)
+
+Citations().add("Hiptmair1998", """
+@Misc{Kolev2009,
+  author =       {Hiptmair, Ralf},
+  title =        {{Multigrid Method for Maxwell's Equations}},
+  journal =      {SIAM Journal on Numerical Analysis},
+  volume =       {36},
+  number =       {1},
+  pages =        {204-225},
+  year =         {1998},
+  doi =          {10.1137/S0036142997326203},
+  url =          {https://doi.org/10.1137/S0036142997326203},
+}
+""")
