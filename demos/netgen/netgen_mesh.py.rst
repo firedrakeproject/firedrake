@@ -210,7 +210,7 @@ It is now time to define the solve, mark and refine loop that is at the heart of
        print(f"Refinement cycle {i}")
        lam, uh, V = Solve(msh)
        marked = Mark(msh, uh, lam)
-       msh = msh.Refine(marked)
+       msh = msh.refine_marked_elements(marked)
        outfile = File("output/Eig.pvd")
        outfile.write(uh)
 

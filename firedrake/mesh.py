@@ -2190,7 +2190,7 @@ def Mesh(meshfile, **kwargs):
         mesh.comm = user_comm
         # Refine Method
 
-        def Refine(self, mark):
+        def refine_marked_elements(self, mark):
             with mark.dat.vec as marked:
                 marked0 = marked
                 getIdx = self._cell_numbering.getOffset
@@ -2209,7 +2209,7 @@ def Mesh(meshfile, **kwargs):
                 else:
                     return Mesh(netgen.libngpy._meshing.Mesh(2))
 
-        setattr(MeshGeometry, "Refine", Refine)
+        setattr(MeshGeometry, "refine_marked_elements", refine_marked_elements)
     return mesh
 
 

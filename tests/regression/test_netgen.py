@@ -201,6 +201,6 @@ def test_firedrake_Adaptivity_netgen():
         printf("level {}".format(i))
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
-        msh = msh.Refine(mark)
+        msh = msh.refine_marked_elements(mark)
         File("Sol.pvd").write(uh)
     assert (abs(lam-exact) < 1e-2)
