@@ -139,7 +139,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
     meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
                                     distribution_parameters=distribution_parameters,
-                                    reorder=reorder)
+                                    reorder=reorder, comm=mesh.comm)
                        for dm in dms]
 
     lgmaps = []

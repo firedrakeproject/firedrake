@@ -4,7 +4,25 @@ from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
-from .checkpointing import disk_checkpointing, CheckpointFunction, checkpoint_init_data
+from .checkpointing import disk_checkpointing, CheckpointFunction, \
+    CheckpointBase, checkpoint_init_data
+
+
+class DelegatedFunctionCheckpoint(CheckpointBase):
+    """A wrapper which delegates the checkpoint of this Function to another Function.
+
+    This enables us to avoid checkpointing a Function twice when it is copied.
+
+    Parameters
+    ----------
+    other: BlockVariable
+        The block variable to which we delegate checkpointing.
+    """
+    def __init__(self, other):
+        self.other = other
+
+    def restore(self):
+        return self.other.saved_output
 
 
 class FunctionMixin(FloatingType):
@@ -117,7 +135,11 @@ class FunctionMixin(FloatingType):
                 ret = assign(self, other, *args, **kwargs)
 
             if annotate:
-                block.add_output(self.create_block_variable())
+                block_var = self.create_block_variable()
+                block.add_output(block_var)
+
+                if isinstance(other, type(self)):
+                    block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
@@ -127,10 +149,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_iadd(__iadd__):
         @wraps(__iadd__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __iadd__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __iadd__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self + other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -145,10 +168,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_isub(__isub__):
         @wraps(__isub__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __isub__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __isub__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self - other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -163,10 +187,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_imul(__imul__):
         @wraps(__imul__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __imul__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __imul__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self*other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -181,10 +206,11 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_idiv(__idiv__):
         @wraps(__idiv__)
         def wrapper(self, other, **kwargs):
+            with stop_annotating():
+                func = __idiv__(self, other, **kwargs)
+
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
-            func = __idiv__(self, other, **kwargs)
-
             if annotate:
                 block = FunctionAssignBlock(func, self/other, ad_block_tag=ad_block_tag)
                 tape = get_working_tape()
@@ -236,7 +262,7 @@ class FunctionMixin(FloatingType):
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointFunction):
+        if isinstance(checkpoint, CheckpointBase):
             return checkpoint.restore()
         else:
             return checkpoint
