@@ -50,7 +50,7 @@ def test_prolongation_matrix_matfree():
         for u in us:
             for v in us:
                 if u != v:
-                    v.assign(zero(v.ufl_shape))
+                    v.assign(0)
                     P = prolongation_matrix_matfree(v, u).getPythonContext()
                     P._prolong()
                     assert norm(v-expr, "L2") < tol
@@ -110,7 +110,8 @@ def test_p_multigrid_scalar(mesh, mat_type):
           "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
           "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
           "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
-          "pmg_mg_coarse_mg_coarse_pc_type": "gamg"}
+          "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
+          "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()

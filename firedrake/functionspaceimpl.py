@@ -12,7 +12,7 @@ import numpy
 
 import ufl
 
-from pyop2 import op2
+from pyop2 import op2, mpi
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -29,9 +29,16 @@ class WithGeometryBase(object):
     Users should not instantiate a :class:`WithGeometryBase` object
     explicitly except in a small number of cases.
 
-    :arg function_space: The topological function space to attach
-        geometry to.
+    When instantiating a :class:`WithGeometry`, users should call
+    :func:`create` rather than :func:`__init__`.
+
     :arg mesh: The mesh with geometric information to use.
+    :arg element: The UFL element.
+    :arg component: The component of this space in a parent vector
+        element space, or ``None``.
+    :arg cargo: :class:`FunctionSpaceCargo` instance carrying
+        Firedrake-specific data that is not required for code
+        generation.
     """
     def __init__(self, mesh, element, component=None, cargo=None):
         assert component is None or isinstance(component, int)
@@ -43,6 +50,12 @@ class WithGeometryBase(object):
 
     @classmethod
     def create(cls, function_space, mesh):
+        """Create a :class:`WithGeometry`.
+
+        :arg function_space: The topological function space to attach
+            geometry to.
+        :arg mesh: The mesh with geometric information to use.
+        """
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
@@ -389,7 +402,10 @@ class FunctionSpace(object):
         r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
 
-        self.comm = self.node_set.comm
+        # User comm
+        self.comm = mesh.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(self.node_set.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -400,6 +416,10 @@ class FunctionSpace(object):
         self.offset = sdata.offset
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.

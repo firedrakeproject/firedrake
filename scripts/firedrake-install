@@ -16,7 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
-from pkg_resources import parse_version
+from pkg_resources.extern.packaging.version import Version, InvalidVersion
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -29,7 +29,7 @@ parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2",
 # Firedrake application installation shortcuts.
 firedrake_apps = {
     "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
-              "git+ssh://github.com/firedrakeproject/gusto#egg=gusto"),
+              "git+ssh://github.com/firedrakeproject/gusto.git@main#egg=gusto"),
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
                "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
     "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
@@ -121,18 +121,18 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 11):
-    print("""\nCan not install Firedrake with Python 3.11 at the moment:
-Some wheels are not yet available for Python 3.11 for some required package(s).
-Please install with Python 3.10 (or an earlier version >= 3.6).""")
+if sys.version_info >= (3, 12):
+    print("""\nCan not install Firedrake with Python 3.12 at the moment:
+Some wheels are not yet available for Python 3.12 for some required package(s).
+Please install with Python 3.11 (or an earlier version >= 3.7).""")
     sys.exit(1)
 elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
     print("""
 Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
 some required package(s) are not available for earlier Python versions.""")
-elif sys.version_info < (3, 6):
+elif sys.version_info < (3, 7):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.7.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -146,25 +146,6 @@ Please follow the instructions at http://www.firedrakeproject.org/download.html 
             # Accidentally (?) running firedrake-update with python2.
             print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
     sys.exit(1)
-
-# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
-# But only for Linux
-if platform.system() == "Linux":
-    # Get the cpu information
-    cpuinfostring = os.popen('lscpu').read()
-    # Check if it is a tigerlake processor
-    if cpuinfostring.find('i3-11') != -1 or cpuinfostring.find('i5-11') != -1 or cpuinfostring.find('i7-11') != -1 or cpuinfostring.find('i9-11') != -1:
-        # Get the compiler versions
-        gccversionstring = os.popen('gcc -dumpfullversion').read()
-
-        gppversionstring = os.popen('g++ -dumpfullversion').read()
-
-        gfortranversionstring = os.popen('gfortran -dumpfullversion').read()
-
-        # Check if the combination is a problem
-        if parse_version(gccversionstring) < parse_version("9.4") or parse_version(gppversionstring) < parse_version("9.4") or parse_version(gfortranversionstring) < parse_version("9.4"):
-            print("""\nThe combination of a Tiger Lake (or newer) with gcc g++ and gfortran in the version 9.3 is not possible. Please install at least the gcc, g++ and gfortran in version 9.4.0.""")
-            sys.exit(1)
 
 branches = {}
 
@@ -216,6 +197,38 @@ def resolve_doi_branches(doi):
     return branches
 
 
+def honour_petsc_dir_get_petsc_dir():
+    try:
+        petsc_dir = os.environ["PETSC_DIR"]
+    except KeyError:
+        raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
+    petsc_arch = os.environ.get("PETSC_ARCH", "")
+    return petsc_dir, petsc_arch
+
+
+def honour_petsc_dir_fetch_petscconf(name):
+    # Return the line in "petscconf.h" that starts with name.
+    petsc_dir, petsc_arch = honour_petsc_dir_get_petsc_dir()
+    petscconf_h = os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")
+    with open(petscconf_h) as fh:
+        for line in fh.readlines():
+            if line.startswith(name):
+                return line
+
+
+def honour_petsc_dir_get_petsc_int_type():
+    line = honour_petsc_dir_fetch_petscconf("#define PETSC_USE_64BIT_INDICES")
+    if line and line.split()[2] == '1':
+        return "int64"
+    else:
+        return "int32"
+
+
+def honour_petsc_dir_get_petsc_packages():
+    line = honour_petsc_dir_fetch_petscconf("#define PETSC_HAVE_PACKAGES")
+    return set(line.split()[2].strip().strip(':"').split(':'))
+
+
 if mode == "install":
     # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
@@ -255,12 +268,11 @@ honoured.""",
                        help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
     group.add_argument("--with-parmetis", action="store_true",
                        help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--honour-petsc-dir", action="store_true",
-                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
-                       default="int32", type=str,
-                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+    parser.add_argument("--honour-petsc-dir", action="store_true",
+                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                        default="int32", type=str,
+                        help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
 
     parser.add_argument("--honour-pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
@@ -342,7 +354,12 @@ honoured.""",
             sys.exit(0)
     if args.doi:
         branches = resolve_doi_branches(args.doi[0])
-
+    if args.honour_petsc_dir:
+        petsc_int_type = honour_petsc_dir_get_petsc_int_type()
+        if petsc_int_type != args.petsc_int_type:
+            petsc_dir, petsc_arch = honour_petsc_dir_get_petsc_dir()
+            log.warning("Provided PETSc (PETSC_DIR=%s, PETSC_ARCH=%s) was compiled for %s, but given --petsc-int-type = %s: setting --petsc-int-type %s." % (petsc_dir, petsc_arch, petsc_int_type, args.petsc_int_type, petsc_int_type))
+            args.petsc_int_type = petsc_int_type
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
 
@@ -376,13 +393,12 @@ else:
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
                         help="Install TinyASM as backend for ASMPatchPC.")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--honour-petsc-dir", action="store_true",
-                       default=config["options"].get("honour_petsc_dir", False),
-                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
-                       default="int32", type=str,
-                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+    parser.add_argument("--honour-petsc-dir", action="store_true",
+                        default=config["options"]["honour_petsc_dir"],
+                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                        default=config["options"]["petsc_int_type"], type=str,
+                        help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
 
     parser.add_argument("--honour-pythonpath", action="store_true", default=config["options"].get("honour_pythonpath", False),
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
@@ -416,8 +432,18 @@ else:
 
     args.packages = list(set(args.packages))  # remove duplicates
 
+    if args.honour_petsc_dir != config["options"]["honour_petsc_dir"]:
+        log.error("You installed Firedrake with --honour-petsc-dir=%s, but are trying to update it with --honour-petsc-dir=%s." % (config["options"]["honour_petsc_dir"], args.honour_petsc_dir))
+        exit(1)
+    if args.honour_petsc_dir:
+        # Set int_type to the one found in petscconf.h
+        petsc_int_type = honour_petsc_dir_get_petsc_int_type()
+        if petsc_int_type != args.petsc_int_type:
+            petsc_dir, petsc_arch = honour_petsc_dir_get_petsc_dir()
+            log.warning("Provided PETSc (PETSC_DIR=%s, PETSC_ARCH=%s) was compiled for %s, but given --petsc-int-type = %s: setting --petsc-int-type %s." % (petsc_dir, petsc_arch, petsc_int_type, args.petsc_int_type, petsc_int_type))
+            args.petsc_int_type = petsc_int_type
     petsc_int_type_changed = False
-    if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
+    if config["options"]["petsc_int_type"] != args.petsc_int_type:
         petsc_int_type_changed = True
         args.rebuild = True
     if config["options"].get("with_blas") is not None:
@@ -453,6 +479,86 @@ where shortname is one of the names given below:
     help_string += line
     print(help_string)
     sys.exit(0)
+
+
+def sniff_compiler(exe):
+    """Obtain the correct compiler class by calling the compiler executable.
+    Attempt to determine the compiler version number.
+
+        :arg cpp: If set to True will use the C++ compiler rather than
+            the C compiler to determine the version number.
+    :arg exe: String with name or path to compiler executable
+    :returns: A compiler class
+    """
+    # NAME
+    try:
+        output = subprocess.run(
+            [exe, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+    except (subprocess.CalledProcessError, UnicodeDecodeError):
+        output = ""
+    # Find the name of the compiler family
+    if output.startswith("gcc") or output.startswith("g++") or output.startswith("GNU"):
+        name = "GNU"
+    elif output.startswith("clang"):
+        name = "clang"
+    elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
+        name = "clang"
+    elif output.startswith("icc"):
+        name = "Intel"
+    elif "Cray" in output.split("\n")[0]:
+        # Cray is more awkward eg:
+        # Cray clang version 11.0.4  (<some_hash>)
+        # gcc (GCC) 9.3.0 20200312 (Cray Inc.)
+        name = "Cray"
+    else:
+        name = "unknown"
+    # VERSION
+    try:
+        output = subprocess.run(
+            [exe, "-dumpversion"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+        version = Version(output)
+    except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+        version = None
+    return name, version
+
+
+# Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
+# But only for Linux
+if platform.system() == "Linux":
+    # Get the cpu information
+    try:
+        cpuinfostring = subprocess.run(
+            ["lscpu"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            encoding="utf-8"
+        ).stdout
+    except (subprocess.CalledProcessError, UnicodeDecodeError):
+        output = ""
+    # Check if it is a tigerlake processor ie: "i3-11", "i5-11", "i7-11"
+    if any(bad_cpu in cpuinfostring for bad_cpu in ["i3-11", "i5-11", "i7-11"]):
+        # Get the compiler names and versions
+        cc = sniff_compiler(args.mpicc or "gcc")
+        cxx = sniff_compiler(args.mpicxx or "g++")
+        fortran = sniff_compiler(args.mpif90 or "gfortran")
+        # Check if the combination is a problem
+        if any(map(lambda compiler: compiler[0] == "GNU" and compiler[1] < Version("9.4"), [cc, cxx, fortran])):
+            print(
+                "\nUsing a Tiger Lake (or newer) CPU with gcc, g++ and gfortran version<=9.3 is not possible."
+                " Please install at least gcc, g++ and gfortran version 9.4.0 or later"
+            )
+            sys.exit(1)
 
 
 @atexit.register
@@ -574,25 +680,36 @@ def brew_gcc_libdir():
     return brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
 
 
+def get_minimal_petsc_packages():
+    pkgs = set()
+    # File format
+    pkgs.add("hdf5")
+    # Sparse direct solver
+    pkgs.add("superlu_dist")
+    # Parallel mesh partitioner
+    pkgs.add("ptscotch")
+    # Sparse direct solver
+    pkgs.add("scalapack")  # Needed for mumps
+    pkgs.add("mumps")
+    if not options["complex"]:
+        # AMG
+        pkgs.add("hypre")
+    if options["petsc_int_type"] == "int32":
+        # Serial mesh partitioner
+        pkgs.add("chaco")
+    return pkgs
+
+
 def get_petsc_options(minimal=False):
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
                      "--with-c2html=0",
                      "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env,
-                     # File format
-                     "--download-hdf5",
-                     # AMG
-                     "--download-hypre",
-                     # Sparse direct solver
-                     "--download-superlu_dist",
-                     # Parallel mesh partitioner
-                     "--download-ptscotch",
                      # Parser generator
-                     "--download-bison",
-                     # For superlu_dist amongst others.
-                     "--with-cxx-dialect=C++11"}
-
+                     "--download-bison"}
+    for pkg in get_minimal_petsc_packages():
+        petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
     elif osname == "Linux":
@@ -618,11 +735,6 @@ def get_petsc_options(minimal=False):
             petsc_options.add("--download-parmetis")
 
     if options["petsc_int_type"] == "int32":
-        # Sparse direct solver
-        petsc_options.add("--download-scalapack")  # Needed for mumps
-        petsc_options.add("--download-mumps")
-        # Serial mesh partitioner
-        petsc_options.add("--download-chaco")
         if not options["minimal_petsc"]:
             # AMG
             petsc_options.add("--download-ml")
@@ -630,7 +742,6 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-hypre'}
         petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
 
@@ -676,22 +787,6 @@ def get_petsc_options(minimal=False):
                  "use PETSC_CONFIGURE_OPTIONS=\"--with-hdf5-dir=$HDF5_DIR\" "
                  "to have PETSc built against $HDF5_DIR.")
     return list(petsc_options)
-
-
-def get_petsc_packages(minimal=False):
-    if minimal:
-        packages = set([
-            "blaslapack", "chaco", "eigen3", "hdf5", "hypre", "mathlib",
-            "mpi", "mumps", "ptscotch", "scalapack", "superlu_dist"
-        ])
-    else:
-        petsc_dir, petsc_arch = get_petsc_dir()
-        with open(os.path.join(petsc_dir, petsc_arch, "include", "petscconf.h")) as fh:
-            for line in fh.readlines():
-                if line.startswith("#define PETSC_HAVE_PACKAGES"):
-                    packages = set(line.split()[2].strip().strip(':"').split(':'))
-                    break
-    return packages
 
 
 def get_petsc_config():
@@ -946,7 +1041,11 @@ def clean(package):
     with directory(package):
         with environment(**blas):
             # loopy needs knowledge of the system BLAS just to run setup.py
-            check_call([python, "setup.py", "clean"])
+            if os.path.isfile("setup.py"):
+                check_call([python, "setup.py", "clean"])
+            else:  # PEP 518 build system
+                if os.path.exists("build") and os.path.isdir("build"):
+                    shutil.rmtree("build")
 
 
 def pip_uninstall(package):
@@ -983,16 +1082,11 @@ def pip_uninstall(package):
 
 def get_petsc_dir():
     if args.honour_petsc_dir:
-        try:
-            petsc_dir = os.environ["PETSC_DIR"]
-        except KeyError:
-            raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
-        petsc_arch = os.environ.get("PETSC_ARCH", "")
+        return honour_petsc_dir_get_petsc_dir()
     else:
         petsc_dir = os.path.join(os.environ["VIRTUAL_ENV"], "src", "petsc")
         petsc_arch = "default"
-
-    return petsc_dir, petsc_arch
+        return petsc_dir, petsc_arch
 
 
 def get_petsc4py_dir():
@@ -1177,7 +1271,8 @@ def build_and_install_libsupermesh():
                        "-DMPI_Fortran_COMPILER=" + f90,
                        "-DCMAKE_Fortran_COMPILER=" + f90,
                        "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
-                if osname == "Darwin":
+                fortran, version = sniff_compiler(f90)
+                if fortran == "GNU" and version >= Version("10"):
                     # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
                     # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
                     cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
@@ -1430,8 +1525,9 @@ log.debug(check_output(["env"]))
 log.debug("\n\n")
 
 if mode == "install" and args.honour_petsc_dir:
-    minimal_packages = get_petsc_packages(minimal=True)
-    current_packages = get_petsc_packages()
+    minimal_packages = get_minimal_petsc_packages()
+    minimal_packages.update({"blaslapack", "eigen3", "mathlib", "mpi"})
+    current_packages = honour_petsc_dir_get_petsc_packages()
     log.debug("*****************************************************")
     log.debug("Specified PETSc was built with the following options:")
     log.debug("*****************************************************\n")
@@ -1448,7 +1544,8 @@ if mode == "install" and args.honour_petsc_dir:
         log.error("*********************************************************************\n")
         log.error("\n".join(sorted(get_petsc_options(minimal=True))))
         log.error("")
-        log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
+        if "eigen3" in (minimal_packages - current_packages):
+            log.error("Eigen can be downloaded from https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz\n")
         log.error('Use --show-petsc-configure-options as an argument to the firedrake-install script to display options if additional functionality is required.\n ')
         log.error("FATAL: Unable to install with specified PETSc")
         exit(1)
@@ -1712,23 +1809,24 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
 
-    # "Temporary" workaround for missing VTK wheel on Python 3.10
-    if sys.version_info[:2] == (3, 10):
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20220106/"
+    # "Temporary" workaround for missing VTK wheel on Python 3.11
+    if sys.version_info[:2] == (3, 11):
+        # Update source when release is no longer a draft
+        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20221116/"
         if osname == "Darwin":
             if arch == "arm64":
-                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_11_0_arm64.whl"
+                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_arm64.whl "
             elif arch == "x86_64":
-                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_10_15_x86_64.whl"
+                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_x86_64.whl"
             else:
-                log.error("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
-                raise InstallError("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
+                log.error("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
+                raise InstallError("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
-            source += "vtk-9.1.0.dev0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+            source += "vtk-9.2.2.dev0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
         else:
-            log.error("Cannot install VTK for Python 3.10: unknown operating system  {0}.".format(osname))
-            raise InstallError("Cannot install VTK for Python 3.10: unknown operating system {0}.".format(osname))
-        log.info("Pip installing VTK for Python 3.10 to venv")
+            log.error("Cannot install VTK for Python 3.11: unknown operating system  {0}.".format(osname))
+            raise InstallError("Cannot install VTK for Python 3.11: unknown operating system {0}.".format(osname))
+        log.info("Pip installing VTK for Python 3.11 to venv")
         run_pip_install([source])
     if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
@@ -1936,8 +2034,7 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         # Ensure pytest is at the latest version
-        log.info("We use pytest==6.2.5 until the issue with pytest==7.0.0 is resolved.\n")
-        run_pip(["install", "-U", "pytest==6.2.5"])
+        run_pip(["install", "-U", "pytest"])
 
 with environment(**compiler_env):
     with pipargs("--no-deps"):

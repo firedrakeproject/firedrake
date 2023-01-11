@@ -9,10 +9,11 @@ import cachetools
 import finat
 import firedrake
 import numpy
+from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
-from firedrake import (assemble_expressions, extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -100,7 +101,7 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        return assemble_expressions.assemble_expression(expr)
+        return _assemble_expr(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
 
@@ -418,6 +419,20 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     return assembler.assemble()
 
 
+def _assemble_expr(expr):
+    """Assemble a pointwise expression.
+
+    :arg expr: The :class:`ufl.core.expr.Expr` to be evaluated.
+    :returns: A :class:`firedrake.Function` containing the result of this evaluation.
+    """
+    try:
+        coefficients = ufl.algorithms.extract_coefficients(expr)
+        V, = set(c.function_space() for c in coefficients) - {None}
+    except ValueError:
+        raise ValueError("Cannot deduce correct target space from pointwise expression")
+    return firedrake.Function(V).assign(expr)
+
+
 def _check_inputs(form, tensor, bcs, diagonal):
     # Ensure mesh is 'initialised' as we could have got here without building a
     # function space (e.g. if integrating a constant).
@@ -467,7 +482,15 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=form.ufl_domains()[0]._comm
+        )
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Cofunction(test.function_space())
@@ -520,11 +543,16 @@ class FormAssembler(abc.ABC):
 
         :returns: The assembled object.
         """
+        if annotate_tape():
+            raise NotImplementedError(
+                "Taping with explicit FormAssembler objects is not supported yet. "
+                "Use assemble instead."
+            )
+
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
-        for parloop in self.parloops:
-            parloop()
+        self.execute_parloops()
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -542,6 +570,10 @@ class FormAssembler(abc.ABC):
             data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
             parloop.arguments[0].data = data
         self._tensor = tensor
+
+    def execute_parloops(self):
+        for parloop in self.parloops:
+            parloop()
 
     @cached_property
     def local_kernels(self):
@@ -654,6 +686,13 @@ class OneFormAssembler(FormAssembler):
     def result(self):
         return self._tensor
 
+    def execute_parloops(self):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with self._tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops:
+                parloop()
+
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
         if isinstance(bc, DirichletBC):
@@ -719,6 +758,9 @@ class ExplicitMatrixAssembler(FormAssembler):
         return False
 
     def collect_lgmaps(self, knl, bcs):
+        if not bcs:
+            return None
+
         lgmaps = []
         for i, j in self.get_indicess(knl):
             row_bcs, col_bcs = self._filter_bcs(bcs, i, j)
@@ -1274,7 +1316,12 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global((1,), self._iterset.layers-2, dtype=numpy.int32)
+    glob = op2.Global(
+        (1,),
+        self._iterset.layers-2,
+        dtype=numpy.int32,
+        comm=self._iterset.comm
+    )
     return op2.GlobalParloopArg(glob)
 
 
