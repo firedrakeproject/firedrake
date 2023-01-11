@@ -258,6 +258,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
+    :arg weight: weight of the boundary condition, 1.0 by default.
     :arg method: the method for determining boundary nodes.
         DEPRECATED. The only way boundary nodes are identified is by
         topological association.
