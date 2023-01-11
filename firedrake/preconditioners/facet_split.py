@@ -7,31 +7,86 @@ import numpy
 __all__ = ['FacetSplitPC']
 
 
+def split_dofs(elem):
+    entity_dofs = elem.entity_dofs()
+    ndim = elem.cell.get_spatial_dimension()
+    edofs = [[] for k in range(ndim+1)]
+    for key in entity_dofs:
+        vals = entity_dofs[key]
+        edim = key
+        try:
+            edim = sum(edim)
+        except TypeError:
+            pass
+        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
+        for r in range(len(split)-1):
+            v = sum([vals[k] for k in range(*split[r:r+2])], [])
+            edofs[edim].extend(sorted(v))
+
+    return numpy.array(edofs[-1], dtype=PETSc.IntType), numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
+
+
+def restricted_dofs(celem, felem):
+    """
+    find which DOFs from felem are on celem
+    :arg celem: the restricted :class:`finat.FiniteElement`
+    :arg felem: the unrestricted :class:`finat.FiniteElement`
+    :returns: :class:`numpy.array` with indices of felem that correspond to celem
+    """
+    csplit = split_dofs(celem)
+    fsplit = split_dofs(felem)
+    if len(csplit[0]) and len(csplit[1]):
+        csplit = [numpy.concatenate(csplit)]
+        fsplit = [numpy.concatenate(fsplit)]
+
+    k = len(csplit[0]) == 0
+    if len(csplit[k]) != len(fsplit[k]):
+        raise ValueError("Finite elements have different DOFs")
+    perm = numpy.empty_like(csplit[k])
+    perm[csplit[k]] = numpy.arange(len(perm), dtype=perm.dtype)
+    return fsplit[k][perm]
+
+
 def get_permutation_map(V, W):
-    from firedrake.preconditioners.fdm import glonum_fun, restricted_dofs
+    from firedrake import Function
+    from pyop2 import op2, PermutedMap
+
     bsize = V.value_size
-    V_indices = None
-    V_map, nel = glonum_fun(V.cell_node_map(), bsize=bsize)
     perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
     perm.fill(-1)
+    v = Function(V, dtype=PETSc.IntType, val=perm)
+    w = Function(W, dtype=PETSc.IntType)
 
     offset = 0
-    for Wsub in W:
-        W_indices = None
-        W_map, nel = glonum_fun(Wsub.cell_node_map(), bsize=bsize)
-        rdofs = restricted_dofs(Wsub.finat_element, V.finat_element)
+    for wdata, Wsub in zip(w.dat.data, W):
+        own = Wsub.dof_dset.set.size * bsize
+        wdata[:own] = numpy.arange(offset, offset+own, dtype=PETSc.IntType)
+        offset += own
 
-        for e in range(nel):
-            V_indices = V_map(e, result=V_indices)
-            W_indices = W_map(e, result=W_indices)
-            perm[V_indices[rdofs]] = W_indices + offset
+    idofs = W[0].finat_element.space_dimension() * bsize
+    fdofs = W[1].finat_element.space_dimension() * bsize
 
-        offset += Wsub.dof_dset.set.size * bsize
-        del rdofs
-        del W_indices
-    del V_indices
-    perm = V.dof_dset.lgmap.apply(perm, result=perm)
+    eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
+    pmap = PermutedMap(V.cell_node_map(), eperm)
+
+    kernel_code = f"""
+    void permutation(PetscInt *restrict x,
+                     const PetscInt *restrict xi,
+                     const PetscInt *restrict xf){{
+
+        for(PetscInt i=0; i<{idofs}; i++) x[i] = xi[i];
+        for(PetscInt i=0; i<{fdofs}; i++) x[i+{idofs}] = xf[i];
+        return;
+    }}
+    """
+    kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
+    op2.par_loop(kernel, v.cell_set,
+                 v.dat(op2.WRITE, pmap),
+                 w.dat[0](op2.READ, W[0].cell_node_map()),
+                 w.dat[1](op2.READ, W[1].cell_node_map()))
+
     own = V.dof_dset.set.size * bsize
+    perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]
 
 
@@ -58,6 +113,11 @@ def get_permutation_project(V, W):
 
 
 class FacetSplitPC(PCBase):
+    """ A preconditioner that splits a function into interior and facet DOFs.
+
+        Composability with fieldsplit can be done through the PETSc solver option:
+        -facet_pc_type fieldsplit
+    """
 
     needs_python_pmat = False
     _prefix = "facet_"
@@ -77,8 +137,7 @@ class FacetSplitPC(PCBase):
 
     def initialize(self, pc):
 
-        from ufl import (InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement,
-                         FiniteElement, EnrichedElement, TensorProductElement, TensorProductCell, HCurl)
+        from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
@@ -112,27 +171,10 @@ class FacetSplitPC(PCBase):
         if isinstance(scalar_element, (TensorElement, VectorElement)):
             scalar_element = scalar_element._sub_element
         tensorize = lambda e, shape: TensorElement(e, shape=shape) if shape else e
-
-        def get_facet_element(e):
-            cell = e.cell()
-            if e.sobolev_space() == HCurl and isinstance(cell, TensorProductCell):
-                sub_cells = cell.sub_cells()
-                degree = max(e.degree())
-                variant = e.variant()
-                Qc_elt = FiniteElement("Q", sub_cells[0], degree, variant=variant)
-                Qd_elt = FiniteElement("RTCE", sub_cells[0], degree, variant=variant)
-                Id_elt = FiniteElement("DG", sub_cells[1], degree - 1, variant=variant)
-                Ic_elt = FiniteElement("CG", sub_cells[1], degree, variant=variant)
-                return EnrichedElement(HCurl(TensorProductElement(FacetElement(Qc_elt), Id_elt, cell=cell)),
-                                       HCurl(TensorProductElement(Qd_elt, FacetElement(Ic_elt), cell=cell)),
-                                       HCurl(TensorProductElement(FacetElement(Qd_elt), InteriorElement(Ic_elt), cell=cell)))
-            return FacetElement(e)
-
-        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, get_facet_element)]
+        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, FacetElement)]
 
         W = FunctionSpace(V.mesh(), MixedElement(elements))
-        if W.dim() != V.dim():
-            raise ValueError("Dimensions of the original and decomposed spaces do not match")
+        assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
 
         self.perm = None
         self.iperm = None
