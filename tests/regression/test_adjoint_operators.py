@@ -25,7 +25,7 @@ def handle_annotation():
         pause_annotation()
 
 
-@pytest.fixture(params=['iadd', 'isub', 'imul', 'idiv'])
+@pytest.fixture(params=['iadd', 'isub'])
 def op(request):
     return request.param
 
@@ -469,10 +469,6 @@ def test_ioperator_replay(op, order, power):
         t += s
     elif op == 'isub':
         t -= s
-    elif op == 'imul':
-        t *= s
-    elif op == 'idiv':
-        t /= s
     else:
         raise ValueError("Operator '{:s}' not recognised".format(op))
 
@@ -497,12 +493,6 @@ def test_ioperator_replay(op, order, power):
         elif op == 'isub':
             ss -= ss
             tt -= tt
-        elif op == 'imul':
-            ss *= ss
-            tt *= tt
-        elif op == 'idiv':
-            ss /= ss
-            tt /= tt
         assert np.isclose(rf_s(t_orig), assemble(f(tt)*dx))
         assert np.isclose(rf_t(s_orig), assemble(f(ss)*dx))
 

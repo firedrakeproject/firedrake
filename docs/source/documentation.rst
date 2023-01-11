@@ -2,7 +2,7 @@
 
   .. sidebar:: Current development information.
   
-     Firedrake and PyOP2 are continually tested using `Jenkins <https://jenkins.io/>`__  and `Travis <https://travis-ci.org>`__ respectively.
+     Firedrake and PyOP2 are continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
 
      Latest Firedrake status: |firedrakebuild|
 
@@ -12,13 +12,13 @@
      Firedrake and its components are developed on `GitHub
      <http://github.com>`__ where we also maintain Firedrake-ready
      versions of the `FEniCS <http://fenicsproject.org>`__ components
-     UFL and FIAT.
+     UFL.
 
      * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
      * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
      * `PyOP2 on GitHub <https://github.com/OP2/PyOP2>`__
+     * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
      * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
-     * `Firedrake version of FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
 
   Getting started
   ===============

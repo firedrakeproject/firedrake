@@ -67,7 +67,9 @@ def pytest_configure(config):
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
 
 
-def pytest_runtest_setup(item):
+@pytest.fixture(autouse=True)
+def old_pytest_runtest_setup(request):
+    item = request.node
     if item.get_closest_marker("parallel"):
         from mpi4py import MPI
         if MPI.COMM_WORLD.size > 1:
@@ -86,7 +88,7 @@ def pytest_runtest_setup(item):
         else:
             # Blow away function arg in "master" process, to ensure
             # this test isn't run on only one process.
-            item.obj = lambda *args, **kwargs: True
+            item.obj = lambda *args, **kwargs: None
 
 
 def pytest_runtest_call(item):
