@@ -128,7 +128,7 @@ class FacetSplitPC(PCBase):
                                        HCurl(TensorProductElement(FacetElement(Qd_elt), InteriorElement(Ic_elt), cell=cell)))
             return FacetElement(e)
 
-        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, get_facet_element)]
+        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, FacetElement)]
 
         W = FunctionSpace(V.mesh(), MixedElement(elements))
         if W.dim() != V.dim():
