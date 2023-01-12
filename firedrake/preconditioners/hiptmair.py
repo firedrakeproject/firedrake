@@ -136,6 +136,11 @@ class HiptmairPC(TwoLevelPC):
 
         mesh = V.mesh()
         element = V.ufl_element()
+        degree = element.degree()
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
@@ -160,6 +165,7 @@ class HiptmairPC(TwoLevelPC):
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
@@ -210,7 +216,7 @@ def div_to_curl(ele):
     elif isinstance(ele, ufl.RestrictedElement):
         return ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
     elif isinstance(ele, ufl.EnrichedElement):
-        return type(ele)(*(div_to_curl(e) for e in ele._elements))
+        return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
     elif isinstance(ele, ufl.TensorProductElement):
         return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()), cell=ele.cell())
     elif isinstance(ele, ufl.WithMapping):
