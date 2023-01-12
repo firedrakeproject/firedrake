@@ -730,13 +730,14 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
     subdomain_key = []
     for val in form.subdomain_data().values():
         for k, v in val.items():
-            if v is not None:
-                extruded = v._extruded
-                constant_layers = extruded and v.constant_layers
-                subset = isinstance(v, op2.Subset)
-                subdomain_key.append((k, extruded, constant_layers, subset))
-            else:
-                subdomain_key.append((k,))
+            for i, vi in enumerate(v):
+                if vi is not None:
+                    extruded = vi._extruded
+                    constant_layers = extruded and vi.constant_layers
+                    subset = isinstance(vi, op2.Subset)
+                    subdomain_key.append((k, i, extruded, constant_layers, subset))
+                else:
+                    subdomain_key.append((k, i))
 
     return ((sig,)
             + tuple(subdomain_key)
