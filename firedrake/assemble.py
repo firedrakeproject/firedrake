@@ -165,14 +165,14 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        appctx=None,
                        options_prefix=None,
                        zero_bc_nodes=False,
-                       preassembled_base_form=False):
+                       is_base_form_preprocessed=False):
 
     # Preprocess and restructure the DAG
-    if not preassembled_base_form:
+    if not is_base_form_preprocessed:
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
         # to transmit the cache. All of this only holds when `expression` if a ufl.Form
-        # and therefore when `preassembled_base_form` is False.
+        # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form):
             expr._cache = expression._cache
@@ -446,8 +446,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
         petsc_mat = mat.petscmat
-        # TODO Add Hermitian Transpose to petsc4py and replace transpose
-        petsc_mat.transpose()
+        petsc_mat.hermitianTranspose()
         (row, col) = mat.arguments()
         return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
                                       appctx=appctx,
@@ -542,16 +541,15 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
                 output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                return interpolator._interpolate(v, output=output, transpose=is_adjoint)
+                return interpolator._interpolate(v, output=output, transpose=True)
             # Assembling the operator, or its Jacobian action.
-            return interpolator._interpolate(transpose=is_adjoint, output=tensor)
+            return interpolator._interpolate(output=tensor)
         elif rank == 2:
             # Return the interpolation matrix
             op2_mat = interpolator.callable()
             petsc_mat = op2_mat.handle
             if is_adjoint:
-                # TODO: Work out how to get the conjugate?
-                petsc_mat.transpose()
+                petsc_mat.hermitianTranspose()
             return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
@@ -1144,7 +1142,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     # Don't expand derivatives if mat_type is 'matfree'
     mat_type = kwargs.pop('mat_type', None)
     fc_params = kwargs.get('form_compiler_parameters')
-    # Pre-process form
+    # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
     form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
@@ -1157,7 +1155,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     elif isinstance(form, ufl.form.BaseForm):
         return functools.partial(assemble_base_form, form, *args, tensor=tensor,
                                  mat_type=mat_type,
-                                 preassembled_base_form=True, **kwargs)
+                                 is_base_form_preprocessed=True, **kwargs)
     else:
         raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
