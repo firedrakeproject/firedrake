@@ -3,6 +3,7 @@ import abc
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
+import ufl
 
 
 __all__ = ("HiptmairPC",)
@@ -14,6 +15,9 @@ class TwoLevelPC(PCBase):
 
     @abc.abstractmethod
     def coarsen(self, pc):
+        """Return a tuple with coarse bilinear form, coarse
+           boundary conditions, and coarse-to-fine interpolation matrix
+        """
         raise NotImplementedError
 
     def initialize(self, pc):
@@ -120,8 +124,7 @@ class HiptmairPC(TwoLevelPC):
         from firedrake import FunctionSpace, TestFunction, TrialFunction
         from firedrake.interpolation import Interpolator
         from ufl.algorithms.ad import expand_derivatives
-        from ufl import (FiniteElement, TensorElement, FacetElement,
-                         replace, zero, grad, curl, as_vector)
+        from ufl import replace, zero, grad, curl, as_vector
 
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
@@ -135,34 +138,20 @@ class HiptmairPC(TwoLevelPC):
         element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
+            celement = curl_to_grad(element)
             dminus = grad
-            cfamily = "Lagrange"
             G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
+            celement = div_to_curl(element)
             dminus = curl
             if V.shape:
                 dminus = lambda u: as_vector([curl(u[k, ...]) for k in range(u.ufl_shape[0])])
-            cfamily = "N1curl" if mesh.ufl_cell().is_simplex() else "NCE"
             G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
-        variant = element.variant()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
-
-        celement = FiniteElement(cfamily, cell=mesh.ufl_cell(), degree=degree, variant=variant)
-        if degree > 1:
-            if not V.finat_element.entity_dofs()[V.finat_element.cell.get_dimension()][0]:
-                celement = FacetElement(celement)
-                # TODO provide statically-condensed form with SLATE
-        if V.shape:
-            celement = TensorElement(celement, shape=V.shape)
-
         coarse_space = FunctionSpace(mesh, celement)
+        assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         # Get only the zero-th order term of the form
@@ -183,3 +172,78 @@ class HiptmairPC(TwoLevelPC):
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
 
         return coarse_operator, coarse_space_bcs, interp_petscmat
+
+
+def curl_to_grad(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.RestrictedElement):
+        return ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
+    else:
+        cell = ele.cell()
+        family = ele.family()
+        variant = ele.variant()
+        degree = ele.degree()
+        if family.startswith("Sminus"):
+            family = "S"
+        else:
+            family = "Lagrange"
+            if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
+                cells = ele.cell().sub_cells()
+                elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
+                return ufl.TensorProductElement(*elems, cell=cell)
+
+        return ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
+
+
+def div_to_curl(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.RestrictedElement):
+        return ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
+    elif isinstance(ele, ufl.EnrichedElement):
+        return type(ele)(*(div_to_curl(e) for e in ele._elements))
+    elif isinstance(ele, ufl.TensorProductElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()), cell=ele.cell())
+    elif isinstance(ele, ufl.WithMapping):
+        return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
+    elif isinstance(ele, ufl.BrokenElement):
+        return type(ele)(div_to_curl(ele._element))
+    elif isinstance(ele, ufl.HDivElement):
+        return ufl.HCurlElement(div_to_curl(ele._element))
+    elif isinstance(ele, ufl.HCurlElement):
+        raise ValueError("Expecting an H(div) element")
+    else:
+        degree = ele.degree()
+        family = ele.family()
+
+        if family in ["Lagrange", "CG", "Q"]:
+            family = "DG" if ele.cell().is_simplex() else "DQ"
+            degree = degree-1
+        elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
+            family = "Lagrange"
+            degree = degree+1
+        elif family in ["Raviart-Thomas", "RT"]:
+            family = "N1curl"
+        elif family in ["Brezzi-Douglas-Marini", "BDM"]:
+            family = "N2curl"
+        elif family == "RTCF":
+            family = "RTCE"
+        elif family == "NCF":
+            family = "NCE"
+        elif family == "SminusF":
+            family = "SminusE"
+        elif family == "SminusDiv":
+            family = "SminusCurl"
+        else:
+            raise ValueError("Unexpected family %s" % family)
+
+        return ele.reconstruct(degree=degree, family=family)
