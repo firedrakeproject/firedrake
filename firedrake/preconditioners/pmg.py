@@ -945,6 +945,8 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     restrict_code = []
     felems, fshifts = get_line_elements(Vf)
     celems, cshifts = get_line_elements(Vc)
+    if len(felems) > 3 or len(celems) > 3:
+        raise ValueError("The expansion is too complicated")
 
     shifts = fshifts
     in_place = False
