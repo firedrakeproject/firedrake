@@ -712,7 +712,7 @@ def get_line_elements(V):
 
 @lru_cache(maxsize=10)
 def fiat_reference_prolongator(felem, celem, derivative=False):
-    from FIAT import functional, make_quadrature
+    from FIAT import functional, make_quadrature, RestrictedElement
     from FIAT.reference_element import flatten_reference_cube
 
     ref_el = flatten_reference_cube(felem.get_reference_element())
@@ -733,6 +733,11 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
         pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
         return celem.tabulate(sum(ckey), pts)[ckey].reshape(cshape).T
 
+    indices = None
+    if isinstance(felem, RestrictedElement):
+        indices = felem._indices
+        felem = felem._element
+
     quadrature = make_quadrature(ref_el, felem.degree()+1)
     pts = quadrature.get_points()
     wts = quadrature.get_weights()
@@ -744,7 +749,10 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
     numpy.multiply(cphi, wts, out=cphi)
     cphi = cphi.reshape(cshape)
     fphi = fphi.reshape(fshape)
-    return numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
+    result = numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
+    if indices is not None:
+        result = result[indices]
+    return result
 
 
 @lru_cache(maxsize=10)
