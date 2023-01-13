@@ -9,10 +9,11 @@ import cachetools
 import finat
 import firedrake
 import numpy
+from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
-from firedrake import (assemble_expressions, extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -95,66 +96,9 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        return assemble_expression(expr)
+        return _assemble_expr(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
-
-
-"""
-def assemble_expression(expr):
-    from ufl.algorithms.analysis import extract_base_form_operators
-    if len(extract_base_form_operators(expr)):
-        if isinstance(expr, ufl.algebra.Sum):
-            # Assemble components to produce Coefficient or Matrix objects
-            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
-            # or `assemble_expressions` (e.g. expr -> Coefficient)
-            assembled_ops = [assemble(e) for e in expr.ufl_operands]
-            if all(isinstance(op, firedrake.Function) for op in assembled_ops):
-                return assemble_expressions.assemble_expression(sum(assembled_ops))
-            elif all(isinstance(op, matrix.AssembledMatrix) for op in assembled_ops):
-                a, b = assembled_ops
-                res = a + b
-                return matrix.AssembledMatrix(a.arguments(), a.bcs, res)
-            else:
-                raise TypeError("Mismatching sum shapes")
-        elif isinstance(expr, ufl.algebra.Product):
-            # Assemble components to produce Coefficient or Matrix objects
-            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
-            # or `assemble_expressions` (e.g. expr -> Coefficient)
-            a, b = expr.ufl_operands
-            if not len(assemble_expressions.extract_coefficients(a)):
-                return assemble(a * assemble(b))
-            if not len(assemble_expressions.extract_coefficients(b)):
-                return assemble(b * assemble(a))
-            return assemble(ufl.action(a, b))
-    else:
-        return assemble_expressions.assemble_expression(expr)
-"""
-
-
-def assemble_expression(expr):
-    from ufl.algorithms.analysis import extract_base_form_operators
-    from ufl.checks import is_scalar_constant_expression
-
-    base_form_operators = extract_base_form_operators(expr)
-    if len(base_form_operators) and any(len(e.arguments()) > 1 for e in base_form_operators):
-        if isinstance(expr, ufl.algebra.Sum):
-            a, b = [assemble(e) for e in expr.ufl_operands]
-            # Only Expr resulting in a Matrix if assembled are BaseFormOperator
-            if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
-                raise TypeError('Mismatching Sum shapes')
-            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
-        elif isinstance(expr, ufl.algebra.Product):
-            a, b = expr.ufl_operands
-            scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
-            if scalar:
-                base_form = a if a is scalar else b
-                assembled_mat = assemble(base_form)
-                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
-            a, b = [assemble(e) for e in (a, b)]
-            return assemble_base_form(ufl.action(a, b))
-    else:
-        return assemble_expressions.assemble_expression(expr)
 
 
 def assemble_base_form(expression, tensor=None, bcs=None,
@@ -749,6 +693,57 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     return assembler.assemble()
 
 
+def _assemble_expr(expr):
+    """Assemble a pointwise expression.
+
+    :arg expr: The :class:`ufl.core.expr.Expr` to be evaluated.
+    :returns: A :class:`firedrake.Function` containing the result of this evaluation.
+    """
+    from ufl.algorithms.analysis import extract_base_form_operators
+    from ufl.checks import is_scalar_constant_expression
+
+    # Get BaseFormOperators (`Interp` or `ExternalOperator`)
+    base_form_operators = extract_base_form_operators(expr)
+
+    # -- Linear combination involving 2-form BaseFormOperators -- #
+    # Example: a * dNdu1(u1, u2; v1, v*) + b * dNdu2(u1, u2; v2, v*)
+    # with u1, u2 Functions, v1, v2, v* BaseArguments, dNdu1, dNdu2 BaseFormOperators, and a, b scalars.
+    if len(base_form_operators) and any(len(e.arguments()) > 1 for e in base_form_operators):
+        if isinstance(expr, ufl.algebra.Sum):
+            a, b = [assemble(e) for e in expr.ufl_operands]
+            # Only Expr resulting in a Matrix if assembled are BaseFormOperator
+            if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                raise TypeError('Mismatching Sum shapes')
+            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
+        elif isinstance(expr, ufl.algebra.Product):
+            a, b = expr.ufl_operands
+            scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
+            if scalar:
+                base_form = a if a is scalar else b
+                assembled_mat = assemble(base_form)
+                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
+            a, b = [assemble(e) for e in (a, b)]
+            return assemble_base_form(ufl.action(a, b))
+    # -- Linear combination of Functions and 1-form BaseFormOperators -- #
+    # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
+    # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
+    else:
+        base_form_operators = extract_base_form_operators(expr)
+        assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
+        # Substitute base form operators with their output before examining the expression
+        # which avoids conflict when determining function space, for example:
+        # extract_coefficients(Interp(u, V2)) with u \in V1 will result in an output function space V1
+        # instead of V2.
+        if base_form_operators:
+            expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
+        try:
+            coefficients = ufl.algorithms.extract_coefficients(expr)
+            V, = set(c.function_space() for c in coefficients) - {None}
+        except ValueError:
+            raise ValueError("Cannot deduce correct target space from pointwise expression")
+        return firedrake.Function(V).assign(expr)
+
+
 def _check_inputs(form, tensor, bcs, diagonal):
     # Ensure mesh is 'initialised' as we could have got here without building a
     # function space (e.g. if integrating a constant).
@@ -798,7 +793,15 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=form.ufl_domains()[0]._comm
+        )
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Cofunction(test.function_space().dual())
@@ -851,11 +854,16 @@ class FormAssembler(abc.ABC):
 
         :returns: The assembled object.
         """
+        if annotate_tape():
+            raise NotImplementedError(
+                "Taping with explicit FormAssembler objects is not supported yet. "
+                "Use assemble instead."
+            )
+
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
-        for parloop in self.parloops:
-            parloop()
+        self.execute_parloops()
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -873,6 +881,10 @@ class FormAssembler(abc.ABC):
             data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
             parloop.arguments[0].data = data
         self._tensor = tensor
+
+    def execute_parloops(self):
+        for parloop in self.parloops:
+            parloop()
 
     @cached_property
     def local_kernels(self):
@@ -984,6 +996,13 @@ class OneFormAssembler(FormAssembler):
     @property
     def result(self):
         return self._tensor
+
+    def execute_parloops(self):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with self._tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops:
+                parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
@@ -1632,7 +1651,12 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global((1,), self._iterset.layers-2, dtype=numpy.int32)
+    glob = op2.Global(
+        (1,),
+        self._iterset.layers-2,
+        dtype=numpy.int32,
+        comm=self._iterset.comm
+    )
     return op2.GlobalParloopArg(glob)
 
 

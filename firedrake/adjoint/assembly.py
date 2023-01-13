@@ -35,7 +35,7 @@ def annotate_assemble(assemble):
 
             block.add_output(output.block_variable)
         else:
-            # Assembled a 1-form or a 2-form
+            # Assembled a 2-form
             output.form = form
 
         return output

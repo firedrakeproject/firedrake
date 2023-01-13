@@ -12,7 +12,7 @@ import numpy
 
 import ufl
 
-from pyop2 import op2
+from pyop2 import op2, mpi
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -402,7 +402,10 @@ class FunctionSpace(object):
         r"""A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
 
-        self.comm = self.node_set.comm
+        # User comm
+        self.comm = mesh.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(self.node_set.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -413,6 +416,10 @@ class FunctionSpace(object):
         self.offset = sdata.offset
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
