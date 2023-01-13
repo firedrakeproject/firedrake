@@ -1441,7 +1441,6 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-        print(kernel_code)
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
