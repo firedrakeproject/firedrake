@@ -813,7 +813,7 @@ class _GlobalKernelBuilder:
     @cached_property
     def _needs_subset(self):
         subdomain_data = self._form.subdomain_data()[self._mesh]
-        if subdomain_data.get(self._integral_type, None) is not None:
+        if not all(sd is None for sd in subdomain_data.get(self._integral_type, None)):
             return True
 
         if self._kinfo.subdomain_id == "everywhere":
@@ -1073,9 +1073,13 @@ class ParloopBuilder:
         try:
             subdomain_data = self._form.subdomain_data()[self._mesh][self._integral_type]
         except KeyError:
-            subdomain_data = None
+            subdomain_data = [None]
 
-        if subdomain_data is not None:
+        if not all(sd is None for sd in subdomain_data):
+            try:
+                subdomain_data, = subdomain_data
+            except ValueError:
+                raise NotImplementedError("Assembly with multipled subdomain data values id not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
