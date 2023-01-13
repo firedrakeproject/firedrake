@@ -179,7 +179,6 @@ class HiptmairPC(TwoLevelPC):
                 coarse_operator += beta(test, shift*trial, coefficients={})
 
         if G_callback is None:
-            import numpy
             from firedrake import Function
             from firedrake.preconditioners.hypre_ams import chop
 
