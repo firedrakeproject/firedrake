@@ -58,7 +58,7 @@ def run_riesz_map(V, mat_type):
     x = SpatialCoordinate(V.mesh())
     u_exact = Constant((1,2,4))
     f = u_exact
-    #f = -grad(div(u_exact)) + u_exact if sobolev == HDiv else curl(curl(u_exact)) + u_exact
+    # f = -grad(div(u_exact)) + u_exact if sobolev == HDiv else curl(curl(u_exact)) + u_exact
 
     u = Function(V)
     v = TestFunction(V)
