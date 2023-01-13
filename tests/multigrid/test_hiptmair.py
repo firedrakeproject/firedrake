@@ -1,0 +1,87 @@
+from firedrake import *
+import numpy
+import pytest
+
+
+def mesh_hierarchy(cell):
+    nx = 5
+    nlevels = 2
+    if cell == "tetrahedron":
+        base = UnitCubeMesh(nx, nx, nx)
+        return MeshHierarchy(base, nlevels)
+    elif cell == "hexahedron":
+        base = UnitSquareMesh(nx, nx, quadrilateral=True)
+        basemh = MeshHierarchy(base, nlevels)
+        return ExtrudedMeshHierarchy(basemh, height=1, base_layer=nx)
+
+
+def run_riesz_map(V, mat_type):
+    relax = {
+        "ksp_type": "preonly",
+        "pc_type": "jacobi",
+    }
+    coarse = {
+        "ksp_type": "preonly",
+        "pc_type": "cholesky",
+    }
+    if mat_type == "matfree":
+        coarse = {
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.AssembledPC",
+            "assembled": coarse,
+        }
+    parameters = {
+        "mat_type": mat_type,
+        "snes_type": "ksponly",
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "ksp_monitor": None,
+        "ksp_view_eigenvalues": None,
+        "pc_type": "mg",
+        "mg_coarse": coarse,
+        "mg_levels": {
+            "ksp_type": "chebyshev",
+            "ksp_maxit": 1,
+            "ksp_chebyshev_esteig": "0.75,0.25,0,1",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.HiptmairPC",
+            "hiptmair_mg_levels": relax,
+            "hiptmair_mg_coarse": relax,
+        },
+    }
+
+    sobolev = V.ufl_element().sobolev_space()
+    assert sobolev in [HCurl, HDiv]
+    d = div if sobolev == HDiv else curl
+
+    x = SpatialCoordinate(V.mesh())
+    u_exact = Constant((1,2,4))
+    f = u_exact
+    #f = -grad(div(u_exact)) + u_exact if sobolev == HDiv else curl(curl(u_exact)) + u_exact
+
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(d(u), d(v))*dx + inner(u, v)*dx - inner(f, v)*dx
+    bcs = [DirichletBC(V, u_exact, "on_boundary")]
+
+    solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
+    return norm(u_exact - u, str(sobolev))
+
+
+@pytest.mark.parametrize("family", ["N1curl"])
+@pytest.mark.parametrize("cell", ["tetrahedron"])
+def test_hiptmair_hcurl(family, cell):
+    mesh = mesh_hierarchy(cell)[-1]
+    V = FunctionSpace(mesh, family, degree=1)
+    assert run_riesz_map(V, "aij") < 4E-4
+    assert run_riesz_map(V, "matfree") < 4E-4
+
+
+@pytest.mark.parametrize("family", ["RT"])
+@pytest.mark.parametrize("cell", ["tetrahedron"])
+def test_hiptmair_hdiv(family, cell):
+    mesh = mesh_hierarchy(cell)[-1]
+    V = FunctionSpace(mesh, family, degree=1)
+    assert run_riesz_map(V, "aij") < 4E-4
+    assert run_riesz_map(V, "matfree") < 4E-4

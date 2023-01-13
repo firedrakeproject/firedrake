@@ -129,10 +129,17 @@ class HiptmairPC(TwoLevelPC):
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
         V = dmhooks.get_function_space(pc.getDM())
-        ctx = dmhooks.get_appctx(pc.getDM())
-        problem = ctx._problem
-        a = problem.Jp or problem.J
-        bcs = problem.bcs
+
+        _, P = pc.getOperators()
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = ctx.bcs
+        else:
+            ctx = dmhooks.get_appctx(pc.getDM())
+            problem = ctx._problem
+            a = problem.Jp or problem.J
+            bcs = problem.bcs
 
         mesh = V.mesh()
         element = V.ufl_element()
@@ -172,8 +179,19 @@ class HiptmairPC(TwoLevelPC):
                 coarse_operator += beta(test, shift*trial, coefficients={})
 
         if G_callback is None:
+            import numpy
+            from firedrake import Function
             from firedrake.preconditioners.hypre_ams import chop
+
             interp_petscmat = chop(Interpolator(dminus(test), V).callable().handle)
+            # FIXME bcs should be imposed during the assembly
+            cmask = Function(coarse_space)
+            with cmask.dat.vec as R:
+                R.set(1)
+            for bc in coarse_space_bcs:
+                bc.zero(cmask)
+            with cmask.dat.vec as R:
+                interp_petscmat.diagonalScale(R=R)
         else:
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
 
