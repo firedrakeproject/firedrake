@@ -21,7 +21,12 @@ from firedrake.vector import Vector
 class CoefficientCollector(MultiFunction):
     """Multifunction used for converting an expression into a weighted sum of coefficients.
 
-    Calling ``map_expr_dag(CoefficientCollector(), expr)`` will return a tuple whose entries
+    Parameters
+    ----------
+    domain : firedrake.mesh.MeshGeometry
+        The mesh associated with the assignee for the expression being traversed.
+
+    Calling ``map_expr_dag(collector, expr)`` will return a tuple whose entries
     are of the form ``(coefficient, weight)``. Expressions that cannot be expressed as a
     weighted sum will raise an exception.
 
@@ -30,6 +35,11 @@ class CoefficientCollector(MultiFunction):
     ``u.assign(2*v + 3)``). Therefore the returned tuple must be split since ``coefficient``
     may be either a :class:`firedrake.constant.Constant` or :class:`firedrake.function.Function`.
     """
+    def __init__(self, domain):
+        super().__init__()
+        # we need to specify the domain for the expression so constant values use the
+        # right communicator
+        self._domain = domain
 
     def product(self, o, a, b):
         scalars, vectors = split_by(self._is_scalar_equiv, [a, b])
@@ -64,14 +74,14 @@ class CoefficientCollector(MultiFunction):
 
     def power(self, o, a, b):
         # Only valid if a and b are scalars
-        return ((Constant(self._as_scalar(a) ** self._as_scalar(b)), 1),)
+        return ((Constant(self._as_scalar(a) ** self._as_scalar(b), domain=self._domain), 1),)
 
     def abs(self, o, a):
         # Only valid if a is a scalar
-        return ((Constant(abs(self._as_scalar(a))), 1),)
+        return ((Constant(abs(self._as_scalar(a)), domain=self._domain), 1),)
 
     def _scalar(self, o):
-        return ((Constant(o), 1),)
+        return ((Constant(o, domain=self._domain), 1),)
 
     int_value = _scalar
     float_value = _scalar
@@ -124,8 +134,6 @@ class Assigner:
     :param subset: Optional subset (:class:`op2.Subset`) to apply the assignment over.
     """
     symbol = "="
-
-    _coefficient_collector = CoefficientCollector()
 
     def __init__(self, assignee, expression, subset=None):
         if isinstance(expression, Vector):
@@ -214,8 +222,10 @@ class Assigner:
     def _weighted_coefficients(self):
         # TODO: It would be nice to stash this on the expression so we can avoid extra
         # traversals for non-persistent Assigner objects, but expressions do not currently
-        # have caches attached to them.
-        return map_expr_dag(self._coefficient_collector, self._expression)
+        # have caches attached to them. We would have to key the cache by the domain of
+        # the assignee.
+        collector = CoefficientCollector(self._assignee.ufl_domain())
+        return map_expr_dag(collector, self._expression)
 
 
 class IAddAssigner(Assigner):
