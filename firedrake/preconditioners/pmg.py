@@ -737,6 +737,7 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
     if isinstance(felem, RestrictedElement):
         indices = felem._indices
         felem = felem._element
+        fshape = (felem.space_dimension(), -1)
 
     quadrature = make_quadrature(ref_el, felem.degree()+1)
     pts = quadrature.get_points()
@@ -750,6 +751,7 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
     cphi = cphi.reshape(cshape)
     fphi = fphi.reshape(fshape)
     result = numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
+
     if indices is not None:
         result = result[indices]
     return result
@@ -1021,47 +1023,50 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
 
         J = [fiat_reference_prolongator(fe, ce).T for fe, ce in zip(felem, celem)]
         if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
-            fskip += nscal*numpy.prod(fshape)
-            cskip += nscal*numpy.prod(cshape)
-            continue
-
-        Jsize = numpy.cumsum([Jlen]+[Jk.size for Jk in J])
-        Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
-        Jmats.extend(J)
-        Jlen = Jsize[-1]
-
-        # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
-        Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
-        fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
-        cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
-        if in_place:
             prolong_code.append(f"""
-            kronmxv_inplace(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
+            for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
             """)
             restrict_code.append(f"""
-            kronmxv_inplace(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
-            """)
-        elif shifts == fshifts:
-            if len(prolong_code) and psize > 1:
-                raise ValueError("Single tensor product to many tensor products not implemented for vectors")
-            # Single tensor product to many
-            prolong_code.append(f"""
-            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch}, {t_out}+{fskip});
-            """)
-            restrict_code.append(f"""
-            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch});
+            for({IntType_c} i=0; i<{nscal*numpy.prod(cshape)}; i++) {t_in}[i+{cskip}] = 0.0E0;
             """)
         else:
-            # Many tensor products to single tensor product
-            if len(prolong_code):
-                raise ValueError("Many tensor products to single tensor product not implemented")
-            fskip = 0
-            prolong_code.append(f"""
+            Jsize = numpy.cumsum([Jlen]+[Jk.size for Jk in J])
+            Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
+            Jmats.extend(J)
+            Jlen = Jsize[-1]
+
+            # The Kronecker product routines assume 3D shapes, so in 1D and 2D we pass NULL instead of J
+            Jargs = ", ".join(Jptrs+["NULL"]*(3-len(Jptrs)))
+            fargs = ", ".join(map(str, fshape+[1]*(3-len(fshape))))
+            cargs = ", ".join(map(str, cshape+[1]*(3-len(cshape))))
+            if in_place:
+                prolong_code.append(f"""
+            kronmxv_inplace(0, {fargs}, {cargs}, {nscal}, {Jargs}, &{t_in}, &{t_out});
+                """)
+                restrict_code.append(f"""
+            kronmxv_inplace(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
+                """)
+            elif shifts == fshifts:
+                if len(prolong_code) and psize > 1:
+                    raise ValueError("Single tensor product to many tensor products not implemented for vectors")
+                # Single tensor product to many
+                prolong_code.append(f"""
+            kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch}, {t_out}+{fskip});
+                """)
+                restrict_code.append(f"""
+            kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {scratch});
+                """)
+            else:
+                # Many tensor products to single tensor product
+                if len(prolong_code):
+                    raise ValueError("Many tensor products to single tensor product not implemented")
+                fskip = 0
+                prolong_code.append(f"""
             kronmxv(0, {fargs}, {cargs}, {nscal}, {Jargs}, {t_in}+{cskip}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip});
-            """)
-            restrict_code.append(f"""
+                """)
+                restrict_code.append(f"""
             kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {t_in}+{cskip});
-            """)
+                """)
         fskip += nscal*numpy.prod(fshape)
         cskip += nscal*numpy.prod(cshape)
 
@@ -1436,6 +1441,7 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
+        print(kernel_code)
         from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
