@@ -1,5 +1,4 @@
 from firedrake import *
-import numpy
 import pytest
 
 
@@ -36,8 +35,6 @@ def run_riesz_map(V, mat_type):
         "snes_type": "ksponly",
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
-        "ksp_monitor": None,
-        "ksp_view_eigenvalues": None,
         "pc_type": "mg",
         "mg_coarse": coarse,
         "mg_levels": {
@@ -55,10 +52,8 @@ def run_riesz_map(V, mat_type):
     assert sobolev in [HCurl, HDiv]
     d = div if sobolev == HDiv else curl
 
-    x = SpatialCoordinate(V.mesh())
-    u_exact = Constant((1,2,4))
+    u_exact = Constant((1, 2, 4))
     f = u_exact
-    # f = -grad(div(u_exact)) + u_exact if sobolev == HDiv else curl(curl(u_exact)) + u_exact
 
     u = Function(V)
     v = TestFunction(V)

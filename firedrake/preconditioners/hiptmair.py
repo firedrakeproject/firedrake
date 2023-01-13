@@ -134,12 +134,12 @@ class HiptmairPC(TwoLevelPC):
         if P.getType() == "python":
             ctx = P.getPythonContext()
             a = ctx.a
-            bcs = ctx.bcs
+            bcs = tuple(ctx.bcs)
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
             problem = ctx._problem
             a = problem.Jp or problem.J
-            bcs = problem.bcs
+            bcs = tuple(problem.bcs)
 
         mesh = V.mesh()
         element = V.ufl_element()
@@ -164,7 +164,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
+        coarse_space_bcs = tuple([bc.reconstruct(V=coarse_space, g=0) for bc in bcs])
 
         # Get only the zero-th order term of the form
         beta = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
@@ -179,18 +179,8 @@ class HiptmairPC(TwoLevelPC):
                 coarse_operator += beta(test, shift*trial, coefficients={})
 
         if G_callback is None:
-            from firedrake import Function
             from firedrake.preconditioners.hypre_ams import chop
-
-            interp_petscmat = chop(Interpolator(dminus(test), V).callable().handle)
-            # FIXME bcs should be imposed during the assembly
-            cmask = Function(coarse_space)
-            with cmask.dat.vec as R:
-                R.set(1)
-            for bc in coarse_space_bcs:
-                bc.zero(cmask)
-            with cmask.dat.vec as R:
-                interp_petscmat.diagonalScale(R=R)
+            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
 

@@ -82,9 +82,9 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE):
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
         try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access)
+            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
@@ -92,6 +92,7 @@ class Interpolator(object):
         self.freeze_expr = freeze_expr
         self.expr = expr
         self.V = V
+        self.bcs = bcs
 
     @PETSc.Log.EventDecorator()
     @annotate_interpolate
@@ -154,7 +155,7 @@ class Interpolator(object):
 
 
 @PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, subset, access):
+def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
@@ -215,7 +216,10 @@ def make_interpolator(expr, V, subset, access):
     if len(V) > 1:
         raise NotImplementedError(
             "UFL expressions for mixed functions are not yet supported.")
-    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access))
+    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+
+    if bcs and len(arguments) == 0:
+        loops.extend([partial(bc.apply, f) for bc in bcs])
 
     def callable(loops, f):
         for l in loops:
@@ -226,7 +230,7 @@ def make_interpolator(expr, V, subset, access):
 
 
 @utils.known_pyop2_safe
-def _interpolator(V, tensor, expr, subset, arguments, access):
+def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     try:
         expr = ufl.as_ufl(expr)
     except ufl.UFLException:
@@ -343,14 +347,20 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_node_map()
-        columns_map = arguments[0].function_space().cell_node_map()
+        Vcol = arguments[0].function_space()
+        columns_map = Vcol.cell_node_map()
         if target_mesh is not source_mesh:
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
             # function space nodes on the source mesh.
             columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
                                                 columns_map)
-        parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map)))
+        lgmaps = None
+        if bcs:
+            bc_rows = [bc for bc in bcs if bc.function_space() == V]
+            bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
+            lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
+        parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
     if oriented:
         co = target_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
