@@ -478,7 +478,7 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {self.ufl_domain(): {"cell": None}}
+        return {self.ufl_domain(): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -553,7 +553,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": None}} for domain in self.ufl_domain())
+        return tuple({domain: {"cell": [None]}} for domain in self.ufl_domain())
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""

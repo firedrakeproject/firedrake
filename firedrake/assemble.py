@@ -813,7 +813,7 @@ class _GlobalKernelBuilder:
     @cached_property
     def _needs_subset(self):
         subdomain_data = self._form.subdomain_data()[self._mesh]
-        if not all(sd is None for sd in subdomain_data.get(self._integral_type, None)):
+        if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
         if self._kinfo.subdomain_id == "everywhere":
