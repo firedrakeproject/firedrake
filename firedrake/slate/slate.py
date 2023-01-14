@@ -970,9 +970,10 @@ class TensorOp(TensorBase):
                     sd[it_type] = domain
 
                 else:
-                    assert sd[it_type] == domain, (
-                        "Domains must agree!"
-                    )
+                    if not all(d is None for d in sd[it_type]) or not all(d is None for d in domain):
+                        assert sd[it_type] == domain, (
+                            "Domains must agree!"
+                        )
 
         return {self.ufl_domain(): sd}
 

@@ -1075,11 +1075,12 @@ class ParloopBuilder:
         except KeyError:
             subdomain_data = [None]
 
-        if not all(sd is None for sd in subdomain_data):
+        subdomain_data = [sd for sd in subdomain_data if sd is not None]
+        if subdomain_data:
             try:
                 subdomain_data, = subdomain_data
             except ValueError:
-                raise NotImplementedError("Assembly with multipled subdomain data values id not supported")
+                raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
