@@ -1048,7 +1048,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
             kronmxv_inplace(1, {cargs}, {fargs}, {nscal}, {Jargs}, &{t_out}, &{t_in});
                 """)
             elif shifts == fshifts:
-                if len(prolong_code) and psize > 1:
+                if has_code and psize > 1:
                     raise ValueError("Single tensor product to many tensor products not implemented for vectors")
                 # Single tensor product to many
                 prolong_code.append(f"""
