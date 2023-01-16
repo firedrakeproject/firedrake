@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 
+
 @pytest.mark.parametrize(['quadrilateral'],
                          [(q,)
                           for q in [True, False]])
