@@ -7,114 +7,17 @@ import numpy
 __all__ = ['FacetSplitPC']
 
 
-def split_dofs(elem):
-    entity_dofs = elem.entity_dofs()
-    ndim = elem.cell.get_spatial_dimension()
-    edofs = [[], []]
-    for key in sorted(entity_dofs.keys()):
-        vals = entity_dofs[key]
-        edim = key
-        try:
-            edim = sum(edim)
-        except TypeError:
-            pass
-        for k in vals:
-            edofs[edim < ndim].extend(sorted(vals[k]))
-
-    return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
-
-
-def restricted_dofs(celem, felem):
-    """
-    find which DOFs from felem are on celem
-    :arg celem: the restricted :class:`finat.FiniteElement`
-    :arg felem: the unrestricted :class:`finat.FiniteElement`
-    :returns: :class:`numpy.array` with indices of felem that correspond to celem
-    """
-    csplit = split_dofs(celem)
-    fsplit = split_dofs(felem)
-    if len(csplit[0]) and len(csplit[1]):
-        csplit = [numpy.concatenate(csplit)]
-        fsplit = [numpy.concatenate(fsplit)]
-
-    k = len(csplit[0]) == 0
-    if len(csplit[k]) != len(fsplit[k]):
-        raise ValueError("Finite elements have different DOFs")
-    perm = numpy.empty_like(csplit[k])
-    perm[csplit[k]] = numpy.arange(len(perm), dtype=perm.dtype)
-    return fsplit[k][perm]
-
-
-def get_permutation_map(V, W):
-    from firedrake import Function
-    from pyop2 import op2, PermutedMap
-
-    bsize = V.value_size
-    perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
-    perm.fill(-1)
-    v = Function(V, dtype=PETSc.IntType, val=perm)
-    w = Function(W, dtype=PETSc.IntType)
-
-    offset = 0
-    for wdata, Wsub in zip(w.dat.data, W):
-        own = Wsub.dof_dset.set.size * bsize
-        wdata[:own] = numpy.arange(offset, offset+own, dtype=PETSc.IntType)
-        offset += own
-
-    idofs = W[0].finat_element.space_dimension() * bsize
-    fdofs = W[1].finat_element.space_dimension() * bsize
-
-    eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
-    pmap = PermutedMap(V.cell_node_map(), eperm)
-
-    kernel_code = f"""
-    void permutation(PetscInt *restrict x,
-                     const PetscInt *restrict xi,
-                     const PetscInt *restrict xf){{
-
-        for(PetscInt i=0; i<{idofs}; i++) x[i] = xi[i];
-        for(PetscInt i=0; i<{fdofs}; i++) x[i+{idofs}] = xf[i];
-        return;
-    }}
-    """
-    kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, v.cell_set,
-                 v.dat(op2.WRITE, pmap),
-                 w.dat[0](op2.READ, W[0].cell_node_map()),
-                 w.dat[1](op2.READ, W[1].cell_node_map()))
-
-    own = V.dof_dset.set.size * bsize
-    perm = V.dof_dset.lgmap.apply(perm, result=perm)
-    return perm[:own]
-
-
-def get_permutation_project(V, W):
-    from firedrake import Function, split
-    ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
-    start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
-    v = Function(V)
-    w = Function(W)
-    with w.dat.vec_wo as wvec:
-        wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
-    w_expr = sum(split(w))
-    try:
-        v.interpolate(w_expr)
-    except NotImplementedError:
-        rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
-        v.project(w_expr, solver_parameters={
-                  "mat_type": "matfree",
-                  "ksp_type": "cg",
-                  "ksp_atol": 0,
-                  "ksp_rtol": rtol,
-                  "pc_type": "jacobi", })
-    return numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
-
-
 class FacetSplitPC(PCBase):
     """ A preconditioner that splits a function into interior and facet DOFs.
 
-        Composability with fieldsplit can be done through the PETSc solver option:
-        -facet_pc_type fieldsplit
+    Internally this creates a PETSc PC object that can be controlled
+    by options using the extra options prefix ``facet_``.
+
+    This allows for statically-condensed preconditioners to be applied to
+    linear systems involving the matrix applied to the full set of DOFs. Code
+    generated for the matrix-free operator evaluation in the space with full
+    DOFs will run faster than the one with interior-facet decoposition, since
+    the full element has a simpler structure.
     """
 
     needs_python_pmat = False
@@ -297,3 +200,106 @@ class FacetSplitPC(PCBase):
         if hasattr(self, "perm"):
             if self.perm:
                 self.perm.destroy()
+
+
+def split_dofs(elem):
+    entity_dofs = elem.entity_dofs()
+    ndim = elem.cell.get_spatial_dimension()
+    edofs = [[], []]
+    for key in sorted(entity_dofs.keys()):
+        vals = entity_dofs[key]
+        edim = key
+        try:
+            edim = sum(edim)
+        except TypeError:
+            pass
+        for k in vals:
+            edofs[edim < ndim].extend(sorted(vals[k]))
+
+    return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
+
+
+def restricted_dofs(celem, felem):
+    """
+    find which DOFs from felem are on celem
+    :arg celem: the restricted :class:`finat.FiniteElement`
+    :arg felem: the unrestricted :class:`finat.FiniteElement`
+    :returns: :class:`numpy.array` with indices of felem that correspond to celem
+    """
+    csplit = split_dofs(celem)
+    fsplit = split_dofs(felem)
+    if len(csplit[0]) and len(csplit[1]):
+        csplit = [numpy.concatenate(csplit)]
+        fsplit = [numpy.concatenate(fsplit)]
+
+    k = len(csplit[0]) == 0
+    if len(csplit[k]) != len(fsplit[k]):
+        raise ValueError("Finite elements have different DOFs")
+    perm = numpy.empty_like(csplit[k])
+    perm[csplit[k]] = numpy.arange(len(perm), dtype=perm.dtype)
+    return fsplit[k][perm]
+
+
+def get_permutation_map(V, W):
+    from firedrake import Function
+    from pyop2 import op2, PermutedMap
+
+    bsize = V.value_size
+    idofs = W[0].finat_element.space_dimension() * bsize
+    fdofs = W[1].finat_element.space_dimension() * bsize
+
+    perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
+    perm.fill(-1)
+    v = Function(V, dtype=PETSc.IntType, val=perm)
+    w = Function(W, dtype=PETSc.IntType)
+
+    offset = 0
+    for wdata, Wsub in zip(w.dat.data, W):
+        own = Wsub.dof_dset.set.size * bsize
+        wdata[:own] = numpy.arange(offset, offset+own, dtype=PETSc.IntType)
+        offset += own
+
+    eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
+    pmap = PermutedMap(V.cell_node_map(), eperm)
+
+    kernel_code = f"""
+    void permutation(PetscInt *restrict x,
+                     const PetscInt *restrict xi,
+                     const PetscInt *restrict xf){{
+
+        for(PetscInt i=0; i<{idofs}; i++) x[i] = xi[i];
+        for(PetscInt i=0; i<{fdofs}; i++) x[i+{idofs}] = xf[i];
+        return;
+    }}
+    """
+    kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
+    op2.par_loop(kernel, v.cell_set,
+                 v.dat(op2.WRITE, pmap),
+                 w.dat[0](op2.READ, W[0].cell_node_map()),
+                 w.dat[1](op2.READ, W[1].cell_node_map()))
+
+    own = V.dof_dset.set.size * bsize
+    perm = V.dof_dset.lgmap.apply(perm, result=perm)
+    return perm[:own]
+
+
+def get_permutation_project(V, W):
+    from firedrake import Function, split
+    ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
+    start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
+    v = Function(V)
+    w = Function(W)
+    with w.dat.vec_wo as wvec:
+        wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
+    w_expr = sum(split(w))
+    try:
+        v.interpolate(w_expr)
+    except NotImplementedError:
+        rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
+        v.project(w_expr, solver_parameters={
+                  "mat_type": "matfree",
+                  "ksp_type": "cg",
+                  "ksp_atol": 0,
+                  "ksp_rtol": rtol,
+                  "pc_type": "jacobi", })
+    return numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
