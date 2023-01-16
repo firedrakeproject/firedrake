@@ -10,7 +10,6 @@ def test_facet_split(quadrilateral, ptype):
     if ptype == "lu":
         parameters = {
             "mat_type": "matfree",
-            "snes_type": "ksponly",
             "ksp_type": "preonly",
             "pc_type": "python",
             "pc_python_type": "firedrake.FacetSplitPC",
@@ -27,7 +26,6 @@ def test_facet_split(quadrilateral, ptype):
     elif ptype == "jacobi":
         parameters = {
             "mat_type": "matfree",
-            "snes_type": "ksponly",
             "ksp_type": "preonly",
             "pc_type": "python",
             "pc_python_type": "firedrake.FacetSplitPC",

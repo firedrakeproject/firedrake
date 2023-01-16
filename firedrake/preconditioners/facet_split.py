@@ -37,39 +37,28 @@ class FacetSplitPC(PCBase):
         return self._permutation_cache[key]
 
     def initialize(self, pc):
-
         from ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
-        from firedrake.solving_utils import _SNESContext
         from functools import partial
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        ctx = dmhooks.get_appctx(pc.getDM())
-        if ctx is None:
-            raise ValueError("No context found.")
-        if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
-
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")
 
-        if P.getType() == "python" and False:
-            ictx = P.getPythonContext()
-            a = ictx.a
-            bcs = tuple(ictx.row_bcs)
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = tuple(ctx.row_bcs)
         else:
-            problem = ctx._problem
-            a = problem.Jp or problem.J
-            bcs = tuple(problem.bcs)
+            ctx = dmhooks.get_appctx(pc.getDM())
+            a = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
 
         V = a.arguments()[-1].function_space()
         assert len(V) == 1, "Interior-facet decomposition of mixed elements is not supported"
@@ -119,7 +108,6 @@ class FacetSplitPC(PCBase):
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
-
         elif self.perm:
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
             mixed_opmat = self._permute_op()
@@ -215,7 +203,6 @@ def split_dofs(elem):
             pass
         for k in vals:
             edofs[edim < ndim].extend(sorted(vals[k]))
-
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
@@ -266,7 +253,6 @@ def get_permutation_map(V, W):
     void permutation(PetscInt *restrict x,
                      const PetscInt *restrict xi,
                      const PetscInt *restrict xf){{
-
         for(PetscInt i=0; i<{idofs}; i++) x[i] = xi[i];
         for(PetscInt i=0; i<{fdofs}; i++) x[i+{idofs}] = xf[i];
         return;
