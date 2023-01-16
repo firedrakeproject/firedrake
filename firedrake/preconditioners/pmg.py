@@ -1008,6 +1008,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     Jmats = []
     fshapes = []
     cshapes = []
+    has_code = False
     for felem, celem, shift in zip(felems, celems, shifts):
         if len(felem) != len(celem):
             raise ValueError("Fine and coarse elements do not have the same number of factors")
@@ -1058,7 +1059,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
                 """)
             else:
                 # Many tensor products to single tensor product
-                if len(prolong_code):
+                if has_code:
                     raise ValueError("Many tensor products to single tensor product not implemented")
                 fskip = 0
                 prolong_code.append(f"""
@@ -1067,6 +1068,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
                 restrict_code.append(f"""
             kronmxv(1, {cargs}, {fargs}, {nscal}, {Jargs}, {t_out}+{fskip}, {t_in}+{cskip}, {t_out}+{fskip}, {t_in}+{cskip});
                 """)
+            has_code = True
         fskip += nscal*numpy.prod(fshape)
         cskip += nscal*numpy.prod(cshape)
 
