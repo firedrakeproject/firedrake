@@ -1,12 +1,12 @@
 Creating Firedrake-compatible meshes in Cubit
-============================================
+=============================================
 
 The purpose of this demo is to summarize the use of Coreform Cubit 
 --- the commercial distribution of the CUBIT software that is developed by 
 Sandia National Laboratories (see `Sandia's CUBIT webpage <cubit.sandia.gov>`_ for more information) 
 --- for creating a Firedrake-compatible mesh using the Exodus format. 
 For more details about Coreform Cubit, please refer to the 
-`Coreform Cubit documentation documentation <http://gmsh.info/#Documentation>`_.
+`Coreform Cubit documentation documentation <https://coreform.com/products/coreform-cubit/documentation/>`_.
 For more details about the open-source Exodus mesh format,
 please refer to the documentation on the 
 Sandia Engineering Analysis Code Access System (SEACAS) project's
@@ -22,7 +22,7 @@ the Exodus format.  This excercise is left to the reader.
 As example, we will construct and mesh a rectangle with a disc
 in the middle as shown in the below image
 
-.. image:: immersed_geom.png
+.. image:: immersed_geom_cubit.png
    :width: 400px
    :align: center
 
@@ -122,20 +122,20 @@ For simplicity, we have gathered these commands into the two journal files
 `immersed_domain_tri.jou <immersed_domain_tri.jou>`__ and
 `immersed_domain_quad.jou <immersed_domain_quad.jou>`__. 
 
-To generate a mesh using eiter file,
+To generate a mesh using either file,
 you can type either of the following commands in the terminal
 
 .. code-block:: bash
 
-  coreform_cubit -batch immersed_domain_tri.jou
-  coreform_cubit -batch immersed_domain_quad.jou
+  coreform_cubit -nog -batch immersed_domain_tri.jou
+  coreform_cubit -nog -batch immersed_domain_quad.jou
 
 or if using a Windows version of Coreform Cubit:
 
 .. code-block:: bash
 
-  coreform_cubit.com -batch immersed_domain_tri.jou
-  coreform_cubit.com -batch immersed_domain_quad.jou
+  coreform_cubit.com -nog -batch immersed_domain_tri.jou
+  coreform_cubit.com -nog -batch immersed_domain_quad.jou
 
 
 Note that the above commands are specific to Coreform Cubit.  If using the Sandia
@@ -143,8 +143,8 @@ distribution of CUBIT one would instead use:
 
 .. code-block:: bash
 
-  cubit -batch immersed_domain_tri.jou
-  cubit -batch immersed_domain_quad.jou
+  cubit -nog -batch immersed_domain_tri.jou
+  cubit -nog -batch immersed_domain_quad.jou
 
 
 
