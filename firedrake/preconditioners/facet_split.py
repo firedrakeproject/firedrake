@@ -137,7 +137,7 @@ class FacetSplitPC(PCBase):
 
     def initialize(self, pc):
 
-        from ufl import InteriorElement, FacetElement, MixedElement, TensorElement, VectorElement
+        from ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.solving_utils import _SNESContext
@@ -161,20 +161,32 @@ class FacetSplitPC(PCBase):
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")
 
-        problem = ctx._problem
-        a = problem.Jp or problem.J
+        if P.getType() == "python":
+            ictx = P.getPythonContext()
+            a = ictx.a
+            bcs = tuple(ictx.row_bcs)
+        else:
+            problem = ctx._problem
+            a = problem.Jp or problem.J
+            bcs = tuple(problem.bcs)
+
         V = a.arguments()[-1].function_space()
-        assert len(V) == 1
+        assert len(V) == 1, "Interior-facet decomposition of mixed elements is not supported"
 
-        # W = V_interior * V_facet
-        scalar_element = V.ufl_element()
-        if isinstance(scalar_element, (TensorElement, VectorElement)):
-            scalar_element = scalar_element._sub_element
-        tensorize = lambda e, shape: TensorElement(e, shape=shape) if shape else e
-        elements = [tensorize(restriction(scalar_element), V.shape) for restriction in (InteriorElement, FacetElement)]
+        # W = V[interior] * V[facet]
+        def restrict(ele, restriction_domain):
+            if isinstance(ele, VectorElement):
+                return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_elements())
+            elif isinstance(ele, TensorElement):
+                return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+            else:
+                return RestrictedElement(ele, restriction_domain)
 
-        W = FunctionSpace(V.mesh(), MixedElement(elements))
+        W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
+
+        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in bcs)
 
         self.perm = None
         self.iperm = None
@@ -182,17 +194,6 @@ class FacetSplitPC(PCBase):
         if indices is not None:
             self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
             self.iperm = self.perm.invertPermutation()
-
-        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
-        mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in problem.bcs)
-
-        def _permute_nullspace(nsp):
-            if nsp is None or self.iperm is None:
-                return nsp
-            vecs = [vec.duplicate() for vec in nsp.getVecs()]
-            for vec in vecs:
-                vec.permute(self.iperm)
-            return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
 
         if mat_type != "submatrix":
             self.mixed_op = allocate_matrix(mixed_operator,
@@ -205,6 +206,14 @@ class FacetSplitPC(PCBase):
                                                        bcs=mixed_bcs).assemble
             self._assemble_mixed_op()
             mixed_opmat = self.mixed_op.petscmat
+
+            def _permute_nullspace(nsp):
+                if nsp is None or self.iperm is None:
+                    return nsp
+                vecs = [vec.duplicate() for vec in nsp.getVecs()]
+                for vec in vecs:
+                    vec.permute(self.iperm)
+                return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
 
             if False:
                 # FIXME
