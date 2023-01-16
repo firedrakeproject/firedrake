@@ -21,18 +21,21 @@ def test_facet_split(quadrilateral):
             "fieldsplit_1_pc_type": "lu",
         },
     }
+    r = 2
     variant = "fdm" if quadrilateral else None
-    mesh = UnitSquareMesh(5, 5, quadrilateral=quadrilateral)
+    mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
+
     V = FunctionSpace(mesh, FiniteElement("Lagrange", degree=3, variant=variant))
     u = TrialFunction(V)
     v = TestFunction(V)
     uh = Function(V)
 
-    a = inner(grad(u), grad(v))*dx
-    L = inner(v, Constant(0))*dx
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(0), v) * dx
     x = SpatialCoordinate(mesh)
     u_exact = 42 * x[1]
-    bcs = [DirichletBC(V, u_exact, "on_boundary")]
+    bcs = [DirichletBC(V, Constant(0), 3),
+           DirichletBC(V, Constant(42), 4)]
 
     solve(a == L, uh, bcs=bcs, solver_parameters=parameters)
     assert sqrt(assemble(inner(uh - u_exact, uh - u_exact) * dx)) < 1E-10

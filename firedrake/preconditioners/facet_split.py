@@ -10,20 +10,18 @@ __all__ = ['FacetSplitPC']
 def split_dofs(elem):
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
-    edofs = [[] for k in range(ndim+1)]
-    for key in entity_dofs:
+    edofs = [[], []]
+    for key in sorted(entity_dofs.keys()):
         vals = entity_dofs[key]
         edim = key
         try:
             edim = sum(edim)
         except TypeError:
             pass
-        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
-        for r in range(len(split)-1):
-            v = sum([vals[k] for k in range(*split[r:r+2])], [])
-            edofs[edim].extend(sorted(v))
+        for k in vals:
+            edofs[edim < ndim].extend(sorted(vals[k]))
 
-    return numpy.array(edofs[-1], dtype=PETSc.IntType), numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
+    return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
 def restricted_dofs(celem, felem):
@@ -161,7 +159,7 @@ class FacetSplitPC(PCBase):
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")
 
-        if P.getType() == "python":
+        if P.getType() == "python" and False:
             ictx = P.getPythonContext()
             a = ictx.a
             bcs = tuple(ictx.row_bcs)
@@ -208,18 +206,16 @@ class FacetSplitPC(PCBase):
             mixed_opmat = self.mixed_op.petscmat
 
             def _permute_nullspace(nsp):
-                if nsp is None or self.iperm is None:
+                if not (nsp.handle and self.iperm):
                     return nsp
                 vecs = [vec.duplicate() for vec in nsp.getVecs()]
                 for vec in vecs:
                     vec.permute(self.iperm)
-                return PETSc.NullSpace().create(constant=nsp.constant, vectors=vecs, comm=nsp.comm)
+                return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vecs, comm=nsp.getComm())
 
-            if False:
-                # FIXME
-                mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
-                mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
-                mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
+            mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
+            mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
+            mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
 
         elif self.perm:
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
