@@ -128,12 +128,18 @@ class HiptmairPC(TwoLevelPC):
 
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
-        V = dmhooks.get_function_space(pc.getDM())
-        ctx = dmhooks.get_appctx(pc.getDM())
-        problem = ctx._problem
-        a = problem.Jp or problem.J
-        bcs = problem.bcs
 
+        _, P = pc.getOperators()
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = tuple(ctx.bcs)
+        else:
+            ctx = dmhooks.get_appctx(pc.getDM())
+            a = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
+
+        V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
         degree = element.degree()
@@ -157,7 +163,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
+        coarse_space_bcs = tuple([bc.reconstruct(V=coarse_space, g=0) for bc in bcs])
 
         # Get only the zero-th order term of the form
         beta = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
@@ -173,7 +179,7 @@ class HiptmairPC(TwoLevelPC):
 
         if G_callback is None:
             from firedrake.preconditioners.hypre_ams import chop
-            interp_petscmat = chop(Interpolator(dminus(test), V).callable().handle)
+            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
 
