@@ -64,7 +64,7 @@ class FDMPC(PCBase):
         from firedrake.preconditioners.patch import bcdofs
         Citations().register("Brubeck2021")
 
-        Amat, _ = pc.getOperators()
+        Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
@@ -72,43 +72,30 @@ class FDMPC(PCBase):
         use_amat = options.getBool("pc_use_amat", True)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
         diagonal_scale = options.getBool("diagonal_scale", False)
-        use_ainv = options.getString("pc_type", "") == "mat"
-        self.use_ainv = use_ainv
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
         # Get original Jacobian form and bcs
-        octx = dmhooks.get_appctx(pc.getDM())
-        mat_type = octx.mat_type
-        oproblem = octx._problem
-        bcs = tuple(oproblem.bcs)
-        J = oproblem.Jp or oproblem.J
+        if Pmat.getType() == "python":
+            ctx = Pmat.getPythonContext()
+            J = ctx.a
+            bcs = tuple(ctx.bcs)
+            mat_type = "matfree"
+        else:
+            ctx = dmhooks.get_appctx(pc.getDM())
+            J = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
+            mat_type = ctx.mat_type
+
         if isinstance(J, firedrake.slate.Add):
             J = J.children[0].form
         assert type(J) == ufl.Form
 
         # Transform the problem into the space with FDM shape functions
-        V = J.arguments()[0].function_space()
+        V = J.arguments()[-1].function_space()
         element = V.ufl_element()
         e_fdm = element.reconstruct(variant=self._variant)
-
-        def interp_nullspace(I, nsp):
-            if not nsp:
-                return nsp
-            vectors = []
-            for x in nsp.getVecs():
-                y = I.createVecLeft()
-                I.mult(x, y)
-                vectors.append(y)
-            if nsp.hasConstant():
-                y = I.createVecLeft()
-                x = I.createVecRight()
-                x.set(1.0E0)
-                I.mult(x, y)
-                vectors.append(y)
-                x.destroy()
-            return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
 
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
@@ -117,22 +104,41 @@ class FDMPC(PCBase):
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
             bcs_fdm = tuple(bc.reconstruct(V=V_fdm, g=0) for bc in bcs)
+
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
-            omat, _ = pc.getOperators()
+            self.work_vec_x = Amat.createVecLeft()
+            self.work_vec_y = Amat.createVecRight()
             if use_amat:
+                omat = Amat
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=mat_type, options_prefix=options_prefix)
                 self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
                                            form_compiler_parameters=fcp, mat_type=mat_type)
                 self._assemble_A()
                 Amat = self.A.petscmat
+
+                def interp_nullspace(I, nsp):
+                    if not nsp.handle:
+                        return nsp
+                    vectors = []
+                    for x in nsp.getVecs():
+                        y = I.createVecLeft()
+                        I.mult(x, y)
+                        vectors.append(y)
+                    if nsp.hasConstant():
+                        y = I.createVecLeft()
+                        x = I.createVecRight()
+                        x.set(1.0E0)
+                        I.mult(x, y)
+                        vectors.append(y)
+                        x.destroy()
+                    return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
+
                 inject = prolongation_matrix_matfree(V_fdm, V, [], [])
                 Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
                 Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
                 Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
 
-            self.work_vec_x = omat.createVecLeft()
-            self.work_vec_y = omat.createVecRight()
             if len(bcs) > 0:
                 self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
             else:
@@ -878,7 +884,7 @@ def restricted_dofs(celem, felem):
 def split_dofs(elem):
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
-    edofs = [[] for k in range(ndim+1)]
+    edofs = [[], []]
     for key in entity_dofs:
         vals = entity_dofs[key]
         edim = key
@@ -886,12 +892,9 @@ def split_dofs(elem):
             edim = sum(edim)
         except TypeError:
             pass
-        split = numpy.arange(0, len(vals)+1, 2**(ndim-edim))
-        for r in range(len(split)-1):
-            v = sum([vals[k] for k in range(*split[r:r+2])], [])
-            edofs[edim].extend(sorted(v))
-
-    return numpy.array(edofs[-1], dtype=PETSc.IntType), numpy.array(sum(reversed(edofs[:-1]), []), dtype=PETSc.IntType)
+        for k in vals.keys():
+            edofs[edim < ndim].extend(sorted(vals[k]))
+    return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
 def sort_interior_dofs(idofs, A):
