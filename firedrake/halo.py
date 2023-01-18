@@ -1,5 +1,4 @@
-from pyop2 import op2
-from pyop2 import utils
+from pyop2 import mpi, op2, utils
 from mpi4py import MPI
 import numpy
 from functools import partial
@@ -91,12 +90,20 @@ class Halo(op2.Halo):
     The halo is implemented using a PETSc SF (star forest) object and
     is usable as a PyOP2 :class:`pyop2.Halo`."""
 
-    def __init__(self, dm, section):
+    def __init__(self, dm, section, comm):
         super(Halo, self).__init__()
+        self.comm = comm
+        self._comm = mpi.internal_comm(comm)
         # Use a DM to create the halo SFs
-        self.dm = PETSc.DMShell().create(dm.comm)
+        if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
+        self.dm = PETSc.DMShell().create(self._comm)
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @utils.cached_property
     def sf(self):
@@ -118,7 +125,7 @@ class Halo(op2.Halo):
 
     @utils.cached_property
     def comm(self):
-        return self.dm.comm.tompi4py()
+        return self.comm
 
     @utils.cached_property
     def local_to_global_numbering(self):
