@@ -13,7 +13,7 @@ from mpi4py import MPI
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
                         pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)

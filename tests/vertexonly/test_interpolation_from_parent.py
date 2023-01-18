@@ -19,8 +19,7 @@ import subprocess
                                      marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
                                                              reason="immersed parent meshes not supported")),
                         pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh",
-                                     marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))],
+                        "shiftedmesh"],
                 ids=lambda x: f"{x}-mesh")
 def parentmesh(request):
     if request.param == "interval":
