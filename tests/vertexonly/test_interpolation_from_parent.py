@@ -18,7 +18,7 @@ import subprocess
                                      # CalledProcessError is so the parallel tests correctly xfail
                                      marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
                                                              reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle"),
+                        "periodicrectangle",
                         "shiftedmesh"],
                 ids=lambda x: f"{x}-mesh")
 def parentmesh(request):

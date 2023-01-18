@@ -41,7 +41,7 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle"),
+                        "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":

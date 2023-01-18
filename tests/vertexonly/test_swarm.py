@@ -41,7 +41,7 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
-                        pytest.param("periodicrectangle"),
+                        "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
