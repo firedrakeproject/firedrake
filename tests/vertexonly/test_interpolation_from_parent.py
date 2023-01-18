@@ -39,7 +39,7 @@ def parentmesh(request):
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
-        m = UnitSquareMesh(1, 1)
+        m = UnitSquareMesh(10, 10)
         m.coordinates.dat.data[:] -= 0.5
         return m
 
