@@ -64,8 +64,8 @@ def run_riesz_map(V, mat_type):
     return norm(u_exact - u, str(sobolev))
 
 
-@pytest.mark.parametrize("family", ["N1curl"])
-@pytest.mark.parametrize("cell", ["tetrahedron"])
+@pytest.mark.parametrize(["family", "cell"],
+                         [("N1curl", "tetrahedron")])
 def test_hiptmair_hcurl(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)
@@ -73,8 +73,8 @@ def test_hiptmair_hcurl(family, cell):
     assert run_riesz_map(V, "matfree") < 4E-4
 
 
-@pytest.mark.parametrize("family", ["RT"])
-@pytest.mark.parametrize("cell", ["tetrahedron"])
+@pytest.mark.parametrize(["family", "cell"],
+                         [("RT", "tetrahedron")])
 def test_hiptmair_hdiv(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)
