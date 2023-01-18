@@ -153,7 +153,7 @@ def test_update_bc_constant(a, u, V, f):
     if V.rank == 1:
         # Don't bother with the VFS case
         return
-    c = Constant(1)
+    c = Constant(1, domain=V.mesh())
     bc = DirichletBC(V, c, 1)
 
     solve(a == 0, u, bcs=[bc])
@@ -375,12 +375,12 @@ def test_bcs_string_bc_list():
     V = FunctionSpace(mesh, "CG", 1)
 
     u0 = Function(V)
-    DirichletBC(V, Constant(1), ["on_boundary", "top", "bottom"]).apply(u0)
+    DirichletBC(V, Constant(1, domain=V.mesh()), ["on_boundary", "top", "bottom"]).apply(u0)
 
     u1 = Function(V)
-    DirichletBC(V, Constant(1), "on_boundary").apply(u1)
-    DirichletBC(V, Constant(1), "top").apply(u1)
-    DirichletBC(V, Constant(1), "bottom").apply(u1)
+    DirichletBC(V, Constant(1, domain=V.mesh()), "on_boundary").apply(u1)
+    DirichletBC(V, Constant(1, domain=V.mesh()), "top").apply(u1)
+    DirichletBC(V, Constant(1, domain=V.mesh()), "bottom").apply(u1)
 
     assert np.allclose(u0.dat.data, u1.dat.data)
 
