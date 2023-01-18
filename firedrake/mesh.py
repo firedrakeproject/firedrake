@@ -2319,16 +2319,13 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     tdim = mesh.topological_dimension()
     _, pdim = vertexcoords.shape
 
-    if isinstance(mesh.topology, ExtrudedMeshTopology):
-        raise NotImplementedError("Extruded meshes are not supported")
-
     if gdim != tdim:
         raise NotImplementedError("Immersed manifold meshes are not supported")
 
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
     # sufficient.
-    if mesh.coordinates.function_space().ufl_element().degree() > 1:
+    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree())) > 1:
         raise NotImplementedError("Only straight edged meshes are supported")
 
     # Currently we take responsibility for locating the mesh cells in which the
@@ -2501,12 +2498,22 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     # Create a DMSWARM
     swarm = PETSc.DMSwarm().create(comm=parent_mesh._comm)
 
+    plexdim = plex.getDimension()
+    if plexdim != tdim:
+        # This is a Firedrake extruded mesh, so we need to use the
+        # mesh geometric dimension when we create the swarm. In this
+        # case DMSwarmMigate() will not work.
+        swarmdim = gdim
+    else:
+        swarmdim = plexdim
+
     # Set swarm DM dimension to match DMPlex dimension
     # NB: Unlike a DMPlex, this does not correspond to the topological
     #     dimension of a mesh (which would be 0). In all PETSc examples
     #     the dimension of the DMSwarm is set to match that of the
-    #     DMPlex used with swarm.setCellDM
-    swarm.setDimension(plex.getDimension())
+    #     DMPlex used with swarm.setCellDM. As noted above, for an
+    #     extruded mesh this will stop DMSwarmMigrate() from working.
+    swarm.setDimension(swarmdim)
 
     # Set coordinates dimension
     swarm.setCoordinateDim(coordsdim)
