@@ -23,7 +23,7 @@ except IOError:
             _config = json.load(f)
 
     except IOError:
-        _config = None
+        _config = {}
 
 
 def petsc_packages():
