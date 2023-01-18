@@ -8,7 +8,7 @@ from mpi4py import MPI
 
 @pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),

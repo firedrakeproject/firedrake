@@ -11,7 +11,7 @@ import subprocess
 @pytest.fixture(params=["interval",
                         "square",
                         "squarequads",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere",

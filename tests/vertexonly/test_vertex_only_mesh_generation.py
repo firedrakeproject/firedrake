@@ -15,8 +15,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    if isinstance(m.topology, mesh.ExtrudedMeshTopology):
-        raise NotImplementedError("Extruded meshes are not supported")
     m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
@@ -39,7 +37,7 @@ def cell_midpoints(m):
 
 @pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
