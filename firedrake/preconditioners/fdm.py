@@ -64,6 +64,7 @@ class FDMPC(PCBase):
         from firedrake.preconditioners.patch import bcdofs
         Citations().register("Brubeck2021")
 
+        self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -264,7 +265,6 @@ class FDMPC(PCBase):
         for Vrow, Vcol in product(Vsort, Vsort):
             if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
-
             else:
                 on_diag = Vrow == Vcol
                 triu = on_diag and symmetric
@@ -272,7 +272,7 @@ class FDMPC(PCBase):
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
                 # bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
 
-                preallocator = PETSc.Mat().create(comm=V.comm)
+                preallocator = PETSc.Mat().create(comm=self.comm)
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
                 preallocator.setSizes(sizes)
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
@@ -284,7 +284,7 @@ class FDMPC(PCBase):
                 if on_diag:
                     numpy.maximum(d_nnz, 1, out=d_nnz)
 
-                P = PETSc.Mat().create(comm=V.comm)
+                P = PETSc.Mat().create(comm=self.comm)
                 P.setType(ptype)
                 P.setSizes(sizes)
                 # P.setBlockSizes(*bsizes)

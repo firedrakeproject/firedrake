@@ -101,7 +101,7 @@ def get_node_set(mesh, key):
     nodes_per_entity, real_tensorproduct = key
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
-    halo = halo_mod.Halo(mesh.topology_dm, global_numbering)
+    halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 

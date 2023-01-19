@@ -12,7 +12,6 @@ class GTMGPC(PCBase):
     _prefix = "gt_"
 
     def initialize(self, pc):
-
         from firedrake import TestFunction, parameters
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.interpolation import Interpolator
@@ -105,11 +104,11 @@ class GTMGPC(PCBase):
         # Set nullspace if provided
         if get_coarse_nullspace:
             nsp = get_coarse_nullspace()
-            coarse_opmat.setNullSpace(nsp.nullspace(comm=pc.comm))
+            coarse_opmat.setNullSpace(nsp.nullspace())
 
         if get_coarse_transpose_nullspace:
             tnsp = get_coarse_transpose_nullspace()
-            coarse_opmat.setTransposeNullSpace(tnsp.nullspace(comm=pc.comm))
+            coarse_opmat.setTransposeNullSpace(tnsp.nullspace())
 
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:

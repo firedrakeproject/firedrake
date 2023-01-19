@@ -263,7 +263,7 @@ class TransferManager(object):
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*idet*self.dx(V),
                                    mat_type=self.mat_type)
-            ksp = PETSc.KSP().create(comm=V.comm)
+            ksp = PETSc.KSP().create(comm=V._comm)
             ksp.setOperators(M.petscmat)
             try:
                 short_name = V.ufl_element()._short_name

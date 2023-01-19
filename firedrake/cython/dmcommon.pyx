@@ -1178,7 +1178,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         else:
             nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
-    section = PETSc.Section().create(comm=mesh.comm)
+    section = PETSc.Section().create(comm=mesh._comm)
 
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
