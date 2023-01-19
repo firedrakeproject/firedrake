@@ -20,7 +20,7 @@ def parentmesh(request):
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
