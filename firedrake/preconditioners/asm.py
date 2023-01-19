@@ -453,6 +453,6 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 zlice = slice(W.value_size * begin, W.value_size * end)
                                 indices.extend(iset[zlice])
 
-                    iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
