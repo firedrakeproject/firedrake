@@ -82,10 +82,10 @@ problem.  We will need some trial and test functions for the spaces::
     #
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
- 
+
 along with a function to hold the forcing term, living in the
 discontinuous space. ::
-    
+
     #
         f = Function(V)
 
@@ -125,7 +125,7 @@ a :class:`~.LinearSolver` object from this function, so we preassemble
 the operators to build it.  It is here that we must specify whether we
 want a monolithic matrix or not, by setting the matrix type
 parameter to :func:`~.assemble`.  ::
-  
+
     #
         if block_matrix:
             mat_type = 'nest'
@@ -170,12 +170,12 @@ GMRES with a restart length of 100, ::
         "ksp_gmres_restart": 100,
 
 solve to a relative tolerance of 1e-8, ::
-     
-    #    
+
+    #
         "ksp_rtol": 1e-8,
 
 and precondition with ILU(0). ::
- 
+
     #
         "pc_type": "ilu",
         }
@@ -278,7 +278,7 @@ the preconditioned operator will have at most three distinct
 eigenvalues :cite:`Murphy:2000` and hence GMRES should converge in at
 most three iterations.  To try this, we start out by exactly
 inverting :math:`A` and :math:`S` to check the convergence. ::
-       
+
         "fieldsplit_0_ksp_type": "cg",
         "fieldsplit_0_pc_type": "ilu",
         "fieldsplit_0_ksp_rtol": 1e-12,
@@ -467,8 +467,8 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
         def form(self, pc, u, v):
             W = u.function_space()
             n = FacetNormal(W.mesh())
-            alpha = Constant(4.0)
-            gamma = Constant(8.0)
+            alpha = Constant(4.0, domain=W.mesh())
+            gamma = Constant(8.0, domain=W.mesh())
             h = CellSize(W.mesh())
             h_avg = (h('+') + h('-'))/2
             a_dg = -(inner(grad(u), grad(v))*dx \
@@ -480,7 +480,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
                 + (gamma/h)*inner(u, v)*ds)
             bcs = None
             return (a_dg, bcs)
-  
+
     parameters = {
         "ksp_type": "gmres",
         "ksp_rtol": 1e-8,
@@ -494,7 +494,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
         "fieldsplit_1_pc_python_type": __name__+ ".DGLaplacian",
         "fieldsplit_1_aux_pc_type": "hypre"
     }
-    
+
     print("DG approximation for S_p")
     for n in range(8):
         solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
@@ -538,7 +538,7 @@ providing a function that constructs this operator to our
     def riesz(W):
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
-    
+
         return (dot(sigma, tau) + div(sigma)*div(tau) + u*v)*dx
 
 Now we set up the solver parameters.  We will still use a

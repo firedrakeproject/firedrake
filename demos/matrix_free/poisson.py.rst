@@ -24,7 +24,7 @@ As usual we start by importing firedrake and setting up the problem.::
   F.interpolate(sin(x[0]*pi)*sin(2*x[1]*pi))
   L = F*v*dx
 
-  bcs = [DirichletBC(V, Constant(2.0), (1,))]
+  bcs = [DirichletBC(V, Constant(2.0, domain=mesh), (1,))]
 
   uu = Function(V)
 

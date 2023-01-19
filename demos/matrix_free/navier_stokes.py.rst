@@ -18,7 +18,7 @@ example is that of a lid-driven cavity. ::
   u, p = split(up)
   v, q = TestFunctions(Z)
 
-  Re = Constant(100.0)
+  Re = Constant(100.0, domain=M)
 
   F = (
       1.0 / Re * inner(grad(u), grad(v)) * dx +
@@ -27,8 +27,8 @@ example is that of a lid-driven cavity. ::
       div(u) * q * dx
   )
 
-  bcs = [DirichletBC(Z.sub(0), Constant((1, 0)), (4,)),
-         DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3))]
+  bcs = [DirichletBC(Z.sub(0), Constant((1, 0), domain=M), (4,)),
+         DirichletBC(Z.sub(0), Constant((0, 0), domain=M), (1, 2, 3))]
 
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True)])

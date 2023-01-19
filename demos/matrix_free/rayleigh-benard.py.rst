@@ -31,12 +31,12 @@ dissipation and heat conduction and the
 Prandtl number (Pr), which measures the ratio of viscosity to heat
 conduction. ::
 
-  Ra = Constant(200.0)
-  Pr = Constant(6.8)
+  Ra = Constant(200.0, domain=M)
+  Pr = Constant(6.8, domain=M)
 
 Along with gravity, which points down. ::
 
-  g = Constant((0, -1))
+  g = Constant((0, -1), domain=M)
 
   F = (
       inner(grad(u), grad(v))*dx
@@ -59,9 +59,9 @@ simple change of bits of the boundary associated with the second and
 third boundary conditions below::
 
   bcs = [
-      DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3, 4)),
-      DirichletBC(Z.sub(2), Constant(1.0), (1,)),
-      DirichletBC(Z.sub(2), Constant(0.0), (2,))
+      DirichletBC(Z.sub(0), Constant((0, 0), domain=M), (1, 2, 3, 4)),
+      DirichletBC(Z.sub(2), Constant(1.0, domain=M), (1,)),
+      DirichletBC(Z.sub(2), Constant(0.0, domain=M), (2,))
   ]
 
 Like Navier-Stokes, the pressure is only defined up to a constant.::

@@ -139,10 +139,10 @@ We define some :class:`~.Function`\s to store the fields::
 
 along with the physical parameters of the model. ::
 
-  F = Constant(1.0)  # Rotational Froude number
-  beta = Constant(0.1)  # beta plane coefficient
+  F = Constant(1.0, domain=mesh)  # Rotational Froude number
+  beta = Constant(0.1, domain=mesh)  # beta plane coefficient
   Dt = 0.1  # Time step
-  dt = Constant(Dt)
+  dt = Constant(Dt, domain=mesh)
 
 Next, we define the variational problems.  First the elliptic problem
 for the stream function. ::

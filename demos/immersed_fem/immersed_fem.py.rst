@@ -148,7 +148,7 @@ using linear Lagrangian finite elements. ::
    # Since the dS integral is an interior one, we must restrict the
    # test function: since the space is continuous, we arbitrarily pick
    # the '+' side.
-   L = Constant(5.) * v * dx + Constant(3.)*v('+')*dS(13)
+   L = Constant(5.0, domain=mesh) * v * dx + Constant(3.0, domain=mesh)*v('+')*dS(13)
 
    # set homogeneous Dirichlet boundary conditions on the rectangle boundaries
    # the tag  11 referes to the horizontal edges, the tag 12 refers to the vertical edges

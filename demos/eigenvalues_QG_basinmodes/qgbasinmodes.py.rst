@@ -139,8 +139,8 @@ The two non-dimensional parameters are the :math:`\beta` parameter, set
 by the sphericity of the Earth, and the Froude number, the relative
 importance of rotation to stratification. ::
 
-   beta = Constant('1.0')
-   F    = Constant('1.0')
+   beta = Constant('1.0', domain=mesh)
+   F    = Constant('1.0', domain=mesh)
 
 Additionally, we can create some Functions to store the eigenmodes. ::
 

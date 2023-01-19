@@ -169,8 +169,8 @@ here we just use a ``Constant`` value. ::
 
   T = 2*math.pi
   dt = T/600.0
-  dtc = Constant(dt)
-  q_in = Constant(1.0)
+  dtc = Constant(dt, domain=mesh)
+  q_in = Constant(1.0, domain=mesh)
 
 Now we declare our variational forms.  Solving for :math:`\Delta q` at each
 stage, the explicit timestepping scheme means that the left hand side is just a

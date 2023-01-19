@@ -87,7 +87,7 @@ Ricker wavelets are often used to excite the domain in seismology. They have one
 Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant::
 
     freq = 6
-    c = Constant(1.5)
+    c = Constant(1.5, domain=mesh)
 
 The following two functions are used to inject the Ricker wavelet source into the domain. We
 create a time-varying function to model the time evolution of the Ricker wavelet::
@@ -102,8 +102,8 @@ create a time-varying function to model the time evolution of the Ricker wavelet
 The spatial distribution of the source function is a Guassian kernel with a standard deviation
 of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::
 
-    def delta_expr(x0, x, y, sigma_x=2000.0):
-        sigma_x = Constant(sigma_x)
+    def delta_expr(x0, x, y, domain, sigma_x=2000.0):
+        sigma_x = Constant(sigma_x, domain=mesh)
         return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
 
 To assemble the diagonal mass matrix, we need to create the matching colocated quadrature rule.
@@ -130,7 +130,7 @@ Substituting the above into the time derivative term in the variational form lea
 
 Using Firedrake, we specify the mass matrix using the special quadrature rule with the Measure object we created above like so::
 
-    m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
+    m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt, domain=mesh) * v * dxlump
 
 .. note::
     Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as those detailed in :cite:Chin:1999 .
@@ -142,8 +142,8 @@ The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule a
 The source is injected at the center of the unit square::
 
     x, y = SpatialCoordinate(mesh)
-    source = Constant([0.5, 0.5])
-    ricker = Constant(0.0)
+    source = Constant([0.5, 0.5], domain=mesh)
+    ricker = Constant(0.0, domain=mesh)
     ricker.assign(RickerWavelet(t, freq))
 
 We also create a function `R` to save the assembled RHS vector::
@@ -152,7 +152,7 @@ We also create a function `R` to save the assembled RHS vector::
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 
-    F = m + a -  delta_expr(source, x, y)*ricker * v * dx
+    F = m + a -  delta_expr(source, x, y, domain=mesh)*ricker * v * dx
     a, r = lhs(F), rhs(F)
     A = assemble(a)
     solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly", "pc_type": "jacobi"})

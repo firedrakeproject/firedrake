@@ -166,7 +166,7 @@ What is left before iterating over all time steps, is to find the initial energy
 
 and define the exact solutions, which need to be updated at every time-step::
 
-  t_ = Constant(t)
+  t_ = Constant(t, domain=mesh)
   expr_eta = 1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0)),-2)
   expr_phi = 2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0))+1)
 

@@ -114,7 +114,7 @@ appropriate settings using solver parameters. ::
 
   u = run_solve(parameters)
   print('MG F-cycle error', error(u))
-     
+
 A saddle-point system: The Stokes equations
 -------------------------------------------
 
@@ -137,11 +137,11 @@ with specified velocity inflow and outflow conditions. ::
 
   u, p = TrialFunctions(Z)
   v, q = TestFunctions(Z)
-  nu = Constant(1)
+  nu = Constant(1, domain=mesh)
 
   a = (nu*inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
 
-  L = inner(Constant((0, 0)), v) * dx
+  L = inner(Constant((0, 0), domain=mesh), v) * dx
 
   x, y = SpatialCoordinate(mesh)
 
@@ -151,7 +151,7 @@ with specified velocity inflow and outflow conditions. ::
   y < 0.25 + l/2),
   And(0.75 - l/2 < y,
   y < 0.75 + l/2)),
-  Constant(1.0), Constant(0.0))
+  Constant(1.0, domain=mesh), Constant(0.0, domain=mesh))
 
   value = gbar*(1 - (2*t/l)**2)
   inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
@@ -177,6 +177,8 @@ bilinear form to the solver ourselves: ::
   class Mass(AuxiliaryOperatorPC):
 
       def form(self, pc, test, trial):
+          mesh = test.function_space().mesh()
+          nu = Constant(1, domain=mesh)
           a = 1/nu * inner(test, trial)*dx
           bcs = None
           return (a, bcs)

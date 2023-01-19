@@ -23,14 +23,14 @@ As ever, we import firedrake and define a mesh.::
 
   a = (inner(grad(u), grad(v)) - inner(p, div(v)) + inner(div(u), q))*dx
 
-  L = inner(Constant((0, 0)), v) * dx
+  L = inner(Constant((0, 0), domain=M), v) * dx
 
 The boundary conditions are defined on the velocity space.  Zero
 Dirichlet conditions on the bottom and side walls, a constant :math:`u
 = (1, 0)` condition on the lid.::
 
-  bcs = [DirichletBC(Z.sub(0), Constant((1, 0)), (4,)),
-         DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3))]
+  bcs = [DirichletBC(Z.sub(0), Constant((1, 0), domain=M), (4,)),
+         DirichletBC(Z.sub(0), Constant((0, 0), domain=M), (1, 2, 3))]
 
   up = Function(Z)
 
@@ -47,7 +47,7 @@ wrapped in a ``try/except`` block so that an error is not raised in
 the case that it is not, to do this we must import ``PETSc``::
 
   from firedrake.petsc import PETSc
-  
+
 To factor the matrix from this mixed system, we must specify
 a ``mat_type`` of ``aij`` to the solve call.::
 

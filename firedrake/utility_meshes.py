@@ -245,7 +245,7 @@ cells are not currently supported"
     new_coords[1] = b * L[0]
     """
 
-    cL = Constant(length)
+    cL = Constant(length, domain=m)
 
     par_loop(
         (domain, instructions),

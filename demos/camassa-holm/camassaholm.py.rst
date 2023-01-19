@@ -71,23 +71,23 @@ the visual output ::
   except:
     warning("Matplotlib not imported")
 
-We then set the parameters for the scheme. ::
-
-  alpha = 1.0
-  alphasq = Constant(alpha**2)
-  dt = 0.1
-  Dt = Constant(dt)
-
-These are set with type :class:`~.Constant` so that the values can be
-changed without needing to regenerate code.
-
 We use a :func:`periodic mesh <.PeriodicIntervalMesh>` of width 40
-with 100 cells, ::
+with 100 cells. ::
 
   n = 100
   mesh = PeriodicIntervalMesh(n, 40.0)
 
-and build a :class:`mixed function space <.MixedFunctionSpace>` for the
+We then set the parameters for the scheme. ::
+
+  alpha = 1.0
+  alphasq = Constant(alpha**2, domain=mesh)
+  dt = 0.1
+  Dt = Constant(dt, domain=mesh)
+
+These are set with type :class:`~.Constant` so that the values can be
+changed without needing to regenerate code.
+
+We build a :class:`mixed function space <.MixedFunctionSpace>` for the
 two variables. ::
 
   V = FunctionSpace(mesh, "CG", 1)
