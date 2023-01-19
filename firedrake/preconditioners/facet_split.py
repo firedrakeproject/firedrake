@@ -235,13 +235,14 @@ def get_permutation_map(V, W):
     perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
     perm.fill(-1)
     v = Function(V, dtype=PETSc.IntType, val=perm)
-    w = Function(W, dtype=PETSc.IntType)
 
     offset = 0
-    for wdata, Wsub in zip(w.dat.data, W):
-        own = Wsub.dof_dset.set.size * Wsub.value_size
-        wdata[:own] = numpy.arange(offset, offset+own, dtype=PETSc.IntType)
-        offset += own
+    wdats = []
+    for Wsub in W:
+        data = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
+        wsub = Function(Wsub, dtype=PETSc.IntType, val=data)
+        wdats.append(wsub.dat)
+        offset += Wsub.dof_dset.layout_vec.sizes[0]
 
     sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
@@ -259,10 +260,11 @@ def get_permutation_map(V, W):
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, v.cell_set,
                  v.dat(op2.WRITE, pmap),
-                 w.dat[0](op2.READ, W[0].cell_node_map()),
-                 w.dat[1](op2.READ, W[1].cell_node_map()))
+                 wdats[0](op2.READ, W[0].cell_node_map()),
+                 wdats[1](op2.READ, W[1].cell_node_map()))
 
-    own = V.dof_dset.set.size * V.value_size
+    own = V.dof_dset.layout_vec.sizes[0]
+    perm = perm.reshape((-1, ))
     perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]
 
