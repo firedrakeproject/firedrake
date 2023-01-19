@@ -24,8 +24,20 @@ def handle_annotation():
         pause_annotation()
 
 
+@pytest.fixture(params=["sparse",
+                        "per_cell",
+                        "dense"])
+def num_points(request):
+    if request.param == "sparse":
+        return 2
+    elif request.param == "per_cell":
+        return 8
+    elif request.param == "dense":
+        return 1024
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_poisson_inverse_conductivity():
+def test_poisson_inverse_conductivity(num_points):
     # Have to import inside test to make sure cleanup fixtures work as intended
     from firedrake_adjoint import Control, ReducedFunctional, minimize
 
@@ -51,7 +63,6 @@ def test_poisson_inverse_conductivity():
     solve(F == 0, u_true, bc)
 
     # Generate random point cloud
-    num_points = 2
     np.random.seed(0)
     xs = np.random.random_sample((num_points, 2))
     point_cloud = VertexOnlyMesh(m, xs)
