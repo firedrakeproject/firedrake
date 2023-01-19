@@ -91,7 +91,7 @@ def functionspace_tests(vm):
     # Assembly works as expected - global assembly (integration) of a
     # constant on a vertex only mesh is evaluation of that constant
     # num_vertices (globally) times
-    f.interpolate(Constant(2))
+    f.interpolate(Constant(2, domain=vm))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
 
 
@@ -128,7 +128,7 @@ def vectorfunctionspace_tests(vm):
     # num_vertices (globally) times. Note that we get a vertex cell for
     # each geometric dimension so we have to sum over geometric
     # dimension too.
-    f.interpolate(Constant([1] * gdim))
+    f.interpolate(Constant([1] * gdim, domain=vm))
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
 
 
