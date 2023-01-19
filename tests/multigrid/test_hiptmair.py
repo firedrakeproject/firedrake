@@ -55,13 +55,18 @@ def run_riesz_map(V, mat_type):
     u_exact = Constant((1, 2, 4))
     f = u_exact
 
-    u = Function(V)
+    uh = Function(V)
+    u = TrialFunction(V)
     v = TestFunction(V)
-    F = inner(d(u), d(v))*dx + inner(u, v)*dx - inner(f, v)*dx
+    a = inner(d(u), d(v))*dx + inner(u, v)*dx
+    L = inner(f, v)*dx
     bcs = [DirichletBC(V, u_exact, "on_boundary")]
 
-    solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
-    return norm(u_exact - u, str(sobolev))
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    solver.solve()
+    its = solver.snes.ksp.getIterationNumber()
+    return its
 
 
 @pytest.mark.parametrize(["family", "cell"],
@@ -69,8 +74,8 @@ def run_riesz_map(V, mat_type):
 def test_hiptmair_hcurl(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)
-    assert run_riesz_map(V, "aij") < 4E-4
-    assert run_riesz_map(V, "matfree") < 4E-4
+    assert run_riesz_map(V, "aij") <= 15
+    assert run_riesz_map(V, "matfree") <= 15
 
 
 @pytest.mark.parametrize(["family", "cell"],
@@ -78,5 +83,5 @@ def test_hiptmair_hcurl(family, cell):
 def test_hiptmair_hdiv(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)
-    assert run_riesz_map(V, "aij") < 4E-4
-    assert run_riesz_map(V, "matfree") < 4E-4
+    assert run_riesz_map(V, "aij") <= 12
+    assert run_riesz_map(V, "matfree") <= 12

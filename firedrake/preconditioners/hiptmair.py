@@ -164,7 +164,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = tuple([bc.reconstruct(V=coarse_space, g=0) for bc in bcs])
+        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
 
         # Get only the zero-th order term of the form
         beta = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
