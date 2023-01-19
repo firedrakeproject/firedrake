@@ -1,5 +1,4 @@
 from firedrake.preconditioners.pmg import PMGPC, PMGSNES
-import ufl
 
 __all__ = ("P1PC", "P1SNES")
 
