@@ -2535,16 +2535,17 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
 
     # Add point coordinates. This amounts to our own implementation of
     # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
-    # doesn't always exactly coincide with that of DMPlex.
+    # doesn't always exactly coincide with that of DMPlex: in most cases the
+    # plex_parent_cell_nums (DMSwarm_cellid field) and parent_cell_nums
+    # (parentcellnum field), the latter being the numbering used by firedrake,
+    # refer fundamentally to the same cells. For extruded meshes the DMPlex
+    # dimension is based on the topological dimension of the base mesh.
 
     # NOTE ensure that swarm.restoreField is called for each field too!
     swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    # Once we support extruded meshes, the plex cell ID won't coincide with the
-    # Firedrake cell ID so the following fields will differ.
     swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
     field_parent_cell_nums = swarm.getField("parentcellnum")
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
-
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
