@@ -186,6 +186,13 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # -- Options for LaTeX output --------------------------------------------
 
+latex_engine = 'lualatex'
+latex_use_xindy = False
+
+latex_additional_files = [
+        '_static/poptitle.sty'
+    ]
+
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     'papersize': 'a4paper',
@@ -193,38 +200,54 @@ latex_elements = {
     # The font size ('10pt', '11pt' or '12pt').
     #'pointsize': '10pt',
 
+    'babel': r'\usepackage[british]{babel}',
+
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
 
 %\sphinxDUC{2730}{\ding{80}}
-\sphinxDUC{27F6}{$\rightarrow$}
-\sphinxDUC{2208}{$\in$}
-\sphinxDUC{2200}{$\forall$}
-\sphinxDUC{2218}{$\circ$}
-\sphinxDUC{22C5}{$\cdot$}
-\sphinxDUC{25A3}{$\boxdot$}
+%\sphinxDUC{27F6}{$\rightarrow$}
+%\sphinxDUC{2208}{$\in$}
+%\sphinxDUC{2200}{$\forall$}
+%\sphinxDUC{2218}{$\circ$}
+%\sphinxDUC{22C5}{$\cdot$}
+%\sphinxDUC{25A3}{$\boxdot$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
+
+% The default sphinx colouring colours a lot of links that are actually dead in
+% the book version.
+\definecolor{internallinkcolor}{HTML}{c52b03}
+\definecolor{externallinkcolor}{HTML}{e55d05}
+%\hypersetup{linkcolor=internallinkcolor}
+\hypersetup{linkcolor=black}
+%\hypersetup{urlcolor=externallinkcolor}
+\hypersetup{urlcolor=black}
+\usepackage{poptitle}
+\subtitle{}
+\edition{2023}
 ''',
 
-    'extrapackages': r'''\usepackage{mathtools}'''
+    'extrapackages': r'''\usepackage{mathtools}''',
+
+    'maketitle' : r'\poptitlepages'
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('index', 'Firedrake.tex', u'Firedrake Documentation',
+    ('index', 'Firedrake.tex', u'User Manual',
      u'the Firedrake team', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
 # the title page.
-#latex_logo = None
+latex_logo = '_themes/firedrake/static/banner.png'
 
 # For "manual" documents, if this is true, then toplevel headings are parts,
 # not chapters.
-#latex_use_parts = False
+latex_use_parts = True
 
 # If true, show page references after internal links.
 #latex_show_pagerefs = False
@@ -237,6 +260,7 @@ latex_documents = [
 
 # If false, no module index is generated.
 #latex_domain_indices = True
+latex_docclass = {"manual": "book"}
 
 
 # -- Options for manual page output --------------------------------------
