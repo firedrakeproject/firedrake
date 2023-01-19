@@ -51,6 +51,8 @@ class FDMPC(PCBase):
         from firedrake.preconditioners.patch import bcdofs
         Citations().register("Brubeck2021")
 
+        self.comm = pc.comm
+
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
 
@@ -223,13 +225,13 @@ class FDMPC(PCBase):
         # preallocate by calling the assembly routine on a PREALLOCATOR Mat
         sizes = (V.dof_dset.layout_vec.getSizes(),)*2
         block_size = V.dof_dset.layout_vec.getBlockSize()
-        prealloc = PETSc.Mat().create(comm=V.comm)
+        prealloc = PETSc.Mat().create(comm=self.comm)
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
         self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
-        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=V.comm)
+        Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=self.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
                              coefficients, Afdm, Dfdm, bcflags)

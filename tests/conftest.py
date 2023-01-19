@@ -1,31 +1,10 @@
 """Global test configuration."""
 
-import gc
-import os
 import pytest
 
 from subprocess import check_call
 from pyadjoint.tape import get_working_tape
 from firedrake.utils import complex_mode
-
-
-@pytest.fixture(autouse=True)
-def disable_gc_on_parallel(request):
-    """ Disables garbage collection on parallel tests,
-    but only when run on CI
-    """
-    from mpi4py import MPI
-    if (MPI.COMM_WORLD.size > 1) and ("FIREDRAKE_CI_TESTS" in os.environ):
-        gc.disable()
-        assert not gc.isenabled()
-        request.addfinalizer(restart_gc)
-
-
-def restart_gc():
-    """ Finaliser for restarting garbage collection
-    """
-    gc.enable()
-    assert gc.isenabled()
 
 
 def parallel(item):
