@@ -63,7 +63,6 @@ class FacetSplitPC(PCBase):
         V = a.arguments()[-1].function_space()
         assert len(V) == 1, "Interior-facet decomposition of mixed elements is not supported"
 
-        # W = V[interior] * V[facet]
         def restrict(ele, restriction_domain):
             if isinstance(ele, VectorElement):
                 return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_elements())
@@ -72,6 +71,7 @@ class FacetSplitPC(PCBase):
             else:
                 return RestrictedElement(ele, restriction_domain)
 
+        # W = V[interior] * V[facet]
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
 
@@ -191,6 +191,8 @@ class FacetSplitPC(PCBase):
 
 
 def split_dofs(elem):
+    """ Split DOFs into interior and facet DOF, where facets are sorted by entity.
+    """
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
     edofs = [[], []]
@@ -207,8 +209,7 @@ def split_dofs(elem):
 
 
 def restricted_dofs(celem, felem):
-    """
-    find which DOFs from felem are on celem
+    """ Find which DOFs from felem are on celem
     :arg celem: the restricted :class:`finat.FiniteElement`
     :arg felem: the unrestricted :class:`finat.FiniteElement`
     :returns: :class:`numpy.array` with indices of felem that correspond to celem
@@ -270,6 +271,8 @@ def get_permutation_map(V, W):
 
 
 def get_permutation_project(V, W):
+    """ Alternative projection-based method to obtain DOF permutation
+    """
     from firedrake import Function, split
     ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
     start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
