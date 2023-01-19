@@ -232,10 +232,6 @@ def get_permutation_map(V, W):
     from firedrake import Function
     from pyop2 import op2, PermutedMap
 
-    bsize = V.value_size
-    idofs = W[0].finat_element.space_dimension() * bsize
-    fdofs = W[1].finat_element.space_dimension() * bsize
-
     perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
     perm.fill(-1)
     v = Function(V, dtype=PETSc.IntType, val=perm)
@@ -243,10 +239,11 @@ def get_permutation_map(V, W):
 
     offset = 0
     for wdata, Wsub in zip(w.dat.data, W):
-        own = Wsub.dof_dset.set.size * bsize
+        own = Wsub.dof_dset.set.size * Wsub.value_size
         wdata[:own] = numpy.arange(offset, offset+own, dtype=PETSc.IntType)
         offset += own
 
+    sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
@@ -254,8 +251,8 @@ def get_permutation_map(V, W):
     void permutation(PetscInt *restrict x,
                      const PetscInt *restrict xi,
                      const PetscInt *restrict xf){{
-        for(PetscInt i=0; i<{idofs}; i++) x[i] = xi[i];
-        for(PetscInt i=0; i<{fdofs}; i++) x[i+{idofs}] = xf[i];
+        for(PetscInt i=0; i<{sizes[0]}; i++) x[i] = xi[i];
+        for(PetscInt i=0; i<{sizes[1]}; i++) x[i+{sizes[0]}] = xf[i];
         return;
     }}
     """
@@ -265,7 +262,7 @@ def get_permutation_map(V, W):
                  w.dat[0](op2.READ, W[0].cell_node_map()),
                  w.dat[1](op2.READ, W[1].cell_node_map()))
 
-    own = V.dof_dset.set.size * bsize
+    own = V.dof_dset.set.size * V.value_size
     perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]
 
