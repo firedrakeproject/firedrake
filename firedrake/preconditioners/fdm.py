@@ -270,8 +270,7 @@ class FDMPC(PCBase):
                 triu = on_diag and symmetric
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
-                bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
-                own_rows = Vrow.dof_dset.set.size * bsizes[0]
+                # bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
 
                 preallocator = PETSc.Mat().create(comm=V.comm)
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -280,7 +279,7 @@ class FDMPC(PCBase):
                 preallocator.setUp()
                 self.set_values(preallocator, Vrow, Vcol, addv, triu=triu)
                 preallocator.assemble()
-                d_nnz, o_nnz = get_preallocation(preallocator, own_rows)
+                d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
                 preallocator.destroy()
                 if on_diag:
                     numpy.maximum(d_nnz, 1, out=d_nnz)
