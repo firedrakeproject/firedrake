@@ -62,7 +62,8 @@ class PCDPC(PCBase):
         mass = p*q*dx
 
         # Regularisation to avoid having to think about nullspaces.
-        stiffness = inner(grad(p), grad(q))*dx + Constant(1e-6, Q.mesh())*p*q*dx
+        regularisation_const = PETSc.Options().getString(prefix + "regularisation", 1e-6)
+        stiffness = inner(grad(p), grad(q))*dx + Constant(regularisation_const, Q.mesh())*p*q*dx
 
         opts = PETSc.Options()
         # we're inverting Mp and Kp, so default them to assembled.
