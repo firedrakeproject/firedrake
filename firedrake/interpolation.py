@@ -167,9 +167,9 @@ def make_interpolator(expr, V, subset, access):
             if access in {firedrake.MIN, firedrake.MAX}:
                 finfo = numpy.finfo(f.dat.dtype)
                 if access == firedrake.MIN:
-                    val = firedrake.Constant(finfo.max)
+                    val = firedrake.Constant(finfo.max, domain=V.mesh())
                 else:
-                    val = firedrake.Constant(finfo.min)
+                    val = firedrake.Constant(finfo.min, domain=V.mesh())
                 f.assign(val)
         tensor = f.dat
     elif len(arguments) == 1:

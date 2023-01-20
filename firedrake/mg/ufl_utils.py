@@ -180,9 +180,10 @@ def coarsen_constant(expr, self, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         mesh = self(expr.ufl_domain(), self)
-        new = firedrake.Constant(numpy.zeros(expr.ufl_shape,
-                                             dtype=expr.dat.dtype),
-                                 domain=mesh)
+        new = firedrake.Constant(
+            numpy.zeros(expr.ufl_shape, dtype=expr.dat.dtype),
+            domain=mesh
+        )
         # Share data pointer
         new.dat = expr.dat
     return new

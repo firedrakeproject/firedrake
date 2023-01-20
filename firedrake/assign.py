@@ -116,8 +116,8 @@ class CoefficientCollector(MultiFunction):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
 
         This is necessary because we do not know a priori whether a :class:`firedrake.Constant`
-        is going to be used as a scale factor (e.g. ``u.assign(Constant(2)*v)``), or as a
-        constant to be added (e.g. ``u.assign(2*v + Constant(3))``). Therefore we only
+        is going to be used as a scale factor (e.g. ``u.assign(Constant(2, mesh)*v)``), or as a
+        constant to be added (e.g. ``u.assign(2*v + Constant(3, mesh))``). Therefore we only
         compress to a scalar when we know it is required (e.g. inside a product with a
         :class:`firedrake.Function`).
         """

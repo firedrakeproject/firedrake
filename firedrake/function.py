@@ -396,7 +396,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         .. note::
 
             Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+            values. Things like ``u.assign(2*v + Constant(3.0, mesh))``. For more complicated
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """

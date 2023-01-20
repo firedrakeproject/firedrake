@@ -948,8 +948,8 @@ def PeriodicRectangleMesh(
     end
     """
 
-    cLx = Constant(Lx)
-    cLy = Constant(Ly)
+    cLx = Constant(Lx, domain=m)
+    cLy = Constant(Ly, domain=m)
 
     par_loop(
         (domain, instructions),
@@ -1758,9 +1758,9 @@ def PeriodicBoxMesh(
     new_coords[3, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[3, 1] == 0.) else old_coords[3, 1]
     new_coords[3, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[3, 2] == 0.) else old_coords[3, 2]
     """
-    hx = Constant(Lx / nx)
-    hy = Constant(Ly / ny)
-    hz = Constant(Lz / nz)
+    hx = Constant(Lx / nx, domain=m)
+    hy = Constant(Ly / ny, domain=m)
+    hz = Constant(Lz / nz, domain=m)
 
     par_loop(
         (domain, instructions),
@@ -2111,10 +2111,10 @@ def OctahedralSphereMesh(
     x, y, z = ufl.SpatialCoordinate(m)
     # This will DTWT on meshes with more than 26 refinement levels.
     # (log_2 1e8 ~= 26.5)
-    tol = ufl.real(Constant(1.0e-8))
+    tol = ufl.real(Constant(1.0e-8, domain=m))
     rnew = ufl.max_value(1 - abs(z), 0)
     # Avoid division by zero (when rnew is zero, x & y are also zero)
-    x0 = ufl.conditional(ufl.lt(ufl.real(rnew), tol), 0, x / rnew)
+    x0 = ufl.conditional(ufl.lt(rnew, tol), 0, x / rnew)
     y0 = ufl.conditional(ufl.lt(rnew, tol), 0, y / rnew)
     theta = ufl.conditional(
         ufl.ge(ufl.real(y0), 0), ufl.pi / 2 * (1 - x0), ufl.pi / 2.0 * (x0 - 1)
@@ -2134,12 +2134,12 @@ def OctahedralSphereMesh(
     # mappings near the pole
     Vc = m.coordinates.function_space()
     Xlatitudinal = interpolate(
-        Constant(radius) * ufl.as_vector([x * scale, y * scale, znew]), Vc
+        Constant(radius, domain=m) * ufl.as_vector([x * scale, y * scale, znew]), Vc
     )
     Vlow = VectorFunctionSpace(m, "CG", 1)
     Xlow = interpolate(Xlatitudinal, Vlow)
     r = ufl.sqrt(Xlow[0] ** 2 + Xlow[1] ** 2 + Xlow[2] ** 2)
-    Xradial = Constant(radius) * Xlow / r
+    Xradial = Constant(radius, domain=m) * Xlow / r
 
     s = ufl.real(abs(z) - z0) / (1 - z0)
     exp = ufl.exp
@@ -2815,8 +2815,8 @@ def PartiallyPeriodicRectangleMesh(
     end
     """
 
-    cLx = Constant(La)
-    cLy = Constant(Lb)
+    cLx = Constant(La, domain=m)
+    cLy = Constant(Lb, domain=m)
 
     par_loop(
         (domain, instructions),

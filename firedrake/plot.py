@@ -603,7 +603,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
         min_length = 4 * resolution
 
     if max_time is None:
-        area = assemble(Constant(1) * dx(mesh))
+        area = assemble(Constant(1, domain=mesh) * dx(mesh))
         average_speed = np.sqrt(assemble(inner(function, function) * dx) / area)
         max_time = 50 * min_length / average_speed
 

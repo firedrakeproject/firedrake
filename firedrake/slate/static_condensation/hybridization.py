@@ -183,7 +183,7 @@ class HybridizationPC(SCBase):
             for measure in measures:
                 Kform += integrand*measure
 
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0, domain=TraceSpace.mesh()), subdomain) for subdomain in trace_subdomains]
 
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
@@ -193,7 +193,7 @@ class HybridizationPC(SCBase):
             trace_subdomains = ["on_boundary"]
             if mesh.cell_set._extruded:
                 trace_subdomains.extend(["bottom", "top"])
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0, domain=TraceSpace.mesh()), subdomain) for subdomain in trace_subdomains]
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)

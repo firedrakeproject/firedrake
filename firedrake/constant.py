@@ -82,7 +82,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
 
         fs = ufl.FunctionSpace(domain, e)
         super(Constant, self).__init__(fs)
-        self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
+        self._repr = 'Constant(%r, domain=%r, %r)' % (self.ufl_element(), self.ufl_domain(), self.count())
 
     def __del__(self):
         if hasattr(self, "_comm"):
