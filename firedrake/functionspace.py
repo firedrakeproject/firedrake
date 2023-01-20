@@ -121,7 +121,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
     if mesh.ufl_cell().cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ"]:
+       element.family() not in ["Q", "DQ", "BrokenElement"]:
         raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
