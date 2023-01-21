@@ -712,7 +712,6 @@ def get_line_elements(V):
 
 @lru_cache(maxsize=10)
 def fiat_reference_prolongator(felem, celem, derivative=False):
-    from FIAT import functional, make_quadrature, RestrictedElement
     from FIAT.reference_element import flatten_reference_cube
 
     ref_el = flatten_reference_cube(felem.get_reference_element())
@@ -721,39 +720,21 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
         raise NotImplementedError("Derivative prolongator is only available on the interval")
     ckey = (felem.formdegree,) if derivative else (0,)*tdim
     fkey = (celem.formdegree,) if derivative else (0,)*tdim
-    cshape = (celem.space_dimension(), -1)
-    fshape = (felem.space_dimension(), -1)
 
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
     if fkey == ckey and compare_dual(fdual, cdual):
         return numpy.array([])
 
-    if sum(fkey) == 0 and all(isinstance(phi, functional.PointEvaluation) for phi in fdual):
-        pts = [list(phi.get_point_dict().keys())[0] for phi in fdual]
-        return celem.tabulate(sum(ckey), pts)[ckey].reshape(cshape).T
-
-    indices = None
-    if isinstance(felem, RestrictedElement):
-        indices = felem._indices
-        felem = felem._element
-        fshape = (felem.space_dimension(), -1)
-
-    quadrature = make_quadrature(ref_el, felem.degree()+1)
-    pts = quadrature.get_points()
-    wts = quadrature.get_weights()
+    result = numpy.empty((felem.space_dimension(), celem.space_dimension()))
+    keys = set(tuple(phi.get_point_dict().keys()) for phi in fdual)
+    pts = list(sum(keys, ()))
     cphi = celem.tabulate(sum(ckey), pts)[ckey]
-    fphi = felem.tabulate(sum(fkey), pts)[fkey]
-
-    numpy.sqrt(wts, out=wts)
-    numpy.multiply(fphi, wts, out=fphi)
-    numpy.multiply(cphi, wts, out=cphi)
-    cphi = cphi.reshape(cshape)
-    fphi = fphi.reshape(fshape)
-    result = numpy.linalg.solve(fphi.dot(fphi.T), fphi.dot(cphi.T))
-
-    if indices is not None:
-        result = result[indices]
+    zero = [(0.0, ())]
+    for k, phi in enumerate(fdual):
+        wts = phi.get_point_dict()
+        wts = numpy.array([wts.get(pt, zero)[0][0] for pt in pts])
+        result[k] = cphi.dot(wts).T
     return result
 
 
