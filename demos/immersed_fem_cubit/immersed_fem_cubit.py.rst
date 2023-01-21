@@ -116,7 +116,7 @@ Finally, we export the mesh as an Exodus file
 
   set exodus netcdf4 off
   set large exodus file on
-  export mesh "immersed_domain.e"  overwrite
+  export mesh "immersed_domain_quad.e"  overwrite
 
 For simplicity, we have gathered these commands into the two journal files
 `immersed_domain_tri.jou <immersed_domain_tri.jou>`__ and
@@ -183,7 +183,9 @@ using linear Lagrangian finite elements. ::
    from firedrake import *
 
    # load the mesh generated with Cubit
-   mesh = Mesh('immersed_domain.e')
+   mesh = Mesh('immersed_domain_quad.e')
+   # to use a trimesh instead, comment the above line and uncomment the following line
+   #mesh = Mesh('immersed_domain_tri.e')
 
    # define the space of linear Lagrangian finite elements
    V = FunctionSpace(mesh, "CG", 1)

@@ -27,4 +27,4 @@ block 3 4 element type quad4
 
 set exodus netcdf4 off
 set large exodus file on
-export mesh "immersed_domain.e"  overwrite
+export mesh "immersed_domain_quad.e"  overwrite
