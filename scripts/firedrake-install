@@ -520,7 +520,7 @@ def sniff_compiler(exe):
     # VERSION
     try:
         output = subprocess.run(
-            [exe, "-dumpversion"],
+            [exe, "-dumpfullversion"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -528,7 +528,17 @@ def sniff_compiler(exe):
         ).stdout
         version = Version(output)
     except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
-        version = None
+        try:
+            output = subprocess.run(
+                [exe, "-dumpversion"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                encoding="utf-8"
+            ).stdout
+            version = Version(output)
+        except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+            version = None
     return name, version
 
 
