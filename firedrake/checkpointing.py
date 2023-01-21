@@ -780,7 +780,7 @@ class CheckpointFile(object):
         if isinstance(V.topological, impl.MixedFunctionSpace):
             base_path = self._path_to_mixed_function(mesh.name, V_name, f.name())
             self.require_group(base_path)
-            for i, fsub in enumerate(f.split()):
+            for i, fsub in enumerate(f.subfunctions()):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())

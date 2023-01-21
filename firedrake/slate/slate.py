@@ -662,7 +662,7 @@ class Block(TensorBase):
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
             V = arg.function_space()
-            V_is = V.split()
+            V_is = V.subfunctions()
             idx = as_tuple(self._blocks[i])
             if len(idx) == 1:
                 fidx, = idx

@@ -263,7 +263,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
     VA = functools.reduce(lambda a, b: a * b, VA_list)
     method = "project"
     fA = Function(VA, name=func_name)
-    fA0, fA1 = fA.split()
+    fA0, fA1 = fA.subfunctions()
     _initialise_function(fA0, _get_expr(VA[0]), method)
     fA1.dat.data.itemset(3.14)
     with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
@@ -279,7 +279,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
                 fB = afile.load_function(meshB, func_name)
             VB = fB.function_space()
             fBe = Function(VB)
-            fBe0, fBe1 = fBe.split()
+            fBe0, fBe1 = fBe.subfunctions()
             _initialise_function(fBe0, _get_expr(VB[0]), method)
             fBe1.dat.data.itemset(3.14)
             assert assemble(inner(fB - fBe, fB - fBe) * dx) < 1.e-16

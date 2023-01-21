@@ -111,8 +111,13 @@ class Constant(ufl.Coefficient, ConstantMixin):
         """Return a null function space."""
         return None
 
-    def split(self):
+    def subfunctions(self):
         return (self,)
+        
+    def split(self):
+        import warnings
+        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
+        return self.subfunctions()
 
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""

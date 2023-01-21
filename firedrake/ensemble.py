@@ -100,7 +100,7 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions()).
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
@@ -141,7 +141,7 @@ class Ensemble(object):
         :arg f_reduced: the result of the reduction on rank root.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
         :arg root: rank to reduce to. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions()).
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
@@ -172,7 +172,7 @@ class Ensemble(object):
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions()).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -204,7 +204,7 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :arg statuses: MPI.Status objects (one for each of f.split() or None).
+        :arg statuses: MPI.Status objects (one for each of f.subfunctions() or None).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -222,7 +222,7 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to send
         :arg dest: the rank to send to
         :arg tag: the tag of the message. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions()).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -238,7 +238,7 @@ class Ensemble(object):
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions()).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -280,7 +280,7 @@ class Ensemble(object):
         :arg frecv: The a :class:`.Function` to receive into.
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg recvtag: the tag of the received message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of fsend.split() and frecv.split()).
+        :returns: list of MPI.Request objects (one for each of fsend.subfunctions() and frecv.subfunctions()).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         # functions don't necessarily have to match
