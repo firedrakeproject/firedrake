@@ -33,6 +33,11 @@ object like so:
 This works in both serial and parallel, Firedrake takes care of
 decomposing the mesh among processors transparently.
 
+**Note:** To read meshes in the Exodus format, you need to build 
+Firedrake with the ``--with-exodusii`` flag in the ``firedrake-install`` command.  
+For more information example and an example of generating an Exodus 
+mesh see: :doc:`Creating Firedrake-compatible meshes in Cubit<demos/immersed_fem_cubit.py>`
+
 Reordering meshes for better performance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

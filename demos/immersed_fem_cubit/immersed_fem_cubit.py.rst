@@ -12,6 +12,7 @@ please refer to the documentation on the
 Sandia Engineering Analysis Code Access System (SEACAS) project's
 `homepage <https://gsjaardema.github.io/seacas-docs/sphinx/html/index.html>`_ or
 `their GitHub page <https://github.com/gsjaardema/seacas>`_.
+
 While this demo focuses on using CUBIT and/or Coreform Cubit for constructing
 Exodus meshes, the SEACAS page provides utilities and detailed information
 for creating Exodus meshes programmatically.  For example, the user could
@@ -19,7 +20,11 @@ use any mesh-generation library available in Matlab, Python, Julia, C++, Fortran
 construct the proper datatype in said language, and then export directly to 
 the Exodus format.  This excercise is left to the reader.
 
-As example, we will construct and mesh a rectangle with a disc
+**Note:** In order to use Exodus files, the Exodus library must first be installed.
+This can be done simply by adding the flag ``--with-exodusii`` to the 
+``firedrake-install`` command.
+
+Beginning the demonstration, we will construct and mesh a rectangle with a disc
 in the middle as shown in the below image
 
 .. image:: immersed_geom_cubit.png
