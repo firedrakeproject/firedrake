@@ -193,7 +193,8 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
-def test_projector():
+@pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
+def test_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
     xs = SpatialCoordinate(m)
@@ -204,7 +205,7 @@ def test_projector():
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo)
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type,})
     P.project()
 
     mass2 = assemble(vo*dx)
