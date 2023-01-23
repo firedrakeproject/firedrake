@@ -205,7 +205,7 @@ def test_projector(mat_type):
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo, solver_parameters={"mat_type": mat_type,})
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
     P.project()
 
     mass2 = assemble(vo*dx)
