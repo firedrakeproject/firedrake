@@ -7,17 +7,11 @@ class P1PC(PMGPC):
     def coarsen_element(self, ele):
         if super().max_degree(ele) <= self.coarse_degree:
             raise ValueError
-        cele = super().reconstruct_degree(ele, self.coarse_degree)
-        if cele is None:
-            raise ValueError
-        return cele
+        return super().reconstruct_degree(ele, self.coarse_degree)
 
 
 class P1SNES(PMGSNES):
     def coarsen_element(self, ele):
         if super().max_degree(ele) <= self.coarse_degree:
             raise ValueError
-        cele = super().reconstruct_degree(ele, self.coarse_degree)
-        if cele is None:
-            raise ValueError
-        return cele
+        return super().reconstruct_degree(ele, self.coarse_degree)
