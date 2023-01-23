@@ -97,9 +97,10 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             solver_parameters = {}
         else:
             solver_parameters = solver_parameters.copy()
+        mat_type = solver_parameters.get("mat_type", firedrake.parameters["default_matrix_type"])
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
-        if firedrake.parameters["default_matrix_type"] == "aij":
+        if mat_type.endswith("aij"):
             solver_parameters.setdefault("pc_type", "bjacobi")
             solver_parameters.setdefault("sub_pc_type", "icc")
         else:
