@@ -112,7 +112,7 @@ def linear_poisson_bbc(solver_parameters, mesh_num, porder):
 
     e2 = as_vector([0., 1.])
     a1 = (-inner(dot(grad(u), e2), dot(e2, grad(v))) + 4 * pi * pi * inner(u, v)) * ds(1)
-    L1 = inner(Constant(0), v) * ds(1)
+    L1 = inner(Constant(0, domain=mesh), v) * ds(1)
 
     u = Function(V)
 

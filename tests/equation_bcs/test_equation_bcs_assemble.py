@@ -26,7 +26,7 @@ def test_equation_bcs_direct_assemble_two_form():
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
     a1 = inner(u, v) * ds(1)
-    L1 = inner(Constant(0), v) * ds(1)
+    L1 = inner(Constant(0, domain=mesh), v) * ds(1)
     sol = Function(V)
     bc = EquationBC(a1 == L1, sol, 1, Jp=2 * inner(u, v) * ds(1))
 
