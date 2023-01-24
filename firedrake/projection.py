@@ -100,8 +100,6 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
         mat_type = solver_parameters.get("mat_type", firedrake.parameters["default_matrix_type"])
-        if mat_type == "nest":
-            mat_type = solver_parameters.get("sub_mat_type", firedrake.parameters["default_sub_matrix_type"])
         if mat_type == "matfree":
             solver_parameters.setdefault("pc_type", "jacobi")
         else:

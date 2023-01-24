@@ -193,7 +193,7 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
-@pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
+@pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
 def test_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
@@ -282,7 +282,9 @@ def test_projector_bcs(tensor, same_fspace):
 
     ret = Function(V_ho)
     projector = Projector(v, ret, bcs=bcs, solver_parameters={"ksp_type": "preonly",
-                                                              "pc_type": "lu"})
+                                                              "pc_type": "lu",
+                                                              "mat_type": "nest",
+                                                              "sub_mat_type": "matfree"})
     projector.project()
 
     # Manually solve a Galerkin projection problem to get a reference
