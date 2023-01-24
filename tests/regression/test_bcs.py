@@ -277,7 +277,8 @@ def test_overlapping_bc_nodes(quad):
 
 
 @pytest.mark.parametrize("diagonal",
-                         [False, True])
+                         [False, True],
+                         ids=["matrix", "diagonal"])
 def test_mixed_bcs(diagonal):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
