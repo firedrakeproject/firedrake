@@ -43,7 +43,7 @@ jobs:
         run: |
           cd ..
           export PETSC_CONFIGURE_OPTIONS="--download-cmake --download-metis --download-parmetis --download-mmg --download-parmmg"
-          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch petsc jwallwork23/firedrake || (cat firedrake-install.log && /bin/false)
+          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager --package-branch petsc skramer/parmmg-rebased || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../build/bin/activate
