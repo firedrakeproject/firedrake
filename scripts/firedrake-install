@@ -543,8 +543,8 @@ def sniff_compiler(exe):
 
 
 # Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
-# But only for Linux
-if platform.system() == "Linux":
+# But only for Linux and only for install
+if platform.system() == "Linux" and mode == "install":
     # Get the cpu information
     try:
         cpuinfostring = subprocess.run(
