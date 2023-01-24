@@ -219,6 +219,39 @@ def test_projector(mat_type):
     assert np.abs(mass1-mass2) < 1.0e-10
 
 
+def test_nest_projector():
+    m = UnitSquareMesh(2, 2)
+    Vc1 = FunctionSpace(m, "CG", 1)
+    Vc2 = FunctionSpace(m, "CG", 2)
+    Vc = Vc1 * Vc2
+    xs = SpatialCoordinate(m)
+
+    v = Function(Vc)
+    v0, v1 = v.split()  # sub_functions
+    v0.interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
+    v1.interpolate(xs[0]*xs[1] + sin(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    Vd1 = FunctionSpace(m, "DG", 1)
+    Vd2 = FunctionSpace(m, "DG", 2)
+    Vd = Vd1 * Vd2
+    vo = Function(Vd)
+
+    P = Projector(v, vo, solver_parameters={"mat_type": "nest"})
+    P.project()
+
+    mass2 = assemble(sum(split(vo))*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+    v0.interpolate(xs[1] + exp(xs[0]+xs[1]))
+    v1.interpolate(xs[0] + exp(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    P.project()
+    mass2 = assemble(sum(split(vo))*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+
 def test_trivial_projector():
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
@@ -282,9 +315,7 @@ def test_projector_bcs(tensor, same_fspace):
 
     ret = Function(V_ho)
     projector = Projector(v, ret, bcs=bcs, solver_parameters={"ksp_type": "preonly",
-                                                              "pc_type": "lu",
-                                                              "mat_type": "nest",
-                                                              "sub_mat_type": "matfree"})
+                                                              "pc_type": "lu"})
     projector.project()
 
     # Manually solve a Galerkin projection problem to get a reference
