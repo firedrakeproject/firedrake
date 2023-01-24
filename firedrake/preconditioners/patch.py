@@ -615,10 +615,12 @@ class PlaneSmoother(object):
 
         gdim = data.shape[1]
         bary = numpy.zeros(gdim)
+        ndof = 0
         for p_ in closure_of_p:
             (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
-            bary += data[offset:offset+dof].reshape(gdim)
-        bary /= len(closure_of_p)
+            bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
+            ndof += dof
+        bary /= ndof
         return bary
 
     def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):

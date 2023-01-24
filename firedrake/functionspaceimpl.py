@@ -47,6 +47,12 @@ class WithGeometryBase(object):
         super().__init__(mesh, element)
         self.component = component
         self.cargo = cargo
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(mesh.comm)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @classmethod
     def create(cls, function_space, mesh):

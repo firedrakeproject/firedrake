@@ -577,13 +577,12 @@ class CheckpointFile(object):
                 if tmesh.variable_layers:
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
                     # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
-                    topology_dm = tmesh.topology_dm
                     cell = base_tmesh.ufl_cell()
                     element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
                     layers_tV = impl.FunctionSpace(base_tmesh, element)
                     self._save_function_space_topology(layers_tV)
                     # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
-                    layers_iset = PETSc.IS().createGeneral(tmesh.layers[:tmesh.cell_set.size, :], comm=topology_dm.comm)
+                    layers_iset = PETSc.IS().createGeneral(tmesh.layers[:tmesh.cell_set.size, :], comm=tmesh._comm)
                     layers_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
                     self.viewer.pushGroup(path)
                     layers_iset.view(self.viewer)
@@ -1031,6 +1030,7 @@ class CheckpointFile(object):
             else:
                 perm_is = None
             # -- Construct Mesh (Topology) --
+            # Use public API so pass user comm (self.comm)
             tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
                                  distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
                                  distribution_name=distribution_name, permutation_name=permutation_name,
@@ -1096,10 +1096,10 @@ class CheckpointFile(object):
         sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
         if tmesh_key + sd_key not in self._function_load_utils:
             topology_dm = tmesh.topology_dm
-            dm = PETSc.DMShell().create(comm=topology_dm.comm)
+            dm = PETSc.DMShell().create(comm=tmesh._comm)
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())
-            section = PETSc.Section().create(comm=topology_dm.comm)
+            section = PETSc.Section().create(comm=tmesh._comm)
             section.setPermutation(tmesh._plex_renumbering)
             dm.setSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
@@ -1265,7 +1265,7 @@ class CheckpointFile(object):
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             global_numbering = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
             topology_dm = tV.mesh().topology_dm
-            dm = PETSc.DMShell().create(topology_dm.comm)
+            dm = PETSc.DMShell().create(tV.mesh()._comm)
             dm.setPointSF(topology_dm.getPointSF())
             dm.setSection(global_numbering)
         else:

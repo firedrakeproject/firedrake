@@ -155,7 +155,7 @@ class SCPC(SCBase):
         nullspace = self.cxt.appctx.get("condensed_field_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(Vc)
-            Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
+            Smat.setNullSpace(nsp.nullspace())
 
         # Create a SNESContext for the DM associated with the trace problem
         self._ctx_ref = self.new_snes_ctx(pc,
