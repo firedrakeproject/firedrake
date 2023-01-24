@@ -219,7 +219,8 @@ def test_projector(mat_type):
     assert np.abs(mass1-mass2) < 1.0e-10
 
 
-def test_nest_projector():
+@pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
+def test_mixed_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc1 = FunctionSpace(m, "CG", 1)
     Vc2 = FunctionSpace(m, "CG", 2)
@@ -237,7 +238,7 @@ def test_nest_projector():
     Vd = Vd1 * Vd2
     vo = Function(Vd)
 
-    P = Projector(v, vo, solver_parameters={"mat_type": "nest"})
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
     P.project()
 
     mass2 = assemble(sum(split(vo))*dx)
