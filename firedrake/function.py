@@ -13,11 +13,7 @@ from pyop2 import op2, mpi
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-<<<<<<< HEAD
 from firedrake.cofunction import Cofunction
-from firedrake.logging import warning
-=======
->>>>>>> origin/master
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
