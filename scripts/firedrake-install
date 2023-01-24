@@ -121,18 +121,18 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 11):
-    print("""\nCan not install Firedrake with Python 3.11 at the moment:
-Some wheels are not yet available for Python 3.11 for some required package(s).
-Please install with Python 3.10 (or an earlier version >= 3.6).""")
+if sys.version_info >= (3, 12):
+    print("""\nCan not install Firedrake with Python 3.12 at the moment:
+Some wheels are not yet available for Python 3.12 for some required package(s).
+Please install with Python 3.11 (or an earlier version >= 3.7).""")
     sys.exit(1)
 elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
     print("""
 Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
 some required package(s) are not available for earlier Python versions.""")
-elif sys.version_info < (3, 6):
+elif sys.version_info < (3, 7):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.6.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.7.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -1803,23 +1803,24 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install(package.split())
 
-    # "Temporary" workaround for missing VTK wheel on Python 3.10
-    if sys.version_info[:2] == (3, 10):
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20220106/"
+    # "Temporary" workaround for missing VTK wheel on Python 3.11
+    if sys.version_info[:2] == (3, 11):
+        # Update source when release is no longer a draft
+        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20221116/"
         if osname == "Darwin":
             if arch == "arm64":
-                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_11_0_arm64.whl"
+                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_arm64.whl "
             elif arch == "x86_64":
-                source += "vtk-9.1.0.dev0-cp310-cp310-macosx_10_15_x86_64.whl"
+                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_x86_64.whl"
             else:
-                log.error("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
-                raise InstallError("Cannot install VTK for Python 3.10: unknown Darwin architecture {0}.".format(arch))
+                log.error("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
+                raise InstallError("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
         elif osname == "Linux":
-            source += "vtk-9.1.0.dev0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+            source += "vtk-9.2.2.dev0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
         else:
-            log.error("Cannot install VTK for Python 3.10: unknown operating system  {0}.".format(osname))
-            raise InstallError("Cannot install VTK for Python 3.10: unknown operating system {0}.".format(osname))
-        log.info("Pip installing VTK for Python 3.10 to venv")
+            log.error("Cannot install VTK for Python 3.11: unknown operating system  {0}.".format(osname))
+            raise InstallError("Cannot install VTK for Python 3.11: unknown operating system {0}.".format(osname))
+        log.info("Pip installing VTK for Python 3.11 to venv")
         run_pip_install([source])
     if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
