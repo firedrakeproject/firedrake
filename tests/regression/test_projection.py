@@ -193,7 +193,7 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
-@pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
+@pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
 def test_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
