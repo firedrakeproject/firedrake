@@ -518,32 +518,24 @@ def sniff_compiler(exe):
     else:
         name = "unknown"
     # VERSION
-    try:
-        output = subprocess.run(
-            [exe, "-dumpfullversion"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-            encoding="utf-8"
-        ).stdout
-        version = Version(output)
-    except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+    version = None
+    for dumpstring in ["-dumpfullversion", "-dumpversion"]:
         try:
             output = subprocess.run(
-                [exe, "-dumpversion"],
+                [exe, dumpstring],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
                 encoding="utf-8"
             ).stdout
             version = Version(output)
+            break
         except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
-            version = None
+            continue
     return name, version
 
 
 # Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
-# But only for Linux and only for install
 if platform.system() == "Linux" and mode == "install":
     # Get the cpu information
     try:
