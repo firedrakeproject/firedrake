@@ -229,19 +229,17 @@ def restricted_dofs(celem, felem):
 
 
 def get_permutation_map(V, W):
-    from firedrake import Function
     from pyop2 import op2, PermutedMap
 
     perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
     perm.fill(-1)
-    v = Function(V, dtype=PETSc.IntType, val=perm)
+    vdat = V.make_dat(val=perm)
 
     offset = 0
     wdats = []
     for Wsub in W:
-        data = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
-        wsub = Function(Wsub, dtype=PETSc.IntType, val=data)
-        wdats.append(wsub.dat)
+        val = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
+        wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
 
     sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
@@ -258,8 +256,8 @@ def get_permutation_map(V, W):
     }}
     """
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, v.cell_set,
-                 v.dat(op2.WRITE, pmap),
+    op2.par_loop(kernel, V.mesh().cell_set,
+                 vdat(op2.WRITE, pmap),
                  wdats[0](op2.READ, W[0].cell_node_map()),
                  wdats[1](op2.READ, W[1].cell_node_map()))
 
