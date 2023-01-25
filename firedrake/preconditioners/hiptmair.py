@@ -38,8 +38,8 @@ class TwoLevelPC(PCBase):
 
         # Handle the coarse operator
         coarse_options_prefix = options_prefix + "mg_coarse_"
-        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type", parameters["default_matrix_type"])
-        print(coarse_mat_type, flush=True)
+        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
+                                         parameters["default_matrix_type"])
         self.coarse_op = allocate_matrix(coarse_operator,
                                          bcs=coarse_space_bcs,
                                          form_compiler_parameters=fcp,
