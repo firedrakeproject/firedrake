@@ -27,7 +27,7 @@ def test_hyperelastic_convergence():
     T = Constant((0, -0.5))
     B = Constant((0, -0.25))
 
-    d = u.geometric_dimension()
+    d = mesh.geometric_dimension()
     I = Identity(d)
     F = I + grad(u)             # Deformation gradient
     C = F.T*F                   # Right Cauchy-Green tensor

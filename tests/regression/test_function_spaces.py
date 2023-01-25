@@ -95,8 +95,7 @@ def test_function_space_collapse(cg1):
 
 
 @pytest.mark.parametrize("modifier",
-                         [BrokenElement, FacetElement,
-                          InteriorElement, HDivElement,
+                         [BrokenElement, HDivElement,
                           HCurlElement])
 @pytest.mark.parametrize("element",
                          [FiniteElement("CG", triangle, 1),

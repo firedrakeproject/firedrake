@@ -114,7 +114,7 @@ space, along with the degree of the element and construct the quadrature rule::
 
 Then we make a new Measure object that uses this rule::
 
-    dxlump=dx(rule=quad_rule)
+    dxlump=dx(scheme=quad_rule)
 
 To discretize :math:`\partial_{t}^2 u` we use a central scheme
 

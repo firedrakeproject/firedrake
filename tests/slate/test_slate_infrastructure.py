@@ -195,14 +195,14 @@ def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_te
     assert (F + G).ufl_domain() == (F.form + G.form).ufl_domain()
     assert (M + N).ufl_domain() == (M.form + N.form).ufl_domain()
 
-    assert S.subdomain_data() == S.form.subdomain_data()
-    assert N.subdomain_data() == N.form.subdomain_data()
-    assert M.subdomain_data() == M.form.subdomain_data()
-    assert F.subdomain_data() == F.form.subdomain_data()
-    assert N.inv.subdomain_data() == N.form.subdomain_data()
-    assert (-M).subdomain_data() == M.form.subdomain_data()
-    assert (M + N).T.subdomain_data() == (M.form + N.form).subdomain_data()
-    assert (F + G).subdomain_data() == (F.form + G.form).subdomain_data()
+    assert _is_equal_subdomain_data(S, S.form)
+    assert _is_equal_subdomain_data(N, N.form)
+    assert _is_equal_subdomain_data(M, M.form)
+    assert _is_equal_subdomain_data(F, F.form)
+    assert _is_equal_subdomain_data(N.inv, N.form)
+    assert _is_equal_subdomain_data(-M, M.form)
+    assert _is_equal_subdomain_data((M + N).T, (M.form + N.form))
+    assert _is_equal_subdomain_data((F + G), (F.form + G.form))
 
 
 def test_equality_relations(function_space):
@@ -387,3 +387,14 @@ def test_illegal_compile():
     form = v * dx
     with pytest.raises(ValueError):
         compile_slate(form)
+
+
+def _is_equal_subdomain_data(a, b):
+    """Compare subdomain data of a and b."""
+    sd_a = {domain: {integral_type: [v for v in val if v is not None]}
+            for domain, data in a.subdomain_data().items()
+            for integral_type, val in data.items()}
+    sd_b = {domain: {integral_type: [v for v in val if v is not None]}
+            for domain, data in b.subdomain_data().items()
+            for integral_type, val in data.items()}
+    return sd_a == sd_b
