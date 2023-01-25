@@ -16,6 +16,7 @@ def mesh_hierarchy(cell):
 
 def run_riesz_map(V, mat_type):
     relax = {
+        "mat_type": mat_type,
         "ksp_type": "preonly",
         "pc_type": "jacobi",
     }

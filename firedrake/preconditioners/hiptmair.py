@@ -25,13 +25,10 @@ class TwoLevelPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake import parameters
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
-
-        pmat_type = P.getType()
-        if pmat_type == "python":
-            pmat_type = "matfree"
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -41,7 +38,8 @@ class TwoLevelPC(PCBase):
 
         # Handle the coarse operator
         coarse_options_prefix = options_prefix + "mg_coarse_"
-        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type", pmat_type)
+        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
+                                         parameters["default_matrix_type"])
         self.coarse_op = allocate_matrix(coarse_operator,
                                          bcs=coarse_space_bcs,
                                          form_compiler_parameters=fcp,
