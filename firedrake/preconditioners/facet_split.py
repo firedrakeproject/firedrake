@@ -263,28 +263,3 @@ def get_permutation_map(V, W):
     perm = perm.reshape((-1, ))
     perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]
-
-
-def get_permutation_project(V, W):
-    """ Alternative projection-based method to obtain DOF permutation
-    """
-    from firedrake import Function
-    from ufl import split
-    ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
-    start, end = ownership_ranges[V._comm.rank:V._comm.rank+2]
-    v = Function(V)
-    w = Function(W)
-    with w.dat.vec_wo as wvec:
-        wvec.setArray(numpy.linspace(0.0E0, 1.0E0, end-start, dtype=PETSc.RealType))
-    w_expr = sum(split(w))
-    try:
-        v.interpolate(w_expr)
-    except NotImplementedError:
-        rtol = 1.0 / max(numpy.diff(ownership_ranges))**2
-        v.project(w_expr, solver_parameters={
-                  "mat_type": "matfree",
-                  "ksp_type": "cg",
-                  "ksp_atol": 0,
-                  "ksp_rtol": rtol,
-                  "pc_type": "jacobi", })
-    return numpy.rint((end-start-1)*v.dat.data_ro.reshape((-1,))+start).astype(PETSc.IntType)
