@@ -1,8 +1,10 @@
+from functools import partial
+from mpi4py import MPI
+from pyop2 import op2, PermutedMap
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
 import numpy
-
 
 __all__ = ['FacetSplitPC']
 
@@ -26,11 +28,10 @@ class FacetSplitPC(PCBase):
     _permutation_cache = {}
 
     def get_permutation(self, V, W):
-        from mpi4py import MPI
         key = (V, W)
         if key not in self._permutation_cache:
             indices = get_permutation_map(V, W)
-            if V.comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
+            if V._comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
                 self._permutation_cache[key] = None
             else:
                 self._permutation_cache[key] = indices
@@ -40,7 +41,6 @@ class FacetSplitPC(PCBase):
         from ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
-        from functools import partial
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -82,7 +82,7 @@ class FacetSplitPC(PCBase):
         self.iperm = None
         indices = self.get_permutation(V, W)
         if indices is not None:
-            self.perm = PETSc.IS().createGeneral(indices, comm=V.comm)
+            self.perm = PETSc.IS().createGeneral(indices, comm=V._comm)
             self.iperm = self.perm.invertPermutation()
 
         if mat_type != "submatrix":
@@ -203,7 +203,7 @@ def split_dofs(elem):
             edim = sum(edim)
         except TypeError:
             pass
-        for k in vals:
+        for k in sorted(vals.keys()):
             edofs[edim < ndim].extend(sorted(vals[k]))
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
@@ -229,8 +229,6 @@ def restricted_dofs(celem, felem):
 
 
 def get_permutation_map(V, W):
-    from pyop2 import op2, PermutedMap
-
     perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
     perm.fill(-1)
     vdat = V.make_dat(val=perm)
@@ -270,9 +268,10 @@ def get_permutation_map(V, W):
 def get_permutation_project(V, W):
     """ Alternative projection-based method to obtain DOF permutation
     """
-    from firedrake import Function, split
+    from firedrake import Function
+    from ufl import split
     ownership_ranges = V.dof_dset.layout_vec.getOwnershipRanges()
-    start, end = ownership_ranges[V.comm.rank:V.comm.rank+2]
+    start, end = ownership_ranges[V._comm.rank:V._comm.rank+2]
     v = Function(V)
     w = Function(W)
     with w.dat.vec_wo as wvec:
