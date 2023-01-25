@@ -244,18 +244,23 @@ class Compiler(ABC):
         :arg cpp: If set to True will use the C++ compiler rather than
             the C compiler to determine the version number.
         """
-        try:
-            exe = self.cxx if cpp else self.cc
-            output = subprocess.run(
-                [exe, "-dumpversion"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-                encoding="utf-8"
-            ).stdout
-            self.version = Version(output)
-        except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
-            self.version = None
+        exe = self.cxx if cpp else self.cc
+        self.version = None
+        # `-dumpversion` is not sufficient to get the whole version string (for some compilers),
+        # but other compilers do not implement `-dumpfullversion`!
+        for dumpstring in ["-dumpfullversion", "-dumpversion"]:
+            try:
+                output = subprocess.run(
+                    [exe, dumpstring],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    encoding="utf-8"
+                ).stdout
+                self.version = Version(output)
+                break
+            except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+                continue
 
     @property
     def bugfix_cflags(self):
