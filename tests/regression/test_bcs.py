@@ -276,7 +276,10 @@ def test_overlapping_bc_nodes(quad):
     assert np.allclose(A, np.identity(V.dof_dset.size))
 
 
-def test_mixed_bcs():
+@pytest.mark.parametrize("diagonal",
+                         [False, True],
+                         ids=["matrix", "diagonal"])
+def test_mixed_bcs(diagonal):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     W = V*V
@@ -285,11 +288,12 @@ def test_mixed_bcs():
 
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
-    A = assemble(inner(u, v)*dx, bcs=bc)
-
-    A11 = A.M[1, 1].values
-
-    assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+    A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    if diagonal:
+        data = A.dat[1].data
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
