@@ -2,6 +2,9 @@ import abc
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake_citations import Citations
+from firedrake.interpolation import Interpolator
+from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
 import ufl
 
@@ -21,12 +24,14 @@ class TwoLevelPC(PCBase):
         raise NotImplementedError
 
     def initialize(self, pc):
-        from firedrake import parameters
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
-
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
+
+        pmat_type = P.getType()
+        if pmat_type == "python":
+            pmat_type = "matfree"
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -36,9 +41,7 @@ class TwoLevelPC(PCBase):
 
         # Handle the coarse operator
         coarse_options_prefix = options_prefix + "mg_coarse_"
-        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
-                                         parameters["default_matrix_type"])
-
+        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type", pmat_type)
         self.coarse_op = allocate_matrix(coarse_operator,
                                          bcs=coarse_space_bcs,
                                          form_compiler_parameters=fcp,
@@ -116,19 +119,29 @@ class TwoLevelPC(PCBase):
 
 
 class HiptmairPC(TwoLevelPC):
+    """ A two-level method for H(curl) or H(div) problems with an auxiliary
+    potential space in H(grad) or H(curl), respectively.
+
+    Internally this creates a PETSc PCMG object that can be controlled by
+    options using the extra options prefix ``hiptmair_mg_``.
+
+    This allows for effective multigrid relaxation methods with patch solves
+    centered around vertices for H^1, edges for H(curl), or faces for H(div).
+    For the lowest-order spaces this corresponds to point-Jacobi.
+
+    The H(div) auxiliary vector potential problem in H(curl) is singular for
+    high-order.  This can be overcome by pertubing the problem by a multiple of
+    the mass matrix. The scaling factor can be provided (defaulting to 0) by
+    providing a scalar in the application context, keyed on
+    ``"hiptmair_shift"``.
+    """
 
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        from firedrake_citations import Citations
         from firedrake import FunctionSpace, TestFunction, TrialFunction
-        from firedrake.interpolation import Interpolator
-        from ufl.algorithms.ad import expand_derivatives
-        from ufl import replace, zero, grad, curl, as_vector
-
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
-        V = dmhooks.get_function_space(pc.getDM())
 
         _, P = pc.getOperators()
         if P.getType() == "python":
@@ -137,10 +150,10 @@ class HiptmairPC(TwoLevelPC):
             bcs = tuple(ctx.bcs)
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
-            problem = ctx._problem
-            a = problem.Jp or problem.J
-            bcs = tuple(problem.bcs)
+            a = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
 
+        V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
         degree = element.degree()
@@ -151,13 +164,14 @@ class HiptmairPC(TwoLevelPC):
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
-            dminus = grad
+            dminus = ufl.grad
             G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             celement = div_to_curl(element)
-            dminus = curl
+            dminus = ufl.curl
             if V.shape:
-                dminus = lambda u: as_vector([curl(u[k, ...]) for k in range(u.ufl_shape[0])])
+                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
+                                                  for k in range(u.ufl_shape[0])])
             G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
@@ -167,7 +181,8 @@ class HiptmairPC(TwoLevelPC):
         coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
 
         # Get only the zero-th order term of the form
-        beta = replace(expand_derivatives(a), {grad(t): zero(grad(t).ufl_shape) for t in a.arguments()})
+        replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
+        beta = ufl.replace(expand_derivatives(a), replace_dict)
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
@@ -209,7 +224,6 @@ def curl_to_grad(ele):
                 cells = ele.cell().sub_cells()
                 elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
                 return ufl.TensorProductElement(*elems, cell=cell)
-
         return ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
 
 
@@ -237,26 +251,22 @@ def div_to_curl(ele):
     else:
         degree = ele.degree()
         family = ele.family()
-
         if family in ["Lagrange", "CG", "Q"]:
             family = "DG" if ele.cell().is_simplex() else "DQ"
             degree = degree-1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
-            family = "Lagrange"
+            family = "CG"
             degree = degree+1
-        elif family in ["Raviart-Thomas", "RT"]:
-            family = "N1curl"
-        elif family in ["Brezzi-Douglas-Marini", "BDM"]:
-            family = "N2curl"
-        elif family == "RTCF":
-            family = "RTCE"
-        elif family == "NCF":
-            family = "NCE"
-        elif family == "SminusF":
-            family = "SminusE"
-        elif family == "SminusDiv":
-            family = "SminusCurl"
         else:
-            raise ValueError("Unexpected family %s" % family)
-
+            replace_dict = {
+                "Raviart-Thomas": "N1curl",
+                "Brezzi-Douglas-Marini": "N2curl",
+                "RTCF": "RTCE",
+                "NCF": "NCE",
+                "SminusF": "SminusE",
+                "SminusDiv": "SminusCurl",
+            }
+            family = replace_dict.get(family, None)
+            if family is None:
+                raise ValueError("Unexpected family %s" % family)
         return ele.reconstruct(degree=degree, family=family)
