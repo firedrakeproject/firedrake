@@ -120,7 +120,7 @@ class TwoLevelPC(PCBase):
 
 class HiptmairPC(TwoLevelPC):
     """ A two-level method for H(curl) or H(div) problems with an auxiliary
-    potential space in H(grad) or H(curl), respectively.
+    potential space in H^1 or H(curl), respectively.
 
     Internally this creates a PETSc PCMG object that can be controlled by
     options using the extra options prefix ``hiptmair_mg_``.
@@ -219,7 +219,7 @@ def curl_to_grad(ele):
         if family.startswith("Sminus"):
             family = "S"
         else:
-            family = "Lagrange"
+            family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
                 cells = ele.cell().sub_cells()
                 elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
