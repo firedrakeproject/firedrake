@@ -863,13 +863,14 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
     subdomain_key = []
     for val in form.subdomain_data().values():
         for k, v in val.items():
-            if v is not None:
-                extruded = v._extruded
-                constant_layers = extruded and v.constant_layers
-                subset = isinstance(v, op2.Subset)
-                subdomain_key.append((k, extruded, constant_layers, subset))
-            else:
-                subdomain_key.append((k,))
+            for i, vi in enumerate(v):
+                if vi is not None:
+                    extruded = vi._extruded
+                    constant_layers = extruded and vi.constant_layers
+                    subset = isinstance(vi, op2.Subset)
+                    subdomain_key.append((k, i, extruded, constant_layers, subset))
+                else:
+                    subdomain_key.append((k, i))
 
     return ((sig,)
             + tuple(subdomain_key)
@@ -945,7 +946,7 @@ class _GlobalKernelBuilder:
     @cached_property
     def _needs_subset(self):
         subdomain_data = self._form.subdomain_data()[self._mesh]
-        if subdomain_data.get(self._integral_type, None) is not None:
+        if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
         if self._kinfo.subdomain_id == "everywhere":
@@ -1205,9 +1206,14 @@ class ParloopBuilder:
         try:
             subdomain_data = self._form.subdomain_data()[self._mesh][self._integral_type]
         except KeyError:
-            subdomain_data = None
+            subdomain_data = [None]
 
-        if subdomain_data is not None:
+        subdomain_data = [sd for sd in subdomain_data if sd is not None]
+        if subdomain_data:
+            try:
+                subdomain_data, = subdomain_data
+            except ValueError:
+                raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
