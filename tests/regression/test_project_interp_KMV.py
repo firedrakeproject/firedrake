@@ -60,7 +60,7 @@ def run_projection(mesh, expr, p):
     r = Function(V)
     f = interpolate(expr(*SpatialCoordinate(mesh)), V)
     solve(
-        inner(u, v) * dx(rule=qr) == inner(f, v) * dx(rule=qr),
+        inner(u, v) * dx(scheme=qr) == inner(f, v) * dx(scheme=qr),
         r,
         solver_parameters={
             "ksp_type": "preonly",

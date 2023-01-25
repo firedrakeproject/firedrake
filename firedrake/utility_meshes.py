@@ -2112,7 +2112,7 @@ def OctahedralSphereMesh(
     # This will DTWT on meshes with more than 26 refinement levels.
     # (log_2 1e8 ~= 26.5)
     tol = ufl.real(Constant(1.0e-8))
-    rnew = ufl.Max(1 - abs(z), 0)
+    rnew = ufl.max_value(1 - abs(z), 0)
     # Avoid division by zero (when rnew is zero, x & y are also zero)
     x0 = ufl.conditional(ufl.lt(ufl.real(rnew), tol), 0, x / rnew)
     y0 = ufl.conditional(ufl.lt(rnew, tol), 0, y / rnew)
