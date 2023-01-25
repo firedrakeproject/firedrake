@@ -193,7 +193,8 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
-def test_projector():
+@pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
+def test_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
     xs = SpatialCoordinate(m)
@@ -204,7 +205,7 @@ def test_projector():
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo)
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
     P.project()
 
     mass2 = assemble(vo*dx)
@@ -215,6 +216,40 @@ def test_projector():
 
     P.project()
     mass2 = assemble(vo*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+
+@pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
+def test_mixed_projector(mat_type):
+    m = UnitSquareMesh(2, 2)
+    Vc1 = FunctionSpace(m, "CG", 1)
+    Vc2 = FunctionSpace(m, "CG", 2)
+    Vc = Vc1 * Vc2
+    xs = SpatialCoordinate(m)
+
+    v = Function(Vc)
+    v0, v1 = v.split()  # sub_functions
+    v0.interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
+    v1.interpolate(xs[0]*xs[1] + sin(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    Vd1 = FunctionSpace(m, "DG", 1)
+    Vd2 = FunctionSpace(m, "DG", 2)
+    Vd = Vd1 * Vd2
+    vo = Function(Vd)
+
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
+    P.project()
+
+    mass2 = assemble(sum(split(vo))*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+    v0.interpolate(xs[1] + exp(xs[0]+xs[1]))
+    v1.interpolate(xs[0] + exp(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    P.project()
+    mass2 = assemble(sum(split(vo))*dx)
     assert np.abs(mass1-mass2) < 1.0e-10
 
 

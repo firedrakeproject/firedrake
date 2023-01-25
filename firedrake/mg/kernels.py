@@ -29,7 +29,7 @@ from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
-from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
+from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -48,7 +48,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "to_reference_coords": to_reference_coordinates_body(ufl_coordinate_element, parameters),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
@@ -75,7 +75,7 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         double dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords)s
+%(to_reference_coords_newton_step)s
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;
