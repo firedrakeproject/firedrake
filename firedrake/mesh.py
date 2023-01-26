@@ -1795,7 +1795,16 @@ values from f.)"""
 
     @utils.cached_property
     def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point."""
+        """Spatial index to quickly find which cell contains a given point.
+
+        Notes
+        -----
+
+        If this mesh has a spatial_index_tolerance property, which should be a
+        float, this tolerance is added to the extrama of the spatial index so
+        that points just outside the mesh, within tolerance, can be found.
+
+        """
 
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
@@ -1842,6 +1851,13 @@ values from f.)"""
         column_list = V.cell_node_list.reshape(-1)
         coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+
+        # Push max and min out so we can find points on the boundary within
+        # tolerance. Note that if tolerance is too small it might not actually
+        # change the value!
+        if hasattr(self, "spatial_index_tolerance"):
+            coords_min -= self.spatial_index_tolerance
+            coords_max += self.spatial_index_tolerance
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
@@ -2350,6 +2366,13 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
 
     import firedrake.functionspace as functionspace
     import firedrake.function as function
+
+    # update parent meshes spatial_index function to include the requested
+    # tolerance. WARNING: this will change the spatial_index of the parent mesh
+    if tolerance:
+        mesh.clear_spatial_index()
+        mesh.spatial_index_tolerance = tolerance
+        mesh.spatial_index
 
     mesh.init()
 
