@@ -189,16 +189,16 @@ htmlhelp_basename = 'Firedrakedoc'
 # ~ latex_engine = 'lualatex'
 # ~ latex_use_xindy = False
 
-# ~ latex_additional_files = [
-        # ~ '_static/poptitle.sty'
-    # ~ ]
+latex_additional_files = [
+        '_static/sphinxpoptitle.sty'
+    ]
 
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     'papersize': 'a4paper',
 
     # The font size ('10pt', '11pt' or '12pt').
-    #'pointsize': '10pt',
+    'pointsize': '11pt',
 
     'babel': r'\usepackage[british]{babel}',
 
@@ -216,6 +216,9 @@ latex_elements = {
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
+% Make text sans-serif
+\renewcommand{\familydefault}{\sfdefault}
+
 % The default sphinx colouring colours a lot of links that are actually dead in
 % the book version.
 \definecolor{internallinkcolor}{HTML}{c52b03}
@@ -224,14 +227,14 @@ latex_elements = {
 \hypersetup{linkcolor=black}
 %\hypersetup{urlcolor=externallinkcolor}
 \hypersetup{urlcolor=black}
-%\usepackage{poptitle}
-%\subtitle{}
-%\edition{2023}
+\usepackage{sphinxpoptitle}
+\subtitle{}
+\edition{2023}
 ''',
 
     'extrapackages': r'''\usepackage{mathtools}''',
 
-    # ~ 'maketitle' : r'\poptitlepages'
+    'maketitle' : r'\sphinxpoptitlepages'
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
