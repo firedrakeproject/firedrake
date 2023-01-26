@@ -169,6 +169,34 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         raise ValueError('Cannot assign %s' % expr)
 
+    def riesz_representation(self, riesz_map='L2', **solver_options):
+        """Return the Riesz representation of this :class:`Cofunction` with
+           respect to the given Riesz map.
+
+        :arg riesz_map: The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        :kwarg solver_options: Solver options to pass to the linear solver.
+            - solver_parameters: optional solver parameters.
+            - nullspace: an optional :class:`.VectorSpaceBasis` (or
+                :class:`.MixedVectorSpaceBasis`) spanning the null space of
+                the operator.
+            - transpose_nullspace: as for the nullspace, but used to
+                make the right hand side consistent.
+            - near_nullspace: as for the nullspace, but used to add
+                the near nullspace.
+            - options_prefix: an optional prefix used to distinguish
+                PETSc options.  If not provided a unique prefix will be
+                created.  Use this option if you want to pass options
+                to the solver from the command line in addition to
+                through the ``solver_parameters`` dict.
+
+        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
+            the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
+            with u and v trial and test functions, respectively.
+        """
+        return self._ad_convert_type(self, options={"function_space": self.function_space().dual(),
+                                                    "riesz_representation": riesz_map,
+                                                    "solver_options": solver_options})
+
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
     def __iadd__(self, expr):

@@ -233,25 +233,27 @@ class FunctionMixin(FloatingType):
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
+        solver_options = options.get("solver_options", {})
+        V = options.get("function_space", self.function_space())
 
         if riesz_representation == "l2":
-            return Function(self.function_space(), val=value.vector())
+            return Function(V, val=value.vector())
 
         elif riesz_representation == "L2":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
+            ret = Function(V)
+            u = TrialFunction(V)
+            v = TestFunction(V)
             M = assemble(firedrake.inner(u, v)*firedrake.dx)
-            firedrake.solve(M, ret, value)
+            firedrake.solve(M, ret, value, **solver_options)
             return ret
 
         elif riesz_representation == "H1":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
+            ret = Function(V)
+            u = TrialFunction(V)
+            v = TestFunction(V)
             M = assemble(firedrake.inner(u, v)*firedrake.dx
                          + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx)
-            firedrake.solve(M, ret, value)
+            firedrake.solve(M, ret, value, **solver_options)
             return ret
 
         elif callable(riesz_representation):
