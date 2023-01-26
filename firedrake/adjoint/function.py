@@ -227,8 +227,7 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
+    def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, TrialFunction, TestFunction, assemble
 
         options = {} if options is None else options
@@ -262,6 +261,11 @@ class FunctionMixin(FloatingType):
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
+
+    @no_annotations
+    def _ad_convert_type(self, value, options=None):
+        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
+        self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):

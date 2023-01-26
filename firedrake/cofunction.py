@@ -193,9 +193,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
             with u and v trial and test functions, respectively.
         """
-        return self._ad_convert_type(self, options={"function_space": self.function_space().dual(),
-                                                    "riesz_representation": riesz_map,
-                                                    "solver_options": solver_options})
+        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
+                                                     "riesz_representation": riesz_map,
+                                                     "solver_options": solver_options})
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
