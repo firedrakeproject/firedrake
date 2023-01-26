@@ -138,7 +138,7 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
     struct ReferenceCoords reference_coords;
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords, tolerance);
+    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
     if (cell == -1) {
         return -1;
     }
