@@ -1,7 +1,7 @@
 import numpy as np
 import ufl
 from ufl.form import BaseForm
-from pyop2 import op2
+from pyop2 import op2, mpi
 import firedrake.assemble
 from firedrake.logging import warning
 from firedrake import utils, vector
@@ -50,7 +50,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         ufl.Cofunction.__init__(self,
                                 function_space.ufl_function_space().dual())
 
+        # User comm
         self.comm = function_space.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(function_space.comm)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
@@ -60,10 +63,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Allow constructing using a vector.
             val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self.comm
+            assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
