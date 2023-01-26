@@ -7,7 +7,7 @@ from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -38,7 +38,7 @@ def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance))
     src.append(make_wrapper(mesh.coordinates,
-                            forward_args=["void*", "double*", "int*"],
+                            forward_args=["void*", "double*", RealType_c+"*"],
                             kernel_name="to_reference_coords_kernel",
                             wrapper_name="wrap_to_reference_coords"))
     src.append(compute_distance_to_cell(mesh.ufl_cell()))
@@ -206,7 +206,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "inside_predicate": inside_check(element.cell, eps=contains_eps),
+        "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
@@ -218,6 +218,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "non_extr_comment_out": "//" if not extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
+        "RealType": RealType_c,
         "tolerance": contains_eps,
     }
 
@@ -228,7 +229,7 @@ struct ReferenceCoords {
 
 static double tolerance = %(tolerance)s; /* used in locate_cell */
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, %(ScalarType)s *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
@@ -251,27 +252,26 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 %(X_isub_dX)s
     }
 
-    // Are we inside the reference element?
-    *return_value = %(inside_predicate)s;
+    *cell_dist_l1 = %(celldist_l1_c_expr)s;
 }
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, int* const return_value, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
+    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
-int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
+%(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
-    int return_value = 0;
-    %(extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, f->coords, f->coords_map);
-    return return_value;
+    %(RealType)s cell_dist_l1 = 0.0;
+    %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+    return cell_dist_l1;
 }
 
-int to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
+%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
 {
-    int return_value = 0;
+    %(RealType)s cell_dist_l1 = 0.0;
     %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
-    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &return_value, cell, cell+1, layers, f->coords, f->coords_map);
-    return return_value;
+    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
+    return cell_dist_l1;
 }
 
 """
