@@ -69,50 +69,6 @@ def inside_check(fiat_cell, eps, X="X"):
     return ccode(fiat_cell.contains_point(point, epsilon=eps))
 
 
-def compute_celldist_mg(fiat_cell, X="X", celldist="celldist"):
-    """Used exclusively in multigrid kernels to find the maximum of an input
-    pointer string X which is then multiplied by -1 with the result stored in
-    celldist. The output is a string of C code.
-
-    If the fiat_cell is one dimensional then this doesn't find the maximum,
-    instead it just multiplies the first entry of X by -1 and stores it in
-    celldist.
-
-    WARNING: This function is specialised for use in multigrid kernels and
-    doesn't really compute a cell `distance' in any usual sense.
-
-    Parameters
-    ----------
-    fiat_cell : FIAT cell
-        The FIAT cell with same geometric dimension as the coordinate X.
-
-    X : str
-        The name of the input pointer variable to use.
-
-    celldist : str
-        The name of the output variable.
-
-    Returns
-    -------
-    str
-        A string of C code.
-    """
-    dim = fiat_cell.get_spatial_dimension()
-    s = """
-    %(celldist)s = PetscRealPart(%(X)s[0]);
-    for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
-        if (%(celldist)s > PetscRealPart(%(X)s[celldistdim])) {
-            %(celldist)s = PetscRealPart(%(X)s[celldistdim]);
-        }
-    }
-    %(celldist)s *= -1;
-    """ % {"celldist": celldist,
-           "dim": dim,
-           "X": X}
-
-    return s
-
-
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)

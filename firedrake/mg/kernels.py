@@ -28,8 +28,52 @@ from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
-from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist_mg
+from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
+
+
+def compute_celldist_mg(fiat_cell, X="X", celldist="celldist"):
+    """Used exclusively in multigrid kernels to find the maximum of an input
+    pointer string X which is then multiplied by -1 with the result stored in
+    celldist. The output is a string of C code.
+
+    If the fiat_cell is one dimensional then this doesn't find the maximum,
+    instead it just multiplies the first entry of X by -1 and stores it in
+    celldist.
+
+    WARNING: This function is specialised for use in multigrid kernels and
+    doesn't really compute a cell `distance' in any usual sense.
+
+    Parameters
+    ----------
+    fiat_cell : FIAT cell
+        The FIAT cell with same geometric dimension as the coordinate X.
+
+    X : str
+        The name of the input pointer variable to use.
+
+    celldist : str
+        The name of the output variable.
+
+    Returns
+    -------
+    str
+        A string of C code.
+    """
+    dim = fiat_cell.get_spatial_dimension()
+    s = """
+    %(celldist)s = PetscRealPart(%(X)s[0]);
+    for (int celldistdim = 1; celldistdim < %(dim)s; celldistdim++) {
+        if (%(celldist)s > PetscRealPart(%(X)s[celldistdim])) {
+            %(celldist)s = PetscRealPart(%(X)s[celldistdim]);
+        }
+    }
+    %(celldist)s *= -1;
+    """ % {"celldist": celldist,
+           "dim": dim,
+           "X": X}
+
+    return s
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
