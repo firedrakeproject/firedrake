@@ -95,6 +95,32 @@ def inside_check(fiat_cell, eps, X="X"):
     return ccode(fiat_cell.contains_point(point, epsilon=eps))
 
 
+def celldist_l1_c_expr(fiat_cell, X="X"):
+    """Generate a C expression of type `PetscReal` to compute the L1 distance
+    (aka 'manhatten', 'taxicab' or rectilinear distance) to a FIAT reference
+    cell.
+
+    Parameters
+    ----------
+    fiat_cell : FIAT cell
+        The FIAT cell with same geometric dimension as the coordinate X.
+
+    X : str
+        The name of the input pointer variable to use.
+
+    celldist : str
+        The name of the output variable.
+
+    Returns
+    -------
+    str
+        A string of C code.
+    """
+    dim = fiat_cell.get_spatial_dimension()
+    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
+    return ccode(fiat_cell.distance_to_point_l1(point))
+
+
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
