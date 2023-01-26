@@ -186,12 +186,12 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # -- Options for LaTeX output --------------------------------------------
 
-latex_engine = 'lualatex'
-latex_use_xindy = False
+# ~ latex_engine = 'lualatex'
+# ~ latex_use_xindy = False
 
-latex_additional_files = [
-        '_static/poptitle.sty'
-    ]
+# ~ latex_additional_files = [
+        # ~ '_static/poptitle.sty'
+    # ~ ]
 
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
@@ -206,13 +206,13 @@ latex_elements = {
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
 
-%\sphinxDUC{2730}{\ding{80}}
-%\sphinxDUC{27F6}{$\rightarrow$}
-%\sphinxDUC{2208}{$\in$}
-%\sphinxDUC{2200}{$\forall$}
-%\sphinxDUC{2218}{$\circ$}
-%\sphinxDUC{22C5}{$\cdot$}
-%\sphinxDUC{25A3}{$\boxdot$}
+% \sphinxDUC{2730}{\ding{80}}
+\sphinxDUC{27F6}{$\rightarrow$}
+\sphinxDUC{2208}{$\in$}
+\sphinxDUC{2200}{$\forall$}
+\sphinxDUC{2218}{$\circ$}
+\sphinxDUC{22C5}{$\cdot$}
+\sphinxDUC{25A3}{$\boxdot$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
@@ -224,20 +224,20 @@ latex_elements = {
 \hypersetup{linkcolor=black}
 %\hypersetup{urlcolor=externallinkcolor}
 \hypersetup{urlcolor=black}
-\usepackage{poptitle}
-\subtitle{}
-\edition{2023}
+%\usepackage{poptitle}
+%\subtitle{}
+%\edition{2023}
 ''',
 
     'extrapackages': r'''\usepackage{mathtools}''',
 
-    'maketitle' : r'\poptitlepages'
+    # ~ 'maketitle' : r'\poptitlepages'
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('index', 'Firedrake.tex', u'User Manual',
+    ('book', 'Firedrake.tex', u'User Manual',
      u'the Firedrake team', 'manual'),
 ]
 
@@ -247,7 +247,7 @@ latex_logo = '_themes/firedrake/static/banner.png'
 
 # For "manual" documents, if this is true, then toplevel headings are parts,
 # not chapters.
-latex_use_parts = True
+#latex_use_parts = True
 
 # If true, show page references after internal links.
 #latex_show_pagerefs = False
