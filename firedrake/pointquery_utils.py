@@ -226,7 +226,7 @@ struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
 };
 
-static double tolerance = %(tolerance)s; /* used in locate_cell */
+static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
 static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
