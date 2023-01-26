@@ -1,4 +1,6 @@
-:orphan: true
+.. raw:: latex
+
+   \clearpage
 
 ==================
  Citing Firedrake
@@ -38,8 +40,8 @@ COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2017`.
 If you make use of matrix-free functionality and custom block
 preconditioning, please cite :cite:`Kirby2017`.
 
-If you would like to help us to keep track of research directly 
-benefitting from Firedrake, please feel free to add your paper in 
+If you would like to help us to keep track of research directly
+benefitting from Firedrake, please feel free to add your paper in
 bibtex format in the `bibliography for firedrake applications
 <https://github.com/firedrakeproject/firedrake/blob/master/docs/source/_static/firedrake-apps.bib>`_.
 
