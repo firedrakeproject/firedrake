@@ -9,8 +9,7 @@ int locate_cell(struct Function *f,
         int dim,
         inside_predicate try_candidate,
         inside_predicate_xtr try_candidate_xtr,
-        void *data_,
-        double tolerance)
+        void *data_)
 {
     RTError err;
     int cell = -1;
@@ -18,6 +17,9 @@ int locate_cell(struct Function *f,
     struct ReferenceCoords *ref_coords = (struct ReferenceCoords *) data_;
     double closest_ref_coord = DBL_MAX;
     double current_closest_ref_coord =  -0.5;
+    /* NOTE: `tolerance`, which is used throughout this funciton, is a static
+       variable defined outside this function when putting together all the C
+       code that needs to be compiled - see pointquery_utils.py */
 
     if (f->sidx) {
         int64_t *ids = NULL;

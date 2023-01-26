@@ -1872,7 +1872,7 @@ values from f.)"""
         /* The type definitions and arguments used here are defined as
            statics in pointquery_utils.py */
         struct ReferenceCoords reference_coords;
-        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords, tolerance);
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
         for(int i=0; i<%(geometric_dimension)d; i++) {
             X[i] = reference_coords.X[i];
         }
