@@ -1,6 +1,7 @@
 from os import path
 import numpy
 import sympy
+from sympy.printing.c import ccode
 
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
@@ -65,8 +66,7 @@ def is_affine(ufl_element):
 def inside_check(fiat_cell, eps, X="X"):
     dim = fiat_cell.get_spatial_dimension()
     point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
-
-    return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=eps).args)
+    return ccode(fiat_cell.contains_point(point, epsilon=eps))
 
 
 def compute_celldist(fiat_cell, X="X", celldist="celldist"):
