@@ -34,12 +34,12 @@ struct Function {
 	 */
 };
 
-typedef int (*inside_predicate)(void *data_,
+typedef PetscReal (*inside_predicate)(void *data_,
 				struct Function *f,
 				int cell,
 				double *x);
 
-typedef int (*inside_predicate_xtr)(void *data_,
+typedef PetscReal (*inside_predicate_xtr)(void *data_,
 				struct Function *f,
 				int cell,
 				int layer,
