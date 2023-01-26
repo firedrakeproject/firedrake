@@ -1,8 +1,8 @@
 \NeedsTeXFormat{LaTeX2e}
-\ProvidesPackage{poptitle}[2023/01/18 Firedrake manual title page.]
+\ProvidesPackage{sphinxpoptitle}[2023/01/18 Firedrake manual title page.]
 
-\RequirePackage{fontspec}
-\setsansfont{TeX Gyre Heros}
+%\RequirePackage{fontspec}
+%\setsansfont{TeX Gyre Heros}
 \RequirePackage[british]{babel}
 \RequirePackage[utf8]{inputenc}
 \RequirePackage[absolute]{textpos}
@@ -17,6 +17,7 @@
 \RequirePackage{fmtcount}
 \RequirePackage{hyperref}
 \RequirePackage{titling}
+\RequirePackage{sphinx}
 
 \newcommand{\editions}{}
 \newcommand{\edition}[1]{\listadd{\editions}{#1}}
@@ -32,7 +33,7 @@
 
 \definecolor{imperialblue}{cmyk}{1,.61,0,.45}
 
-\newcommand{\poptitlepages}{
+\newcommand{\sphinxpoptitlepages}{
 \clearpage
 \thispagestyle{empty}
     \newcounter{edcnt}
@@ -46,29 +47,12 @@
 }
     \dolistloop{\editions}
 
-% \begin{textblock}{70}(17.5,17.5)
-%     \noindent\includegraphics[width=70mm]{imperial.pdf}
-% \end{textblock}
-% \begin{textblock}{210}(0,279)
-%     \noindent\rule{210mm}{.5mm}
-% \end{textblock}
-% \begin{textblock}{30}(190,-5)
-%     {\color{imperialblue}
-%     \noindent\rule[-5mm]{21mm}{300mm}}
-% \end{textblock}
-% \begin{textblock}{210}(17.5,284.5)
-%     {\sffamily\fontsize{25}{30}\selectfont
-%     \noindent Course Notes in Mathematics}
-% \end{textblock}
-% \begin{textblock}{30}(185,284.5)
-%     {\sffamily\fontsize{25}{30}\selectfont\centering\color{white}\bfseries
-%     \thevolcnt
-
-%     }
-%  %\rule{15mm,297mm}
-%\end{textblock}
 \begin{textblock}{154}(17.5,74.25)
     \setlength{\parskip}{2ex}
+
+    \sphinxlogo
+    \vspace{7\parskip}
+
     {\sffamily\fontsize{25}{30}\selectfont\noindent\thetitle}
 
     {\sffamily\fontsize{17}{20}\selectfont\noindent\thesubtitle
@@ -85,7 +69,6 @@
 
 \begin{textblock}{146}[0,1](17.5,230.5)
     {
-     %\hypersetup{urlcolor=imperialblue}
     \sffamily\fontsize{12}{14}\selectfont
     \setcounter{edcnt}{0}
     \renewcommand*{\do}[1]{\stepcounter{edcnt}\noindent\Ordinalstring{edcnt} edition: ##1
