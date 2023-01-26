@@ -64,6 +64,32 @@ def is_affine(ufl_element):
 
 
 def inside_check(fiat_cell, eps, X="X"):
+    """Generate a C expression which is true if a point is inside a FIAT
+    reference cell and false otherwise.
+
+    Parameters
+    ----------
+    fiat_cell : FIAT Cell
+        The FIAT cell with same geometric dimension as the coordinate X.
+
+    eps : float
+        The tolerance to use for the check. Usually some small number like
+        1e-14.
+
+    X : str
+        The name of the input pointer variable to use in the generated C code:
+        it should be a pointer to a type that is an acceptable input to the
+        `PetscRealPart` function. Default is "X".
+
+    celldist : str
+        The name of the output variable.
+
+    Returns
+    -------
+    str
+        A C expression which is true if the point is inside the cell and false
+        otherwise.
+    """
     dim = fiat_cell.get_spatial_dimension()
     point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
     return ccode(fiat_cell.contains_point(point, epsilon=eps))
