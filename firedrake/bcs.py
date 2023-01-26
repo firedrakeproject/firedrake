@@ -193,9 +193,12 @@ class BCBase(object):
         :arg r: the :class:`Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
+
         for idx in self._indices:
             r = r.sub(idx)
-            val = val.sub(idx)
+        if not np.isscalar(val):
+            for idx in self._indices:
+                val = val.sub(idx)
         r.assign(val, subset=self.node_set)
 
     def integrals(self):

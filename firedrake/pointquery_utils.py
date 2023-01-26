@@ -95,7 +95,7 @@ def init_X(fiat_cell, parameters):
 
 
 @PETSc.Log.EventDecorator()
-def to_reference_coordinates(ufl_coordinate_element, parameters):
+def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
     domain = ufl.Mesh(ufl_coordinate_element)
@@ -172,7 +172,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
         "inside_predicate": inside_check(element.cell, eps=contains_eps),
-        "to_reference_coords": to_reference_coordinates(ufl_coordinate_element, parameters),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
@@ -204,7 +204,7 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords)s
+%(to_reference_coords_newton_step)s
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;
