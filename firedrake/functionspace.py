@@ -78,8 +78,7 @@ def check_element(element, top=True):
     :raises ValueError: if the element is illegal.
 
     """
-    if type(element) in (ufl.BrokenElement, ufl.FacetElement,
-                         ufl.InteriorElement, ufl.RestrictedElement,
+    if type(element) in (ufl.BrokenElement, ufl.RestrictedElement,
                          ufl.HDivElement, ufl.HCurlElement):
         inner = (element._element, )
     elif type(element) is ufl.EnrichedElement:
