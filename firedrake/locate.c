@@ -35,7 +35,7 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
                 current_closest_ref_coord = (*try_candidate)(data_, f, ids[i], x);
-                if (current_closest_ref_coord == 0.0) {
+                if (current_closest_ref_coord <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
                     break;
@@ -53,7 +53,7 @@ int locate_cell(struct Function *f,
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;
                 current_closest_ref_coord = (*try_candidate_xtr)(data_, f, c, l, x);
-                if (current_closest_ref_coord == 0.0) {
+                if (current_closest_ref_coord <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
                     break;
@@ -70,7 +70,7 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (int c = 0; c < f->n_cols; c++) {
                 current_closest_ref_coord = (*try_candidate)(data_, f, c, x);
-                if (current_closest_ref_coord == 0.0) {
+                if (current_closest_ref_coord <= 0.0) {
                     cell = c;
                     break;
                 }
@@ -84,7 +84,7 @@ int locate_cell(struct Function *f,
             for (int c = 0; c < f->n_cols; c++) {
                 for (int l = 0; l < f->n_layers; l++) {
                     current_closest_ref_coord = (*try_candidate_xtr)(data_, f, c, l, x);
-                    if (current_closest_ref_coord == 0.0) {
+                    if (current_closest_ref_coord <= 0.0) {
                         cell = l;
                         break;
                     }
