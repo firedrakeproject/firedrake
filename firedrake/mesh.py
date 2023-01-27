@@ -2364,7 +2364,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance)
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance, redundant=redundant)
 
     if missing_points_behaviour:
 
@@ -2438,7 +2438,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     return vmesh
 
 
-def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
+def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redundant=False):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
     This should only by used for meshes with straight edges. If not, the
@@ -2493,6 +2493,9 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
+
+    if redundant and parent_mesh._comm.rank == 0:
+        coords = parent_mesh._comm.bcast(coords, root=0)
 
     plex = parent_mesh.topology.topology_dm
     tdim = parent_mesh.topological_dimension()

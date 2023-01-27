@@ -78,7 +78,7 @@ def test_pic_swarm_in_mesh(parentmesh):
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields, redundant=False)
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -137,6 +137,36 @@ def test_pic_swarm_in_mesh(parentmesh):
         assert np.all(petsclocalparentcellindices == localparentcellindices)
 
 
+def test_pic_swarm_in_mesh_redundant(parentmesh):
+    """Generate points in cell midpoints of mesh `parentmesh` and check correct
+    swarm with points being broadcast from rank 0."""
+    # Setup
+    parentmesh.init()
+    inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
+    from firedrake.petsc import PETSc
+    fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
+
+    # check redundant argument broadcasts from rank 0...
+    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields, redundant=True)
+
+    # Get point coords on current MPI rank
+    localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
+    swarm.restoreField("DMSwarmPIC_coor")
+    if len(inputpointcoords.shape) > 1:
+        localpointcoords = np.reshape(localpointcoords, (-1, inputpointcoords.shape[1]))
+
+    # Only rank 0 should have any points since the mesh has been partitioned,
+    # the points are at the cell midpoints, and the halos are empty.
+    if MPI.COMM_WORLD.rank == 0:
+        assert swarm.getLocalSize() == len(inputpointcoords)
+        assert np.allclose(np.sort(inputlocalpointcoords, axis=0),
+                           np.sort(localpointcoords, axis=0))
+    else:
+        assert swarm.getLocalSize() == 0
+        assert len(localpointcoords) == 0
+
+
+
 @pytest.mark.parallel
 def test_pic_swarm_in_mesh_parallel(parentmesh):
     test_pic_swarm_in_mesh(parentmesh)
@@ -150,3 +180,17 @@ def test_pic_swarm_in_mesh_2d_2procs():
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
 def test_pic_swarm_in_mesh_2d_3procs():
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
+
+@pytest.mark.parallel
+def test_pic_swarm_in_mesh_redundant_parallel(parentmesh):
+    test_pic_swarm_in_mesh_redundant(parentmesh)
+
+
+@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+def test_pic_swarm_in_mesh_redundant_2d_2procs():
+    test_pic_swarm_in_mesh_redundant(UnitSquareMesh(1, 1))
+
+
+@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
+def test_pic_swarm_in_mesh_2d_3procs():
+    test_pic_swarm_in_mesh_redundant(UnitSquareMesh(1, 1))
