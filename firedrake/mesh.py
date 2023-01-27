@@ -2719,7 +2719,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
                 parent_cell_nums[i] = parent_cell_num
                 reference_coords[i] = reference_coord
         else:
-            parent_mesh.locate_cell(out_of_mesh_point)  # should return None
+            parent_mesh.locate_cell(out_of_mesh_point, tolerance)  # should return None
 
     vertex_coords = np.compress(valid, vertex_coords, axis=0)
     reference_coords = np.compress(valid, reference_coords, axis=0)
