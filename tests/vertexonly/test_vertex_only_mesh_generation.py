@@ -230,6 +230,36 @@ def test_outside_boundary_behaviour(parentmesh):
     assert vm.cell_set.size == 1
 
 
+@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+def test_partition_behaviour_2d_2procs():
+    test_partition_behaviour()
+
+
+@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
+def test_partition_behaviour_2d_3procs():
+    test_partition_behaviour()
+
+
+def test_partition_behaviour():
+    parentmesh = UnitSquareMesh(1, 1)
+    inputcoords = [[0.0-1e-15, 0.5],
+                   [0.5, 0.0-1e-15],
+                   [0.5, 1.0+1e-15],
+                   [1.0+1e-15, 0.5],
+                   [0.5, 0.5],
+                   [0.5, 0.5],
+                   [0.5+1e-15, 0.5],
+                   [0.5, 0.5+1e-15]]
+    npts = len(inputcoords)
+    # Check that we get all the points with a big enough tolerance
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13, missing_points_behaviour='error')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
+    # Check that we lose all but the last 4 points with a small tolerance
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-16, missing_points_behaviour='warn')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
+
+
 def test_inside_boundary_behaviour(parentmesh):
     """
     Generate points just inside the boundary of the parentmesh and
