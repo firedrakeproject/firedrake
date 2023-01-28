@@ -23,7 +23,6 @@ The Firedrake Manual
       book_intro
 
 .. toctree::
-   :numbered:
 
    manual
    intro_tut
