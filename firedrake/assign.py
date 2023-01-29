@@ -89,9 +89,6 @@ class CoefficientCollector(MultiFunction):
     def coefficient(self, o):
         return ((o, 1),)
 
-    def conj(self, o):
-        return ((ufl.conj(o), 1),)
-
     def expr(self, o, *operands):
         raise NotImplementedError(f"Handler not defined for {type(o)}")
 
