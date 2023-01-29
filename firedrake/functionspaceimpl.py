@@ -100,9 +100,10 @@ class WithGeometry(ufl.FunctionSpace):
         self.cargo.topological = val
 
     @utils.cached_property
-    def _subfunctions(self):
+    def subfunctions(self):
+        r"""Split into a tuple of constituent spaces."""
         return tuple(WithGeometry.create(subspace, self.mesh())
-                     for subspace in self.topological.subfunctions())
+                     for subspace in self.topological.subfunctions)
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -119,15 +120,10 @@ class WithGeometry(ufl.FunctionSpace):
         return self.ufl_domain().ufl_cell()
 
     @PETSc.Log.EventDecorator()
-    def subfunctions(self):
-        r"""Split into a tuple of constituent spaces."""
-        return self._subfunctions
-        
-    @PETSc.Log.EventDecorator()
     def split(self):
         import warnings
-        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
-        return self._subfunctions
+        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -135,7 +131,7 @@ class WithGeometry(ufl.FunctionSpace):
             return tuple(WithGeometry.create(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
-            return self._subfunctions
+            return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -275,10 +271,10 @@ class WithGeometry(ufl.FunctionSpace):
         return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
 
     def __iter__(self):
-        return iter(self._subfunctions)
+        return iter(self.subfunctions)
 
     def __getitem__(self, i):
-        return self._subfunctions[i]
+        return self.subfunctions[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -502,14 +498,15 @@ class FunctionSpace(object):
                                                    self.ufl_element(),
                                                    self.name)
 
+    @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
         return (self, )
 
     def split(self):
         import warnings
-        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
-        return self.subfunctions()
+        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        return self.subfunctions
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -716,15 +713,16 @@ class MixedFunctionSpace(object):
     def __hash__(self):
         return hash(tuple(self))
 
+    @utils.cached_property
     def subfunctions(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
-        
+
     def split(self):
         import warnings
-        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
-        return self.subfunctions()
+        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        return self.subfunctions
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this

@@ -32,7 +32,7 @@ def prolong(coarse, fine):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(coarse.subfunctions(), fine.subfunctions()):
+        for in_, out in zip(coarse.subfunctions, fine.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.prolong(in_, out)
         return fine
@@ -93,7 +93,7 @@ def restrict(fine_dual, coarse_dual):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(fine_dual.subfunctions(), coarse_dual.subfunctions()):
+        for in_, out in zip(fine_dual.subfunctions, coarse_dual.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.restrict(in_, out)
         return coarse_dual
@@ -155,7 +155,7 @@ def inject(fine, coarse):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(fine.subfunctions(), coarse.subfunctions()):
+        for in_, out in zip(fine.subfunctions, coarse.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.inject(in_, out)
         return

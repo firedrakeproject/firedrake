@@ -161,7 +161,7 @@ def test_real_mixed_solve():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.subfunctions()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -194,7 +194,7 @@ def test_real_mixed_solve_split_comms():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.subfunctions()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -230,7 +230,7 @@ def test_real_space_mixed_assign():
 
     f = Function(W)
 
-    q, v = f.subfunctions()
+    q, v = f.subfunctions
 
     q.assign(2)
     g = Function(V)

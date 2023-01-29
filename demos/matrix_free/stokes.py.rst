@@ -126,7 +126,7 @@ visualisation.  We split the function into its velocity and pressure
 parts and give them reasonable names, then write them to a paraview
 file.::
 
-  u, p = up.split()
+  u, p = up.subfunctions
   u.rename("Velocity")
   p.rename("Pressure")
 

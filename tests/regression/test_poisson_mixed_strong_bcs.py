@@ -55,7 +55,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     # Compute solution
     w = Function(W)
     solve(a == L, w, bcs=bcs, solver_parameters=parameters)
-    sigma, u = w.subfunctions()
+    sigma, u = w.subfunctions
 
     # Analytical solution
     f.interpolate(42*x[1])

@@ -228,7 +228,7 @@ def test_mixed_projector(mat_type):
     xs = SpatialCoordinate(m)
 
     v = Function(Vc)
-    v0, v1 = v.split()  # sub_functions
+    v0, v1 = v.subfunctions
     v0.interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
     v1.interpolate(xs[0]*xs[1] + sin(xs[0]+xs[1]))
     mass1 = assemble(sum(split(v))*dx)

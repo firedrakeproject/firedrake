@@ -138,7 +138,7 @@ solver parameters. Afterwards we extract the components ``sigma`` and ``u``
 on each of the subspaces with ``split``. ::
 
   solve(a == L, w, bcs=[bc0, bc1])
-  sigma, u = w.split()
+  sigma, u = w.subfunctions
 
 Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a

@@ -106,22 +106,18 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self.uid
 
     @utils.cached_property
-    def _subfunctions(self):
+    def subfunctions(self):
+        r"""Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
     @PETSc.Log.EventDecorator()
-    def subfunctions(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return self._subfunctions
-    
-    @PETSc.Log.EventDecorator()
     def split(self):
         import warnings
-        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
-        return self._subfunctions
+        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -138,7 +134,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         :arg i: the index to extract
 
-        See also :meth:`subfunctions`.
+        See also :property:`subfunctions`.
 
         If the :class:`Function` is defined on a
         rank-n :class:`~.FunctionSpace`, this returns a proxy object
@@ -146,7 +142,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         boundary condition application."""
         if len(self.function_space()) == 1:
             return self._components[i]
-        return self._split[i]
+        return self.subfunctions[i]
 
     @property
     def cell_set(self):
@@ -308,22 +304,18 @@ class Function(ufl.Coefficient, FunctionMixin):
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     @utils.cached_property
-    def _subfunctions(self):
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.subfunctions()))
-
-    @PETSc.Log.EventDecorator()
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return self._subfunctions
-    
+        return tuple(type(self)(V, val)
+                     for (V, val) in zip(self.function_space(), self.topological.subfunctions))
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_split
     def split(self):
         import warnings
-        warnings.warn(".split() was renamed as .subfunctions()", category=FutureWarning)
-        return self._subfunctions
+        warnings.warn(".split() was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -339,7 +331,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         :arg i: the index to extract
 
-        See also :meth:`subfunctions`.
+        See also :property:`subfunctions`.
 
         If the :class:`Function` is defined on a
         :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
@@ -347,7 +339,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         boundary condition application."""
         if len(self.function_space()) == 1:
             return self._components[i]
-        return self._subfunctions[i]
+        return self.subfunctions[i]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
@@ -561,7 +553,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         points = arg.reshape(-1, arg.shape[-1])
         value_shape = self.ufl_shape
 
-        subfunctions = self.subfunctions()
+        subfunctions = self.subfunctions
         mixed = len(subfunctions) != 1
 
         # Local evaluation

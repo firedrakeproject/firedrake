@@ -118,7 +118,7 @@ def test_dont_raise_mixed():
     V2 = FunctionSpace(mesh, "RT", 2)
     V = V1 * V2
     f = Function(V)
-    f1, f2 = f.subfunctions()
+    f1, f2 = f.subfunctions
     x = SpatialCoordinate(mesh)
     f1.interpolate(x[0] + 1.2*x[1])
     f2.project(as_vector((x[1], 0.8 + x[0])))

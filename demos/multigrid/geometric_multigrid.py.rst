@@ -255,7 +255,7 @@ approximations.
 
 Finally, we'll write the solution for visualisation with Paraview. ::
 
-  u, p = u.split()
+  u, p = u.subfunctions
   u.rename("Velocity")
   p.rename("Pressure")
 
