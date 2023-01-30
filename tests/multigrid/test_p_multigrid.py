@@ -34,8 +34,8 @@ def test_prolongation_matrix_matfree():
     meshes.append(ExtrudedMesh(meshes[0], layers=2))
     for mesh in meshes:
         ndim = mesh.topological_dimension()
-        b = Constant(list(range(ndim)))
-        mat = diag(Constant([ndim+1]*ndim)) + Constant([[-1]*ndim]*ndim)
+        b = Constant(list(range(ndim)), domain=mesh)
+        mat = diag(Constant([ndim+1]*ndim, domain=mesh)) + Constant([[-1]*ndim]*ndim, domain=mesh)
         expr = dot(mat, SpatialCoordinate(mesh)) + b
 
         variant = None
@@ -79,7 +79,7 @@ def test_p_multigrid_scalar(mesh, mat_type):
 
     u = Function(V)
     v = TestFunction(V)
-    f = Constant(1)
+    f = Constant(1, domain=mesh)
     bcs = DirichletBC(V, 0, "on_boundary")
 
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
@@ -127,10 +127,10 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
 
     u = Function(V)
     v = TestFunction(V)
-    f = Constant(1)
+    f = Constant(1, domain=mesh)
     bcs = DirichletBC(V, 0, "on_boundary")
 
-    F = inner((Constant(1.0) + u**2) * grad(u), grad(v))*dx - inner(f, v)*dx
+    F = inner((Constant(1.0, domain=mesh) + u**2) * grad(u), grad(v))*dx - inner(f, v)*dx
 
     relax = {"ksp_type": "chebyshev",
              "ksp_monitor_true_residual": None,
@@ -173,13 +173,13 @@ def test_p_multigrid_vector():
     V = VectorFunctionSpace(mesh, "CG", 4)
     u = Function(V)
 
-    rho = Constant(2700)
-    g = Constant(-9.81)
-    B = Constant((0.0, rho*g))  # Body force per unit volume
+    rho = Constant(2700, domain=mesh)
+    g = Constant(-9.81, domain=mesh)
+    B = Constant((0.0, rho*g), domain=mesh)  # Body force per unit volume
 
     # Elasticity parameters
     E_, nu = 6.9e10, 0.334
-    mu, lmbda = Constant(E_/(2*(1 + nu))), Constant(E_*nu/((1 + nu)*(1 - 2*nu)))
+    mu, lmbda = Constant(E_/(2*(1 + nu)), domain=mesh), Constant(E_*nu/((1 + nu)*(1 - 2*nu)), domain=mesh)
 
     # Linear elastic energy
     E = 0.5 * (
@@ -224,8 +224,8 @@ def test_p_multigrid_mixed(mat_type):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 4)
     Z = MixedFunctionSpace([V, V])
-    x = SpatialCoordinate(mesh) - Constant((0.5, 0.5))
-    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/6)])
+    x = SpatialCoordinate(mesh) - Constant((0.5, 0.5), domain=mesh)
+    z_exact = as_vector([dot(x, x), dot(x, x)-Constant(1/6, domain=mesh)])
     B = -div(grad(z_exact))
     T = dot(grad(z_exact), FacetNormal(mesh))
     z = Function(Z)
@@ -370,7 +370,7 @@ def test_p_fas_nonlinear_scalar():
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", N)
     u = Function(V)
-    f = Constant(1)
+    f = Constant(1, domain=mesh)
     bcs = DirichletBC(V, 0, "on_boundary")
 
     # Regularized p-Laplacian

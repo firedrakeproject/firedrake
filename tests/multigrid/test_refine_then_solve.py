@@ -10,6 +10,6 @@ def test_solve_on_refined_mesh():
 
     f = Function(V)
 
-    f.project(Constant(1))
+    f.project(Constant(1, domain=mesh))
 
     assert np.allclose(f.dat.data_ro, 1.0)

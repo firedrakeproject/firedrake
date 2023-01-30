@@ -87,8 +87,8 @@ def solver(V, space, solver_parameters):
     (x, y) = SpatialCoordinate(mesh)
     f = as_vector([2*y*(1-x**2),
                    -2*x*(1-y**2)])
-    a = Constant(1)
-    b = Constant(100)
+    a = Constant(1, domain=mesh)
+    b = Constant(100, domain=mesh)
     if space == "RT":
         F = a*inner(u, v)*dx + b*inner(div(u), div(v))*dx - inner(f, v)*dx
     elif space == "N1curl":

@@ -16,7 +16,7 @@ def test_coarsen_callback():
 
     a = inner(grad(u), grad(v))*dx + inner(u, v)*dx
 
-    L = inner(Constant(1), v)*dx
+    L = inner(Constant(1, domain=mesh), v)*dx
 
     @singledispatch
     def coarsen(expr, self, coefficient_mapping=None):

@@ -26,6 +26,6 @@ def test_transfer_scalar_vector(typ):
             transfer = prolong
         donor = Function(Vdonor)
         target = Function(Vtarget)
-        donor.assign(Constant(val))
+        donor.assign(Constant(val, domain=mesh))
         transfer(donor, target)
         assert numpy.allclose(target.dat.data_ro, val)

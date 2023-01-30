@@ -14,7 +14,8 @@ def run_gtmg_mixed_poisson():
         return FunctionSpace(mesh, "CG", 1)
 
     def get_p1_prb_bcs():
-        return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
+        p1 = get_p1_space()
+        return DirichletBC(p1, Constant(0.0, domain=p1.mesh()), "on_boundary")
 
     def p1_callback():
         P1 = get_p1_space()
@@ -79,7 +80,8 @@ def run_gtmg_scpc_mixed_poisson():
         return FunctionSpace(mesh, "CG", 1)
 
     def get_p1_prb_bcs():
-        return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
+        p1 = get_p1_space()
+        return DirichletBC(p1, Constant(0.0, domain=p1.mesh()), "on_boundary")
 
     def p1_callback():
         P1 = get_p1_space()
@@ -132,7 +134,7 @@ def run_gtmg_scpc_mixed_poisson():
               'get_coarse_space': get_p1_space,
               'coarse_space_bcs': get_p1_prb_bcs()}
 
-    bcs = DirichletBC(W.sub(2), Constant(0.0), "on_boundary")
+    bcs = DirichletBC(W.sub(2), Constant(0.0, domain=mesh), "on_boundary")
 
     solve(a == L, w, bcs=bcs, solver_parameters=params, appctx=appctx)
     _, uh, _ = w.subfunctions

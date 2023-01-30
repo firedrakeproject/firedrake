@@ -35,7 +35,7 @@ def compute_err(mh, v_true):
     err = []
 
     for m in mh:
-        v_approx = assemble(Constant(1)*dx(domain=m))
+        v_approx = assemble(Constant(1, domain=mesh)*dx(domain=m))
         err.append(abs(v_true - v_approx) / v_true)
 
     return err

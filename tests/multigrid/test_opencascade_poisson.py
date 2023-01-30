@@ -29,9 +29,9 @@ def test_opencascade_poisson(stepdata, order):
     u = Function(V)
     v = TestFunction(V)
 
-    f = Constant(1)
+    f = Constant(1, domain=mesh)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
-    bcs = DirichletBC(V, Constant(0), 1)
+    bcs = DirichletBC(V, Constant(0, domain=mesh), 1)
 
     params = {
         "mat_type": "aij",

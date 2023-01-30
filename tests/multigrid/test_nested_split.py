@@ -70,7 +70,7 @@ def test_nested_split_multigrid(parameters):
     u, p, s = split(w)
     v, q, r = TestFunctions(W)
 
-    epsilon = Constant(1e-4)
+    epsilon = Constant(1e-4, domain=mh[-1])
     nu = (epsilon**2 + 0.5 * inner(grad(u), grad(u)))
 
     x = SpatialCoordinate(mh[-1])[0]
@@ -92,7 +92,7 @@ def test_nested_split_multigrid(parameters):
     s_expect.interpolate(x)
 
     bcs = [DirichletBC(W.sub(0), u_expect, (1, 2, 3, 4)),
-           DirichletBC(W.sub(1), Constant(0), (1, 2, 3, 4))]
+           DirichletBC(W.sub(1), Constant(0, domain=mh[-1]), (1, 2, 3, 4))]
 
     problem = NonlinearVariationalProblem(F, w, bcs=bcs)
     solver = NonlinearVariationalSolver(problem, options_prefix="",
