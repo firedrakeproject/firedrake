@@ -589,7 +589,7 @@ class LocalLoopyKernelBuilder(object):
         for i, (c, split_map) in enumerate(self.expression.coeff_map):
             coeff = coeffs[c]
             if type(coeff.ufl_element()) == MixedElement:
-                splits = coeff.split()
+                splits = coeff.subfunctions
                 coeff_dict[coeff] = OrderedDict({splits[j]: (f"w_{i}_{j}", self.extent(splits[j])) for j in split_map})
             else:
                 coeff_dict[coeff] = (f"w_{i}", self.extent(coeff))

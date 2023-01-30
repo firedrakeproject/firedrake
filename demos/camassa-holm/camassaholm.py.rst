@@ -94,7 +94,7 @@ two variables. ::
   W = MixedFunctionSpace((V, V))
 
 We construct a :class:`~.Function` to store the two variables at time
-level ``n``, and :meth:`~.Function.subfunctions` it so that we can
+level ``n``, and :attr:`~.Function.subfunctions` it so that we can
 interpolate the initial condition into the two components. ::
 
   w0 = Function(W)
@@ -161,7 +161,7 @@ rather than blocked system. ::
       'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
-Next we use the other form of :meth:`~.Function.subfunctions`, ``w0.subfunctions``,
+Next we use the other form of :attr:`~.Function.subfunctions`, ``w0.subfunctions``,
 which is the way to split up a Function in order to access its data
 e.g. for output. ::
 

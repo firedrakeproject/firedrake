@@ -134,7 +134,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         :arg i: the index to extract
 
-        See also :property:`subfunctions`.
+        See also :attr:`subfunctions`.
 
         If the :class:`Function` is defined on a
         rank-n :class:`~.FunctionSpace`, this returns a proxy object
@@ -331,7 +331,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         :arg i: the index to extract
 
-        See also :property:`subfunctions`.
+        See also :attr:`subfunctions`.
 
         If the :class:`Function` is defined on a
         :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
