@@ -39,13 +39,18 @@ After numerous manipulations (described in detail in :cite:`Salwa:2017`) and eva
 .. math::
 
     \begin{aligned}
-    & \int v \phi^{n+1} \, {\mathrm d} S_f = \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\
-    & \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} = \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\
-    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  \left( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} \right) \right) \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }
-    \\
-    & \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F \underline{ - \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s }= 0 \\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
-    & \int v \eta^{n+1} \, {\mathrm d} S_f = \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F   \underline{ - \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\
-    & \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} x_S = \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} x_S \, .
+    \int v \phi^{n+1} \, {\mathrm d} S_f &= \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\\\
+    %
+    \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S\ \underline{+ \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} &= \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\
+    &\hspace{4em}- \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  \left( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} \right) \right) \, {\mathrm d} x_S \\
+    &\hspace{8em}\underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }\\\\
+    %
+    \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F\ \underline{- \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s } &= 0 \\\\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
+    %
+    \int v \eta^{n+1} \, {\mathrm d} S_f &= \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F\\
+    &\hspace{4em}\underline{- \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\\\
+    %
+    \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} x_S &= \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} x_S \, .
     \end{aligned}
 
 The underlined terms are the coupling terms. Note that the first equation for :math:`\phi` at the free surface is solved on the free surface only, the last equation for :math:`{\bf X}` in the structure domain, while the others are solved in both domains. Moreover, the second and third equations for :math:`\phi` and :math:`{\bf U}` need to be solved simultaneously. The geometry of the system with initial condition is shown below.

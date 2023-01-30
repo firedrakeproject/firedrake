@@ -570,7 +570,7 @@ class BlockAssembledVector(AssembledVector):
 
 
 class Block(TensorBase):
-    """This class represents a tensor corresponding
+    r"""This class represents a tensor corresponding
     to particular block of a mixed tensor. Depending on
     the indices provided, the subblocks can span multiple
     test/trial spaces.
@@ -600,21 +600,21 @@ class Block(TensorBase):
 
     .. math::
 
-      \\begin{bmatrix}
+      \begin{bmatrix}
             A & B & C \\
             D & E & F \\
             G & H & J
-      \\end{bmatrix}
+      \end{bmatrix}
 
     Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
     corresponding to the upper 2x2 block:
 
     .. math::
 
-       \\begin{bmatrix}
+       \begin{bmatrix}
             A & B \\
             D & E
-       \\end{bmatrix}
+       \end{bmatrix}
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
