@@ -68,7 +68,7 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
     # condition on the top and a weak condition on the bottom, and
     # vice versa.
     a = inner(grad(u), grad(v))*dx + inner(grad(p), grad(q))*dx
-    L = inner(Constant(1), v)*ds_b + inner(Constant(4), q)*ds_t
+    L = inner(Constant(1, domain=mesh), v)*ds_b + inner(Constant(4, domain=mesh), q)*ds_t
 
     # BCs for first problem
     bc0 = [DirichletBC(W[0], 10.0, "top")]
@@ -113,12 +113,12 @@ def test_stokes_taylor_hood(mat_type):
 
     a = inner(grad(u), grad(v))*dx - inner(p, div(v))*dx + inner(div(u), q)*dx
 
-    f = Constant((0, 0))
+    f = Constant((0, 0), domain=mesh)
     L = inner(f, v)*dx
 
     # No-slip velocity boundary condition on top and bottom,
     # y == 0 and y == 1
-    noslip = Constant((0, 0))
+    noslip = Constant((0, 0), domain=mesh)
     bc0 = [DirichletBC(W[0], noslip, "top"),
            DirichletBC(W[0], noslip, "bottom")]
 
@@ -147,7 +147,7 @@ def test_stokes_taylor_hood(mat_type):
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
-    uexact = Function(V).interpolate(as_vector([xs[1]*(1 - xs[1]), Constant(0.0)]))
+    uexact = Function(V).interpolate(as_vector([xs[1]*(1 - xs[1]), Constant(0.0, domain=mesh)]))
     pexact = Function(P).interpolate(2*(length - xs[0]))
 
     assert errornorm(u, uexact, degree_rise=0) < 1e-7

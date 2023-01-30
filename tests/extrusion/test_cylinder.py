@@ -93,7 +93,7 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     W1 = FunctionSpace(mesh, W1_elt)
 
     outward_normal = Function(VectorFunctionSpace(mesh, "DG", 0)).interpolate(
-        as_vector((xs[0]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), xs[1]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), Constant(0.0))))
+        as_vector((xs[0]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), xs[1]/sqrt(xs[0]*xs[0] + xs[1]*xs[1]), Constant(0.0, domain=mesh))))
 
     W = W0*W1
     sigma, u = TrialFunctions(W)
@@ -151,7 +151,7 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     m = CircleManifoldMesh(5)
     mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     xs = SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(as_vector((xs[0], xs[1], Constant(0.0))))
+    mesh.init_cell_orientations(as_vector((xs[0], xs[1], Constant(0.0, domain=mesh))))
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])

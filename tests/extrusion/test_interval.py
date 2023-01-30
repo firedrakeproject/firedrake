@@ -11,7 +11,7 @@ def integrate_one(intervals):
 
     u = Function(V)
 
-    u.interpolate(Constant(1))
+    u.interpolate(Constant(1, domain=mesh))
 
     return assemble(u * dx)
 

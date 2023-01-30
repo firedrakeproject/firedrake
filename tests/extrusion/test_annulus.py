@@ -33,7 +33,7 @@ def test_poisson():
 
         u = TrialFunction(V)
         v = TestFunction(V)
-        f = Constant(-4)
+        f = Constant(-4, domain=mesh)
 
         bcs = [DirichletBC(V, 4, "bottom"),
                DirichletBC(V, 25, "top")]

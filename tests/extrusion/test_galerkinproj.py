@@ -63,9 +63,9 @@ def test_hdiv_convergence(extmesh, testcase, convrate):
         x, y, z = SpatialCoordinate(mesh)
 
         if orientation == "h":
-            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0)])
+            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0, domain=mesh)])
         elif orientation == "v":
-            expr = as_vector([Constant(0.0), Constant(0.0), x*y*y*z])
+            expr = as_vector([Constant(0.0, domain=mesh), Constant(0.0, domain=mesh), x*y*y*z])
         exact = Function(exactfspace)
         exact.interpolate(expr)
 
@@ -105,9 +105,9 @@ def test_hcurl_convergence(extmesh, testcase, convrate):
         x, y, z = SpatialCoordinate(mesh)
 
         if orientation == "h":
-            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0)])
+            expr = as_vector([x*y*z*z, x*x*y*z, Constant(0.0, domain=mesh)])
         elif orientation == "v":
-            expr = as_vector([Constant(0.0), Constant(0.0), x*y*y*z])
+            expr = as_vector([Constant(0.0, domain=mesh), Constant(0.0, domain=mesh), x*y*y*z])
         exact = Function(exactfspace)
         exact.interpolate(expr)
 
