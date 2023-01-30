@@ -1899,8 +1899,6 @@ values from f.)"""
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         x = np.asarray(x, dtype=utils.ScalarType)
-        if not np.allclose(x.imag, 0):
-            raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
         if x.size != self.geometric_dimension():
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
@@ -2380,6 +2378,9 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
     _, pdim = vertexcoords.shape
+
+    if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
+        raise ValueError("Point coordinates must have zero imaginary part")
 
     if gdim != tdim:
         raise NotImplementedError("Immersed manifold meshes are not supported")
