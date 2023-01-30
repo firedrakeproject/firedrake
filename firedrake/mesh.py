@@ -2435,6 +2435,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
+    :kwarg tolerance: The tolerance used by locate_cell when deciding which
+        cell each DMSwarm point is found. The default is None which can cause
+        problems if the DMSwarm points are at the boundary of two cells or just
+        outside the mesh.
     :return: the immersed DMSwarm
 
     .. note::
