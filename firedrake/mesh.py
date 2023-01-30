@@ -1741,6 +1741,31 @@ values from f.)"""
         except AttributeError:
             pass
 
+    @property
+    def spatial_index_tolerance(self):
+        """A tolerance to add to the spatial index bounding box extrema to
+        allow points just outside the mesh to be found.
+
+        If this property is not set, as is the default, no tolerance is added
+        to the bounding box and points deemed at all outside the mesh, even by
+        floating point error distances, will be deemed to be outside it.
+
+        Notes
+        -----
+        Requests for the mesh's spatial_index property after changing this
+        property will use the new tolerance. It will, however, have to be
+        recreated which can take some time.
+
+        """
+        return self._spatial_index_tolerance
+
+    @spatial_index_tolerance.setter
+    def spatial_index_tolerance(self, value):
+        if not isinstance(value, numbers.Number):
+            raise TypeError("spatial_index_tolerance must be a number")
+        self.clear_spatial_index()
+        self._spatial_index_tolerance = value
+
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
 
@@ -2328,12 +2353,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
-    # update parent meshes spatial_index function to include the requested
-    # tolerance. WARNING: this will change the spatial_index of the parent mesh
     if tolerance:
-        mesh.clear_spatial_index()
         mesh.spatial_index_tolerance = tolerance
-        mesh.spatial_index
 
     mesh.init()
 
