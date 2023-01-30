@@ -73,12 +73,6 @@ copy_demos:
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
 
-#~ source/teamgrid.rst: source/team.py
-#~ 	cd source; python team.py teamgrid.rst
-
-#~ source/teaminactive.rst: source/team.py
-#~ 	cd source; python team.py teaminactive.rst
-
 source/team.rst: source/team2.py
 	cd source; python team2.py; mv AUTHORS.rst ../..
 
