@@ -334,7 +334,7 @@ class LocalKernelBuilder(object):
         for i, coefficient in enumerate(self.expression.coefficients()):
             if type(coefficient.ufl_element()) == MixedElement:
                 csym_info = []
-                for j, _ in enumerate(coefficient.split()):
+                for j, _ in enumerate(coefficient.subfunctions):
                     csym_info.append(ast.Symbol("w_%d_%d" % (i, j)))
             else:
                 csym_info = (ast.Symbol("w_%d" % i),)
