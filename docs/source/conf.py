@@ -23,21 +23,23 @@
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc',
-              'sphinx.ext.mathjax',
-              'sphinx.ext.intersphinx',
-              'sphinx.ext.viewcode',
-              'sphinx.ext.graphviz',
-              'sphinxcontrib.youtube',
-              'sphinxcontrib.bibtex',
-              'sphinxcontrib.inkscapeconverter',
-              'numpydoc']
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.mathjax',
+    'sphinx.ext.intersphinx',
+    'sphinx.ext.viewcode',
+    'sphinx.ext.graphviz',
+    'sphinxcontrib.youtube',
+    'sphinxcontrib.bibtex',
+    'sphinxcontrib.inkscapeconverter',
+    'numpydoc'
+]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
 
 mathjax3_config = {
-  'loader': {'load': ['[tex]/mathtools']},
-  'tex': {'packages': {'[+]': ['mathtools']}}
+    'loader': {'load': ['[tex]/mathtools']},
+    'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
 # Both the class’ and the __init__ method’s docstring are concatenated and
@@ -197,12 +199,9 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # -- Options for LaTeX output --------------------------------------------
 
-# ~ latex_engine = 'lualatex'
-# ~ latex_use_xindy = False
-
 latex_additional_files = [
-        '_static/sphinxpoptitle.sty'
-    ]
+    '_static/sphinxpoptitle.sty'
+]
 
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
@@ -245,14 +244,15 @@ latex_elements = {
 
     'extrapackages': r'''\usepackage{mathtools}''',
 
-    'maketitle' : r'\sphinxpoptitlepages'
+    'maketitle': r'\sphinxpoptitlepages',
+
+    'makeindex': r'\usepackage[columns=1]{idxlayout}\makeindex'
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('book', 'Firedrake.tex', u'User Manual',
-     ' \\and '.join(author_list), 'manual'),
+    ('book', 'Firedrake.tex', u'User Manual', r' \and '.join(author_list), 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -261,7 +261,7 @@ latex_logo = '_themes/firedrake/static/banner.png'
 
 # For "manual" documents, if this is true, then toplevel headings are parts,
 # not chapters.
-#latex_use_parts = True
+#latex_use_parts = False
 
 # If true, show page references after internal links.
 #latex_show_pagerefs = False
@@ -282,8 +282,7 @@ latex_docclass = {"manual": "book"}
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('index', 'firedrake', u'Firedrake Documentation',
-     author, 1)
+    ('index', 'firedrake', u'Firedrake Documentation', author, 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -295,11 +294,15 @@ man_pages = [
 # Grouping the document tree into Texinfo files. List of tuples
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
-texinfo_documents = [
-    ('index', 'Firedrake', u'Firedrake Documentation',
-     author, 'Firedrake', 'One line description of project.',
-     'Miscellaneous'),
-]
+texinfo_documents = [(
+    'index',
+    'Firedrake',
+    u'Firedrake Documentation',
+    author,
+    'Firedrake',
+    'One line description of project.',
+    'Miscellaneous'
+),]
 
 # Documents to append as an appendix to all manuals.
 #texinfo_appendices = []

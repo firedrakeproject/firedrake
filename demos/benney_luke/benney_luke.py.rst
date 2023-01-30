@@ -53,10 +53,18 @@ Note that the Neumann boundary conditions have been used to remove every surface
 
 .. math::
 
-  \int_{\Omega} \frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\right)\cdot\nabla v + \eta^n\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\
-  \int_{\Omega} q^{n+1/2}\,v - \frac{2}{3}\nabla\phi^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\
-  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v - \frac{1}{2}\Bigl( \left(1+\epsilon\eta^{n+1}\right) + \left(1+\epsilon\eta^n\right) \Bigr)\nabla\phi^{n+1/2}\cdot\nabla v - \mu\nabla q^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\
-  \int_{\Omega} \frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\right)\cdot\nabla v + \eta^{n+1}\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\
+  \int_{\Omega} \frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\right)\cdot\nabla v \hspace{8em}\\
+  + \eta^n\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} q^{n+1/2}\,v - \frac{2}{3}\nabla\phi^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v \hspace{8em}\\
+  - \frac{1}{2}\Bigl( \left(1+\epsilon\eta^{n+1}\right) + \left(1+\epsilon\eta^n\right) \Bigr)\nabla\phi^{n+1/2}\cdot\nabla v \hspace{4em}\\
+  - \mu\nabla q^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} \frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\right)\cdot\nabla v \hspace{8em}\\
+  + \eta^{n+1}\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\\\
+  %
   \int_{\Omega} q^{n+1}\,v - \frac{2}{3}\nabla\phi^{n+1}\cdot\nabla v \,dx\,dy &= 0.
 
 Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (correct up to order :math:`\epsilon`). The "exact" solutions can be found by assuming one-dimensional travelling waves of the type

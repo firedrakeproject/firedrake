@@ -66,7 +66,7 @@ Colin Cotter..................<http://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
 
-Patrick E. Farrell............<https://www.maths.ox.ac.uk/people/patrick.farrell>
+Patrick E. Farrell............<https://pefarrell.org>
 
 Simon Funke...................<http://www.simonfunke.com>
 
@@ -83,8 +83,6 @@ Tom Gregory...................<https://www.imperial.ac.uk/people/t.gregory18>
 David Ham.....................<http://www.imperial.ac.uk/people/david.ham>
 
 Christopher Hawkes
-
-Reuben Hill...................<https://www.imperial.ac.uk/people/reuben.hill10>
 
 Miklós Homolya
 
@@ -126,7 +124,7 @@ Lawrence Mitchell
 
 Eike Mueller
 
-Reuben W. Nixon-Hill
+Reuben Nixon-Hill.............<https://www.imperial.ac.uk/people/reuben.hill10>
 
 Alberto Paganini..............<https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>
 
