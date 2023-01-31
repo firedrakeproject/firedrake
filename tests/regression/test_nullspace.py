@@ -1,7 +1,7 @@
+import numpy as np
+import pytest
 from firedrake import *
 from firedrake.petsc import PETSc
-import pytest
-import numpy as np
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -31,8 +31,8 @@ def test_nullspace(V):
 def test_orthonormalize():
     mesh = UnitSquareMesh(2, 2)
     V = VectorFunctionSpace(mesh, "CG", 1)
-    a = Function(V).interpolate(Constant((2, 0)))
-    b = Function(V).interpolate(Constant((0, 2)))
+    a = Function(V).interpolate(Constant((2, 0), domain=mesh))
+    b = Function(V).interpolate(Constant((0, 2), domain=mesh))
 
     basis = VectorSpaceBasis([a, b])
     assert basis.is_orthogonal()
@@ -103,7 +103,7 @@ def test_nullspace_mixed():
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
 
     bc1 = Function(BDM).assign(0.0)
-    bc2 = Function(BDM).project(Constant((0, 1)))
+    bc2 = Function(BDM).project(Constant((0, 1), domain=m))
 
     bcs = [DirichletBC(W.sub(0), bc1, (1, 2)),
            DirichletBC(W.sub(0), bc2, (3, 4))]
@@ -154,21 +154,21 @@ def test_near_nullspace(tmpdir):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    mu = Constant(0.2)
-    lmbda = Constant(0.3)
+    mu = Constant(0.2, domain=mesh)
+    lmbda = Constant(0.3, domain=mesh)
 
     def sigma(fn):
         return 2.0 * mu * sym(grad(fn)) + lmbda * tr(sym(grad(fn))) * Identity(dim)
 
     w_exact = Function(V)
     w_exact.interpolate(as_vector([x*y, x*y]))
-    f = Constant((mu + lmbda, mu + lmbda))
+    f = Constant((mu + lmbda, mu + lmbda), domain=mesh)
     F = inner(sigma(u), grad(v))*dx + inner(f, v)*dx
 
     bcs = [DirichletBC(V, w_exact, (1, 2, 3, 4))]
 
-    n0 = Constant((1, 0))
-    n1 = Constant((0, 1))
+    n0 = Constant((1, 0), domain=mesh)
+    n1 = Constant((0, 1), domain=mesh)
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
     n_interp = [interpolate(n, V) for n in ns]
@@ -225,12 +225,12 @@ def test_nullspace_mixed_multiple_components():
     u, p = split(z)
 
     x, y = SpatialCoordinate(mesh)
-    khat = Constant((0., -1.))
-    mu = Constant(1.0)
-    g = Constant(1.0)
+    khat = Constant((0., -1.), domain=mesh)
+    mu = Constant(1.0, domain=mesh)
+    g = Constant(1.0, domain=mesh)
     tau = mu * (grad(u)+transpose(grad(u)))
     # added constant to create inconsistent rhs:
-    rho = sin(pi*y)*cos(pi*x) + Constant(1.0)
+    rho = sin(pi*y)*cos(pi*x) + Constant(1.0, domain=mesh)
 
     F_stokes = inner(tau, grad(N)) * dx + inner(grad(p), N) * dx
     F_stokes += inner(g * rho * khat, N) * dx
@@ -265,9 +265,9 @@ def test_nullspace_mixed_multiple_components():
     }
 
     ux0 = Function(Z.sub(0))
-    ux0.assign(Constant((1.0, 0.)))
+    ux0.assign(Constant((1.0, 0.), domain=mesh))
     uy0 = Function(Z.sub(0))
-    uy0.assign(Constant((0.0, 1.)))
+    uy0.assign(Constant((0.0, 1.), domain=mesh))
     uv_nullspace = VectorSpaceBasis([ux0, uy0])
     uv_nullspace.orthonormalize()
 
@@ -320,8 +320,8 @@ def test_near_nullspace_mixed():
     c0V, _ = c0.subfunctions
     c1 = Function(W)
     c1V, _ = c1.subfunctions
-    c0V.interpolate(Constant([1., 0.]))
-    c1V.interpolate(Constant([0., 1.]))
+    c0V.interpolate(Constant([1., 0.]), domain=mesh)
+    c1V.interpolate(Constant([0., 1.]), domain=mesh)
 
     near_nullmodes = VectorSpaceBasis([c0V, c1V, rotV])
     near_nullmodes.orthonormalize()

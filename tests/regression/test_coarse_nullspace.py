@@ -9,10 +9,10 @@ def test_coarse_nullspace():
     v = TestFunction(V)
 
     a = inner(grad(w), grad(v))*dx
-    f = Constant(0)
+    f = Constant(0, domain=mh[-1])
     F = inner(f, v)*dx
     one = Function(V)
-    one.interpolate(Constant(1))
+    one.interpolate(Constant(1, domain=mh[-1]))
     nsp = VectorSpaceBasis([one])
     nsp.orthonormalize()
 

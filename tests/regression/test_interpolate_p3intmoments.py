@@ -116,7 +116,7 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     e = ufl.FiniteElement("CG", "interval", 3, variant="interior-moment")
     V = FunctionSpace(mesh, e)
     x = SpatialCoordinate(mesh)
-    expr = Constant(1.)
+    expr = Constant(1., domain=mesh)
     f = interpolate(expr, V)
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],

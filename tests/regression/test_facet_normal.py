@@ -9,7 +9,7 @@ def test_facet_normal_unit_interval():
 
     m = UnitIntervalMesh(2)
     V = VectorFunctionSpace(m, 'CG', 1)
-    x_hat = Function(V).interpolate(Constant((1.0,)))
+    x_hat = Function(V).interpolate(Constant((1.0,), domain=m))
     n = FacetNormal(m)
 
     assert assemble(dot(x_hat, n)*ds(1)) == -1.0   # x = 0
@@ -22,8 +22,8 @@ def test_facet_normal_unit_square(quadrilateral):
 
     m = UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
     V = VectorFunctionSpace(m, 'CG', 1)
-    x_hat = Function(V).interpolate(Constant((1, 0)))
-    y_hat = Function(V).interpolate(Constant((0, 1)))
+    x_hat = Function(V).interpolate(Constant((1, 0), domain=m))
+    y_hat = Function(V).interpolate(Constant((0, 1), domain=m))
     n = FacetNormal(m)
 
     assert numpy.allclose(assemble(dot(x_hat, n)*ds(1)), -1.0)  # x = 0
@@ -42,9 +42,9 @@ def test_facet_normal_unit_cube():
 
     m = UnitCubeMesh(1, 1, 1)
     V = VectorFunctionSpace(m, 'CG', 1)
-    x_hat = Function(V).interpolate(Constant((1, 0, 0)))
-    y_hat = Function(V).interpolate(Constant((0, 1, 0)))
-    z_hat = Function(V).interpolate(Constant((0, 0, 1)))
+    x_hat = Function(V).interpolate(Constant((1, 0, 0), domain=m))
+    y_hat = Function(V).interpolate(Constant((0, 1, 0), domain=m))
+    z_hat = Function(V).interpolate(Constant((0, 0, 1), domain=m))
     n = FacetNormal(m)
 
     assert abs(assemble(dot(x_hat, n)*ds(1)) + 1.0) < 1e-14  # x = 0

@@ -10,7 +10,7 @@ def test_nonlinear_stokes_hdiv():
 
     x, y = SpatialCoordinate(mesh)
     f = Function(Vc).interpolate(as_vector([x,
-                                            y + (1 - y)*Constant(0.1)*sin(2*pi*x)]))
+                                            y + (1 - y)*Constant(0.1, domain=mesh)*sin(2*pi*x)]))
     mesh.coordinates.assign(f)
 
     V1 = FunctionSpace(mesh, "BDM", 1)
@@ -22,7 +22,7 @@ def test_nonlinear_stokes_hdiv():
     dw = TestFunction(W)
 
     def g(u):
-        beta = Constant(1.0)
+        beta = Constant(1.0, domain=mesh)
         return 0.5*(beta + 10*inner(grad(u), grad(u)))**(1./6)
 
     def epsilon(u):
@@ -35,7 +35,7 @@ def test_nonlinear_stokes_hdiv():
 
     h = CellSize(mesh)
 
-    eta = Constant(30.)
+    eta = Constant(30., domain=mesh)
 
     F = (inner(g(u)*epsilon(u), grad(v))*dx
          - p*div(v)*dx + q*div(u)*dx)
@@ -64,11 +64,11 @@ def test_nonlinear_stokes_hdiv():
     # edge 3 (bottom) is now slip -- u.n=0 strongly and
     # Weertman-style sliding law through boundary integral
 
-    mWeert = Constant(2.0)
-    CWeert = Constant(1.0)
+    mWeert = Constant(2.0, domain=mesh)
+    CWeert = Constant(1.0, domain=mesh)
 
     # This is a hack to regularize the sliding law, which is nondifferentiable at 0
-    epsWeert = Constant(1.e-4)
+    epsWeert = Constant(1.e-4, domain=mesh)
 
     F += inner(CWeert**(-1.0/mWeert)*(inner(T(u), T(u))+epsWeert)**(0.5/mWeert-0.5)*T(u), T(v))*ds(3)
 

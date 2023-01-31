@@ -14,12 +14,12 @@ def solve_poisson(mat_type, kind):
     u = Function(V)
     v = TestFunction(V)
 
-    F = inner(grad(u), grad(v))*dx - inner(Constant((1, 2)), v)*dx
+    F = inner(grad(u), grad(v))*dx - inner(Constant((1, 2), domain=mesh), v)*dx
 
     if kind == "vector":
-        bcs = DirichletBC(V, Constant((0, 0)), "on_boundary")
+        bcs = DirichletBC(V, Constant((0, 0), domain=mesh), "on_boundary")
     elif kind == "mixed":
-        bcs = [DirichletBC(V.sub(i), Constant(0), "on_boundary") for i in range(2)]
+        bcs = [DirichletBC(V.sub(i), Constant(0, domain=mesh), "on_boundary") for i in range(2)]
 
     sp = {"snes_type": "ksponly",
           "ksp_type": "preonly",

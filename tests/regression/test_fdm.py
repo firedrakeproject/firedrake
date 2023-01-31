@@ -78,7 +78,7 @@ def test_p_independence(mesh, expected, variant):
 
         ndim = mesh.geometric_dimension()
         x = SpatialCoordinate(mesh)
-        x -= Constant([0.5]*ndim)
+        x -= Constant([0.5]*ndim, domain=mesh)
         u_exact = dot(x, x)
         f_exact = grad(u_exact)
         B = -div(f_exact)
@@ -108,7 +108,7 @@ def test_variable_coefficient(mesh):
     u = TrialFunction(V)
     v = TestFunction(V)
     x = SpatialCoordinate(mesh)
-    x -= Constant([0.5]*ndim)
+    x -= Constant([0.5]*ndim, domain=mesh)
 
     # variable coefficients
     alphas = [0.1+10*dot(x, x)]*ndim
@@ -117,7 +117,7 @@ def test_variable_coefficient(mesh):
     beta = ((10*cos(3*pi*x[0]) + 20*sin(2*pi*x[1]))*cos(pi*x[ndim-1]))**2
 
     a = (inner(grad(v), dot(alpha, grad(u))) + inner(v, beta*u))*dx(degree=3*k+2)
-    L = inner(v, Constant(1))*dx
+    L = inner(v, Constant(1, domain=mesh))*dx
 
     subs = ("on_boundary",)
     if mesh.cell_set._extruded:
@@ -158,7 +158,7 @@ def test_direct_solver(fs):
     ncomp = fs.ufl_element().value_size()
     u_exact = dot(x, x)
     if ncomp:
-        u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
+        u_exact = as_vector([u_exact + Constant(k, domain=mesh) for k in range(ncomp)])
 
     N = fs.ufl_element().degree()
     try:
@@ -172,10 +172,10 @@ def test_direct_solver(fs):
     v = TestFunction(fs)
 
     # problem coefficients
-    A1 = diag(Constant(range(1, ndim+1)))
-    A2 = diag(Constant(range(1, ncomp+1)))
+    A1 = diag(Constant(range(1, ndim+1), domain=mesh))
+    A2 = diag(Constant(range(1, ncomp+1), domain=mesh))
     alpha = lambda grad_u: dot(dot(A2, grad_u), A1)
-    beta = diag(Constant(range(2, ncomp+2)))
+    beta = diag(Constant(range(2, ncomp+2), domain=mesh))
 
     n = FacetNormal(mesh)
     f_exact = alpha(grad(u_exact))
@@ -217,7 +217,7 @@ def test_direct_solver(fs):
 
     ds_Dir = sum(ds_Dir, ds(tuple()))
     ds_Neu = sum(ds_Neu, ds(tuple()))
-    eta = Constant((N+1)**2)
+    eta = Constant((N+1)**2, domain=mesh)
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = eta/h
 

@@ -11,11 +11,11 @@ def run_test(mesh):
     M = VectorFunctionSpace(mesh, "CG", 1)
 
     # advecting velocity
-    u0 = as_vector((-x[1]*(1 - x[2]*x[2]), x[0]*(1 - x[2]*x[2]), Constant(0)))
+    u0 = as_vector((-x[1]*(1 - x[2]*x[2]), x[0]*(1 - x[2]*x[2]), Constant(0, domain=mesh)))
     u = Function(M).interpolate(u0)
 
     dt = (pi/3) * 0.006
-    Dt = Constant(dt)
+    Dt = Constant(dt, domain=mesh)
 
     phi = TestFunction(V)
     D = TrialFunction(V)

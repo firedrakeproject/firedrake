@@ -177,7 +177,7 @@ def test_fieldsplitting(mesh, preassembled, parameters):
     expect = Function(W)
     expect.sub(0).assign(1)
     expect.sub(1).assign(2)
-    expect.sub(2).assign(Constant((3, 4)))
+    expect.sub(2).assign(Constant((3, 4), domain=mesh))
 
     u = TrialFunction(W)
     v = TestFunction(W)
@@ -277,11 +277,12 @@ def test_get_info(a, bcs, infotype):
 def test_duplicate(a, bcs):
 
     test, trial = a.arguments()
+    mesh = test.function_space().mesh()
 
     if test.function_space().shape == ():
-        rhs_form = inner(Constant(1), test)*dx
+        rhs_form = inner(Constant(1, domain=mesh), test)*dx
     elif test.function_space().shape == (2, ):
-        rhs_form = inner(Constant((1, 1)), test)*dx
+        rhs_form = inner(Constant((1, 1), domain=mesh), test)*dx
 
     if bcs is not None:
         Af = assemble(a, mat_type="matfree", bcs=bcs)

@@ -11,10 +11,10 @@ def test_homogeneous_field_linear():
     v = TestFunction(V)
 
     a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
+    L = inner(Constant((1, 0.5, 4), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+    bc = DirichletBC(V, Constant((1, 0.5, 4), domain=mesh), (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'ksp_type': 'cg',
@@ -27,7 +27,7 @@ def test_homogeneous_field_linear():
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    assert (errornorm(Constant((1, 0.5, 4), domain=mesh), u, 'L2') < 1e-10)
 
 
 @pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
@@ -39,10 +39,10 @@ def test_homogeneous_field_matfree():
     v = TestFunction(V)
 
     a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
+    L = inner(Constant((1, 0.5, 4), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+    bc = DirichletBC(V, Constant((1, 0.5, 4), domain=mesh), (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'mat_type': 'matfree',
@@ -58,7 +58,7 @@ def test_homogeneous_field_matfree():
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    assert (errornorm(Constant((1, 0.5, 4), domain=mesh), u, 'L2') < 1e-10)
 
 
 @pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
@@ -69,10 +69,10 @@ def test_homogeneous_field_nonlinear():
     u = Function(V)
     v = TestFunction(V)
 
-    F = inner(div(u), div(v))*dx + inner(u, v)*dx - inner(Constant((1, 0.5, 4)), v)*dx
+    F = inner(div(u), div(v))*dx + inner(u, v)*dx - inner(Constant((1, 0.5, 4), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+    bc = DirichletBC(V, Constant((1, 0.5, 4), domain=mesh), (1, 2, 3, 4))
 
     params = {'snes_type': 'ksponly',
               'ksp_type': 'cg',
@@ -84,4 +84,4 @@ def test_homogeneous_field_nonlinear():
               }
 
     solve(F == 0, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    assert (errornorm(Constant((1, 0.5, 4), domain=mesh), u, 'L2') < 1e-10)

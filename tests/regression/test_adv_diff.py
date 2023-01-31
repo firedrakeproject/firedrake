@@ -12,10 +12,6 @@ from firedrake import *
 
 
 def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
-    dt = 0.0001
-    Dt = Constant(dt)
-    T = 0.01
-
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", 1)
@@ -25,6 +21,10 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     q = TestFunction(V)
     t = Function(V)
     u = Function(U)
+
+    dt = 0.0001
+    Dt = Constant(dt, domain=mesh)
+    T = 0.01
 
     diffusivity = 0.1
 
@@ -45,7 +45,7 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     # A*(e^(-r^2/(4*D*T)) / (4*pi*D*T))
     # with normalisation A = 0.1, diffusivity D = 0.1
     x = SpatialCoordinate(mesh)
-    cT = Constant(T)
+    cT = Constant(T, domain=mesh)
     r2 = pow(x[0] - (0.45 + cT), 2.0) + pow(x[1] - 0.5, 2.0)
     fexpr = 0.1 * (exp(-r2 / (0.4 * cT)) / (0.4 * pi * cT))
     t.interpolate(fexpr)

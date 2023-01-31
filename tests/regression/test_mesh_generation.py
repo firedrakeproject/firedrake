@@ -12,7 +12,7 @@ except ImportError:
 def integrate_one(m):
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
-    u.interpolate(Constant(1))
+    u.interpolate(Constant(1, domain=m))
     return assemble(u * dx)
 
 
@@ -81,10 +81,10 @@ def run_one_element_advection():
     dq1 = Function(Vdg)
     q1 = Function(Vdg)
     Dt = 0.01
-    dt = Constant(Dt)
+    dt = Constant(Dt, domain=mesh)
     # Mesh-related functions
     n = FacetNormal(mesh)
-    u0 = Function(Vu).interpolate(Constant((1.0, 0.0, 0.0)))
+    u0 = Function(Vu).interpolate(Constant((1.0, 0.0, 0.0), domain=mesh))
     # ( dot(v, n) + |dot(v, n)| )/2.0
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
     # advection equation

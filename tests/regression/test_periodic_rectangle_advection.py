@@ -31,17 +31,16 @@ def quadrilateral(request):
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
     l2error = []
-    t = Constant(0)
     if direction == "x":
         nx = lambda n: 2**n
         ny = lambda n: 2
-        u = Constant((1, 0))
-        exact_expr = lambda x: sin(2*pi*(x[0] - t))
+        u = (1, 0)
+        exact_expr = lambda x, t: sin(2*pi*(x[0] - t))
     elif direction == "y":
         nx = lambda n: 2
         ny = lambda n: 2**n
-        u = Constant((0, 1))
-        exact_expr = lambda x: sin(2*pi*(x[1] - t))
+        u = (0, 1)
+        exact_expr = lambda x, t: sin(2*pi*(x[1] - t))
 
     # Advect a sine wave with a constant, unit velocity for 200
     # timesteps (dt = 5e-5)
@@ -49,11 +48,13 @@ def test_periodic_rectangle_advection(degree, threshold,
         mesh = PeriodicRectangleMesh(nx(n), ny(n), 1, 1,
                                      direction=direction,
                                      quadrilateral=quadrilateral)
+        t = Constant(0, domain=mesh)
         x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, "DG", degree)
         D = TrialFunction(V)
         phi = TestFunction(V)
         n = FacetNormal(mesh)
+        u = Constant(u, domain=mesh)
         un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
         a_mass = phi*D*dx
@@ -63,12 +64,12 @@ def test_periodic_rectangle_advection(degree, threshold,
         dD1 = Function(V)
         D1 = Function(V)
         t.assign(0)
-        exact = exact_expr(x)
+        exact = exact_expr(x, t)
 
         D = Function(V).interpolate(exact)
 
         nstep = 200
-        dt = Constant(5e-5)
+        dt = Constant(5e-5, domain=mesh)
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
         rhs = Function(V)
 

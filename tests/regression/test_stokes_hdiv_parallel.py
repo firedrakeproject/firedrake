@@ -110,7 +110,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         }
 
         # Switch sign of pressure mass matrix
-        mu = Constant(-1.0)
+        mu = Constant(-1.0, domain=mesh)
         appctx = {"mu": mu, "pressure_space": 1}
 
         UP.assign(0)

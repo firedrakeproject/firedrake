@@ -23,8 +23,8 @@ def periodise(m):
         new_coords[j, 1] = old_coords[j, 2] * Ly[0]
     end
     """
-    cLx = Constant(1)
-    cLy = Constant(1)
+    cLx = Constant(1, domain=m)
+    cLy = Constant(1, domain=m)
     par_loop((domain, instructions), dx,
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
@@ -54,9 +54,9 @@ def test_line_smoother_periodic():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(0), [1, 2])
+    bc = DirichletBC(V, Constant(0, domain=mesh), [1, 2])
 
-    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    F = inner(grad(u), grad(v))*dx - inner(Constant(1, domain=mesh), v)*dx
 
     base = {"snes_type": "ksponly",
             "ksp_type": "fgmres",

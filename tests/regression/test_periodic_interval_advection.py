@@ -26,7 +26,7 @@ def run_test(degree):
         mesh = PeriodicUnitIntervalMesh(2**n)
         x = SpatialCoordinate(mesh)
         V = FunctionSpace(mesh, 'DG', degree)
-        u = Constant((1, ))
+        u = Constant((1, ), domain=mesh)
         D = TrialFunction(V)
         phi = TestFunction(V)
         n = FacetNormal(mesh)
@@ -39,12 +39,12 @@ def run_test(degree):
         dD1 = Function(V)
         D1 = Function(V)
 
-        t = Constant(0)
+        t = Constant(0, domain=mesh)
         exact = sin(2*pi*(x[0] - t))
         D = Function(V).interpolate(exact)
 
         nstep = 200
-        dt = Constant(5e-5)
+        dt = Constant(5e-5, domain=mesh)
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
         rhs = Function(V)
 

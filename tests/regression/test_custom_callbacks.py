@@ -13,10 +13,10 @@ def test_callbacks():
 
     f = Function(V).assign(1)
     temp = Function(V)
-    alpha = Constant(0.0)
-    beta = Constant(0.0)
-    gamma = Constant(0.0)
-    delta = Constant(0.0)
+    alpha = Constant(0.0, domain=mesh)
+    beta = Constant(0.0, domain=mesh)
+    gamma = Constant(0.0, domain=mesh)
+    delta = Constant(0.0, domain=mesh)
 
     F = inner(alpha*u, v) * dx - inner(beta*f, v) * dx  # we will override alpha and beta later
 

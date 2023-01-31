@@ -25,7 +25,7 @@ def test_constant_field(mesh):
     limiter = VertexBasedLimiter(v)
 
     # Set up constant field
-    u0 = Constant(1)
+    u0 = Constant(1, domain=mesh)
     u = Function(v).interpolate(u0)
     u_old = Function(u)
 

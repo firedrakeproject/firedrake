@@ -57,7 +57,7 @@ def run_periodic_helmholtz(direction, quadrilateral, diagonal):
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
     if direction in ("x", "y"):
-        bcs = DirichletBC(V, Constant(0), (1, 2))
+        bcs = DirichletBC(V, Constant(0, domain=mesh), (1, 2))
     elif direction == "both":
         bcs = []
     u = TrialFunction(V)

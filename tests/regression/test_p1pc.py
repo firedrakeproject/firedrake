@@ -34,7 +34,7 @@ def test_p_independence(mesh, expected):
 
         a = inner(grad(u), grad(v))*dx
 
-        L = inner(Constant(1), v)*dx
+        L = inner(Constant(1, domain=mesh), v)*dx
 
         bcs = DirichletBC(V, zero(V.ufl_element().value_shape()), "on_boundary")
 

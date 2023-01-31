@@ -1,4 +1,5 @@
 from firedrake import *
+from ufl.domain import extract_unique_domain
 import pytest
 import numpy as np
 
@@ -31,7 +32,7 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
 
     # Warp the meshes
-    eps = Constant(1 / 2)
+    eps = Constant(1 / 2, domain=mesh)
     x, y = SpatialCoordinate(mesh)
     new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
                                              y - eps*sin(2*pi*x)*sin(2*pi*y)]))
@@ -44,16 +45,16 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
     for mesh, coord in zip(mesh_hierarchy, coords):
         mesh.coordinates.assign(coord)
 
-    nu = Constant(0.25)
-    lam = Constant(1)
-    mu = lam*(1 - 2*nu)/(2*nu)
-
-    I = Identity(2)
-
     # Evaluation of a constant compliance tensor
     # (in the homogeneous isotropic case)
     def A(sig):
-        return (1/(2*mu))*(sig - nu*tr(sig)*I)
+        mesh = extract_unique_domain(sig)
+        nu = Constant(0.25, domain=mesh)
+        lam = Constant(1, domain=mesh)
+        mu = lam*(1 - 2*nu)/(2*nu)
+        # Identity
+        Id = Constant([[1, 0], [0, 1]], domain=mesh)
+        return (1/(2*mu))*(sig - nu*tr(sig)*Id)
 
     # Linearised strain rate tensor
     def epsilon(u):

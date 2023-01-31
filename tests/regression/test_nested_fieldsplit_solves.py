@@ -27,10 +27,11 @@ def A(W):
 @pytest.fixture
 def expect(W):
     f = Function(W)
-    f.sub(0).assign(Constant(1))
-    f.sub(1).assign(Constant((2, 3)))
-    f.sub(2).assign(Constant(4))
-    f.sub(3).assign(Constant((5, 6)))
+    mesh = W.mesh()
+    f.sub(0).assign(Constant(1, domain=mesh))
+    f.sub(1).assign(Constant((2, 3), domain=mesh))
+    f.sub(2).assign(Constant(4, domain=mesh))
+    f.sub(3).assign(Constant((5, 6), domain=mesh))
     return f
 
 

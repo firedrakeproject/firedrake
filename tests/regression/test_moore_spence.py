@@ -21,7 +21,7 @@ def test_moore_spence():
     th = Function(V)
     x = SpatialCoordinate(msh)[0]
     tth = TestFunction(V)
-    lm = Constant(3.142)
+    lm = Constant(3.142, domain=msh)
 
     # Using guess for parameter lm, solve for state theta (th)
     A = residual(th, lm, tth)

@@ -20,12 +20,12 @@ def run_stokes_mini(mat_type, n):
 
     a = inner(grad(u), grad(v)) * dx - inner(p, div(v)) * dx + inner(div(u), q) * dx
 
-    f = Constant((0, 0))
+    f = Constant((0, 0), domain=mesh)
     L = inner(f, v) * dx
 
     # No-slip velocity boundary condition on top and bottom,
     # y == 0 and y == 1
-    noslip = Constant((0, 0))
+    noslip = Constant((0, 0), domain=mesh)
     bc0 = [DirichletBC(W[0], noslip, (3, 4))]
 
     # Parabolic inflow y(1-y) at x = 0 in positive x direction

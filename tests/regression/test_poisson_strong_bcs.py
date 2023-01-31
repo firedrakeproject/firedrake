@@ -29,8 +29,8 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
 
-    bcs = [DirichletBC(V, Constant(0), 3),
-           DirichletBC(V, Constant(42), 4)]
+    bcs = [DirichletBC(V, Constant(0, domain=mesh), 3),
+           DirichletBC(V, Constant(42, domain=mesh), 4)]
 
     # Compute solution
     solve(a == 0, u, solver_parameters=parameters, bcs=bcs)
@@ -51,10 +51,10 @@ def run_test_linear(r, degree, parameters={}, quadrilateral=False):
     u = TrialFunction(V)
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
-    L = inner(Constant(0), v) * dx
+    L = inner(Constant(0, domain=mesh), v) * dx
 
-    bcs = [DirichletBC(V, Constant(0), 3),
-           DirichletBC(V, Constant(42), 4)]
+    bcs = [DirichletBC(V, Constant(0, domain=mesh), 3),
+           DirichletBC(V, Constant(42, domain=mesh), 4)]
 
     # Compute solution
     u = Function(V)

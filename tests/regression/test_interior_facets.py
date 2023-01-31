@@ -151,7 +151,7 @@ def circle_in_square_mesh():
 def test_interior_facet_integration(circle_in_square_mesh):
     V = FunctionSpace(circle_in_square_mesh, "CG", 1)
     f = Function(V)
-    f.interpolate(Constant(1.0))
+    f.interpolate(Constant(1.0, domain=circle_in_square_mesh))
     assert np.allclose(assemble(f*ds(1)), 16.0)
     assert np.allclose(assemble(f*dS(2)), 2*pi, rtol=1e-2)
 

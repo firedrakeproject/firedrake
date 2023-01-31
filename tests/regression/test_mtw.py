@@ -11,7 +11,7 @@ def test_mtw():
     mh = MeshHierarchy(msh, 5)
 
     V = FunctionSpace(msh, msh.coordinates.ufl_element())
-    eps = Constant(1 / 2**(N_base-1))
+    eps = Constant(1 / 2**(N_base-1), domain=msh)
     x, y = SpatialCoordinate(msh)
     new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
                                              y - eps*sin(2*pi*x)*sin(2*pi*y)]))
@@ -72,7 +72,7 @@ def test_mtw():
 def test_mtw_interior_facet():
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
-    eps = Constant(0.5 / 2**3)
+    eps = Constant(0.5 / 2**3, domain=mesh)
 
     x, y = SpatialCoordinate(mesh)
     new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),

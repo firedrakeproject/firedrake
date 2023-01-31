@@ -32,7 +32,7 @@ def test_star_equivalence(problem_type, backend):
         u = Function(V)
         v = TestFunction(V)
 
-        a = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+        a = inner(grad(u), grad(v))*dx - inner(Constant(1, domain=mesh), v)*dx
         bcs = DirichletBC(V, 0, "on_boundary")
         nsp = None
 
@@ -126,7 +126,7 @@ def test_star_equivalence(problem_type, backend):
 
         a = inner(grad(z), grad(v))*dx + inner(p, q)*dx
 
-        bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
+        bcs = DirichletBC(V.sub(0), Constant((1., 0.), domain=mesh), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
 
         star_params = {"mat_type": "aij",
@@ -194,7 +194,7 @@ def test_vanka_equivalence(problem_type):
         u = Function(V)
         v = TestFunction(V)
 
-        a = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+        a = inner(grad(u), grad(v))*dx - inner(Constant(1, domain=mesh), v)*dx
         bcs = DirichletBC(V, 0, "on_boundary")
         nsp = None
 

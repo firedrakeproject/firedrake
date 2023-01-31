@@ -67,13 +67,14 @@ def one(fs):
     # function spaces is not yet implemented
     for fi in ones:
         fs_i = fi.function_space()
+        mesh = fs_i.mesh()
         if fs_i.rank == 1:
-            fi.interpolate(Constant((1.0,) * fs_i.value_size))
+            fi.interpolate(Constant((1.0,) * fs_i.value_size, domain=mesh))
         elif fs_i.rank == 2:
             fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
-                                     for j in range(fs_i.rank)]))
+                                     for j in range(fs_i.rank)], domain=mesh))
         else:
-            fi.interpolate(Constant(1.0))
+            fi.interpolate(Constant(1.0, domain=mesh))
     return one
 
 
@@ -108,7 +109,7 @@ def test_assemble_with_tensor(mesh):
     # Assemble a form into f
     f = assemble(L, f)
     # Assemble a different form into f
-    f = assemble(Constant(2)*L, f)
+    f = assemble(Constant(2, domain=mesh)*L, f)
     # Make sure we get the result of the last assembly
     assert np.allclose(f.dat.data, 2*assemble(L).dat.data, rtol=1e-14)
 
@@ -120,7 +121,7 @@ def test_assemble_mat_with_tensor(mesh):
     a = inner(u, v) * dx
     M = assemble(a)
     # Assemble a different form into M
-    M = assemble(Constant(2)*a, M)
+    M = assemble(Constant(2, domain=mesh)*a, M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
@@ -262,7 +263,7 @@ def test_assemble_mixed_function_sparse():
     V0 = FunctionSpace(mesh, "CG", 1)
     V = V0 * V0 * V0 * V0 * V0 * V0 * V0 * V0
     f = Function(V)
-    f.sub(1).interpolate(Constant(2.0))
-    f.sub(4).interpolate(Constant(3.0))
+    f.sub(1).interpolate(Constant(2.0, domain=mesh))
+    f.sub(4).interpolate(Constant(3.0, domain=mesh))
     v = assemble((inner(f[1], f[1]) + inner(f[4], f[4])) * dx)
     assert np.allclose(v, 13.0)

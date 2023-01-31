@@ -20,7 +20,7 @@ def test_laplace_physical_ev(parallel=False):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    bc = DirichletBC(V, Constant(0.0), (1, 2, 3, 4))
+    bc = DirichletBC(V, Constant(0.0, domain=mesh), (1, 2, 3, 4))
 
     # We just need the Stiffness and Mass matrix
     a = inner(grad(u), grad(v))*dx

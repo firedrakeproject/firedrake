@@ -16,7 +16,7 @@ def mesh2D():
 def test_vfs(mesh2D, degree):
     V = VectorFunctionSpace(mesh2D, 'CG', degree)
     u = Function(V)
-    u.interpolate(Constant((1.0, 1.0)))
+    u.interpolate(Constant((1.0, 1.0), domain=mesh2D))
     n = FacetNormal(mesh2D)
 
     # Unit '+' normal is (1, 1)/sqrt2, and diagonal has length sqrt2.
@@ -24,7 +24,7 @@ def test_vfs(mesh2D, degree):
     assert abs(assemble(dot(u('+'), n('-'))*dS) + 2.0) < 1e-10
     assert abs(assemble(dot(u('+'), n('+'))*dS) - 2.0) < 1e-10
 
-    u.interpolate(Constant((1.0, -1.0)))
+    u.interpolate(Constant((1.0, -1.0), domain=mesh2D))
     assert abs(assemble(dot(u('+'), n('+'))*dS)) < 1e-10
 
 
@@ -36,9 +36,9 @@ def test_mfs(mesh2D):
 
     u = Function(W)
     u0, u1, u2 = u.subfunctions
-    u0.interpolate(Constant(1))
-    u1.project(Constant((-1.0, -1.0)))
-    u2.interpolate(Constant(1))
+    u0.interpolate(Constant(1), domain=mesh2D)
+    u1.project(Constant((-1.0, -1.0), domain=mesh2D))
+    u2.interpolate(Constant(1), domain=mesh2D)
 
     n = FacetNormal(mesh2D)
 

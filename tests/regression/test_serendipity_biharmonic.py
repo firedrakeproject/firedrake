@@ -22,7 +22,7 @@ def test_serendipity_biharmonic():
         u_ex = sin(2*pi*k*X[0]) * cos(2*pi*k*X[1])
 
         h = avg(CellDiameter(mesh))
-        alpha = Constant(1)
+        alpha = Constant(1, domain=mesh)
         n = FacetNormal(mesh)
 
         f = div(div(grad(grad(u_ex)))) + u_ex

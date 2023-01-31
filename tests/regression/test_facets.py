@@ -123,7 +123,7 @@ def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
 def test_contravariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
-    u = project(Constant((0.0, 1.0)), V)
+    u = project(Constant((0.0, 1.0), domain=m), V)
     assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
     assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
     assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
@@ -133,7 +133,7 @@ def test_contravariant_piola_facet_integral(space):
 def test_covariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
-    u = project(Constant((0.0, 1.0)), V)
+    u = project(Constant((0.0, 1.0), domain=m), V)
     assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
     assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
     assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13

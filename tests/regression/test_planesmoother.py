@@ -11,8 +11,8 @@ def test_xy_equivalence():
     v = TestFunction(V)
 
     a = inner(grad(u), grad(v))*dx
-    L = inner(Constant(1), v)*dx
-    bcs = DirichletBC(V, Constant(0), "on_boundary")
+    L = inner(Constant(1, domain=mesh), v)*dx
+    bcs = DirichletBC(V, Constant(0, domain=mesh), "on_boundary")
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
@@ -66,8 +66,8 @@ def test_divisions_equivalence():
     v = TestFunction(V)
 
     a = inner(grad(u), grad(v))*dx
-    L = inner(Constant(1), v)*dx
-    bcs = DirichletBC(V, Constant(0), "on_boundary")
+    L = inner(Constant(1, domain=mesh), v)*dx
+    bcs = DirichletBC(V, Constant(0, domain=mesh), "on_boundary")
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
@@ -123,8 +123,8 @@ def test_tensor_grids():
     v = TestFunction(V)
 
     a = inner(grad(u), grad(v))*dx
-    L = inner(Constant(1), v)*dx
-    bcs = DirichletBC(V, Constant(0), "on_boundary")
+    L = inner(Constant(1, domain=mesh), v)*dx
+    bcs = DirichletBC(V, Constant(0, domain=mesh), "on_boundary")
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
@@ -163,8 +163,8 @@ def test_not_aligned():
     v = TestFunction(V)
 
     a = inner(grad(u), grad(v))*dx
-    L = inner(Constant(1), v)*dx
-    bcs = DirichletBC(V, Constant(0), "on_boundary")
+    L = inner(Constant(1, domain=mesh), v)*dx
+    bcs = DirichletBC(V, Constant(0, domain=mesh), "on_boundary")
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 

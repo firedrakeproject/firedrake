@@ -183,7 +183,7 @@ def test_repeatable():
     V2 = FunctionSpace(mesh, 'DG', 0)
     V3 = FunctionSpace(mesh, 'DG', 0)
     W = V2 * V3
-    expr = Constant(1.0)
+    expr = Constant(1.0, domain=mesh)
     old = project(expr, Q)
 
     f = project(as_vector((-1.0, -1.0)), W)  # noqa
@@ -285,25 +285,35 @@ def test_projector_bcs(tensor, same_fspace):
     if tensor == 'scalar':
         V = FunctionSpace(mesh, "CG", 1)
         V_ho = FunctionSpace(mesh, "CG", 5)
-        bcs = [DirichletBC(V_ho, Constant(0.5), (1, 3)),
-               DirichletBC(V_ho, Constant(-0.5), (2, 4))]
+        bcs = [DirichletBC(V_ho, Constant(0.5, domain=mesh), (1, 3)),
+               DirichletBC(V_ho, Constant(-0.5, domain=mesh), (2, 4))]
         fct = cos(x[0]*pi*2)*sin(x[1]*pi*2)
 
     elif tensor == 'vector':
         V = VectorFunctionSpace(mesh, "CG", 1)
         V_ho = VectorFunctionSpace(mesh, "CG", 5)
-        bcs = [DirichletBC(V_ho, Constant((0.5, 0.5)), (1, 3)),
-               DirichletBC(V_ho, Constant((-0.5, -0.5)), (2, 4))]
+        bcs = [DirichletBC(V_ho, Constant((0.5, 0.5), domain=mesh), (1, 3)),
+               DirichletBC(V_ho, Constant((-0.5, -0.5), domain=mesh), (2, 4))]
         fct = as_vector([cos(x[0]*pi*2)*sin(x[1]*pi*2),
                          cos(x[0]*pi*2)*sin(x[1]*pi*2)])
 
     elif tensor == 'tensor':
         V = TensorFunctionSpace(mesh, "CG", 1)
         V_ho = TensorFunctionSpace(mesh, "CG", 5)
-        bcs = [DirichletBC(V_ho, Constant(((0.5, 0.5),
-                                           (0.5, 0.5))), (1, 3)),
-               DirichletBC(V_ho, Constant(((-0.5, -0.5),
-                                           (-0.5, -0.5))), (2, 4))]
+        bcs = [
+            DirichletBC(
+                V_ho,
+                Constant(((0.5, 0.5),
+                          (0.5, 0.5)), domain=mesh),
+                (1, 3)
+            ),
+            DirichletBC(
+                V_ho,
+                Constant(((-0.5, -0.5),
+                          (-0.5, -0.5)), domain=mesh),
+                (2, 4)
+            )
+        ]
         fct = as_tensor([[cos(x[0]*pi*2)*sin(x[1]*pi*2),
                           cos(x[0]*pi*2)*sin(x[1]*pi*2)],
                          [cos(x[0]*pi*2)*sin(x[1]*pi*2),

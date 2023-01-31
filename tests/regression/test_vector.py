@@ -8,7 +8,7 @@ def f():
     mesh = UnitIntervalMesh(2)
     V = FunctionSpace(mesh, "CG", 1)
     f = Function(V)
-    f.interpolate(Constant(1))
+    f.interpolate(Constant(1, domain=mesh))
     return f
 
 
@@ -68,14 +68,16 @@ def test_mixed_vector_copy():
 
 
 def test_vector_gather_works(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     gathered = v.gather([0])
     assert len(gathered) == 1 and gathered[0] == 2.0
 
 
 def test_axpy(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     y = Vector(v)
     y[:] = 4
@@ -86,7 +88,8 @@ def test_axpy(f):
 
 
 def test_addition(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     y = Vector(v)
     w = v + y
@@ -100,7 +103,8 @@ def test_addition(f):
 
 
 def test_iadd(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     y = Vector(v)
     v += y
@@ -108,7 +112,8 @@ def test_iadd(f):
 
 
 def test_subtraction(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     y = Vector(v)
     w = v - y
@@ -122,7 +127,8 @@ def test_subtraction(f):
 
 
 def test_isub(f):
-    f.interpolate(Constant(2))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(2, domain=mesh))
     v = f.vector()
     y = Vector(v)
     v -= y
@@ -130,7 +136,8 @@ def test_isub(f):
 
 
 def test_scale(f):
-    f.interpolate(Constant(3))
+    mesh = f.function_space().mesh()
+    f.interpolate(Constant(3, domain=mesh))
     v = f.vector()
     v._scale(7)
 

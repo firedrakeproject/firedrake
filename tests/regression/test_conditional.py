@@ -14,7 +14,7 @@ def test_conditional(ncell):
     u = Function(V)
     du = TrialFunction(V)
     v = TestFunction(V)
-    bhp = Constant(2)
+    bhp = Constant(2, domain=mesh)
     u.dat.data[...] = range(ncell)
     cond = conditional(ge(real(u-bhp), 0.0), u-bhp, 0.0)
     Fc = inner(cond, v) * dx

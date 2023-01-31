@@ -88,7 +88,7 @@ def test_scalar_scaled_mass(m, value, typ, degree):
     if typ == "number":
         c = value
     elif typ == "Constant":
-        c = Constant(value)
+        c = Constant(value, domain=m)
     elif typ == "Function":
         V = FunctionSpace(m, "DG", 0)
         c = Function(V)
@@ -125,7 +125,7 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
     if typ == "number":
         c = value
     elif typ == "Constant":
-        c = Constant(value)
+        c = Constant(value, domain=m)
     elif typ == "Function":
         V = FunctionSpace(m, "DG", 0)
         c = Function(V)
@@ -163,7 +163,7 @@ def test_tensor_scaled_mass(m, value, typ, degree):
     if typ == "number":
         c = value
     elif typ == "Constant":
-        c = Constant(value)
+        c = Constant(value, domain=m)
     elif typ == "Function":
         V = FunctionSpace(m, "DG", 0)
         c = Function(V)

@@ -21,7 +21,7 @@ def helmholtz(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
         V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
-        eps = Constant(1 / 2**(n+1))
+        eps = Constant(1 / 2**(n+1), domain=mesh)
 
         x, y = SpatialCoordinate(mesh)
         new = Function(V).interpolate(as_vector([x + eps*sin(8*pi*x)*sin(8*pi*y),

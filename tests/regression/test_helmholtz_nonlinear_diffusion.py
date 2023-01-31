@@ -34,8 +34,8 @@ def helmholtz(r, quadrilateral=False, parameters={}):
     V = FunctionSpace(mesh, "CG", 1)
 
     # Define variational problem
-    kappa = Constant(1)
-    alpha = Constant(0.1)
+    kappa = Constant(1, domain=mesh)
+    alpha = Constant(0.1, domain=mesh)
     u = Function(V)
     v = TestFunction(V)
     f = Function(V)

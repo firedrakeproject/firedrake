@@ -13,7 +13,7 @@ def test_homogeneous_field_linear():
     v = TestFunction(V)
 
     a = inner(curl(u), curl(v))*dx
-    L = inner(Constant((0., 0., 0.)), v)*dx
+    L = inner(Constant((0., 0., 0.), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
     B0 = 1
@@ -46,7 +46,7 @@ def test_homogeneous_field_matfree():
     v = TestFunction(V)
 
     a = inner(curl(u), curl(v))*dx
-    L = inner(Constant((0., 0., 0.)), v)*dx
+    L = inner(Constant((0., 0., 0.), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
     B0 = 1
@@ -82,7 +82,7 @@ def test_homogeneous_field_nonlinear():
     v = TestFunction(V)
 
     a = inner(curl(u), curl(v))*dx
-    L = inner(Constant((0., 0., 0.)), v)*dx
+    L = inner(Constant((0., 0., 0.), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
     B0 = 1
@@ -114,7 +114,7 @@ def test_homogeneous_field_linear_convergence():
     v = TestFunction(V)
 
     a = inner(curl(u), curl(v))*dx
-    L = inner(Constant((0., 0., 0.)), v)*dx
+    L = inner(Constant((0., 0., 0.), domain=mesh), v)*dx
 
     x, y, z = SpatialCoordinate(mesh)
     B0 = 1

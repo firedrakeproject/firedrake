@@ -228,7 +228,7 @@ def test_mixed_expressions_indexed_fs(msfunctions):
 def test_iadd_combination(sfs):
     f = Function(sfs)
     g = Function(sfs)
-    t = Constant(2)
+    t = Constant(2, domain=f.function_space().mesh())
     g.assign(1)
     f.assign(2)
     f += t*g
@@ -259,8 +259,8 @@ def test_assign_mfs_lincomp(mfs):
     g.assign(2)
     h = Function(mfs)
     h.assign(3)
-    c = Constant(2)
-    d = Constant(4)
+    c = Constant(2, domain=f.function_space().mesh())
+    d = Constant(4, domain=f.function_space().mesh())
     f.assign(f + c*g + d*h)
     for f_ in f.dat.data_ro:
         assert np.allclose(f_, 1 + 2*2 + 3 * 4)
@@ -295,7 +295,7 @@ def test_assign_with_different_meshes_fails():
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape()[0]+1), domain=f.function_space().mesh())
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -304,7 +304,7 @@ def test_assign_vector_const_to_vfs(vcg1):
 def test_assign_scalar_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(10.0)
+    c = Constant(10.0, domain=f.function_space().mesh())
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -461,8 +461,8 @@ def test_augmented_assignment_broadcast():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "BDM", 1)
     u = Function(V)
-    a = Constant(1)
-    b = Constant(2)
+    a = Constant(1, domain=mesh)
+    b = Constant(2, domain=mesh)
     u.assign(a)
 
     assert np.allclose(u.dat.data_ro, 1)

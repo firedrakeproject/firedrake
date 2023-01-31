@@ -19,13 +19,13 @@ def test_hyperelastic_convergence():
 
     V = VectorFunctionSpace(mesh, "Lagrange", 1)
 
-    bcs = DirichletBC(V, Constant((0, 0)), 3)
+    bcs = DirichletBC(V, Constant((0, 0), domain=mesh), 3)
 
     v = TestFunction(V)
     u = Function(V)
 
-    T = Constant((0, -0.5))
-    B = Constant((0, -0.25))
+    T = Constant((0, -0.5), domain=mesh)
+    B = Constant((0, -0.25), domain=mesh)
 
     d = mesh.geometric_dimension()
     I = Identity(d)
@@ -37,8 +37,8 @@ def test_hyperelastic_convergence():
     J = det(F)
 
     # Lamé parameters, "quite squishy"
-    mu = Constant(6.3)
-    lmbda = Constant(10.0)
+    mu = Constant(6.3, domain=mesh)
+    lmbda = Constant(10.0, domain=mesh)
 
     # Stored strain energy density (compressible neo-Hookean model)
     psi = (mu/2)*(Ic - 3) - mu*ln(J) + (lmbda/2)*(ln(J))**2

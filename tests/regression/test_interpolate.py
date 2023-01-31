@@ -5,7 +5,7 @@ from firedrake import *
 
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
-    f = interpolate(Constant(1.0), cg1)
+    f = interpolate(Constant(1.0, domain=cg1), cg1)
     assert np.allclose(1.0, f.dat.data)
 
 
@@ -56,7 +56,7 @@ def test_piola():
     U = FunctionSpace(m, 'RT', 1)
     V = FunctionSpace(m, 'P', 2)
 
-    f = project(as_vector((x[0], Constant(0.0))), U)
+    f = project(as_vector((x[0], Constant(0.0, domain=m))), U)
     g = interpolate(f[0], V)
 
     # g shall be equivalent to:
@@ -71,7 +71,7 @@ def test_vector():
     U = FunctionSpace(m, 'RT', 1)
     V = VectorFunctionSpace(m, 'P', 2)
 
-    f = project(as_vector((x[0], Constant(0.0))), U)
+    f = project(as_vector((x[0], Constant(0.0, domain=m))), U)
     g = interpolate(f, V)
 
     # g shall be equivalent to:
@@ -86,7 +86,7 @@ def test_tensor():
     U = TensorFunctionSpace(mesh, 'P', 1)
     V = TensorFunctionSpace(mesh, 'CG', 2)
 
-    c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
+    c = as_tensor(((Constant(2.0, domain=mesh), x[1]), (x[0], x[0] * x[1])))
 
     f = project(c, U)
     g = interpolate(f, V)
@@ -116,7 +116,7 @@ def test_compound_expression():
     V = FunctionSpace(m, 'P', 2)
 
     f = project(as_vector((x[0], x[1])), U)
-    g = interpolate(Constant(1.5)*div(f) + sin(x[0] * np.pi), V)
+    g = interpolate(Constant(1.5, domain=m)*div(f) + sin(x[0] * np.pi), V)
 
     # g shall be equivalent to:
     h = interpolate(3.0 + sin(pi * x[0]), V)
@@ -444,7 +444,7 @@ def test_basic_dual_eval_cg3():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 3)
     x = SpatialCoordinate(mesh)
-    expr = Constant(1.)
+    expr = Constant(1., domain=mesh)
     f = interpolate(expr, V)
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3

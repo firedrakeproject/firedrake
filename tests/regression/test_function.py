@@ -25,15 +25,16 @@ def W_nonstandard_shape():
 
 
 def test_firedrake_scalar_function(V):
+    mesh = V.mesh()
     f = Function(V)
-    f.interpolate(Constant(1))
+    f.interpolate(Constant(1, domain=mesh))
     assert (f.dat.data_ro == 1.0).all()
 
     g = Function(f)
     assert (g.dat.data_ro == 1.0).all()
 
     # Check that g is indeed a deep copy
-    f.interpolate(Constant(2))
+    f.interpolate(Constant(2, domain=mesh))
 
     assert (f.dat.data_ro == 2.0).all()
     assert (g.dat.data_ro == 1.0).all()
@@ -74,24 +75,26 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 
 
 def test_mismatching_rank_interpolation(V):
+    mesh = V.mesh()
     f = Function(V)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant((1, 2)))
+        f.interpolate(Constant((1, 2), domain=mesh))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant((1, 2)))
+        f.interpolate(Constant((1, 2), domain=mesh))
     VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VVV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant((1, 2)))
+        f.interpolate(Constant((1, 2), domain=mesh))
 
 
 def test_mismatching_shape_interpolation(V):
-    VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
+    mesh = V.mesh()
+    VV = VectorFunctionSpace(mesh, 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant([1] * (VV.ufl_element().value_shape()[0] + 1)))
+        f.interpolate(Constant([1] * (VV.ufl_element().value_shape()[0] + 1), domain=mesh))
 
 
 def test_function_val(V):
@@ -102,8 +105,9 @@ def test_function_val(V):
 
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
+    mesh = V.mesh()
     f = Function(V, op2.Dat(V.node_set**V.value_size))
-    f.interpolate(Constant(1))
+    f.interpolate(Constant(1, domain=mesh))
     assert (f.dat.data_ro == 1.0).all()
 
 

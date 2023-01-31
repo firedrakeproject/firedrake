@@ -49,14 +49,14 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         i = 1  # only active index
         f = Function(V)
         fval = numpy.full(V.sub(i).ufl_element().value_shape(), 1.0, dtype=float)
-        f.sub(i).interpolate(Constant(fval))
+        f.sub(i).interpolate(Constant(fval, domain=mesh))
         a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
-        L = inner(Constant(rhs), v)*dx
+        L = inner(Constant(rhs, domain=mesh), v)*dx
         bcs = [DirichletBC(Q, zero(Q.ufl_element().value_shape()), "on_boundary")
                for Q in V.subfunctions]
     else:
         a = inner(grad(u), grad(v))*dx
-        L = inner(Constant(rhs), v)*dx
+        L = inner(Constant(rhs, domain=mesh), v)*dx
         bcs = DirichletBC(V, zero(V.ufl_element().value_shape()), "on_boundary")
 
     uh = Function(V)

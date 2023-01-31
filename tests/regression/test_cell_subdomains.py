@@ -25,9 +25,9 @@ def expected(subdomain):
 
 
 def test_subdomain_cell_integral(mesh, subdomain, expected):
-    assert np.allclose(assemble(Constant(1)*dx(subdomain, domain=mesh)), expected)
+    assert np.allclose(assemble(Constant(1, domain=mesh)*dx(subdomain, domain=mesh)), expected)
 
 
 @pytest.mark.parallel(nprocs=2)
 def test_subdomain_cell_integral_parallel(mesh, subdomain, expected):
-    assert np.allclose(assemble(Constant(1)*dx(subdomain, domain=mesh)), expected)
+    assert np.allclose(assemble(Constant(1, domain=mesh)*dx(subdomain, domain=mesh)), expected)

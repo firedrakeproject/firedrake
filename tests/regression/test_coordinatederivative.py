@@ -90,11 +90,11 @@ def test_integral_scaling_edge_case():
 
     J = u * u * dx
     with pytest.raises(UFLException):
-        assemble(Constant(2.0) * derivative(J, X))
+        assemble(Constant(2.0, domain=mesh) * derivative(J, X))
     with pytest.raises(UFLException):
-        assemble(derivative(Constant(2.0) * derivative(J, X), X))
+        assemble(derivative(Constant(2.0, domain=mesh) * derivative(J, X), X))
     with pytest.raises(UFLException):
-        assemble(Constant(2.0) * derivative(derivative(J, X), X))
+        assemble(Constant(2.0, domain=mesh) * derivative(derivative(J, X), X))
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")

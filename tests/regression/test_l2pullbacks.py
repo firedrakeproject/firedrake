@@ -192,8 +192,8 @@ def laplacian_IP(r, degree, meshd, meshtype):
     CV = CellVolume(mesh)
     ddx = CV/FA
     ddx_avg = (ddx('+') + ddx('-'))/2.
-    alpha = Constant(4. * degree * (degree + 1.))
-    gamma = Constant(8. * degree * (degree + 1.))
+    alpha = Constant(4. * degree * (degree + 1.), domain=mesh)
+    gamma = Constant(8. * degree * (degree + 1.), domain=mesh)
     penalty_int = alpha / ddx_avg
     penalty_ext = gamma / ddx
 

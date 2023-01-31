@@ -13,8 +13,8 @@ from firedrake import *
 
 
 def BoundaryConditions(mesh):
-    y_component = Constant(0)
-    x_component = Constant(1)
+    y_component = Constant(0, domain=mesh)
+    x_component = Constant(1, domain=mesh)
     return as_vector([x_component, y_component])
 
 
@@ -95,10 +95,10 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
     nsp_guess = MixedVectorSpaceBasis(G, [G.sub(0), VectorSpaceBasis(constant=True)])
     solve(F_guess == 0, g, bcs=Gbcs, nullspace=nsp_guess, solver_parameters=solver_params_guess)
     (u_guess, p_guess) = g.subfunctions
-    z.subfunctions[0].interpolate(Constant(gamma))
+    z.subfunctions[0].interpolate(Constant(gamma), domain=mesh)
     z.subfunctions[1].assign(u_guess)
     z.subfunctions[2].assign(p_guess)
-    z.subfunctions[3].interpolate(Constant(10))
+    z.subfunctions[3].interpolate(Constant(10), domain=mesh)
 
     solver_params = {
         "snes_monitor": None,

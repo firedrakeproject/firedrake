@@ -40,7 +40,7 @@ def form_expect(request, mesh):
     else:
         V = FunctionSpace(mesh, "RT", 1)
 
-    mu_s = Constant(1.0)
+    mu_s = Constant(1.0, domain=mesh)
     mu = as_tensor(np.diag(np.repeat(mu_s, dim)))  # noqa
 
     n = FacetNormal(mesh)       # noqa

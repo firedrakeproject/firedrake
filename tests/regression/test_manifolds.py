@@ -19,7 +19,7 @@ def run_no_manifold():
 
     V = V0 * V1
 
-    bc_arg = Function(V0).project(Constant((-1, 0)))
+    bc_arg = Function(V0).project(Constant((-1, 0), domain=mesh))
     bc = DirichletBC(V.sub(0), bc_arg, (1, 2, 3, 4))
 
     u, p = TrialFunctions(V)
@@ -55,14 +55,14 @@ def run_manifold():
     x, y = SpatialCoordinate(mesh)
     X.interpolate(as_vector([x, y, 0]))
     mesh = Mesh(X)
-    mesh.init_cell_orientations(Constant((0, 0, 1)))
+    mesh.init_cell_orientations(Constant((0, 0, 1), domain=mesh))
     x_n = SpatialCoordinate(mesh)
     V0 = FunctionSpace(mesh, "RT", 2)
     V1 = FunctionSpace(mesh, "DG", 1)
 
     V = V0 * V1
 
-    bc_arg = Function(V0).project(Constant((-1, 0, 0)))
+    bc_arg = Function(V0).project(Constant((-1, 0, 0), domain=mesh))
     bc = DirichletBC(V.sub(0), bc_arg, (1, 2, 3, 4))
 
     u, p = TrialFunctions(V)

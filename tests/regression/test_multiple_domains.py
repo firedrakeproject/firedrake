@@ -64,14 +64,16 @@ def test_mismatching_topologies(mesh1, mesh3):
 
 
 def test_functional(mesh1, mesh2):
-    c = Constant(1)
+    constant = 1
+    c = Constant(constant, domain=mesh1)
+    d = Constant(constant, domain=mesh2)
 
     val = assemble(c*dx(domain=mesh1))
 
     cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
     assert np.allclose(val, cell_volume)
 
-    val = assemble(c*dx(domain=mesh2))
+    val = assemble(d*dx(domain=mesh2))
 
     assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension()))
 

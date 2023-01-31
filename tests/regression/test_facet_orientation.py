@@ -32,7 +32,7 @@ def test_consistent_facet_orientation(mesh_thunk):
     f = Function(V).interpolate(expression)
     g = Function(W).interpolate(expression)
 
-    q = Function(Q).interpolate(Constant(0.0))
+    q = Function(Q).interpolate(Constant(0.0, domain=mesh))
 
     domain = "{[i]: 0 <= i < C.dofs}"
     instructions = """

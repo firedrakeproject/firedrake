@@ -22,8 +22,8 @@ def test_patch_precompute_element_tensors(mesh, V):
     u = Function(V)
     v = TestFunction(V)
 
-    gamma = Constant(1)
-    f = Constant((1, 1))
+    gamma = Constant(1, domain=mesh)
+    f = Constant((1, 1), domain=mesh)
     F = inner(grad(u), grad(v))*dx + gamma*inner(div(u), div(v))*dx - inner(f, v)*dx + avg(inner(u, v))*dS
 
     z = zero(V.ufl_element().value_shape())

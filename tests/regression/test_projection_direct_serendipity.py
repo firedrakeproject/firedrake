@@ -18,7 +18,7 @@ def do_projection(n, degree):
     mesh = UnitSquareMesh(2**n, 2**n, quadrilateral=True)
 
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
-    eps = Constant(0.1 / 2**(n+1))
+    eps = Constant(0.1 / 2**(n+1), domain=mesh)
 
     x, y = SpatialCoordinate(mesh)
     # Interpolation is not a thing yet for FInAT bases without underlying

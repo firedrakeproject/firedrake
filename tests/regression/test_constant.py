@@ -22,7 +22,8 @@ def test_scalar_constant_assign():
                           ([1, 1], ([1, "x"], "x", 1, [[1, 1], [1, 1]])),
                           ([[1], [1]], ([1, "x"], "x", 1, [[1, 1], [1, 1]]))))
 def test_constant_assign_mismatch(init, new_vals):
-    c = Constant(init)
+    mesh = UnitIntervalMesh(1)
+    c = Constant(init, domain=mesh)
     for v in new_vals:
         with pytest.raises((ValueError, TypeError)):
             c.assign(v)
@@ -30,20 +31,23 @@ def test_constant_assign_mismatch(init, new_vals):
 
 def test_constant_cast_to_float():
     val = 10.0
-    c = Constant(val)
+    mesh = UnitIntervalMesh(1)
+    c = Constant(val, domain=mesh)
     assert float(c) == val  # raises a warning about casting float to complex
 
 
 @pytest.mark.skipreal
 def test_constant_cast_to_complex():
     val = 10.0 + 10.0j
-    c = Constant(val)
+    mesh = UnitIntervalMesh(1)
+    c = Constant(val, domain=mesh)
     assert complex(c) == val
 
 
 def test_indexed_vector_constant_cast_to_float():
     val = [10.0, 20.0]
-    c = Constant(val)
+    mesh = UnitIntervalMesh(1)
+    c = Constant(val, domain=mesh)
     for i in range(2):
         assert float(c[i]) == val[i]
 
@@ -81,7 +85,7 @@ def test_tensor_constant():
     V = VectorFunctionSpace(mesh, "CG", 1)
     v = Function(V)
     v.assign(1.0)
-    sigma = Constant(((1., 0.), (0., 2.)))
+    sigma = Constant(((1., 0.), (0., 2.)), domain=mesh)
     val = assemble(inner(v, dot(sigma, v))*dx)
 
     assert abs(val-3.0) < 1.0e-10
@@ -93,7 +97,7 @@ def test_constant_scalar_assign_distributes():
 
     f = Function(V)
 
-    c = Constant(11)
+    c = Constant(11, domain=m)
 
     f.assign(c)
 
@@ -106,7 +110,7 @@ def test_constant_vector_assign_works():
 
     f = Function(V)
 
-    c = Constant([10, 11])
+    c = Constant([10, 11], domain=m)
 
     f.assign(c)
 
@@ -120,7 +124,7 @@ def test_constant_vector_assign_to_scalar_error():
 
     f = Function(V)
 
-    c = Constant([10, 11])
+    c = Constant([10, 11], domain=m)
 
     with pytest.raises(ValueError):
         f.assign(c)
@@ -132,7 +136,7 @@ def test_constant_vector_assign_to_vector_mismatch_error():
 
     f = Function(V)
 
-    c = Constant([10, 11, 12])
+    c = Constant([10, 11, 12], domain=m)
 
     with pytest.raises(ValueError):
         f.assign(c)
@@ -144,7 +148,7 @@ def test_constant_assign_to_mixed():
 
     W = V*V
 
-    c = Constant([10, 11])
+    c = Constant([10, 11], domain=m)
     f = Function(W)
     f.sub(0).assign(c)
     f.sub(1).assign(c)
@@ -163,14 +167,15 @@ def test_constant_multiplies_function():
     u.assign(10)
     f = Function(V)
 
-    c = Constant(11)
+    c = Constant(11, domain=m)
     f.assign(u * c)
 
     assert np.allclose(f.dat.data_ro, 110)
 
 
 def test_fresh_constant_hashes_different():
-    c = Constant(1)
-    d = Constant(1)
+    mesh = UnitIntervalMesh(1)
+    c = Constant(1, domain=mesh)
+    d = Constant(1, domain=mesh)
 
     assert hash(c) != hash(d)
