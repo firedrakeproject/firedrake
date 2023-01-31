@@ -150,7 +150,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
     # use it again for a different Function in V
-    v = Function(V).assign(Constant(2))
+    v = Function(V).assign(Constant(2, domain=parentmesh))
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, 2)
 
@@ -286,7 +286,7 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    v = interpolate(Constant(1.0), V)
+    v = interpolate(Constant(1.0, domain=parentmesh), V)
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, 1.)
 
@@ -296,7 +296,7 @@ def test_scalar_real_interpolator(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    v = interpolate(Constant(1.0), V)
+    v = interpolate(Constant(1.0, domain=parentmesh), V)
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)

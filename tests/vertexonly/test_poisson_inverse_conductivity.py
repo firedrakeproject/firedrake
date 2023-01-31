@@ -56,8 +56,8 @@ def test_poisson_inverse_conductivity(num_points):
     # Compute the true solution of the PDE.
     u_true = Function(V)
     v = TestFunction(V)
-    f = Constant(1.0)
-    k0 = Constant(0.5)
+    f = Constant(1.0, domain=m)
+    k0 = Constant(0.5, domain=m)
     bc = DirichletBC(V, 0, 'on_boundary')
     F = (k0 * exp(q_true) * inner(grad(u_true), grad(v)) - f * v) * dx
     solve(F == 0, u_true, bc)
@@ -75,7 +75,7 @@ def test_poisson_inverse_conductivity(num_points):
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    σ = Constant(u_range / signal_to_noise)
+    σ = Constant(u_range / signal_to_noise, domain=point_cloud)
     ζ = generator.standard_normal(len(xs))
     u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
 
@@ -93,7 +93,7 @@ def test_poisson_inverse_conductivity(num_points):
 
     # Two terms in the functional
     misfit_expr = 0.5 * ((u_obs - interpolate(u, P0DG)) / σ)**2
-    α = Constant(0.5)
+    α = Constant(0.5, domain=m)
     regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
 
     # Form functional and reduced functional
