@@ -16,7 +16,7 @@ f.interpolate(10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
 # Define the variational forms
 a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-L = -inner(f, v) * dx + Constant(0.0) * dot(conj(tau), n) * (ds(3) + ds(4))
+L = -inner(f, v) * dx + Constant(0.0, domain=mesh) * dot(conj(tau), n) * (ds(3) + ds(4))
 
 # Compare hybridized solution with non-hybridized
 w = Function(W)

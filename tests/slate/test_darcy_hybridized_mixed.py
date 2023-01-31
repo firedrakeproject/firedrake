@@ -28,7 +28,7 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = -inner(f, v) * dx + Constant(0.0) * inner(n, tau) * (ds(3) + ds(4))
+    L = -inner(f, v) * dx + Constant(0.0, domain=mesh) * inner(n, tau) * (ds(3) + ds(4))
 
     # Compare hybridized solution with non-hybridized
     w = Function(W)

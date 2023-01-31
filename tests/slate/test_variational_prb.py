@@ -28,7 +28,7 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
 
     f = Function(V).interpolate(-div(grad(sin(pi*x[0])*sin(pi*x[1]))))
 
-    tau = Constant(1)
+    tau = Constant(1, domain=mesh)
     qhat = q + tau*(u - uhat)*n
 
     a = ((inner(q, v) - inner(u, div(v)))*dx

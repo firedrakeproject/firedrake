@@ -137,7 +137,7 @@ def test_assemble_vector_into_tensor(mesh):
     # Assemble a SLATE tensor into f
     f = assemble(Tensor(v * dx), f)
     # Assemble a different tensor into f
-    f = assemble(Tensor(Constant(2) * v * dx), f)
+    f = assemble(Tensor(Constant(2, domain=mesh) * v * dx), f)
     assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
 
 
@@ -147,7 +147,7 @@ def test_assemble_matrix_into_tensor(mesh):
     v = TrialFunction(V)
     M = assemble(Tensor(u * v * dx))
     # Assemble a different SLATE tensor into M
-    M = assemble(Tensor(Constant(2) * u * v * dx), M)
+    M = assemble(Tensor(Constant(2, domain=mesh) * u * v * dx), M)
     assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
 
 
@@ -181,7 +181,7 @@ def test_nested_coefficients_matrix(mesh):
     n = FacetNormal(mesh)
 
     def T(arg):
-        k = Constant([0.0, 1.0])
+        k = Constant([0.0, 1.0], domain=mesh)
         return k*inner(arg, k)
 
     u = TrialFunction(V)

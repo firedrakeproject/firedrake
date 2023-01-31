@@ -208,9 +208,10 @@ def test_slate_hybridization_nested_schur():
 class DGLaplacian(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
+        mesh = W.mesh()
         n = FacetNormal(W.mesh())
-        alpha = Constant(3**3)
-        gamma = Constant(4**3)
+        alpha = Constant(3**3, domain=mesh)
+        gamma = Constant(4**3, domain=mesh)
         h = CellSize(W.mesh())
         h_avg = (h('+') + h('-'))/2
         a_dg = -(inner(grad(u), grad(v))*dx
@@ -228,7 +229,7 @@ class DGLaplacian3D(AuxiliaryOperatorPC):
     def form(self, pc, u, v):
         W = u.function_space()
         n = FacetNormal(W.mesh())
-        gamma = Constant(4.**3)
+        gamma = Constant(4.**3, domain=mesh)
         h = CellVolume(W.mesh())/FacetArea(W.mesh())
 
         a_dg = -(dot(grad(v), grad(u))*dx(degree=8)

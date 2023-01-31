@@ -49,7 +49,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     f = Function(Vh).interpolate(-div(grad(a_scalar)))
 
     # Stability parameter
-    tau = Constant(1)
+    tau = Constant(1, domain=mesh)
 
     # Numerical flux
     qhat = q + tau*(u - uhat)*n

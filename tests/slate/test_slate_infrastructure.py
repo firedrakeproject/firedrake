@@ -309,7 +309,7 @@ def test_illegal_add_sub():
     A = Tensor(u * v * dx)
     b = Tensor(v * dx)
     c = Function(V)
-    c.interpolate(Constant(1))
+    c.interpolate(Constant(1, domain=mesh))
     s = Tensor(c * dx)
 
     with pytest.raises(ValueError):

@@ -18,7 +18,7 @@ def test_matrix_free_hybridization():
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = -inner(f, v) * dx + Constant(0.0) * dot(conj(tau), n) * (ds(3) + ds(4))
+    L = -inner(f, v) * dx + Constant(0.0, domain=mesh) * dot(conj(tau), n) * (ds(3) + ds(4))
 
     # Compare hybridized solution with non-hybridized
     w = Function(W)

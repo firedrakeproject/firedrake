@@ -81,12 +81,13 @@ def KF(dg1_dg1_dg0, functions):
 @pytest.fixture
 def TC(dg1_dg1_dg0, functions):
     """Fixture for a tensor of a form with a DG discretisation and a corresponding coefficient."""
+    mesh = dg1_dg1_dg0.mesh()
     q, p, r = functions
     u, phi, eta = TrialFunctions(dg1_dg1_dg0)
     v, psi, nu = TestFunctions(dg1_dg1_dg0)
-    K = Tensor(Constant(2)*inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
+    K = Tensor(Constant(2, domain=mesh)*inner(u, v)*dx + inner(phi, psi)*dx + inner(eta, nu)*dx)
     f = AssembledVector(assemble(inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx))
-    f2 = AssembledVector(assemble(Constant(2)*inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx))
+    f2 = AssembledVector(assemble(Constant(2, domain=mesh)*inner(q, v)*dx + inner(p, psi)*dx + inner(r, nu)*dx))
     return K, f, f2
 
 
