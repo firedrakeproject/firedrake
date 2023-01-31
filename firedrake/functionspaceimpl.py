@@ -122,7 +122,7 @@ class WithGeometry(ufl.FunctionSpace):
     @PETSc.Log.EventDecorator()
     def split(self):
         import warnings
-        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     @utils.cached_property
@@ -505,7 +505,7 @@ class FunctionSpace(object):
 
     def split(self):
         import warnings
-        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     def __getitem__(self, i):
@@ -721,7 +721,7 @@ class MixedFunctionSpace(object):
 
     def split(self):
         import warnings
-        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     def sub(self, i):
