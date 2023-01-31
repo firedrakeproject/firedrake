@@ -130,11 +130,12 @@ def test_tricontour_quad_mesh():
 
 def test_tricontour_extruded_mesh():
     nx = 12
-    Lx = Constant(3.0)
+    Lx = 3.0
     interval = IntervalMesh(nx, float(Lx))
     rectangle = ExtrudedMesh(interval, 1)
     Vc = rectangle.coordinates.function_space()
     x = SpatialCoordinate(rectangle)
+    Lx = Constant(Lx, domain=rectangle)
     expr = as_vector((x[0], (1 - 0.5 * x[0] / Lx) * x[1] + 0.25 * x[0] / Lx))
     f = interpolate(expr, Vc)
     mesh = Mesh(f)
@@ -168,12 +169,12 @@ def test_streamplot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
     x = SpatialCoordinate(mesh)
-    x0 = Constant((.5, .5))
+    x0 = Constant((.5, .5), domain=mesh)
     v = x - x0
 
     center = interpolate(2 * as_vector((-v[1], v[0])), V)
     saddle = interpolate(2 * as_vector((v[0], -v[1])), V)
-    r = Constant(.5)
+    r = Constant(.5, domain=mesh)
     sink = interpolate(center - r * v, V)
 
     fig, axes = plt.subplots(ncols=1, nrows=3, sharex=True, sharey=True)
@@ -305,7 +306,7 @@ def test_tripcolor_movie():
     mesh = UnitSquareMesh(16, 16)
     Q = FunctionSpace(mesh, 'CG', 2)
     x = SpatialCoordinate(mesh)
-    t = Constant(0)
+    t = Constant(0, domain=mesh)
     expr = sin(np.pi * (x[0] + 2 * x[1] + t))
     q = interpolate(expr, Q)
 
