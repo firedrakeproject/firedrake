@@ -2584,6 +2584,13 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
     reference_coords = np.empty((num_vertices, tdim), dtype=RealType)
     valid = np.full(num_vertices, False)
 
+    if parent_mesh.extruded:
+        if parent_mesh.variable_layers:
+            raise NotImplementedError("Variable layers not supported")
+        pm_local_size_wo_halos = parent_mesh.cell_set.size * (parent_mesh.layers - 1)
+    else:
+        pm_local_size_wo_halos = parent_mesh.cell_set.size
+
     # Create an out of mesh point to use in locate_cell when needed
     out_of_mesh_point = np.full((1, gdim), np.inf)
 
@@ -2591,9 +2598,8 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
         if i < num_vertices:
             parent_cell_num, reference_coord = \
                 parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i], tolerance)
-            # parent_cell_num >= parent_mesh.cell_set.size means the vertex is in the halo
-            # and is to be discarded.
-            if parent_cell_num is not None and parent_cell_num < parent_mesh.cell_set.size:
+            # At the moment we discard vertices in parent mesh halos
+            if parent_cell_num is not None and parent_cell_num < pm_local_size_wo_halos:
                 valid[i] = True
                 parent_cell_nums[i] = parent_cell_num
                 reference_coords[i] = reference_coord
