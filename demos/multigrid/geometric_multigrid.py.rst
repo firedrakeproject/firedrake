@@ -261,5 +261,5 @@ Finally, we'll write the solution for visualisation with Paraview. ::
 
   File("stokes.pvd").write(u, p)
 
-A runnable python version of this demo can be found `here
-<geometric_multigrid.py>`__.
+A runnable python version of this demo can be found :demo:`here
+<geometric_multigrid.py>`.

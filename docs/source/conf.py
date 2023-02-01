@@ -25,6 +25,7 @@
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.extlinks',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
@@ -361,3 +362,8 @@ intersphinx_mapping = {
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
 
 numpydoc_show_class_members = False
+
+#  -- Options for sphinx.ext.extlinks ------------------------------------
+extlinks = {
+    'demo': ('https://firedrakeproject.org/demos/%s', None)
+}

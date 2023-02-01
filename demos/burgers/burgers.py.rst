@@ -113,4 +113,4 @@ which amount to applying a full LU decomposition as a preconditioner. ::
       t += timestep
       outfile.write(project(u, V_out, name="Velocity"))
     
-A python script version of this demo can be found `here <burgers.py>`__.
+A python script version of this demo can be found :demo:`here <burgers.py>`.

@@ -147,4 +147,4 @@ We finally compare our solution to the expected solution: ::
   assert max(abs(out.dat.data - exact.dat.data)) < 1e-10
 
 This demo can be found as a script in
-`extruded_continuity.py <extruded_continuity.py>`__.
+:demo:`extruded_continuity.py <extruded_continuity.py>`.

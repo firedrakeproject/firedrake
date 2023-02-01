@@ -307,7 +307,7 @@ The last step is to make the animation and save it to a file. ::
       print("Failed to write movie! Try installing `ffmpeg`.")
 
 This demo can be found as a script in
-`DG_advection.py <DG_advection.py>`__.
+:demo:`DG_advection.py <DG_advection.py>`.
 
 
 .. rubric:: References
