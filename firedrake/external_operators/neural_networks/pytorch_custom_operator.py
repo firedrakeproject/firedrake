@@ -37,9 +37,6 @@ class FiredrakeTorchOperator(torch_ad.Function):
 
         # Should we turn annotation pyadjoint also if not turned on ?
 
-        # TODO: Lower that context to ExternalOperator level
-        # with torch.enable_grad():
-
         # Forward operator: `ReducedFunctional` recompute blocks on the tape
         y_F = F(*ω_F)
         # Attach metadata to the PyTorch context
@@ -61,9 +58,6 @@ class FiredrakeTorchOperator(torch_ad.Function):
         adj_input = backend.from_ml_backend(grad_output, V)
         if isinstance(adj_input, (Function, Cofunction)):
             adj_input = adj_input.vector()
-
-        # TODO: Lower that context to ExternalOperator level
-        # with torch.enable_grad():
 
         # Compute adjoint model of the Firedrake operator `F` on `adj_input`
         Δω = F.derivative(adj_input=adj_input)
