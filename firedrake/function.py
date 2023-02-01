@@ -116,7 +116,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     @PETSc.Log.EventDecorator()
     def split(self):
         import warnings
-        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     @utils.cached_property
@@ -314,7 +314,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     @FunctionMixin._ad_annotate_split
     def split(self):
         import warnings
-        warnings.warn(".split() was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     @utils.cached_property

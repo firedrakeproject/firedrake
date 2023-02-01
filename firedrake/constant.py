@@ -117,7 +117,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
 
     def split(self):
         import warnings
-        warnings.warn(".split() method was changed to .subfunctions property (without paranthesis)", category=FutureWarning)
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
     def cell_node_map(self, bcs=None):
