@@ -330,9 +330,9 @@ The result of the computation, visualised with `paraview <http://www.paraview.or
 The mesh is deflected for visualization only. As the model is linear, the actual mesh used for computation is fixed. Colours indicate values of the flow potential :math:`\phi`.
 
 
-A python script version of this demo can be found `here <linear_fluid_structure_interaction.py>`__.
+A python script version of this demo can be found :demo:`here <linear_fluid_structure_interaction.py>`.
 
-The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
+The mesh file is :demo:`here <L_domain.msh>`. It can be generated with `gmsh <http://gmsh.info/>`__ from :demo:`this file <L_domain.geo>` with a command: gmsh -2 L_domain.geo.
 
 An extended 3D version of this code is published `here <https://zenodo.org/record/1162196>`__.
 

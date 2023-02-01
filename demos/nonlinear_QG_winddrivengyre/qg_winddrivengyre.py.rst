@@ -273,7 +273,7 @@ Below is a plot of the difference between the linear and nonlinear solutions to 
 .. figure:: fig_diff.png
    :align: center
 
-This demo can be found as a Python script in `qg_winddrivengyre.py <qg_winddrivengyre.py>`__.
+This demo can be found as a Python script in :demo:`qg_winddrivengyre.py <qg_winddrivengyre.py>`.
            
 .. rubric:: References
 
