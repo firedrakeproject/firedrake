@@ -1,5 +1,4 @@
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
 
 from pytorch_custom_operator import CustomOperator
 
@@ -14,7 +13,7 @@ class AbstractMLBackend(object):
     def to_ml_backend(self, x):
         raise NotImplementedError
 
-    def from_ml_backend(self, x, V, cofunction=None):
+    def from_ml_backend(self, x, V):
         raise NotImplementedError
 
 
@@ -35,11 +34,8 @@ class PytorchBackend(AbstractMLBackend):
     def to_ml_backend(self, x):
         return self.backend.tensor(x.dat.data, requires_grad=True)
 
-    def from_ml_backend(x, V, cofunction=False):
-        if cofunction:
-            u = Cofunction(V.dual())
-        else:
-            u = Function(V)
+    def from_ml_backend(x, V):
+        u = Function(V)
         u.vector()[:] = x.detach().numpy()
         return u
 
