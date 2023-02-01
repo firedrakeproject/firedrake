@@ -32,7 +32,7 @@ def function_profile(x, y, rank, cpt):
 def unique_function(mesh, rank, W):
     u = Function(W)
     x, y = SpatialCoordinate(mesh)
-    for cpt, v in enumerate(u.split()):
+    for cpt, v in enumerate(u.subfunctions):
         v.interpolate(function_profile(x, y, rank, cpt))
     return u
 

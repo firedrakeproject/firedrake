@@ -252,7 +252,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     W = W1 * W2
     x = SpatialCoordinate(parentmesh)
     v = Function(V)
-    v1, v2 = v.split()
+    v1, v2 = v.subfunctions
     # Get Function in V1
     # use outer product to check Regge works
     expr1 = outer(x, x)
@@ -268,7 +268,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # Interpolate Function in V into W
     w_v = interpolate(v, W)
     # Split result and check
-    w_v1, w_v2 = w_v.split()
+    w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
     assert np.allclose(w_v2.dat.data_ro, result2)
     # try and make reusable Interpolator from V to W
@@ -276,7 +276,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)
     # Split result and check
-    w_v1, w_v2 = w_v.split()
+    w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
     assert np.allclose(w_v2.dat.data_ro, result2)
     # Enough tests - don't both using it again for a different Function in V

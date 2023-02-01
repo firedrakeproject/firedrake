@@ -35,7 +35,7 @@ def function_space(request, mesh):
 def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(function_space.mesh())
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -56,7 +56,7 @@ def f(function_space):
 def g(function_space):
     """Generates a Firedrake function given a particular function space."""
     g = Function(function_space)
-    g_split = g.split()
+    g_split = g.subfunctions
     x = SpatialCoordinate(function_space.mesh())
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -169,7 +169,7 @@ def test_mixed_coefficient_scalar(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     W = V * V
     f = Function(W)
-    g, h = f.split()
+    g, h = f.subfunctions
     f.assign(1)
     assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
 

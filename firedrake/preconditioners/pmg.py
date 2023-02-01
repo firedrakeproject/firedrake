@@ -1153,7 +1153,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         self.uc = Vc if isinstance(Vc, firedrake.Function) else firedrake.Function(Vc)
 
         self.standalones = []
-        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.split(), self.uc.split())):
+        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.subfunctions, self.uc.subfunctions)):
             Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
             Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
             standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)

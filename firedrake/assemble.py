@@ -1211,7 +1211,7 @@ class _FormHandler:
         """Yield the form coefficients referenced in ``kinfo``."""
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
-                yield form.coefficients()[idx].split()[subidx]
+                yield form.coefficients()[idx].subfunctions[subidx]
 
     @staticmethod
     def index_function_spaces(form, indices):
