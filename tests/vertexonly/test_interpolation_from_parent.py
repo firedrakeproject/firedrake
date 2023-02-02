@@ -312,6 +312,44 @@ def test_scalar_real_interpolator(parentmesh, vertexcoords):
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
+def test_extruded_cell_parent_cell_list():
+    # If we make a function space that has 1 dof per cell, then we can use the
+    # cell_parent_list directly to see if we get expected values. This is a
+    # carbon copy of tests/regression/test_locate_cell.py
+
+    ms = UnitSquareMesh(3, 3, quadrilateral=True)
+    mx = ExtrudedMesh(UnitIntervalMesh(3), 3)
+
+    # coords at locations from tests/regression/test_locate_cell.py - note that
+    # we are not at the cell midpoints
+    coords = np.array([[0.2, 0.1], [0.5, 0.2], [0.7, 0.1], [0.2, 0.4], [0.4, 0.4], [0.8, 0.5], [0.1, 0.7], [0.5, 0.9], [0.9, 0.8]])
+
+    vms = VertexOnlyMesh(ms, coords)
+    vmx = VertexOnlyMesh(mx, coords)
+    assert vms.num_cells() == len(coords)
+    assert vmx.num_cells() == len(coords)
+    assert np.equal(vms.coordinates.dat.data_ro, coords).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords).all()
+
+    # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
+    # per cell which is the expression evaluated at the cell midpoint.
+    Vs = FunctionSpace(ms, 'DG', 0)
+    Vx = FunctionSpace(mx, 'DG', 0)
+    fs = Function(Vs)
+    fx = Function(Vx)
+    xs = SpatialCoordinate(ms)
+    xx = SpatialCoordinate(mx)
+    fs.interpolate(3*xs[0] + 9*xs[1] - 1)
+    fx.interpolate(3*xx[0] + 9*xx[1] - 1)
+
+    # expected values at coordinates from tests/regression/test_locate_cell.py
+    expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    assert np.allclose(fs.at(coords), expected)
+    assert np.allclose(fx.at(coords), expected)
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected)
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected)
+
+
 @pytest.mark.parallel
 def test_scalar_spatialcoordinate_interpolation_parallel(parentmesh, vertexcoords):
     test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords)
