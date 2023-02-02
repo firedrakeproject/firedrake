@@ -192,7 +192,12 @@ def make_interpolator(expr, V, subset, access):
                 # function space nodes on the source mesh. NOTE: argfs_map is
                 # allowed to be None when interpolating from a Real space, even
                 # in the trans-mesh case.
-                argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+                if source_mesh.extruded:
+                    # ExtrudedSet cannot be a map target so we need to build
+                    # this ourselves
+                    argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs.cell_node_map())
+                else:
+                    argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -348,8 +353,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
             # function space nodes on the source mesh.
-            columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
-                                                columns_map)
+            if source_mesh.extruded:
+                # ExtrudedSet cannot be a map target so we need to build
+                # this ourselves
+                columns_map = vom_cell_parent_node_map_extruded(target_mesh, columns_map)
+            else:
+                columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
+                                                    columns_map)
         parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map)))
     if oriented:
         co = target_mesh.cell_orientations()
@@ -368,7 +378,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
                 # function space nodes on the source mesh.
-                m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+                if source_mesh.extruded:
+                    # ExtrudedSet cannot be a map target so we need to build
+                    # this ourselves
+                    m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
+                else:
+                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
             else:
                 # m_ is allowed to be None when interpolating from a Real space,
                 # even in the trans-mesh case.
@@ -478,6 +493,28 @@ def compose_map_and_cache(map1, map2):
         cmap = None if map2 is None else op2.ComposedMap(map2, map1)
         map1._cache[cache_key] = cmap
     return cmap
+
+
+def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
+    """Build a map from the cells of a vertex only mesh to the nodes of the
+    source mesh's cell node map where the source mesh is extruded.
+
+    :arg vertex_only_mesh: The `mesh.VertexOnlyMesh` mesh whose cells we
+        iterate over.
+    :arg extruded_cell_node_map: The cell node map of the function space on the
+        extruded source mesh.
+
+    :returns: A :class:`PyOP2.Map` with iterset over the vertex only mesh cells
+        and toset over the source mesh nodes.
+    """
+    if not isinstance(vertex_only_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        raise TypeError("The input mesh must be a VertexOnlyMesh")
+    cnm = extruded_cell_node_map
+    vmx = vertex_only_mesh
+    dofs_per_target_cell = cnm.arity
+    base_cells, heights = numpy.array([0, 1]), numpy.array([0, 2])  # Need to work this out for the general case
+    target_cell_parent_node_list = [[cnm.values[base_cell, dof_idx] + height*cnm.offset[dof_idx] for dof_idx in range(dofs_per_target_cell)] for base_cell, height in zip(base_cells, heights)]
+    return op2.Map(vmx.cell_set, cnm.toset, dofs_per_target_cell, target_cell_parent_node_list)
 
 
 class GlobalWrapper(object):
