@@ -45,7 +45,7 @@ Active team members
 {{ ("-" * coldashes).join("+" * (atable.ncols + 1)) }}
 {% for ii in atable.rows %}
 |{% for jj in atable.cols %}
-{% if atable[ii, jj][1] %}
+{% if atable[ii, jj][1].split(",")[0] %}
 {{ template.format(" |{}|_".format(atable[ii, jj][0])) }}{% elif atable[ii, jj][0] %}
 {{ template.format(" |{}|".format(atable[ii, jj][0])) }}{% else %}
 {{ " "*coldashes }}{% endif %}
@@ -54,7 +54,7 @@ Active team members
 |{% for jj in atable.cols %}{{ " "*coldashes }}|{% endfor %}
 
 |{% for jj in atable.cols %}
-{% if atable[ii, jj][1] %}
+{% if atable[ii, jj][1].split(",")[0] %}
 {{ template.format(" `{}`_".format(atable[ii, jj][0])) }}{% elif atable[ii, jj][0] %}
 {{ template.format(" {}".format(atable[ii, jj][0])) }}{% else %}
 {{ " "*coldashes }}{% endif %}
@@ -83,7 +83,7 @@ Former team members
 {{ ("-" * coldashes).join("+" * (itable.ncols + 1)) }}
 {% for ii in itable.rows %}
 |{% for jj in itable.cols %}
-{% if itable[ii, jj][1] %}
+{% if itable[ii, jj][1].split(",")[0] %}
 {{ template.format(" |{}|_".format(itable[ii, jj][0])) }}{% elif itable[ii, jj][0] %}
 {{ template.format(" |{}|".format(itable[ii, jj][0])) }}{% else %}
 {{ " "*coldashes }}{% endif %}
@@ -92,7 +92,7 @@ Former team members
 |{% for jj in itable.cols %}{{ " "*coldashes }}|{% endfor %}
 
 |{% for jj in itable.cols %}
-{% if itable[ii, jj][1] %}
+{% if itable[ii, jj][1].split(",")[0] %}
 {{ template.format(" `{}`_".format(itable[ii, jj][0])) }}{% elif itable[ii, jj][0] %}
 {{ template.format(" {}".format(itable[ii, jj][0])) }}{% else %}
 {{ " "*coldashes }}{% endif %}

@@ -23,7 +23,7 @@ Individuals
 -----------
 
 {% for name, link in individual_set %}
-{% if link %}
+{% if link.split(',')[0] %}
 {{ "{:.<30}<{}>".format(name, link.split(',')[0]) }}
 {% else %}
 {{ name }}
