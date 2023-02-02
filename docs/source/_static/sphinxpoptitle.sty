@@ -17,6 +17,7 @@
 \RequirePackage{fmtcount}
 \RequirePackage{hyperref}
 \RequirePackage{titling}
+\RequirePackage{multicol}
 \RequirePackage{sphinx}
 
 \newcommand{\editions}{}
@@ -47,18 +48,21 @@
 }
     \dolistloop{\editions}
 
-\begin{textblock}{154}(17.5,74.25)
-    \setlength{\parskip}{2ex}
-
+\begin{textblock}{116}(17.5,17.5)
     \sphinxlogo
-    \vspace{7\parskip}
+\end{textblock}
 
+\begin{textblock}{154}(17.5,74.25)
     {\sffamily\fontsize{25}{30}\selectfont\noindent\thetitle}
 
     {\sffamily\fontsize{17}{20}\selectfont\noindent\thesubtitle
     \vspace{\parskip}
 
-    \noindent\Large\theauthor
+    {\noindent\Large
+    \begin{multicols}{2}
+        \theauthor
+    \end{multicols}
+    }
     \vspace{7\parskip}
 
     \noindent{\itshape\thisedition}}
@@ -81,6 +85,7 @@
     \doclicenseThis
     }
 \end{textblock}
+
 \mbox{}
 \setcounter{page}{0}
 \thispagestyle{empty}

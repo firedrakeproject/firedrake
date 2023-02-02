@@ -252,7 +252,7 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('book', 'Firedrake.tex', u'User Manual', r' \and '.join(author_list), 'manual'),
+    ('book', 'Firedrake.tex', u'User Manual', r' \and \\'.join(author_list), 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
