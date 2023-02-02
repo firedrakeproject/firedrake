@@ -15,7 +15,7 @@ Checkpointing with CheckpointFile
 =================================
 
 :class:`~.CheckpointFile` class facilitates saving/loading meshes and
-:class:`~.Function` s to/from an HDF5_ file. 
+:class:`~.Function` s to/from an HDF5_ file.
 The implementation is scalable in that :class:`~.Function` s are
 saved to and loaded from the file entirely in parallel without needing
 to pass through a single process.
@@ -175,7 +175,7 @@ following.
     with CheckpointFile("example.h5", 'r') as afile:
         mesh = afile.load_mesh("meshA")
         f = afile.load_function(mesh, "f")
-        g = afile.load_function(mesh, "g") 
+        g = afile.load_function(mesh, "g")
 
 Note that one needs to load the mesh before loading the :class:`~.Function` s
 that are defined on it. If the default mesh name, :data:`~.DEFAULT_MESH_NAME`,
@@ -308,7 +308,7 @@ Storing data
 Once a checkpoint file is opened, :class:`~.Function` data can be
 stored in the checkpoint using :meth:`~.DumbCheckpoint.store`.
 A :class:`~.Function` is referenced in the checkpoint file by its
-:meth:`~.Function.name`, but this may be overridden by explicitly
+``Function.name``, but this may be overridden by explicitly
 passing an optional `name` argument.  For example, to store a
 :class:`~.Function` using its default name use:
 
@@ -339,7 +339,7 @@ Once a checkpoint is created, we can use it to load saved state into
 :class:`~.Function`\s to resume a simulation.  To load data into a
 :class:`~.Function` from a checkpoint, we pass it to
 :meth:`~.DumbCheckpoint.load`.  As before, the data is looked up by
-its :meth:`~.Function.name`, although once again this may be
+its ``Function.name``, although once again this may be
 overridden by optionally specifying the ``name`` as an argument.
 
 For example, assume we had previously saved a checkpoint containing
@@ -510,7 +510,7 @@ correctly following the instructions for custom installation here_.
 
 .. warning::
 
-   Calling :py:meth:`h5py:File.close` on the h5py representation will
+   Calling :py:meth:`h5py.File.close` on the h5py representation will
    likely result in errors inside PETSc (since it is not aware that
    the file has been closed).  So don't do that!
 

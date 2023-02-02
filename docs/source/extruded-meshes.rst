@@ -258,7 +258,7 @@ offset cells must, at least, share a vertex with some other cell.
    the parallel distribution).
 
 For more details on the implementation, see
-:mod:`firedrake.extrusion_numbering`.
+:mod:`firedrake.cython.extrusion_numbering`.
 
 
 Function Spaces on Extruded Meshes
@@ -368,7 +368,7 @@ The ``HDivElement`` and ``HCurlElement`` operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
-:py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
+:py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of

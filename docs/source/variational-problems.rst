@@ -96,7 +96,7 @@ dimension.  For example, for the surface of a sphere embedded in 3D we
 use:
 
 .. code-block:: python3
-   
+
    sphere_mesh = Mesh('sphere_mesh.node', dim=3)
 
 Firedrake provides utility meshes for the surfaces of spheres immersed
@@ -129,7 +129,7 @@ is used by Firedrake to ensure that the cell normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
-:py:meth:`~.Mesh.init_cell_orientations`, which
+``~.Mesh.init_cell_orientations``, which
 takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
