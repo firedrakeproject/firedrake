@@ -116,6 +116,9 @@ pygments_style = 'sphinx'
 # A list of ignored prefixes for module index sorting.
 #modindex_common_prefix = []
 
+# Warn about all references where the target cannot be found
+nitpicky = True
+
 
 # -- Options for HTML output ---------------------------------------------
 
@@ -322,6 +325,7 @@ intersphinx_mapping = {
     'matplotlib': ('https://matplotlib.org/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
