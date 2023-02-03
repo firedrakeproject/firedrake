@@ -2662,9 +2662,11 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
 
     if parent_mesh.extruded:
         if parent_mesh.variable_layers:
-            # TODO: Don't know what the total local number of cells is in this
-            # case
-            raise NotImplementedError("Variable layers not supported")
+            # The below could work as a hack but for now raise notimplementederror
+            # import firedrake.functionspace as functionspace
+            # import firedrake.function as function
+            # pm_local_size_wo_halos = len(function.Function(functionspace.FunctionSpace(parent_mesh, "DG", 0)).dat.data_ro)
+            raise NotImplementedError("Not implemented for ExtrudedMesh with variable layers.")
         pm_local_size_wo_halos = parent_mesh.cell_set.size * (parent_mesh.layers - 1)
     else:
         pm_local_size_wo_halos = parent_mesh.cell_set.size
