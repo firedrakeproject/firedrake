@@ -195,7 +195,7 @@ def make_interpolator(expr, V, subset, access):
                 if source_mesh.extruded:
                     # ExtrudedSet cannot be a map target so we need to build
                     # this ourselves
-                    argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs.cell_node_map())
+                    argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
                     argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
