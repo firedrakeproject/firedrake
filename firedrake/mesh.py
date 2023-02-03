@@ -1542,6 +1542,48 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_cell_list, "cell_parent_cell")
 
+    @property
+    def cell_parent_base_cell_list(self):
+        """Return a list of parent mesh base cells numbers in vertex only
+        mesh cell order.
+        """
+        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
+            raise AttributeError("Parent mesh is not extruded")
+        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum"))
+        self.topology_dm.restoreField("parentcellbasenum")
+        return cell_parent_base_cell_list
+
+    @property
+    def cell_parent_base_cell_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh base cells.
+        """
+        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
+            raise AttributeError("Parent mesh is not extruded.")
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_base_cell_list, "cell_parent_base_cell")
+
+    @property
+    def cell_parent_extrusion_height_list(self):
+        """Return a list of parent mesh extrusion heights in vertex only
+        mesh cell order.
+        """
+        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
+            raise AttributeError("Parent mesh is not extruded.")
+        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight"))
+        self.topology_dm.restoreField("parentcellextrusionheight")
+        return cell_parent_extrusion_height_list
+
+    @property
+    def cell_parent_extrusion_height_map(self):
+        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        parent mesh extrusion heights.
+        """
+        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
+            raise AttributeError("Parent mesh is not extruded.")
+        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+                       self.cell_parent_extrusion_height_list, "cell_parent_extrusion_height")
+
 
 class MeshGeometryCargo:
     """Helper class carrying data for a :class:`MeshGeometry`.
@@ -2490,8 +2532,38 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
 
     coords, reference_coords, parent_cell_nums = \
         _parent_mesh_embedding(coords, parent_mesh, tolerance)
-    # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-    plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
+
+    if parent_mesh.extruded:
+        # need to store the base parent cell number and the height to be able
+        # to map point coordinates back to the parent mesh
+        if parent_mesh.variable_layers:
+            # TODO: Don't know how variable layer cell numbering works - below
+            # assumes constant layers.
+            raise NotImplementedError("Cannot create a DMSwarm in an ExtrudedMesh with variable layers.")
+        # Extruded mesh parent_cell_nums goes from bottom to top. So for
+        # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
+        # mx.layers = 4
+        # and
+        #  -------------------layer 4-------------------
+        # | parent_cell_num =  2 | parent_cell_num =  5 |
+        # | extrusion_height = 2 | extrusion_height = 2 |
+        #  -------------------layer 3-------------------
+        # | parent_cell_num =  1 | parent_cell_num =  4 |
+        # | extrusion_height = 1 | extrusion_height = 1 |
+        #  -------------------layer 2-------------------
+        # | parent_cell_num =  0 | parent_cell_num =  3 |
+        # | extrusion_height = 0 | extrusion_height = 0 |
+        #  -------------------layer 1-------------------
+        #   base_cell_num = 0         base_cell_num = 1
+        # The base_cell_num is the cell number in the base mesh which, in this
+        # case, is a UnitIntervalMesh with two cells.
+        fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
+        base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
+        extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
+    else:
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
     _, coordsdim = coords.shape
 
@@ -2557,6 +2629,14 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.restoreField("DMSwarmPIC_coor")
     swarm.restoreField("DMSwarm_cellid")
 
+    if parent_mesh.extruded:
+        field_base_parent_cell_nums = swarm.getField("parentcellbasenum")
+        field_extrusion_heights = swarm.getField("parentcellextrusionheight")
+        field_base_parent_cell_nums[...] = base_parent_cell_nums
+        field_extrusion_heights[...] = extrusion_heights
+        swarm.restoreField("parentcellbasenum")
+        swarm.restoreField("parentcellextrusionheight")
+
     # Set the `SF` graph to advertises no shared points (since the halo
     # is now empty) by setting the leaves to an empty list
     sf = swarm.getPointSF()
@@ -2586,6 +2666,8 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
 
     if parent_mesh.extruded:
         if parent_mesh.variable_layers:
+            # TODO: Don't know what the total local number of cells is in this
+            # case
             raise NotImplementedError("Variable layers not supported")
         pm_local_size_wo_halos = parent_mesh.cell_set.size * (parent_mesh.layers - 1)
     else:

@@ -512,7 +512,8 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     cnm = extruded_cell_node_map
     vmx = vertex_only_mesh
     dofs_per_target_cell = cnm.arity
-    base_cells, heights = numpy.array([0, 1]), numpy.array([0, 2])  # Need to work this out for the general case
+    base_cells = vmx.cell_parent_base_cell_list
+    heights = vmx.cell_parent_extrusion_height_list
     target_cell_parent_node_list = [[cnm.values[base_cell, dof_idx] + height*cnm.offset[dof_idx] for dof_idx in range(dofs_per_target_cell)] for base_cell, height in zip(base_cells, heights)]
     return op2.Map(vmx.cell_set, cnm.toset, dofs_per_target_cell, target_cell_parent_node_list)
 
