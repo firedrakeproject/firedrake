@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
 
 publish: html
 # The raw IP address is used to circumvent some dns fiddling which
@@ -76,11 +76,13 @@ source/element_list.csv: source/element_list.py
 source/team.rst: source/team2.py
 	cd source; python team2.py; mv AUTHORS.rst ../..
 
-apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
 	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
+
+apidoc: $(GENERATED_FILES) copy_demos
+	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*
