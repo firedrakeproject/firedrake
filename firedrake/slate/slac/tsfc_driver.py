@@ -29,12 +29,12 @@ particular integral type.
 
 
 def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
-    """Compiles the TSFC form associated with a Slate :class:`Tensor`
+    """Compiles the TSFC form associated with a Slate :class:`~.Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
     and the corresponding TSFC kernels.
 
-    :arg tensor: A Slate `Tensor`.
+    :arg tensor: A Slate `~.Tensor`.
     :arg prefix: An optional `string` indicating the prefix for the
                  subkernel.
     :arg tsfc_parameters: An optional `dict` of parameters to provide

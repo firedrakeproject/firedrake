@@ -77,9 +77,9 @@ class DumbCheckpoint(object):
     .. note::
 
        This object contains both a PETSc ``Viewer``, used for storing
-       and loading :class:`~.Function` data, and an :class:`h5py:File`
+       and loading :class:`~.Function` data, and an :class:`h5py.File`
        opened on the same file handle.  *DO NOT* call
-       :meth:`h5py:File.close` on the latter, this will cause
+       :meth:`h5py.File.close` on the latter, this will cause
        breakages.
 
     .. warning::
@@ -297,7 +297,7 @@ class DumbCheckpoint(object):
         :arg name: The name of the attribute.
         :arg val: The attribute value.
 
-        Raises :exc:`~.exceptions.AttributeError` if writing the attribute fails.
+        Raises :exc:`AttributeError` if writing the attribute fails.
         """
         try:
             self.h5file[obj].attrs[name] = val
@@ -310,7 +310,7 @@ class DumbCheckpoint(object):
         :arg obj: The path to the data object.
         :arg name: The name of the attribute.
         :arg default: Optional default value to return.  If not
-             provided an :exc:`~.exceptions.AttributeError` is raised if the
+             provided an :exc:`AttributeError` is raised if the
              attribute does not exist.
         """
         try:
@@ -354,7 +354,7 @@ class HDF5File(object):
 
     :arg filename: filename (including suffix .h5) of checkpoint file.
     :arg file_mode: the access mode, passed directly to h5py, see
-        :class:`h5py:File` for details on the meaning.
+        :class:`h5py.File` for details on the meaning.
     :arg comm: communicator the writes should be collective
          over.
 

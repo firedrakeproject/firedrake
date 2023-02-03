@@ -12,7 +12,7 @@ would cite the relevant papers.
 The simplest way to determine what these are is by asking Firedrake
 itself.  You can ask that a list of citations relevant to your
 computation be printed when exiting by calling
-``.Citations.print_at_exit`` after importing Firedrake::
+:meth:`.Citations.print_at_exit` after importing Firedrake::
 
   from firedrake import *
 
