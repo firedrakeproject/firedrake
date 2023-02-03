@@ -22,7 +22,7 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = m.cell_set.size
+    num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
     local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
@@ -38,11 +38,12 @@ def cell_midpoints(m):
 @pytest.fixture(params=["interval",
                         "square",
                         "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.xfail(reason="Extruded meshes with variable layers not supported")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
                         "periodicrectangle",
-                        "shiftedmesh"])
+                        pytest.param("shiftedmesh", marks=pytest.mark.xfail(reason="This will lose agreement with PETSc DMPlex cell numbering but there's no way to query it...")),])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
@@ -50,6 +51,8 @@ def parentmesh(request):
         return UnitSquareMesh(1, 1)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -136,17 +139,29 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
                        np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
-    # Check there are as many local points as there are local cells
-    # (excluding ghost cells in the halo)
-    assert len(localpointcoords) == parentmesh.cell_set.size
+    if not parentmesh.extruded:
+        # Check there are as many local points as there are local cells
+        # (excluding ghost cells in the halo). This won't be true for extruded
+        # meshes as the cell_set.size is the number of base mesh cells.
+        assert len(localpointcoords) == parentmesh.cell_set.size
+    else:
+        if parentmesh.variable_layers:
+            ncells = sum(height - 1 for _, height in parentmesh.layers)
+        else:
+            ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
+        assert len(localpointcoords) == ncells
     # Check total number of points on all MPI ranks is correct
     # (excluding ghost cells in the halo)
     assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
-    # Check the parent cell indexes match those in the parent mesh
+    # Check the parent cell indexes match those in the parent mesh unless
+    # extruded, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        assert np.any(index == cell_indexes)
+        if not parentmesh.extruded:
+            assert np.any(index == cell_indexes)
+        else:
+            assert index == -1
 
     # Now have DMPLex compute the cell IDs in cases where it can:
     if parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange":
@@ -154,8 +169,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
                                   mode=PETSc.InsertMode.INSERT_VALUES)
         petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
         swarm.restoreField("DMSwarm_cellid")
-        # Check that we agree with PETSc
-        assert np.all(petsclocalparentcellindices == localparentcellindices)
+        if not parentmesh.extruded:
+            # Check that we agree with PETSc
+            assert np.all(petsclocalparentcellindices == localparentcellindices)
 
 
 @pytest.mark.parallel

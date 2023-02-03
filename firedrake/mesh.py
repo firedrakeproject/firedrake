@@ -2323,7 +2323,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
 
     .. note::
 
-        Manifold meshes are not yet supported.
+        Manifold meshes and extruded meshes with variable extrusion layers are
+        not yet supported.
 
     .. note::
         When running in parallel with ``redundant = False``, ``vertexcoords``
@@ -2554,9 +2555,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
         base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
         extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
+        # Can't find plex numbering for extruded meshes so set all to -1
+        plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
     else:
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
         plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
     _, coordsdim = coords.shape

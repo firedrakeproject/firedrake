@@ -12,6 +12,7 @@ import subprocess
                         "square",
                         "squarequads",
                         "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.xfail(reason="Extruded meshes with variable layers not supported")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere",
@@ -30,6 +31,8 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
