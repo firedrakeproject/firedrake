@@ -10,8 +10,7 @@ Benney-Luke equations: a reduced water wave model
     The work is based on the article "Variational water wave
     modelling: from continuum to experiment" by Onno Bokhove and Anna
     Kalogirou :cite:`2015:lmscup`. The authors gratefully
-    acknowledge funding from EPSRC grant no. `EP/L025388/1
-    <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/L025388/1>`__
+    acknowledge funding from EPSRC grant no. EP/L025388/1
     with a link to the Dutch Technology Foundation STW for the project
     "FastFEM: behavior of fast ships in waves".
 

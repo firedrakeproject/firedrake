@@ -526,4 +526,4 @@ correctly following the instructions for custom installation here_.
 .. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Viewer/index.html
 .. _h5py: http://www.h5py.org
 
-.. _here: http://docs.h5py.org/en/latest/build.html#custom-installation
+.. _here: https://docs.h5py.org/en/latest/build.html#custom-installation

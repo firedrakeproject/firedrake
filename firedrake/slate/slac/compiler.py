@@ -10,7 +10,7 @@ expressions (finite element variational forms written in UFL).
 COFFEE's AST base helps with the construction of code blocks
 throughout the kernel returned by: `compile_expression`.
 
-The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
+The Eigen C++ library (https://eigen.tuxfamily.org/) is required, as
 all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
