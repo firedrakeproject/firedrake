@@ -3,10 +3,10 @@ import abc
 
 class Halo(abc.ABC):
 
-    """A description of a halo associated with a :class:`Set`.
+    """A description of a halo associated with a :class:`pyop2.types.set.Set`.
 
-    The halo object describes which :class:`Set` elements are sent
-    where, and which :class:`Set` elements are received from where.
+    The halo object describes which :class:`pyop2.types.set.Set` elements are sent
+    where, and which :class:`pyop2.types.set.Set` elements are received from where.
     """
 
     @abc.abstractproperty
@@ -23,7 +23,7 @@ class Halo(abc.ABC):
     def global_to_local_begin(self, dat, insert_mode):
         """Begin an exchange from global (assembled) to local (ghosted) representation.
 
-        :arg dat: The :class:`Dat` to exchange.
+        :arg dat: The :class:`pyop2.types.dat.Dat` to exchange.
         :arg insert_mode: The insertion mode.
         """
         pass
@@ -32,7 +32,7 @@ class Halo(abc.ABC):
     def global_to_local_end(self, dat, insert_mode):
         """Finish an exchange from global (assembled) to local (ghosted) representation.
 
-        :arg dat: The :class:`Dat` to exchange.
+        :arg dat: The :class:`pyop2.types.dat.Dat` to exchange.
         :arg insert_mode: The insertion mode.
         """
         pass
@@ -41,7 +41,7 @@ class Halo(abc.ABC):
     def local_to_global_begin(self, dat, insert_mode):
         """Begin an exchange from local (ghosted) to global (assembled) representation.
 
-        :arg dat: The :class:`Dat` to exchange.
+        :arg dat: The :class:`pyop2.types.dat.Dat` to exchange.
         :arg insert_mode: The insertion mode.
         """
         pass
@@ -50,7 +50,7 @@ class Halo(abc.ABC):
     def local_to_global_end(self, dat, insert_mode):
         """Finish an exchange from local (ghosted) to global (assembled) representation.
 
-        :arg dat: The :class:`Dat` to exchange.
+        :arg dat: The :class:`pyop2.types.dat.Dat` to exchange.
         :arg insert_mode: The insertion mode.
         """
         pass
