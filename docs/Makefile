@@ -78,6 +78,9 @@ source/team.rst: source/team2.py
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc -f -T -o source/ ../firedrake_citations
+	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
+	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 clean:
 	-rm -rf $(BUILDDIR)/*

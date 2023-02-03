@@ -498,7 +498,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
 
-        :arg domain: :class:`ufl.Domain`
+        :arg domain: :class:`ufl.AbstractDomain`
         """
         # Create a fake coordinate coefficient for a domain.
         f = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))

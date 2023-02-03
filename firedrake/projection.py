@@ -56,7 +56,7 @@ def project(v, V, bcs=None,
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    :arg v: the :class:`ufl.Expr` to project
+    :arg v: the :class:`ufl.core.expr.Expr` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :kwarg bcs: boundary conditions to apply in the projection
     :kwarg solver_parameters: parameters to pass to the solver used when
@@ -253,7 +253,7 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    :arg v: the :class:`ufl.Expr` or
+    :arg v: the :class:`ufl.core.expr.Expr` or
          :class:`.Function` to project
     :arg V: :class:`.Function` (or :class:`~.FunctionSpace`) to put the result in.
     :arg bcs: an optional set of :class:`.DirichletBC` objects to apply

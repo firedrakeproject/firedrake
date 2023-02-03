@@ -186,7 +186,7 @@ class FDMPC(PCBase):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg V: the :class:`~.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg appctx: the application context
@@ -243,13 +243,13 @@ class FDMPC(PCBase):
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
-        :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
+        :arg V: the :class:`~.FunctionSpace` of the form arguments
+        :arg bcs: an iterable of :class:`~.DirichletBC` s
         :arg eta: a ``float`` penalty parameter for the symmetric interior penalty method
-        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
+        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.function.Function` s with the form coefficients
         :arg Afdm: the list with sparse interval matrices
         :arg Dfdm: the list with normal derivatives matrices
-        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
+        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by ``get_weak_bc_flags``
         """
         from firedrake.preconditioners.pmg import get_axes_shift
         Gq = coefficients.get("Gq")
@@ -452,7 +452,7 @@ class FDMPC(PCBase):
         :arg cell_average: to return the coefficients as DG_0 Functions
 
         :returns: a 2-tuple of
-            coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
+            coefficients: a dictionary mapping strings to :class:`firedrake.function.Function` s with the coefficients of the form,
             assembly_callables: a list of assembly callables for each coefficient of the form
         """
         from ufl import inner, diff
@@ -676,7 +676,7 @@ def get_interior_facet_maps(V):
     """
     Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
 
-    :arg V: a :class:`FunctionSpace`
+    :arg V: a :class:`~.FunctionSpace`
 
     :returns: the 3-tuple of
         facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,

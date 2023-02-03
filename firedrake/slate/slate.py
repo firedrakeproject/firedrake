@@ -413,7 +413,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
 class AssembledVector(TensorBase):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a :class:`firedrake.Function`.
+    vector of data contained in a :class:`~.Function`.
 
     :arg function: A firedrake function.
     """
@@ -496,7 +496,7 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`firedrake.Function` s
+    vector of data contained in a set of :class:`~.Function` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.
@@ -931,7 +931,7 @@ class TensorOp(TensorBase):
     """An abstract Slate class representing general operations on
     existing Slate tensors.
 
-    :arg operands: an iterable of operands that are :class:`TensorBase`
+    :arg operands: an iterable of operands that are :class:`~.firedrake.slate.TensorBase`
         objects.
     """
 
@@ -987,7 +987,7 @@ class UnaryOp(TensorOp):
     """An abstract Slate class for representing unary operations on a
     Tensor object.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `UnaryOp` object is an acceptable
@@ -1132,12 +1132,12 @@ class BinaryOp(TensorOp):
     """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `BinaryOp` object is an acceptable
         input, or a `UnaryOp` object.
-    :arg B: a :class:`TensorBase` object.
+    :arg B: a :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def _output_string(self, prec=None):
@@ -1166,8 +1166,8 @@ class Add(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):
@@ -1207,8 +1207,8 @@ class Mul(BinaryOp):
     equal or lower rank via performing a contraction on arguments. This
     includes Matrix-Matrix and Matrix-Vector multiplication.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):

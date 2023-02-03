@@ -102,13 +102,13 @@ class SlateKernel(TSFCKernel):
 
 def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
-    :class:`firedrake.op2.Kernel` object representing the Slate expression.
+    ``pyop2.op2.Kernel`` object representing the Slate expression.
 
-    :arg slate_expr: a :class:'TensorBase' expression.
+    :arg slate_expr: a :class:`~.Tensor` expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
         be passed to TSFC during the compilation of ufl forms.
 
-    Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
+    Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
     if complex_mode:
         raise NotImplementedError("SLATE doesn't work in complex mode yet")

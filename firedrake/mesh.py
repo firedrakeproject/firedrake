@@ -2035,7 +2035,7 @@ def Mesh(meshfile, **kwargs):
     * CGNS: with extension `.cgns`
     * Triangle: with extension `.node`
     * HDF5: with extension `.h5`, `.hdf5`
-      (Can only load HDF5 files created by :meth:`.MeshGeometry.save` method.)
+      (Can only load HDF5 files created by ``MeshGeometry.save`` method.)
 
     .. note::
 
@@ -2131,7 +2131,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     :arg extrusion_type: the algorithm to employ to calculate the extruded
                          coordinates. One of "uniform", "radial",
                          "radial_hedgehog" or "custom". See below.
-    :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for
+    :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
                          the extruded mesh. See :func:`~.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
@@ -2158,7 +2158,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         cell normal (this produces a P1dgxP1 coordinate field).
         In this case, a radially extruded coordinate field
         (generated with ``extrusion_type="radial"``) is
-        available in the :attr:`radial_coordinates` attribute.
+        available in the ``radial_coordinates`` attribute.
     ``"custom"``
         use a custom kernel to generate the extruded coordinates
 

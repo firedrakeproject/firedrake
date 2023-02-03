@@ -118,6 +118,26 @@ pygments_style = 'sphinx'
 
 # Warn about all references where the target cannot be found
 nitpicky = True
+nitpick_ignore_regex = [
+    # Ignore missing docs from external dependencies
+    (r'py:.*', r'dolfin_adjoint_common\..*'),
+    (r'py:.*', r'pyadjoint\..*'),
+    (r'py:.*', r'tsfc\..*'),
+    (r'py:.*', r'coffee\..*'),
+    (r'py:.*', r'PETSc\..*'),
+    (r'py:.*', r'progress\..*'),
+    # Ignore undocumented PyOP2
+    ('py:class', 'pyop2.caching.Cached'),
+    # Ignore mission docs from Firedrake internal "private" code
+    # Any "Base" class eg:
+    #   firedrake.adjoint.checkpointing.CheckpointBase
+    #   firedrake.slate.slate.TensorBase
+    #   firedrake.preconditioners.patch.PatchBase
+    ('py:class', r'(firedrake\.)*(.*\.)+.*Base'),
+    # Slate Binary- and Unary- OPs
+    ('py:class', r'(firedrake\.)*(slate\.)+(TensorBase|.*Op)'),
+    ('py:class', 'firedrake.solving_utils._SNESContext'),
+]
 
 
 # -- Options for HTML output ---------------------------------------------
@@ -322,6 +342,7 @@ intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
+    'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
