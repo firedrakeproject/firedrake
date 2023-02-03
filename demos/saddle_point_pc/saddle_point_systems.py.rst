@@ -221,7 +221,7 @@ Schur complement approaches
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A better approach is to use a Schur complement preconditioner,
-described in :ref:`mixed_preconditioning`.  The system we are trying
+described in :ref:`mixed-preconditioning`.  The system we are trying
 to solve is conceptually a :math:`2\times 2` block matrix.
 
 .. math::
@@ -622,6 +622,6 @@ A runnable python script version of this demo is available `here
 
 .. _PETSc: https://petsc.org/
 .. _hypre: https://hypre.readthedocs.io/en/latest/
-.. _PyOP2: http://github.com/OP2/PyOP2/
-.. _numpy: http://www.numpy.org
-.. _MUMPS: http://mumps.enseeiht.fr
+.. _PyOP2: https://github.com/OP2/PyOP2/
+.. _numpy: https://www.numpy.org
+.. _MUMPS: https://mumps-solver.org/index.php

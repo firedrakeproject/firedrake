@@ -650,8 +650,8 @@ problems.
 .. _triangle: http://www.cs.cmu.edu/~quake/triangle.html
 .. _Gmsh: http://gmsh.info/
 .. _CGNS: http://cgns.github.io/
-.. _Exodus: https://gsjaardema.github.io/seacas/exodusII-new.pdf
-.. _UFL: http://arxiv.org/abs/1211.4047
+.. _Exodus: https://sandialabs.github.io/seacas-docs/sphinx/html/
+.. _UFL: https://arxiv.org/abs/1211.4047
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold

@@ -139,6 +139,15 @@ nitpick_ignore_regex = [
     ('py:class', 'firedrake.solving_utils._SNESContext'),
 ]
 
+# Dodgy links
+linkcheck_ignore = [
+    r'https://doi\.org/.*',
+    r'https://epubs\.siam\.org/doi/.*',
+    r'https://www\.apl\.washington\.edu/',
+    r'https://asmedigitalcollection\.asme\.org/',
+]
+linkcheck_timeout = 10
+
 
 # -- Options for HTML output ---------------------------------------------
 

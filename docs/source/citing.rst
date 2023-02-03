@@ -21,7 +21,7 @@ computation be printed when exiting by calling
 Alternatively, you can select that this should occur by passing the
 command-line option ``-citations``.  In both cases, you will also
 obtain the correct `citations for PETSc
-<http://www.mcs.anl.gov/petsc/documentation/referencing.html>`_.
+<https://petsc.org/release/#citing-petsc>`_.
 
 If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
@@ -50,7 +50,7 @@ Citing other packages
 
 Firedrake relies heavily on PETSc, which you should cite
 `appropriately
-<http://www.mcs.anl.gov/petsc/documentation/referencing.html>`_.
+<https://petsc.org/release/#citing-petsc>`_.
 Additionally, if you talk about UFL in your work, please cite the `UFL
 paper <http://fenicsproject.org/citing/>`_.
 

@@ -25,7 +25,7 @@ University of Leeds...........<https://www.leeds.ac.uk>
 
 University of Oxford..........<https://www.ox.ac.uk>
 
-University of Washington......<http://www.washington.edu>
+University of Washington......<https://www.washington.edu>
 
 
 
