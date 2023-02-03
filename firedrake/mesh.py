@@ -2323,13 +2323,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
 
     .. note::
 
-        Extruded and immersed manifold meshes are not yet supported.
-
-    .. note::
-
-        Modifying the coordinates of the parent mesh is not currently
-        supported. Doing so will cause interpolation to Functions defined on
-        the VertexOnlyMesh to return the wrong values.
+        Manifold meshes are not yet supported.
 
     .. note::
         When running in parallel with ``redundant = False``, ``vertexcoords``
