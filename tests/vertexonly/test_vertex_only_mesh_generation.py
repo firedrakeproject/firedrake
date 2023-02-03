@@ -110,10 +110,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     vm.init()
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
-    _, owned, _ = m.cell_set.sizes
+    # this method of getting owned cells works for all mesh types
+    owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
         cell_num = m.locate_cell(inputvertexcoords[i])
-        if cell_num is not None and cell_num < owned:
+        if cell_num is not None and cell_num < owned_cells:
             in_bounds.append(i)
     # Correct coordinates (though not guaranteed to be in same order)
     np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
