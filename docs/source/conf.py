@@ -135,7 +135,7 @@ nitpick_ignore_regex = [
     #   firedrake.preconditioners.patch.PatchBase
     ('py:class', r'(firedrake\.)*(.*\.)+.*Base'),
     # Slate Binary- and Unary- OPs
-    ('py:class', r'(firedrake\.)*(slate\.)+(TensorBase|.*Op)'),
+    ('py:class', r'(firedrake\.)*(slate\.)+(.*Op)'),
     ('py:class', 'firedrake.solving_utils._SNESContext'),
 ]
 
@@ -147,7 +147,6 @@ linkcheck_ignore = [
     r'https://asmedigitalcollection\.asme\.org/',
 ]
 linkcheck_timeout = 10
-
 
 # -- Options for HTML output ---------------------------------------------
 
