@@ -1580,6 +1580,7 @@ if mode == "install" or not args.update_script:
                              "gfortran",
                              "git",
                              "libcurl4-openssl-dev",
+                             "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
                              "python3-dev",
