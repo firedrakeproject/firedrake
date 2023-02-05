@@ -29,3 +29,7 @@ class HybridOperator(object):
         metadata = {'F': self.F, 'V_controls': V_controls, 'V_output': V_output}
         φ = partial(self.custom_operator, metadata)
         return φ(*ω)
+
+
+def torch_op(*args, **kwargs):
+    return HybridOperator(*args, **kwargs)

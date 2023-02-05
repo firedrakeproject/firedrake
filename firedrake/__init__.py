@@ -103,6 +103,7 @@ from firedrake.version import __version__ as ver, __version_info__, check  # noq
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
+from firedrake.external_operators import *
 
 from firedrake.logging import *
 # Set default log level
