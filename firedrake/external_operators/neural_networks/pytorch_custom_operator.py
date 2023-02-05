@@ -1,6 +1,5 @@
 import collections
 
-import torch
 import torch.autograd as torch_ad
 
 from firedrake.external_operators.neural_networks import get_backend
@@ -37,8 +36,8 @@ class FiredrakeTorchOperator(torch_ad.Function):
         # Should we turn annotation pyadjoint also if not turned on ?
 
         # Forward operator: `ReducedFunctional` recompute blocks on the tape
-        y_F = F(*ω_F)
-        # Attach metadata to the PyTorch context
+        y_F = F(ω_F)
+        # Attach metadata to the PyTorch contextx
         ctx.metadata.update(metadata)
         # Convert Firedrake output to PyTorch
         y = backend.to_ml_backend(y_F)
