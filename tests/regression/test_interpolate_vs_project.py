@@ -29,7 +29,7 @@ def V(request, mesh):
 
 
 def test_interpolate_vs_project(V):
-    mesh = V.ufl_domain()
+    mesh = V.extract_unique_domain()
     dim = mesh.geometric_dimension()
     if dim == 2:
         x, y = SpatialCoordinate(mesh)

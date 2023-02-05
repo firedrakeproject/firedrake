@@ -184,16 +184,16 @@ def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_te
 
     # Checks the generated information of the tensor agrees with the original
     # data directly in its associated `ufl.Form` object
-    assert S.ufl_domain() == S.form.ufl_domain()
-    assert M.ufl_domain() == M.form.ufl_domain()
-    assert N.ufl_domain() == N.form.ufl_domain()
-    assert F.ufl_domain() == F.form.ufl_domain()
-    assert G.ufl_domain() == G.form.ufl_domain()
-    assert M.inv.ufl_domain() == M.form.ufl_domain()
-    assert M.T.ufl_domain() == M.form.ufl_domain()
-    assert (-N).ufl_domain() == N.form.ufl_domain()
-    assert (F + G).ufl_domain() == (F.form + G.form).ufl_domain()
-    assert (M + N).ufl_domain() == (M.form + N.form).ufl_domain()
+    assert S.extract_unique_domain() == S.form.extract_unique_domain()
+    assert M.extract_unique_domain() == M.form.extract_unique_domain()
+    assert N.extract_unique_domain() == N.form.extract_unique_domain()
+    assert F.extract_unique_domain() == F.form.extract_unique_domain()
+    assert G.extract_unique_domain() == G.form.extract_unique_domain()
+    assert M.inv.extract_unique_domain() == M.form.extract_unique_domain()
+    assert M.T.extract_unique_domain() == M.form.extract_unique_domain()
+    assert (-N).extract_unique_domain() == N.form.extract_unique_domain()
+    assert (F + G).extract_unique_domain() == (F.form + G.form).extract_unique_domain()
+    assert (M + N).extract_unique_domain() == (M.form + N.form).extract_unique_domain()
 
     assert _is_equal_subdomain_data(S, S.form)
     assert _is_equal_subdomain_data(N, N.form)
