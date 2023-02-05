@@ -137,7 +137,7 @@ class Assigner:
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
-                if coeff.ufl_domain() != assignee.ufl_domain():
+                if coeff.extract_unique_domain() != assignee.extract_unique_domain():
                     raise ValueError("All functions in the expression must use the same "
                                      "mesh as the assignee")
 

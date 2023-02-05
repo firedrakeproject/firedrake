@@ -32,8 +32,8 @@ def create_output(V, name=None):
 
 
 def check_meshes(source, target):
-    source_mesh = source.ufl_domain()
-    target_mesh = target.ufl_domain()
+    source_mesh = source.extract_unique_domain()
+    target_mesh = target.extract_unique_domain()
     if source_mesh is None:
         source_mesh = target_mesh
     if target_mesh is None:

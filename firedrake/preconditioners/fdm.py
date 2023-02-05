@@ -264,7 +264,7 @@ class FDMPC(PCBase):
         bsize = V.value_size
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
-        ndim = V.ufl_domain().topological_dimension()
+        ndim = V.extract_unique_domain().topological_dimension()
         shift = get_axes_shift(V.finat_element) % ndim
 
         index_cell, nel = glonum_fun(V.cell_node_map())
@@ -358,7 +358,7 @@ class FDMPC(PCBase):
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
         if any(Dk is not None for Dk in Dfdm):
-            if ndim < V.ufl_domain().geometric_dimension():
+            if ndim < V.extract_unique_domain().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
@@ -461,7 +461,7 @@ class FDMPC(PCBase):
         coefficients = {}
         assembly_callables = []
 
-        mesh = J.ufl_domain()
+        mesh = J.extract_unique_domain()
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
         dx = firedrake.dx(degree=quad_deg)
@@ -678,7 +678,7 @@ def fdm_setup_ipdg(fdm_element, eta):
 @lru_cache(maxsize=10)
 def get_interior_facet_maps(V):
     """
-    Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
+    Extrude V.interior_facet_node_map and V.extract_unique_domain().interior_facets.local_facet_dat
 
     :arg V: a :class:`~.FunctionSpace`
 
@@ -687,7 +687,7 @@ def get_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    mesh = V.ufl_domain()
+    mesh = V.extract_unique_domain()
     intfacets = mesh.interior_facets
     facet_to_cells = intfacets.facet_cell_map.values
     local_facet_data = intfacets.local_facet_dat.data_ro
@@ -799,7 +799,7 @@ def get_weak_bc_flags(J):
     Return flags indicating whether the zero-th order coefficient on each facet of every cell is non-zero
     """
     from ufl.algorithms.ad import expand_derivatives
-    mesh = J.ufl_domain()
+    mesh = J.extract_unique_domain()
     args_J = J.arguments()
     V = args_J[0].function_space()
     rvs = V.ufl_element().reference_value_shape()

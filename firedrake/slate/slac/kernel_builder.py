@@ -156,7 +156,7 @@ class LocalKernelBuilder(object):
     @cached_property
     def terminal_flops(self):
         flops = 0
-        nfacets = self.expression.ufl_domain().ufl_cell().num_facets()
+        nfacets = self.expression.extract_unique_domain().ufl_cell().num_facets()
         for ctx in self.context_kernels:
             itype = ctx.original_integral_type
             for k in ctx.tsfc_kernels:
@@ -261,7 +261,7 @@ class LocalKernelBuilder(object):
                 raise ValueError("Integral type '%s' not recognized" % it_type)
 
             # Explicit checking of coordinates
-            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
+            coordinates = cxt_kernel.tensor.extract_unique_domain().coordinates
             if coords is not None:
                 assert coordinates == coords, "Mismatching coordinates!"
             else:
@@ -671,19 +671,19 @@ class LocalLoopyKernelBuilder(object):
         args = []
         tmp_args = []
 
-        coords_extent = self.extent(self.expression.ufl_domain().coordinates)
+        coords_extent = self.extent(self.expression.extract_unique_domain().coordinates)
         coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
                                            dtype=self.tsfc_parameters["scalar_type"])
         args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
 
         if self.bag.needs_cell_orientations:
-            ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
+            ori_extent = self.extent(self.expression.extract_unique_domain().cell_orientations())
             ori_loopy_arg = loopy.GlobalArg(self.cell_orientations_arg_name,
                                             shape=ori_extent, dtype=np.int32)
             args.append(kernel_args.CellOrientationsKernelArg(ori_loopy_arg))
 
         if self.bag.needs_cell_sizes:
-            siz_extent = self.extent(self.expression.ufl_domain().cell_sizes)
+            siz_extent = self.extent(self.expression.extract_unique_domain().cell_sizes)
             siz_loopy_arg = loopy.GlobalArg(self.cell_sizes_arg_name, shape=siz_extent,
                                             dtype=self.tsfc_parameters["scalar_type"])
             args.append(kernel_args.CellSizesKernelArg(siz_loopy_arg))
@@ -737,7 +737,7 @@ class LocalLoopyKernelBuilder(object):
             for tsfc_kernel in cxt_kernel.tsfc_kernels:
                 integral_type = cxt_kernel.original_integral_type
                 slate_tensor = cxt_kernel.tensor
-                mesh = slate_tensor.ufl_domain()
+                mesh = slate_tensor.extract_unique_domain()
                 kinfo = tsfc_kernel.kinfo
                 reads = []
                 inames_dep = []

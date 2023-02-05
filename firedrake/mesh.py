@@ -3308,7 +3308,7 @@ def SubDomainData(geometric_expr):
     import firedrake.projection as projection
 
     # Find domain from expression
-    m = geometric_expr.ufl_domain()
+    m = geometric_expr.extract_unique_domain()
 
     # Find selected cells
     fs = functionspace.FunctionSpace(m, 'DG', 0)

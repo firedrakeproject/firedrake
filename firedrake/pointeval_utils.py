@@ -49,8 +49,8 @@ def compile_element(expression, coordinates, parameters=None):
         raise NotImplementedError("Cannot point evaluate mixed elements yet!")
 
     # Replace coordinates (if any)
-    domain = expression.ufl_domain()
-    assert coordinates.ufl_domain() == domain
+    domain = expression.extract_unique_domain()
+    assert coordinates.extract_unique_domain() == domain
 
     # Initialise kernel builder
     builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
@@ -70,12 +70,12 @@ def compile_element(expression, coordinates, parameters=None):
     point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
 
     config = dict(interface=builder,
-                  ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                  ufl_cell=coordinates.extract_unique_domain().ufl_cell(),
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
     # TODO: restore this for expression evaluation!
-    # config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
+    # config["cellvolume"] = cellvolume_generator(coordinates.extract_unique_domain(), coordinates, config)
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
