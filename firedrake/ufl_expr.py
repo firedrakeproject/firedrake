@@ -152,7 +152,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 
-    mesh = form.ufl_domain()
+    mesh = form.extract_unique_domain()
     if not mesh:
         raise ValueError("Expression to be differentiated has no ufl domain."
                          "\nDo you need to add a domain to your Constant?")

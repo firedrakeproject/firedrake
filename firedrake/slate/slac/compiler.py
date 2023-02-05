@@ -550,7 +550,7 @@ def tensor_assembly_calls(builder):
                 int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
-        domain = builder.expression.ufl_domain()
+        domain = builder.expression.extract_unique_domain()
         if domain.cell_set._extruded:
             num_facets = domain.ufl_cell()._cells[0].num_facets()
         else:

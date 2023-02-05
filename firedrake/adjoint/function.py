@@ -51,7 +51,7 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
-                if isinstance(b, firedrake.Function) and b.ufl_domain() != self.function_space().mesh():
+                if isinstance(b, firedrake.Function) and b.extract_unique_domain() != self.function_space().mesh():
                     block = SupermeshProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
                 else:
                     block = ProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)

@@ -176,7 +176,7 @@ def make_interpolator(expr, V, subset, access):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = V.ufl_domain()
+        target_mesh = V.extract_unique_domain()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
         if target_mesh is not source_mesh:
@@ -249,8 +249,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
                            % (expr.ufl_shape, V.ufl_element().value_shape()))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.ufl_domain()
-    source_mesh = expr.ufl_domain() or target_mesh
+    target_mesh = V.extract_unique_domain()
+    source_mesh = expr.extract_unique_domain() or target_mesh
 
     if target_mesh is not source_mesh:
         if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -358,7 +358,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
         cs = target_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        coeff_mesh = coefficient.ufl_domain()
+        coeff_mesh = coefficient.extract_unique_domain()
         if coeff_mesh is target_mesh or not coeff_mesh:
             # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
             # a Real space
@@ -419,7 +419,7 @@ def rebuild_dg(element, expr, rt_var_name):
     # dual basis. This exists on the same reference cell as the input element
     # and we can interpolate onto it before mapping the result back onto the
     # target space.
-    expr_tdim = expr.ufl_domain().topological_dimension()
+    expr_tdim = expr.extract_unique_domain().topological_dimension()
     # Need point evaluations and matching weights from dual basis.
     # This could use FIAT's dual basis as below:
     # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())
@@ -444,7 +444,7 @@ def rebuild_dg(element, expr, rt_var_name):
     except AttributeError:
         # expression must be pure function of spatial coordinates so
         # domain has correct ufl cell
-        expr_fiat_cell = as_fiat_cell(expr.ufl_domain().ufl_cell())
+        expr_fiat_cell = as_fiat_cell(expr.extract_unique_domain().ufl_cell())
     rule = finat.quadrature.QuadratureRule(rule_pointset, weights=weights)
     return finat.QuadratureElement(expr_fiat_cell, rule)
 

@@ -234,7 +234,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
-    def ufl_domain(self):
+    def extract_unique_domain(self):
         """This function returns a single domain of integration occuring
         in the tensor.
 
@@ -478,7 +478,7 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {self.ufl_domain(): {"cell": [None]}}
+        return {self.extract_unique_domain(): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -553,7 +553,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": [None]}} for domain in self.ufl_domain())
+        return tuple({domain: {"cell": [None]}} for domain in self.extract_unique_domain())
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -963,7 +963,7 @@ class TensorOp(TensorBase):
         """
         sd = {}
         for op in self.operands:
-            op_sd = op.subdomain_data()[op.ufl_domain()]
+            op_sd = op.subdomain_data()[op.extract_unique_domain()]
 
             for it_type, domain in op_sd.items():
                 if it_type not in sd:
@@ -975,7 +975,7 @@ class TensorOp(TensorBase):
                             "Domains must agree!"
                         )
 
-        return {self.ufl_domain(): sd}
+        return {self.extract_unique_domain(): sd}
 
     @cached_property
     def _key(self):

@@ -507,7 +507,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
     kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
-        coefficients = [Vf.ufl_domain().coordinates] + coefficients
+        coefficients = [Vf.extract_unique_domain().coordinates] + coefficients
 
     return op2.Kernel(kernel.ast, kernel.name,
                       requires_zeroed_output_arguments=True,
@@ -754,7 +754,7 @@ def cache_generate_code(kernel, comm):
 
 
 def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
-    domain = Q.ufl_domain()
+    domain = Q.extract_unique_domain()
     A = get_piola_tensor(cmapping, domain, inverse=False)
     B = get_piola_tensor(fmapping, domain, inverse=True)
     tensor = A
@@ -945,7 +945,7 @@ class StandaloneInterpolationMatrix(object):
             restrict = [""]*5
             # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.ufl_domain(),
+                Q = Vf if fmapping == "identity" else firedrake.FunctionSpace(Vf.extract_unique_domain(),
                                                                               felem.reconstruct(mapping="identity"))
                 mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
@@ -953,7 +953,7 @@ class StandaloneInterpolationMatrix(object):
                 Qe = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     Qe = ufl.TensorElement(Qe, shape=felem.value_shape(), symmetry=felem.symmetry())
-                Q = firedrake.FunctionSpace(Vf.ufl_domain(), Qe)
+                Q = firedrake.FunctionSpace(Vf.extract_unique_domain(), Qe)
                 mapping_output = make_mapping_code(Q, fmapping, cmapping, "t0", "t1")
 
             qshape = (Q.value_size, Q.finat_element.space_dimension())
@@ -1183,7 +1183,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
                       (Pk.cell_node_map(),
                        P1.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-    mesh = Pk.ufl_domain()
+    mesh = Pk.extract_unique_domain()
 
     fele = Pk.ufl_element()
     if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):

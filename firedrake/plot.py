@@ -336,8 +336,8 @@ def quiver(function, *, complex_component="real", **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = toreal(function.ufl_domain().coordinates.dat.data_ro, "real")
-    V = function.ufl_domain().coordinates.function_space()
+    coords = toreal(function.extract_unique_domain().coordinates.dat.data_ro, "real")
+    V = function.extract_unique_domain().coordinates.function_space()
     vals = toreal(interpolate(function, V).dat.data_ro, complex_component)
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
@@ -369,7 +369,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
-    mesh = function.ufl_domain()
+    mesh = function.extract_unique_domain()
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
@@ -444,7 +444,7 @@ class Streamplotter(object):
         self.complex_component = complex_component
 
         # Create a grid to track the distance to the nearest streamline
-        mesh = self.function.ufl_domain()
+        mesh = self.function.extract_unique_domain()
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
@@ -540,7 +540,7 @@ class Streamplotter(object):
 
     def add_streamline(self, point):
         # If the point isn't inside the domain, bail out
-        outside = self.function.ufl_domain().locate_cell(point) is None
+        outside = self.function.extract_unique_domain().locate_cell(point) is None
         too_close = self._approx_distance_to_streamlines(point) < self.resolution
         if outside or too_close:
             return
@@ -594,7 +594,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    mesh = function.ufl_domain()
+    mesh = function.extract_unique_domain()
     if resolution is None:
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
@@ -658,7 +658,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     collection.set_array(speeds)
     axes.add_collection(collection)
 
-    _autoscale_view(axes, function.ufl_domain().coordinates.dat.data_ro)
+    _autoscale_view(axes, function.extract_unique_domain().coordinates.dat.data_ro)
     return collection
 
 
@@ -677,7 +677,7 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     if isinstance(function, MeshGeometry):
         raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
 
-    if function.ufl_domain().geometric_dimension() > 1:
+    if function.extract_unique_domain().geometric_dimension() > 1:
         raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                          "see tricontourf, tripcolor, quiver, trisurf")
 
