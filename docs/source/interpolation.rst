@@ -131,7 +131,7 @@ proceeds as follows:
 .. code-block:: python3
 
    # First, grab the mesh.
-   m = V.extract_unique_domain()
+   m = extract_unique_domain(V)
 
    # Now make the VectorFunctionSpace corresponding to V.
    W = VectorFunctionSpace(m, V.ufl_element())
