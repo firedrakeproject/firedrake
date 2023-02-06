@@ -2521,10 +2521,16 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     tdim = parent_mesh.topological_dimension()
     gdim = parent_mesh.geometric_dimension()
 
+    # Need to save the coords dat version here because _parent_mesh_embedding
+    # will change it. This is due to a bug somewhere in the kernel generation
+    # of MeshGeometry.locate_cell_and_reference_coordinate - accessing the
+    # coordinates ought to be a read only operation but, for some reason,
+    # increments the dat version.
+    coords_dat_version = parent_mesh.coordinates.dat.dat_version
+
     if fields is None:
         fields = []
     fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)]
-
     coords, reference_coords, parent_cell_nums = \
         _parent_mesh_embedding(coords, parent_mesh, tolerance)
 
@@ -2556,6 +2562,12 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
         extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
         # Can't find plex numbering for extruded meshes so set all to -1
+        plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
+    elif coords_dat_version > 0:
+        # The parent mesh coordinates have been modified. The DMSwarm parent
+        # mesh plex numbering is now not guaranteed to match up with DMPlex
+        # numbering so are set to -1. DMSwarm functions which rely on the
+        # DMPlex numbering,such as DMSwarmMigrate() will not work as expected.
         plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
     else:
         # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.

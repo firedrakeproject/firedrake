@@ -43,7 +43,7 @@ def cell_midpoints(m):
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
                         "periodicrectangle",
-                        pytest.param("shiftedmesh", marks=pytest.mark.xfail(reason="This will lose agreement with PETSc DMPlex cell numbering but there's no way to query it...")),])
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
@@ -82,8 +82,13 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     swarm is created in plex."""
 
     # Setup
-
     parentmesh.init()
+    # The coords dat version is > 0 for a shifted mesh. We need to save the it
+    # here because a bug somewhere in the kernel generation of
+    # MeshGeometry.locate_cell_and_reference_coordinate changes its value.
+    # Accessing the coordinates ought to be a read only operation but, for some
+    # reason, it increments the dat version.
+    coords_dat_version = parentmesh.coordinates.dat.dat_version
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
@@ -158,20 +163,22 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     # extruded, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        if not parentmesh.extruded:
-            assert np.any(index == cell_indexes)
-        else:
+        if parentmesh.extruded or coords_dat_version > 0:
             assert index == -1
+        else:
+            assert np.any(index == cell_indexes)
 
     # Now have DMPLex compute the cell IDs in cases where it can:
-    if parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange":
+    if (
+        parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
+        and not parentmesh.extruded
+        and not coords_dat_version > 0
+    ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
         petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
         swarm.restoreField("DMSwarm_cellid")
-        if not parentmesh.extruded:
-            # Check that we agree with PETSc
-            assert np.all(petsclocalparentcellindices == localparentcellindices)
+        assert np.all(petsclocalparentcellindices == localparentcellindices)
 
 
 @pytest.mark.parallel
