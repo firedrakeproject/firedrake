@@ -10,7 +10,6 @@ from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
-from ufl.domain import extract_unique_domain
 
 from .paraview_reordering import vtk_lagrange_tet_reorder,\
     vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
