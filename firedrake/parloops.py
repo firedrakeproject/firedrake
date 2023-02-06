@@ -4,7 +4,7 @@ non-finite element operations such as slope limiters."""
 import collections
 
 from ufl.indexed import Indexed
-from ufl.domain import join_domains
+from ufl.domain import join_domains, extract_domains
 
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
@@ -350,7 +350,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     else:
         domains = []
         for func, _ in args.values():
-            domains.extend(func.ufl_domains())
+            domains.extend(extract_domains(func))
         domains = join_domains(domains)
         # Assume only one domain
         domain, = domains

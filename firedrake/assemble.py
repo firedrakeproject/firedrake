@@ -13,7 +13,7 @@ from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
@@ -309,7 +309,7 @@ def _assemble_expr(expr):
 def _check_inputs(form, tensor, bcs, diagonal):
     # Ensure mesh is 'initialised' as we could have got here without building a
     # function space (e.g. if integrating a constant).
-    for mesh in form.ufl_domains():
+    for mesh in extract_domains(form):
         mesh.init()
 
     if diagonal and any(isinstance(bc, EquationBCSplit) for bc in bcs):
@@ -356,13 +356,13 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
     rank = len(form.arguments())
     if rank == 0:
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # extract_domains(form)[0]._comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=form.ufl_domains()[0]._comm
+            comm=extract_domains(form)[0]._comm
         )
     elif rank == 1:
         test, = form.arguments()
@@ -451,7 +451,7 @@ class FormAssembler(abc.ABC):
     @cached_property
     def local_kernels(self):
         try:
-            topology, = set(d.topology for d in self._form.ufl_domains())
+            topology, = set(d.topology for d in self.extract_domains(_form))
         except ValueError:
             raise NotImplementedError("All integration domains must share a mesh topology")
 
@@ -809,7 +809,7 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        return self.extract_domains(_form)[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -1067,7 +1067,7 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        return self.extract_domains(_form)[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):

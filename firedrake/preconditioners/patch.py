@@ -14,7 +14,7 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 import weakref
 
@@ -187,7 +187,7 @@ def matrix_funptr(form, state):
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
 
-        mesh = form.ufl_domains()[kinfo.domain_number]
+        mesh = exctract_domains(form)[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
@@ -276,7 +276,7 @@ def residual_funptr(form, state):
         arg = dat(op2.INC, entity_node_map)
         args.append(arg)
 
-        mesh = form.ufl_domains()[kinfo.domain_number]
+        mesh = extract_domains(form)[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
 

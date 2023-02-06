@@ -19,7 +19,7 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Coefficient, Constant
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -241,14 +241,14 @@ class TensorBase(object, metaclass=ABCMeta):
 
         The function will fail if multiple domains are found.
         """
-        domains = self.ufl_domains()
+        domains = extract_domains(self)
         assert all(domain == domains[0] for domain in domains), (
             "All integrals must share the same domain of integration."
         )
         return domains[0]
 
     @abstractmethod
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
@@ -469,11 +469,11 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self._function.ufl_domains()
+        return extract_domains(self._function)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -545,10 +545,10 @@ class BlockAssembledVector(AssembledVector):
         """Returns a BlockFunction in a tuple which carries all information to generate the right coefficients and maps."""
         return (BlockFunction(self._function, self._indices, self._original_function),)
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
         """
-        return tuple(domain for fs in self.arg_function_spaces for domain in fs.ufl_domains())
+        return tuple(domain for fs in self.arg_function_spaces for domain in extract_domains(fs))
 
     def subdomain_data(self):
         """Returns mappings on the tensor:
@@ -713,12 +713,12 @@ class Block(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
         tensor, = self.operands
-        return tensor.ufl_domains()
+        return extract_domains(tensor)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -803,12 +803,12 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
         tensor, = self.operands
-        return tensor.ufl_domains()
+        return extract_domains(tensor)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -902,11 +902,11 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self.form.ufl_domains()
+        return extract_domains(self.form)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -951,11 +951,11 @@ class TensorOp(TensorBase):
         coeffs = [op.slate_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
-    def ufl_domains(self):
+    def extract_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        collected_domains = [op.ufl_domains() for op in self.operands]
+        collected_domains = [extract_domains(op) for op in self.operands]
         return join_domains(chain(*collected_domains))
 
     def subdomain_data(self):
