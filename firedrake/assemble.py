@@ -451,7 +451,7 @@ class FormAssembler(abc.ABC):
     @cached_property
     def local_kernels(self):
         try:
-            topology, = set(d.topology for d in self.extract_domains(_form))
+            topology, = set(d.topology for d in extract_domains(self._form))
         except ValueError:
             raise NotImplementedError("All integration domains must share a mesh topology")
 
@@ -809,7 +809,7 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return self.extract_domains(_form)[self._kinfo.domain_number]
+        return extract_domains(self._form)[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -999,7 +999,7 @@ def _as_global_kernel_arg_cell_facet(_, self):
 @_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_global_kernel_arg_cell_orientations(_, self):
     # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
-    ufl_element = ufl.FiniteElement("DG", cell=self.extract_unique_domain(_form).ufl_cell(), degree=0)
+    ufl_element = ufl.FiniteElement("DG", cell=extract_unique_domain(self._form).ufl_cell(), degree=0)
     finat_element = create_element(ufl_element)
     return self._make_dat_global_kernel_arg(finat_element)
 
@@ -1067,7 +1067,7 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self.extract_domains(_form)[self._kinfo.domain_number]
+        return extract_domains(self._form)[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):
