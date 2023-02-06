@@ -2,6 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
+from ufl.domain import extract_unique_domain
 
 
 @pytest.mark.parametrize("sub", (True, False), ids=["Z.sub(0)", "V"])
@@ -37,7 +38,7 @@ def test_transfer_manager_inside_coarsen(sub):
 
     bc, = cctx._problem.bcs
     V = bc.function_space()
-    mesh = V.extract_unique_domain()
+    mesh = extract_unique_domain(V)
     x, y = SpatialCoordinate(mesh)
     expect = project(as_vector([-y, x]), V)
     assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro)

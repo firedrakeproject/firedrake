@@ -1,4 +1,5 @@
 from firedrake import *
+from ufl.domain import extract_unique_domain
 import pytest
 import numpy as np
 from functools import reduce
@@ -44,7 +45,7 @@ def test_solve_cell_subdomains(form, u):
     solve(form == 0, u)
     expect = Function(u.function_space())
 
-    mesh = u.extract_unique_domain()
+    mesh = extract_unique_domain(u)
     expect.interpolate(Constant(1.0), subset=mesh.cell_subset(1))
     expect.interpolate(Constant(0.5), subset=mesh.cell_subset(2))
 

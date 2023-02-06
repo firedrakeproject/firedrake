@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from ufl.domain import extract_unique_domain
 import numpy as np
 
 
@@ -144,7 +145,7 @@ def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     f.assign(Constant([2, 1]))
     assert np.allclose(assemble(f.sub(0)*dx),
-                       assemble(Constant(2)*dx(domain=f.extract_unique_domain())))
+                       assemble(Constant(2)*dx(domain=extract_unique_domain(f))))
 
 
 @pytest.mark.parametrize("cmpt",
