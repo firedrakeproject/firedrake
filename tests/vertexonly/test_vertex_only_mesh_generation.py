@@ -22,7 +22,7 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = m.cell_set.size
+    num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
     local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
