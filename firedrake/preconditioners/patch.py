@@ -187,7 +187,7 @@ def matrix_funptr(form, state):
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
 
-        mesh = exctract_domains(form)[kinfo.domain_number]
+        mesh = extract_domains(form)[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
