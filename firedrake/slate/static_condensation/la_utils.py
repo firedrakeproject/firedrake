@@ -119,8 +119,8 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
     nfields = len(all_fields)
     reconstruct_fields = as_tuple(reconstruct_fields)
 
-    _b = b.split()
-    _x = x.split()
+    _b = b.subfunctions
+    _x = x.subfunctions
 
     # Ordering matters
     systems = []

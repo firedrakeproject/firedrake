@@ -284,8 +284,8 @@ class HybridizationPC(SCBase):
         S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
-        split_residual = self.broken_residual.split()
-        split_sol = self.broken_solution.split()
+        split_residual = self.broken_residual.subfunctions
+        split_sol = self.broken_solution.subfunctions
         g = AssembledVector(split_residual[id0])
         f = AssembledVector(split_residual[id1])
         sigma = split_sol[id0]
@@ -334,8 +334,8 @@ class HybridizationPC(SCBase):
             # Transfer unbroken_rhs into broken_rhs
             # NOTE: Scalar space is already "broken" so no need for
             # any projections
-            unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
-            broken_scalar_data = self.broken_residual.split()[self.pidx]
+            unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
+            broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
             # Assemble the new "broken" hdiv residual
@@ -344,8 +344,8 @@ class HybridizationPC(SCBase):
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-            unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
-            broken_res_hdiv = self.broken_residual.split()[self.vidx]
+            unbroken_res_hdiv = self.unbroken_residual.subfunctions[self.vidx]
+            broken_res_hdiv = self.broken_residual.subfunctions[self.vidx]
             broken_res_hdiv.assign(0)
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
@@ -393,13 +393,13 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
-            broken_pressure = self.broken_solution.split()[self.pidx]
-            unbroken_pressure = self.unbroken_solution.split()[self.pidx]
+            broken_pressure = self.broken_solution.subfunctions[self.pidx]
+            unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
             broken_pressure.dat.copy(unbroken_pressure.dat)
 
             # Compute the hdiv projection of the broken hdiv solution
-            broken_hdiv = self.broken_solution.split()[self.vidx]
-            unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
+            broken_hdiv = self.broken_solution.subfunctions[self.vidx]
+            unbroken_hdiv = self.unbroken_solution.subfunctions[self.vidx]
             unbroken_hdiv.assign(0)
 
             par_loop(self.average_kernel, ufl.dx,

@@ -315,7 +315,7 @@ def extract_numbered_coefficients(expr, numbers):
     coefficients = []
     for coeff in (orig_coefficients[i] for i in numbers):
         if type(coeff.ufl_element()) == ufl.MixedElement:
-            coefficients.extend(coeff.split())
+            coefficients.extend(coeff.subfunctions)
         else:
             coefficients.append(coeff)
     return coefficients

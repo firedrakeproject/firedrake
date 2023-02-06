@@ -80,14 +80,14 @@ def test_function_space_vector_function_space_differ(mesh):
 def test_indexed_function_space_index(fs):
     assert [s.index for s in fs] == list(range(2))
     # Create another mixed space in reverse order
-    fs0, fs1 = fs.split()
+    fs0, fs1 = fs.subfunctions
     assert [s.index for s in (fs1 * fs0)] == list(range(2))
     # Verify the indices of the original IndexedFunctionSpaces haven't changed
     assert fs0.index == 0 and fs1.index == 1
 
 
 def test_mixed_function_space_split(fs):
-    assert fs.split() == tuple(fs)
+    assert fs.subfunctions == tuple(fs)
 
 
 def test_function_space_collapse(cg1):
