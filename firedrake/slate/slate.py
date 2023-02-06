@@ -19,6 +19,7 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Coefficient, Constant
+from ufl.domain import extract_unique_domain
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -478,7 +479,7 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {self.extract_unique_domain(): {"cell": [None]}}
+        return {extract_unique_domain(self): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -553,7 +554,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": [None]}} for domain in self.extract_unique_domain())
+        return tuple({domain: {"cell": [None]}} for domain in extract_unique_domain(self))
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -963,7 +964,7 @@ class TensorOp(TensorBase):
         """
         sd = {}
         for op in self.operands:
-            op_sd = op.subdomain_data()[op.extract_unique_domain()]
+            op_sd = op.subdomain_data()[extract_unique_domain(op)]
 
             for it_type, domain in op_sd.items():
                 if it_type not in sd:
@@ -975,7 +976,7 @@ class TensorOp(TensorBase):
                             "Domains must agree!"
                         )
 
-        return {self.extract_unique_domain(): sd}
+        return {extract_unique_domain(self): sd}
 
     @cached_property
     def _key(self):

@@ -10,6 +10,7 @@ from firedrake.mg import utils
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.corealg.map_dag import map_expr_dags
+from ufl.domain import extract_unique_domain
 
 import coffee.base as ast
 
@@ -129,7 +130,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType_c)
-    domain = expression.extract_unique_domain()
+    domain = extract_unique_domain(expression)
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
@@ -202,11 +203,11 @@ def compile_element(expression, dual_space=None, parameters=None,
 
 
 def prolong_kernel(expression):
-    meshc = expression.extract_unique_domain()
-    hierarchy, level = utils.get_level(expression.extract_unique_domain())
+    meshc = extract_unique_domain(expression)
+    hierarchy, level = utils.get_level(extract_unique_domain(expression))
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = expression.extract_unique_domain().coordinates
+    coordinates = extract_unique_domain(expression).coordinates
     if meshc.cell_set._extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
@@ -220,7 +221,7 @@ def prolong_kernel(expression):
     try:
         return cache[key]
     except KeyError:
-        mesh = coordinates.extract_unique_domain()
+        mesh = extract_unique_domain(coordinates)
         evaluate_kernel = compile_element(expression)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
@@ -294,10 +295,10 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.extract_unique_domain())
+    hierarchy, level = utils.get_level(extract_unique_domain(Vc))
     levelf = level + Fraction(1 / hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vc.extract_unique_domain().coordinates
+    coordinates = extract_unique_domain(Vc).coordinates
     if Vf.extruded:
         assert Vc.extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
@@ -311,7 +312,7 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        mesh = coordinates.extract_unique_domain()
+        mesh = extract_unique_domain(coordinates)
         evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
@@ -385,9 +386,9 @@ def restrict_kernel(Vf, Vc):
 
 
 def inject_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.extract_unique_domain())
+    hierarchy, level = utils.get_level(extract_unique_domain(Vc))
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vf.extract_unique_domain().coordinates
+    coordinates = extract_unique_domain(Vf).coordinates
     if Vf.extruded:
         assert Vc.extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
@@ -406,7 +407,7 @@ def inject_kernel(Vf, Vc):
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coordinates = Vf.extract_unique_domain().coordinates
+        coordinates = extract_unique_domain(Vf).coordinates
         evaluate_kernel = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
@@ -464,7 +465,7 @@ def inject_kernel(Vf, Vc):
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-            "tdim": Vc.extract_unique_domain().topological_dimension(),
+            "tdim": extract_unique_domain(Vc).topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
@@ -544,7 +545,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.extract_unique_domain())),
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
                                            complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, macro_context)
 

@@ -7,6 +7,7 @@ import FIAT
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
+from ufl.domain import extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
@@ -177,7 +178,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = V.extract_unique_domain()
+        target_mesh = extract_unique_domain(V)
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
         if target_mesh is not source_mesh:
@@ -258,8 +259,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                            % (expr.ufl_shape, V.ufl_element().value_shape()))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.extract_unique_domain()
-    source_mesh = expr.extract_unique_domain() or target_mesh
+    target_mesh = extract_unique_domain(V)
+    source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:
         if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -378,7 +379,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         cs = target_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        coeff_mesh = coefficient.extract_unique_domain()
+        coeff_mesh = extract_unique_domain(coefficient)
         if coeff_mesh is target_mesh or not coeff_mesh:
             # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
             # a Real space
@@ -444,7 +445,7 @@ def rebuild_dg(element, expr, rt_var_name):
     # dual basis. This exists on the same reference cell as the input element
     # and we can interpolate onto it before mapping the result back onto the
     # target space.
-    expr_tdim = expr.extract_unique_domain().topological_dimension()
+    expr_tdim = extract_unique_domain(expr).topological_dimension()
     # Need point evaluations and matching weights from dual basis.
     # This could use FIAT's dual basis as below:
     # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())
@@ -469,7 +470,7 @@ def rebuild_dg(element, expr, rt_var_name):
     except AttributeError:
         # expression must be pure function of spatial coordinates so
         # domain has correct ufl cell
-        expr_fiat_cell = as_fiat_cell(expr.extract_unique_domain().ufl_cell())
+        expr_fiat_cell = as_fiat_cell(extract_unique_domain(expr).ufl_cell())
     rule = finat.quadrature.QuadratureRule(rule_pointset, weights=weights)
     return finat.QuadratureElement(expr_fiat_cell, rule)
 

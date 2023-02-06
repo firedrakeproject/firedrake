@@ -14,6 +14,7 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
+from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 import weakref
 
@@ -190,11 +191,11 @@ def matrix_funptr(form, state):
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
-            c = form.extract_unique_domain().cell_orientations()
+            c = extract_unique_domain(form).cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.extract_unique_domain().cell_sizes
+            c = extract_unique_domain(form).cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_map:
@@ -211,7 +212,7 @@ def matrix_funptr(form, state):
                 args.append(arg)
 
         if kinfo.integral_type == "interior_facet":
-            arg = test.extract_unique_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -280,11 +281,11 @@ def residual_funptr(form, state):
         args.append(arg)
 
         if kinfo.oriented:
-            c = form.extract_unique_domain().cell_orientations()
+            c = extract_unique_domain(form).cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.extract_unique_domain().cell_sizes
+            c = extract_unique_domain(form).cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_map:
@@ -301,7 +302,7 @@ def residual_funptr(form, state):
                 args.append(arg)
 
         if kinfo.integral_type == "interior_facet":
-            arg = test.extract_unique_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -504,11 +505,11 @@ def load_c_function(code, name, comm):
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
-    coeffs = [form.extract_unique_domain().coordinates]
+    coeffs = [extract_unique_domain(form).coordinates]
     if kernel.kinfo.oriented:
-        coeffs.append(form.extract_unique_domain().cell_orientations())
+        coeffs.append(extract_unique_domain(form).cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(form.extract_unique_domain().cell_sizes)
+        coeffs.append(extract_unique_domain(form).cell_sizes)
     for n, indices in kernel.kinfo.coefficient_map:
         c = form.coefficients()[n]
         if c is state:
@@ -535,7 +536,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                     map_args.append(k)
                     seen.add(k)
     if require_facet_number:
-        data_args.extend(form.extract_unique_domain().interior_facets.local_facet_dat._kernel_args_)
+        data_args.extend(extract_unique_domain(form).interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
 
 
@@ -763,7 +764,7 @@ class PatchBase(PCSNESBase):
             J = ctx.Jp or ctx.J
             bcs = ctx._problem.bcs
 
-        mesh = J.extract_unique_domain()
+        mesh = extract_unique_domain(J)
         self.plex = mesh.topology_dm
         # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
@@ -823,7 +824,7 @@ class PatchBase(PCSNESBase):
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
             facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
-            point2facet = J.extract_unique_domain().interior_facets.point2facetnumber.ctypes.data
+            point2facet = extract_unique_domain(J).interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
                                              point2facet=point2facet)
@@ -855,7 +856,7 @@ class PatchBase(PCSNESBase):
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
                 facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
-                point2facet = F.extract_unique_domain().interior_facets.point2facetnumber.ctypes.data
+                point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
                                                  point2facet=point2facet)
