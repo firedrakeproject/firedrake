@@ -625,10 +625,13 @@ class FDMPC(PCBase):
             eq = FIAT.FDMQuadrature(cell, degree)
             e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
             e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
+            if hasattr(e0.dual, "rule"):
+                rule = e0.dual.rule
+            else:
+                rule = FIAT.quadrature.make_quadratture(cell, degree+1)
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-            rule = FIAT.make_quadrature(cell, degree+1)
             pts = rule.get_points()
             wts = rule.get_weights()
 
