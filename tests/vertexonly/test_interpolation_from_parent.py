@@ -12,7 +12,7 @@ import subprocess
                         "square",
                         "squarequads",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.xfail(reason="Extruded meshes with variable layers not supported")),
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere",

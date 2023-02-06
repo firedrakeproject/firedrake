@@ -9,7 +9,7 @@ from mpi4py import MPI
 @pytest.fixture(params=["interval",
                         "square",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.xfail(reason="Extruded meshes with variable layers not supported")),
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
