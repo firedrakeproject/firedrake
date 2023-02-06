@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from functools import singledispatch
+from ufl.domain import extract_unique_domain
 
 
 def test_coarsen_callback():
@@ -25,7 +26,7 @@ def test_coarsen_callback():
     @coarsen.register(functionspaceimpl.FunctionSpace)
     @coarsen.register(functionspaceimpl.WithGeometry)
     def coarsen_fs(V, self, coefficient_mapping=None):
-        mesh = self(V.extract_unique_domain(), self)
+        mesh = self(extract_unique_domain(V), self)
         return FunctionSpace(mesh, "CG", 1)
 
     uh = Function(V)

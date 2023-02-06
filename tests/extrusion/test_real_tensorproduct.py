@@ -1,6 +1,7 @@
 """Tests for (foo x Real) exturded spaces"""
 import numpy as np
 import pytest
+from ufl.domain import extract_unique_domain
 
 from firedrake import *
 
@@ -28,7 +29,7 @@ def variant(request):
 
 @pytest.fixture
 def expr(variant, V, fs_kind):
-    x, y, z = SpatialCoordinate(V.extract_unique_domain())
+    x, y, z = SpatialCoordinate(extract_unique_domain(V))
     val = {"linear": z, "sin": sin(pi*z)}[variant]
     ret = {
         "scalar": val,

@@ -1,4 +1,5 @@
 from firedrake import *
+from ufl.domain import extract_unique_domain
 import numpy
 import pytest
 
@@ -41,7 +42,7 @@ def tolerance(element, which):
 
 @pytest.fixture
 def expect(V, which):
-    x, y = SpatialCoordinate(V.extract_unique_domain())
+    x, y = SpatialCoordinate(extract_unique_domain(V))
     expr = (x + y)**(V.ufl_element().degree())
     if which == "coefficient":
         return expr
