@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import ufl
 from ufl.formatting.ufl2unicode import ufl2unicode
+from ufl.domain import extract_unique_domain
 import cachetools
 import ctypes
 from collections import OrderedDict
@@ -464,7 +465,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @property
     def _ctypes(self):
-        mesh = self.extract_unique_domain()
+        mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
@@ -630,7 +631,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
-    mesh = function.extract_unique_domain()
+    mesh = extract_unique_domain(function)
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 

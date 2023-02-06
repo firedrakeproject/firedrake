@@ -4,6 +4,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
+from ufl.domain import extract_unique_domain
 
 
 __all__ = ["prolong", "restrict", "inject"]
@@ -44,8 +45,8 @@ def prolong(coarse, fine):
             src.copy(dest)
         return fine
 
-    hierarchy, coarse_level = utils.get_level(coarse.extract_unique_domain())
-    _, fine_level = utils.get_level(fine.extract_unique_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
+    _, fine_level = utils.get_level(extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
@@ -61,7 +62,7 @@ def prolong(coarse, fine):
             Vf = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Function(Vf)
 
-        coarse_coords = Vc.extract_unique_domain().coordinates
+        coarse_coords = extract_unique_domain(Vc).coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse)
@@ -105,8 +106,8 @@ def restrict(fine_dual, coarse_dual):
             src.copy(dest)
         return coarse_dual
 
-    hierarchy, coarse_level = utils.get_level(coarse_dual.extract_unique_domain())
-    _, fine_level = utils.get_level(fine_dual.extract_unique_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse_dual))
+    _, fine_level = utils.get_level(extract_unique_domain(fine_dual))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
@@ -128,7 +129,7 @@ def restrict(fine_dual, coarse_dual):
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
 
-        coarse_coords = Vc.extract_unique_domain().coordinates
+        coarse_coords = extract_unique_domain(Vc).coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
@@ -179,10 +180,10 @@ def inject(fine, coarse):
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
-    hierarchy, coarse_level = utils.get_level(coarse.extract_unique_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-    _, fine_level = utils.get_level(fine.extract_unique_domain())
+    _, fine_level = utils.get_level(extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
@@ -202,7 +203,7 @@ def inject(fine, coarse):
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
-            fine_coords = Vf.extract_unique_domain().coordinates
+            fine_coords = extract_unique_domain(Vf).coordinates
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 

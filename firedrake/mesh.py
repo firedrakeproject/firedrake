@@ -7,6 +7,7 @@ import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
+from ufl.domain import extract_unique_domain
 import enum
 import numbers
 import abc
@@ -2619,7 +2620,7 @@ def SubDomainData(geometric_expr):
     import firedrake.projection as projection
 
     # Find domain from expression
-    m = geometric_expr.extract_unique_domain()
+    m = extract_unique_domain(geometric_expr)
 
     # Find selected cells
     fs = functionspace.FunctionSpace(m, 'DG', 0)

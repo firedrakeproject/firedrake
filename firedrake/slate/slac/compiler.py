@@ -32,6 +32,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
+from ufl.domain import extract_unique_domain
 from gem.utils import groupby
 from gem import impero_utils
 from itertools import chain
@@ -550,7 +551,7 @@ def tensor_assembly_calls(builder):
                 int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
-        domain = builder.expression.extract_unique_domain()
+        domain = extract_unique_domain(builder.expression)
         if domain.cell_set._extruded:
             num_facets = domain.ufl_cell()._cells[0].num_facets()
         else:

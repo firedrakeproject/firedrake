@@ -1,5 +1,6 @@
 import abc
 import ufl
+from ufl.domain import extract_unique_domain
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -32,8 +33,8 @@ def create_output(V, name=None):
 
 
 def check_meshes(source, target):
-    source_mesh = source.extract_unique_domain()
-    target_mesh = target.extract_unique_domain()
+    source_mesh = extract_unique_domain(source)
+    target_mesh = extract_unique_domain(target)
     if source_mesh is None:
         source_mesh = target_mesh
     if target_mesh is None:
