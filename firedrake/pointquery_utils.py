@@ -33,8 +33,6 @@ def make_wrapper(function, **kwargs):
 
 
 def src_locate_cell(mesh, tolerance=None):
-    if tolerance is None:
-        tolerance = 1e-14
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance))
     src.append(make_wrapper(mesh.coordinates,

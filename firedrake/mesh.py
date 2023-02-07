@@ -455,15 +455,23 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name):
+    def __init__(self, name, tolerance=1e-14):
         """Initialise an abstract mesh topology.
 
         :arg name: name of the mesh
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Defaults to 1e-14. Note that
+            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            rectilinear distance) so will scale with the dimension of the mesh.
         """
 
         utils._init()
 
         self.name = name
+        if not isinstance(tolerance, numbers.Number):
+            raise TypeError("tolerance must be a number")
+        self._tolerance = tolerance
 
         self.topology_dm = None
         r"The PETSc DM representation of the mesh topology."
@@ -782,12 +790,23 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
+    @property
+    def tolerance(self):
+        """The relative tolerance (i.e. as defined on the reference cell) for
+        the distance a point can be from a cell and still be considered to be
+        in the cell.
+
+        Should always be set via the :attr:`MeshGeometry.tolerance` to ensure
+        the spatial index is updated as necessary.
+        """
+        return self._tolerance
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1e-14):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -807,9 +826,15 @@ class MeshTopology(AbstractMeshTopology):
             if `None`, automatically generated.
         :kwarg permutation_name: name of the entity permutation (reordering);
             if `None`, automatically generated.
+        :kwarg comm: MPI communicator
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Default is 1e-14. Note that
+            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            rectilinear distance) so will scale with the dimension of the mesh.
         """
 
-        super().__init__(name)
+        super().__init__(name, tolerance=tolerance)
 
         self._distribution_parameters = distribution_parameters.copy()
         # Do some validation of the input mesh
@@ -1185,13 +1210,20 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, name=None):
+    def __init__(self, mesh, layers, name=None, tolerance=1e-14):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         :arg name:           optional name of the extruded mesh topology.
+        :kwarg tolerance:    The relative tolerance (i.e. as defined on the
+                             reference cell) for the distance a point can be
+                             from a cell and still be considered to be in the
+                             cell. Default is 1e-14. Note that this tolerance
+                             uses an L1 distance (aka 'manhatten', 'taxicab' or
+                             rectilinear distance) so will scale with the
+                             dimension of the mesh.
         """
 
         # TODO: refactor to call super().__init__
@@ -1212,6 +1244,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
+        self._tolerance = tolerance
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -1390,7 +1423,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder):
+    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1e-14):
         """
         Half-initialise a mesh topology.
 
@@ -1401,9 +1434,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
+        :tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Defaults to 1e-14.
         """
 
-        super().__init__(name)
+        super().__init__(name, tolerance=tolerance)
 
         # TODO: As a performance optimisation, we should renumber the
         # swarm to in parent-cell order so that we traverse efficiently.
@@ -1742,29 +1778,38 @@ values from f.)"""
             pass
 
     @property
-    def spatial_index_tolerance(self):
-        """A tolerance to add to the spatial index bounding box extrema to
-        allow points just outside the mesh to be found.
+    def tolerance(self):
+        """The relative tolerance (i.e. as defined on the reference cell) for
+        the distance a point can be from a cell and still be considered to be
+        in the cell.
 
-        If this property is not set, as is the default, no tolerance is added
-        to the bounding box and points deemed at all outside the mesh, even by
-        floating point error distances, will be deemed to be outside it.
+        Increase this if points at mesh boundaries (either rank local or
+        global) are reported as being outside the mesh, for example when
+        creating a :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so will
+        scale with the dimension of the mesh.
+
+        If this property is not set (i.e. set to ``None``) no tolerance is
+        added to the bounding box and points deemed at all outside the mesh,
+        even by floating point error distances, will be deemed to be outside
+        it.
 
         Notes
         -----
-        Requests for the mesh's spatial_index property after changing this
-        property will use the new tolerance. It will, however, have to be
-        recreated which can take some time.
-
+        Modifying this property will modify the :attr:`MeshTopology.tolerance`
+        property of the underlying mesh topology. Furthermore, after changing
+        it any requests for :attr:`spatial_index` will cause the spatial index
+        to be rebuilt with the new tolerance which may take some time.
         """
-        return self._spatial_index_tolerance
+        return self.topology.tolerance
 
-    @spatial_index_tolerance.setter
-    def spatial_index_tolerance(self, value):
+    @tolerance.setter
+    def tolerance(self, value):
         if not isinstance(value, numbers.Number):
-            raise TypeError("spatial_index_tolerance must be a number")
-        self.clear_spatial_index()
-        self._spatial_index_tolerance = value
+            raise TypeError("tolerance must be a number")
+        if value != self.topology.tolerance:
+            self.clear_spatial_index()
+            self.topology._tolerance = value
 
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
@@ -1783,9 +1828,10 @@ values from f.)"""
         Notes
         -----
 
-        If this mesh has a spatial_index_tolerance property, which should be a
-        float, this tolerance is added to the extrama of the spatial index so
-        that points just outside the mesh, within tolerance, can be found.
+        If this mesh has a :attr:`MeshTopology.tolerance` property, which
+        should be a float, this tolerance is added to the extrama of the
+        spatial index so that points just outside the mesh, within tolerance,
+        can be found.
 
         """
 
@@ -1838,9 +1884,9 @@ values from f.)"""
         # Push max and min out so we can find points on the boundary within
         # tolerance. Note that if tolerance is too small it might not actually
         # change the value!
-        if hasattr(self, "spatial_index_tolerance"):
-            coords_min -= self.spatial_index_tolerance
-            coords_max += self.spatial_index_tolerance
+        if hasattr(self, "tolerance") and self.tolerance is not None:
+            coords_min -= self.tolerance
+            coords_max += self.tolerance
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
@@ -1850,8 +1896,10 @@ values from f.)"""
         """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: cell number (int), or None (if the point is not
             in the domain)
         """
@@ -1862,8 +1910,10 @@ values from f.)"""
         cell the point is in can be queried with the locate_cell method.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: reference coordinates within cell (numpy array) or
             None (if the point is not in the domain)
         """
@@ -1874,13 +1924,19 @@ values from f.)"""
         coordinates of the point within the cell.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: tuple either (cell number, reference coordinates)
             (int, numpy array), or (None, None) (point is not in the domain)
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
+        if tolerance is None:
+            tolerance = self.tolerance
+        else:
+            self.tolerance = tolerance
         x = np.asarray(x, dtype=utils.ScalarType)
         x = x.real.copy()
         if x.size != self.geometric_dimension():
@@ -2067,6 +2123,15 @@ def Mesh(meshfile, **kwargs):
            If ``meshfile`` is a DMPlex object then must be indentical
            to or congruent with the DMPlex communicator.
 
+    :param tolerance: The relative tolerance (i.e. as defined on the reference
+           cell) for the distance a point can be from a cell and still be
+           considered to be in the cell. Defaults to 1.0e-14. Increase
+           this if point at mesh boundaries (either rank local or global) are
+           reported as being outside the mesh, for example when creating a
+           :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
+           distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+           will scale with the dimension of the mesh.
+
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
     filename extension):
@@ -2111,6 +2176,8 @@ def Mesh(meshfile, **kwargs):
     if coordinates is not None:
         return make_mesh_from_coordinates(coordinates, name)
 
+    tolerance = kwargs.get("tolerance", 1.0e-14)
+
     utils._init()
 
     # We don't need to worry about using a user comm in these cases as
@@ -2146,12 +2213,12 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
-                            comm=user_comm)
+                            comm=user_comm, tolerance=tolerance)
     return make_mesh_from_mesh_topology(topology, name)
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None, tolerance=1.0e-14):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -2179,6 +2246,13 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                          resulting mesh (this is only used if a
                          custom kernel is provided)
     :arg name:           optional name for the extruded mesh.
+    :kwarg tolerance:    The relative tolerance (i.e. as defined on the
+                         reference cell) for the distance a point can be from a
+                         cell and still be considered to be in the cell.
+                         Default is 1e-14. Note that this tolerance uses an L1
+                         distance (aka 'manhatten', 'taxicab' or rectilinear
+                         distance) so will scale with the dimension of the
+                         mesh.
 
     The various values of ``extrusion_type`` have the following meanings:
 
@@ -2244,7 +2318,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # layer_height is a scalar; equi-distant layers are fine
         pass
 
-    topology = ExtrudedMeshTopology(mesh.topology, layers)
+    topology = ExtrudedMeshTopology(mesh.topology, layers, tolerance=tolerance)
 
     if extrusion_type == "uniform":
         pass
@@ -2291,7 +2365,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 @PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
-                   tolerance=1.0e-14):
+                   tolerance=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
     by a list of coordinates.
@@ -2305,11 +2379,14 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         that they have the same list of vertices (else the test is not
         possible): this operation scales with number of vertices and number of
         ranks.
-    :kwarg tolerance: the amount by which the local coordinates of a point are
-        allowed to fall outside the cell while still having the point count as
-        in the cell. Increase the default (1.0e-14) somewhat if vertices
-        interior to the domain are being lost in the :class:`VertexOnlyMesh`
-        construction process.
+    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
+        cell) for the distance a point can be from a mesh cell and still be
+        considered to be in the cell. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's :attr:`MeshTopology.tolerance`. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
 
     .. note::
 
@@ -2348,8 +2425,10 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
-    if tolerance:
-        mesh.spatial_index_tolerance = tolerance
+    if tolerance is None:
+        tolerance = mesh.tolerance
+    else:
+        mesh.tolerance = tolerance
 
     mesh.init()
 
@@ -2482,6 +2561,14 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
+    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
+        cell) for the distance a point can be from a cell and still be
+        considered to be in the cell. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's :attr:`MeshTopology.tolerance`. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2512,6 +2599,11 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
         For more see `this github issue
         <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
     """
+
+    if tolerance is None:
+        tolerance = parent_mesh.tolerance
+    else:
+        parent_mesh.tolerance = tolerance
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)

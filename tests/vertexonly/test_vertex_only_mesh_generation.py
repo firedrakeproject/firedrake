@@ -179,20 +179,29 @@ def test_extrude(parentmesh):
 
 
 def test_point_tolerance():
-    """Test the tolerance parameter to VertexOnlyMesh.
-
-    This test works by checking a point outside the domain. Tolerance does not
-    in fact promise to fix the problem of points outside the domain in the
-    general case. It is instead there to cope with losing points on internal
-    cell boundaries due to roundoff. The latter case is difficult to test in a
-    manner which is robust to roundoff behaviour in different environments."""
+    """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
+    assert m.tolerance == 1e-14
+    assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
     vm = VertexOnlyMesh(m, coords, tolerance=0.1)
     assert vm.cell_set.size == 1
-    vm = VertexOnlyMesh(m, coords, tolerance=None)
+    # check that the tolerance is passed through to the parent mesh
+    assert m.tolerance == 0.1
+    assert m.topology.tolerance == 0.1
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0)
+    assert vm.cell_set.size == 0
+    assert m.tolerance == 0.0
+    assert m.topology.tolerance == 0.0
+    # See if changing the tolerance on the parent mesh changes the tolerance
+    # on the VertexOnlyMesh
+    m.tolerance = 0.1
+    vm = VertexOnlyMesh(m, coords)
+    assert vm.cell_set.size == 1
+    m.tolerance = 0.0
+    vm = VertexOnlyMesh(m, coords)
     assert vm.cell_set.size == 0
 
 
