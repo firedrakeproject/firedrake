@@ -242,7 +242,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
-    def solve(self, bounds=None):
+    def solve(self, bounds=None, rhs=None):
         r"""Solve the variational problem.
 
         :arg bounds: Optional bounds on the solution (lower, upper).
@@ -267,6 +267,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             lower, upper = bounds
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
+
+        rhsv = None
+        if rhs is not None:
+            try:
+                [bc.zero(rhs) for bc in self._problem.bcs]
+            except TypeError:
+                pass
+
+            with rhs.dat.vec_ro as rhs_:
+                rhsv = rhs_
+
         work = self._work
         with self._problem.u.dat.vec as u:
             u.copy(work)
@@ -276,7 +287,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
                                  self._transfer_operators):
                     stack.enter_context(ctx)
-                self.snes.solve(None, work)
+                self.snes.solve(rhsv, work)
             work.copy(u)
         self._setup = True
         solving_utils.check_snes_convergence(self.snes)
