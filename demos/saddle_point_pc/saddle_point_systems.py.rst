@@ -612,8 +612,8 @@ geometric multigrid method with overlapping Schwarz smoothers (using
 preconditioners ``AMS`` and ``ADS``. See the separate manual page on
 :doc:`../preconditioning`.
 
-A runnable python script version of this demo is available `here
-<saddle_point_systems.py>`__.
+A runnable python script version of this demo is available :demo:`here
+<saddle_point_systems.py>`.
 
 .. rubric:: References
 
