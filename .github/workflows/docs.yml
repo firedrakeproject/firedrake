@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: System dependencies
         run: |
-          apt-get update
+          apt-get update --fix-missing
           apt-get -y dist-upgrade
           apt-get -y install inkscape texlive-full
       - name: Install
