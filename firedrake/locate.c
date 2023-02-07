@@ -4,8 +4,6 @@
 #include <float.h>
 #include <evaluate.h>
 
-void ref_coords_copy(void *dest_vp, void *src_vp, int dim);
-
 int locate_cell(struct Function *f,
         double *x,
         int dim,
@@ -46,7 +44,7 @@ int locate_cell(struct Function *f,
                 if (current_closest_ref_coord <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
-                    ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     break;
                 }
                 else if (current_closest_ref_coord < closest_ref_coord) {
@@ -55,7 +53,7 @@ int locate_cell(struct Function *f,
                     if (closest_ref_coord < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = ids[i];
-                        ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     }
                 }
             }
@@ -69,7 +67,7 @@ int locate_cell(struct Function *f,
                 if (current_closest_ref_coord <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
-                    ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     break;
                 }
                 else if (current_closest_ref_coord < closest_ref_coord) {
@@ -78,7 +76,7 @@ int locate_cell(struct Function *f,
                     if (closest_ref_coord < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = ids[i];
-                        ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     }
                 }
             }
@@ -91,7 +89,7 @@ int locate_cell(struct Function *f,
                 if (current_closest_ref_coord <= 0.0) {
                     /* Found cell! */
                     cell = c;
-                    ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     break;
                 }
                 else if (current_closest_ref_coord < closest_ref_coord) {
@@ -100,7 +98,7 @@ int locate_cell(struct Function *f,
                     if (closest_ref_coord < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = c;
-                        ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     }
                 }
             }
@@ -112,7 +110,7 @@ int locate_cell(struct Function *f,
                     if (current_closest_ref_coord <= 0.0) {
                         /* Found cell! */
                         cell = l;
-                        ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                         break;
                     }
                     else if (current_closest_ref_coord < closest_ref_coord) {
@@ -121,7 +119,7 @@ int locate_cell(struct Function *f,
                         if (closest_ref_coord < tolerance) {
                             /* Close to cell within tolerance so could be this cell */
                             cell = l;
-                            ref_coords_copy(found_ref_coords, temp_ref_coords, dim);
+                            memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                         }
                     }
                 }
@@ -133,13 +131,4 @@ int locate_cell(struct Function *f,
         }
     }
     return cell;
-}
-
-void ref_coords_copy(void *dest_vp, void *src_vp, int dim)
-{
-    struct ReferenceCoords *dest = (struct ReferenceCoords *) dest_vp;
-    struct ReferenceCoords *src = (struct ReferenceCoords *) src_vp;
-    for (int i = 0; i < dim; i++) {
-        dest->X[i] = src->X[i];
-    }
 }
