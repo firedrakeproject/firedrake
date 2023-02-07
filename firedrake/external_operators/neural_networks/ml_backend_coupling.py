@@ -31,5 +31,5 @@ class HybridOperator(object):
         return φ(*ω)
 
 
-def torch_op(*args, **kwargs):
+def torch_operator(*args, **kwargs):
     return HybridOperator(*args, **kwargs)
