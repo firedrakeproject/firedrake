@@ -2538,8 +2538,6 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         # need to store the base parent cell number and the height to be able
         # to map point coordinates back to the parent mesh
         if parent_mesh.variable_layers:
-            # TODO: Don't know how variable layer cell numbering works - below
-            # assumes constant layers.
             raise NotImplementedError("Cannot create a DMSwarm in an ExtrudedMesh with variable layers.")
         # Extruded mesh parent_cell_nums goes from bottom to top. So for
         # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
