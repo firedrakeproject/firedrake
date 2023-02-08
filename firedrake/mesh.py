@@ -1448,7 +1448,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             entity_dofs[0] = 1
             self._vertex_numbering = self.create_section(entity_dofs)
 
-    @utils.cached_property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -1484,11 +1484,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
-    @utils.cached_property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def exterior_facets(self):
         return self._facets("exterior")
 
-    @utils.cached_property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def interior_facets(self):
         return self._facets("interior")
 
@@ -1520,12 +1520,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return self.num_vertices()
 
-    @utils.cached_property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -1534,7 +1534,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellnum")
         return cell_parent_cell_list
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.Map` from vertex only mesh cells to
         parent mesh cells.
@@ -1542,7 +1542,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_cell_list, "cell_parent_cell")
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_list(self):
         """Return a list of parent mesh base cells numbers in vertex only
         mesh cell order.
@@ -1553,7 +1553,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellbasenum")
         return cell_parent_base_cell_list
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
         """Return the :class:`pyop2.Map` from vertex only mesh cells to
         parent mesh base cells.
@@ -1563,7 +1563,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_base_cell_list, "cell_parent_base_cell")
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_list(self):
         """Return a list of parent mesh extrusion heights in vertex only
         mesh cell order.
@@ -1574,7 +1574,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellextrusionheight")
         return cell_parent_extrusion_height_list
 
-    @property
+    @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
         """Return the :class:`pyop2.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
