@@ -3,7 +3,7 @@ from firedrake import *
 from firedrake.petsc import PETSc
 from math import pi
 try:
-    from slepc4py import SLEPc
+    from slepc4py import SLEPc  
 except ImportError:
     import sys
     warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
@@ -53,21 +53,23 @@ eigensolver.solve()
 
 nconv = eigensolver.getConverged()
 #print("Number of converged eigenpairs %d" % nconv)
+eigenmodes_real = Function(V)
+eigenmodes_imag = Function(V)
+# vr, wr = A.getVecs()  # PetSC vector object
+# vi, wi = A.getVecs()
+# eigenmodes_real.vector()[:], eigenmodes_imag.vector()[:] = vr, vi # Firedrake Vector object
+# print(eigenmodes_imag.vector())
+# if nconv > 0 and None:
 
-if nconv > 0:
+    # vr, wr = A.getVecs()
+    # n = 0
 
-    vr, wr = A.getVecs()
-    n = 0
+    # vi, wi = A.getVecs()
+    # evals = np.zeros(nconv, dtype=complex)
+    # evec_arr = np.zeros(nconv, dtype=complex)
 
-    vi, wi = A.getVecs()
-    evals = np.zeros(nconv, dtype=complex)
-    evec_arr = np.zeros(nconv, dtype=complex)
     # for i in range(nconv):
     #     eval = eigensolver.getEigenvalue(i)
     #     evals[i] = eval
     #     print(type(vr))
-        # k = eigensolver.getEigenpair(i, vr, vi) # same as eval
-
-
-
-
+    #     k = eigensolver.getEigenpair(i, vr, vi) # same as eval
