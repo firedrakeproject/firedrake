@@ -111,8 +111,14 @@ class Constant(ufl.Coefficient, ConstantMixin):
         """Return a null function space."""
         return None
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         return (self,)
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""

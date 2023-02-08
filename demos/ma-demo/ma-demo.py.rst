@@ -186,7 +186,7 @@ We then put all of these options into the iterative solver, ::
 
 and output the solution to a file. ::
 
-  u, sigma = w.split()
+  u, sigma = w.subfunctions
   u_solv.solve()
   File("u.pvd").write(u)
 

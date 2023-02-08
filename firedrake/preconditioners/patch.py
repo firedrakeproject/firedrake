@@ -205,7 +205,7 @@ def matrix_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -295,7 +295,7 @@ def residual_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -516,7 +516,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
             coeffs.append(c)
         else:
-            coeffs.extend([c.split()[ind] for ind in indices])
+            coeffs.extend([c.subfunctions[ind] for ind in indices])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
     data_args = []

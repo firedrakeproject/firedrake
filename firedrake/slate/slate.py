@@ -230,7 +230,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -478,7 +478,7 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {self.ufl_domain(): {"cell": None}}
+        return {self.ufl_domain(): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -553,7 +553,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": None}} for domain in self.ufl_domain())
+        return tuple({domain: {"cell": [None]}} for domain in self.ufl_domain())
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -662,7 +662,7 @@ class Block(TensorBase):
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
             V = arg.function_space()
-            V_is = V.split()
+            V_is = V.subfunctions
             idx = as_tuple(self._blocks[i])
             if len(idx) == 1:
                 fidx, = idx
@@ -696,7 +696,7 @@ class Block(TensorBase):
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
-            return tuple(tensor._function.split()[i] for i in chain(*self._indices))
+            return tuple(tensor._function.subfunctions[i] for i in chain(*self._indices))
 
     @cached_property
     def assembled(self):
@@ -970,9 +970,10 @@ class TensorOp(TensorBase):
                     sd[it_type] = domain
 
                 else:
-                    assert sd[it_type] == domain, (
-                        "Domains must agree!"
-                    )
+                    if not all(d is None for d in sd[it_type]) or not all(d is None for d in domain):
+                        assert sd[it_type] == domain, (
+                            "Domains must agree!"
+                        )
 
         return {self.ufl_domain(): sd}
 

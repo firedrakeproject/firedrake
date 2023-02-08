@@ -189,7 +189,7 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 
     solve(a == L, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
 
     f.interpolate(cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
     g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))

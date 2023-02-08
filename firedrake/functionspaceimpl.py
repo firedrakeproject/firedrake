@@ -100,9 +100,10 @@ class WithGeometry(ufl.FunctionSpace):
         self.cargo.topological = val
 
     @utils.cached_property
-    def _split(self):
+    def subfunctions(self):
+        r"""Split into a tuple of constituent spaces."""
         return tuple(WithGeometry.create(subspace, self.mesh())
-                     for subspace in self.topological.split())
+                     for subspace in self.topological.subfunctions)
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -120,8 +121,9 @@ class WithGeometry(ufl.FunctionSpace):
 
     @PETSc.Log.EventDecorator()
     def split(self):
-        r"""Split into a tuple of constituent spaces."""
-        return self._split
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -129,7 +131,7 @@ class WithGeometry(ufl.FunctionSpace):
             return tuple(WithGeometry.create(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
-            return self._split
+            return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -269,10 +271,10 @@ class WithGeometry(ufl.FunctionSpace):
         return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
 
     def __iter__(self):
-        return iter(self._split)
+        return iter(self.subfunctions)
 
     def __getitem__(self, i):
-        return self._split[i]
+        return self.subfunctions[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -496,9 +498,15 @@ class FunctionSpace(object):
                                                    self.ufl_element(),
                                                    self.name)
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
         return (self, )
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -705,10 +713,16 @@ class MixedFunctionSpace(object):
     def __hash__(self):
         return hash(tuple(self))
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this

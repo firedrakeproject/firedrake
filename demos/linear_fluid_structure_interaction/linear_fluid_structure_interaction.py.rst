@@ -306,7 +306,7 @@ In the end, we proceed with the actual computation loop::
         # symplectic Euler scheme
         LVS_phi_f.solve()
         LVS_U_phi.solve()
-        tmp_f, tmp_s = result_mixed.split()
+        tmp_f, tmp_s = result_mixed.subfunctions
         phi.assign(tmp_f)
         U.assign(tmp_s)
         LVS_eta.solve()

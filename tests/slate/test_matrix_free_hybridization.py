@@ -35,7 +35,7 @@ def test_matrix_free_hybridization():
                                         'ksp_rtol': 1e-8,
                                         'mat_type': 'matfree'}}
     solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     w2 = Function(W)
     aij_params = {'mat_type': 'matfree',
@@ -47,7 +47,7 @@ def test_matrix_free_hybridization():
                                     'ksp_rtol': 1e-8,
                                     'mat_type': 'aij'}}
     solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
-    _sigma, _u = w2.split()
+    _sigma, _u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, _sigma)

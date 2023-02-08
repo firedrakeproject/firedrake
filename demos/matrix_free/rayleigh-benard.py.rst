@@ -236,7 +236,7 @@ them, although doing so would be quite easy.::
 
 Finally, we'll output the results for visualisation. ::
 
-  u, p, T = upT.split()
+  u, p, T = upT.subfunctions
   u.rename("Velocity")
   p.rename("Pressure")
   T.rename("Temperature")
