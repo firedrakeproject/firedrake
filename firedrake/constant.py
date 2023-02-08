@@ -14,18 +14,21 @@ from firedrake.adjoint.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _globalify(value, comm):
+def _literalify(value, comm):
+    assert comm is None
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data, comm=comm)
+        dat = op2.Literal(1, data, comm=comm)
     else:
-        dat = op2.Global(shape, data, comm=comm)
+        dat = op2.Literal(shape, data, comm=comm)
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient, ConstantMixin):
+# Think "literal"
+#class Constant(ufl.Coefficient, ConstantMixin):
+class Constant(ConstantMixin):  # this WILL break things
 
     """A "constant" coefficient
 
@@ -51,37 +54,32 @@ class Constant(ufl.Coefficient, ConstantMixin):
     """
 
     def __new__(cls, *args, **kwargs):
-        # Hack to avoid hitting `ufl.Coefficient.__new__` which may perform operations
-        # meant for coefficients and not constants (e.g. check if the function space is dual or not)
-        # This is a consequence of firedrake.Constant inheriting from ufl.Coefficient instead of ufl.Constant.
-        return object.__new__(cls)
+        if domain:
+            import warnings
+            warnings.warn("Constants with a domain defined are functions in the Real space")
+
+            domain = ufl.as_domain(domain)
+            cell = domain.ufl_cell()
+            if rank == 0:
+                e = ufl.FiniteElement("Real", cell, 0)
+            elif rank == 1:
+                e = ufl.VectorElement("Real", cell, 0, shape[0])
+            else:
+                e = ufl.TensorElement("Real", cell, 0, shape=shape)
+
+            fs = ufl.FunctionSpace(domain, e)
+            R = RealFunctionSpace(domain)
+            return Function(R, data=value)
+        else:
+            return cls.__init__(*args, **kwargs) # not sure, return a Constant!
 
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None):
+    def __init__(self, value):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        if domain:
-            self.comm = domain.comm
-        else:
-            self.comm = mpi.COMM_WORLD
-        self._comm = mpi.internal_comm(self.comm)
-        self.dat, rank, shape = _globalify(value, self._comm)
-
-        cell = None
-        if domain is not None:
-            domain = ufl.as_domain(domain)
-            cell = domain.ufl_cell()
-        if rank == 0:
-            e = ufl.FiniteElement("Real", cell, 0)
-        elif rank == 1:
-            e = ufl.VectorElement("Real", cell, 0, shape[0])
-        else:
-            e = ufl.TensorElement("Real", cell, 0, shape=shape)
-
-        fs = ufl.FunctionSpace(domain, e)
-        super(Constant, self).__init__(fs)
-        self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
+        self.dat, rank, shape = _literalify(value, None)
+        #self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())  # set below?
 
     def __del__(self):
         if hasattr(self, "_comm"):
