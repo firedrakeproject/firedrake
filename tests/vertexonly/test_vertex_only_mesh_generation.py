@@ -26,7 +26,8 @@ def cell_midpoints(m):
     # MPI rank local.
     num_cells_local = m.cell_set.size
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
-    local_midpoints = f.dat.data_ro
+    # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
@@ -63,6 +64,14 @@ def parentmesh(request):
         m = UnitSquareMesh(1, 1)
         m.coordinates.dat.data[:] -= 0.5
         return m
+
+
+@pytest.fixture(params=["redundant", "nonredundant"])
+def redundant(request):
+    if request.param == "redundant":
+        return True
+    else:
+        return False
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
@@ -133,12 +142,26 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
 
 
-def test_generate_cell_midpoints(parentmesh):
+def test_generate_cell_midpoints(parentmesh, redundant):
     """
     Generate cell midpoints for mesh parentmesh and check they lie in
     the correct cells
     """
     inputcoords, inputcoordslocal = cell_midpoints(parentmesh)
+    if redundant:
+        # check redundant argument broadcasts from rank 0 by only supplying the
+        # global cell midpoints only on rank 0. Note that this is the default
+        # behaviour so it needn't be specified explicitly.
+        if MPI.COMM_WORLD.rank == 0:
+            vm = VertexOnlyMesh(parentmesh, inputcoords)
+        else:
+            vm = VertexOnlyMesh(parentmesh, np.empty(inputcoords.shape))
+    else:
+        # When redundant == False we expect the same behaviour by only
+        # supplying the local cell midpoints on each MPI ranks. Note that this
+        # is not the default behaviour so it must be specified explicitly.
+        vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
+
     vm = VertexOnlyMesh(parentmesh, inputcoords)
     # Midpoints located in correct cells of parent mesh
     V = VectorFunctionSpace(parentmesh, "DG", 0)
@@ -157,8 +180,8 @@ def test_generate_cell_midpoints(parentmesh):
 
 
 @pytest.mark.parallel
-def test_generate_cell_midpoints_parallel(parentmesh):
-    test_generate_cell_midpoints(parentmesh)
+def test_generate_cell_midpoints_parallel(parentmesh, redundant):
+    test_generate_cell_midpoints(parentmesh, redundant)
 
 
 def test_generate_random(parentmesh, vertexcoords):

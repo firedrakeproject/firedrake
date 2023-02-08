@@ -26,7 +26,8 @@ def cell_midpoints(m):
     # MPI rank local.
     num_cells_local = m.cell_set.size
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
-    local_midpoints = f.dat.data_ro
+    # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
@@ -65,9 +66,17 @@ def parentmesh(request):
         return m
 
 
+@pytest.fixture(params=["redundant", "nonredundant"])
+def redundant(request):
+    if request.param == "redundant":
+        return True
+    else:
+        return False
+
+
 # pic swarm tests
 
-def test_pic_swarm_in_mesh(parentmesh):
+def test_pic_swarm_in_mesh(parentmesh, redundant):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
 
@@ -78,7 +87,21 @@ def test_pic_swarm_in_mesh(parentmesh):
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+
+    if redundant:
+        # check redundant argument broadcasts from rank 0 by only supplying the
+        # global cell midpoints only on rank 0. Note that this is the default
+        # behaviour so it needn't be specified explicitly.
+        if MPI.COMM_WORLD.rank == 0:
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+        else:
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
+    else:
+        # When redundant == False we expect the same behaviour by only
+        # supplying the local cell midpoints on each MPI ranks. Note that this
+        # is not the default behaviour so it must be specified explicitly.
+        swarm = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
+
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -138,15 +161,17 @@ def test_pic_swarm_in_mesh(parentmesh):
 
 
 @pytest.mark.parallel
-def test_pic_swarm_in_mesh_parallel(parentmesh):
-    test_pic_swarm_in_mesh(parentmesh)
+def test_pic_swarm_in_mesh_parallel(parentmesh, redundant):
+    test_pic_swarm_in_mesh(parentmesh, redundant)
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
 def test_pic_swarm_in_mesh_2d_2procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
 
 
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
 def test_pic_swarm_in_mesh_2d_3procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
