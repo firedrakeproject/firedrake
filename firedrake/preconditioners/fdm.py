@@ -576,7 +576,7 @@ class FDMPC(PCBase):
         if key not in self._coefficient_cache:
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
-                beta, alpha = tensor.split()
+                beta, alpha = tensor.subfunctions
                 coefficients = {"beta": beta, "alpha": alpha}
                 assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
                                               form_compiler_parameters=form_compiler_parameters)]
