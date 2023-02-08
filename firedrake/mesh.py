@@ -2250,7 +2250,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 @PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
-                   tolerance=None):
+                   tolerance=1.0e-14, redundant=True):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
     by a list of coordinates.
@@ -2269,6 +2269,11 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         in the cell. Increase the default (1.0e-14) somewhat if vertices
         interior to the domain are being lost in the :class:`VertexOnlyMesh`
         construction process.
+    :kwarg redundant: If True, the mesh will be built using just the vertices
+        which are specified on rank 0. If False, the mesh will be built using
+        the vertices specified by each rank. Care must be taken when using
+        ``redundant = False``: see the note below for more information.
+
 
     .. note::
 
@@ -2285,17 +2290,17 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         the VertexOnlyMesh to return the wrong values.
 
     .. note::
-        When running in parallel, ``vertexcoords`` are strictly confined
-        to the local ``mesh`` cells of that rank. This means that if rank
-        A has ``vertexcoords`` {X} that are not found in the mesh cells
-        owned by rank A but are found in the mesh cells owned by rank B,
-        **and rank B has not been supplied with those** ``vertexcoords``,
-        then the ``vertexcoords`` {X} will be lost.
+        When running in parallel with ``redundant = False``, ``vertexcoords``
+        are strictly confined to the local ``mesh`` cells of that rank. This
+        means that if rank A has ``vertexcoords`` {X} that are not found in the
+        mesh cells  owned by rank A but are found in the mesh cells owned by
+        ank B, **and rank B has not been supplied with those**
+        ``vertexcoords``, then the ``vertexcoords`` {X} will be lost.
 
         This can be avoided by either
 
-        #. making sure that all ranks are supplied with the same
-           ``vertexcoords`` or by
+        #. making sure that rank 0 has all vertex coordinates and setting
+           ``redundant = True`` or by
         #. ensuring that ``vertexcoords`` are already found in cells owned by
            the ``mesh`` partition of the given rank.
 
@@ -2339,7 +2344,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance)
+    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance, redundant=redundant)
 
     if missing_points_behaviour:
 
@@ -2413,7 +2418,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     return vmesh
 
 
-def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
+def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redundant=True):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
     This should only by used for meshes with straight edges. If not, the
@@ -2435,6 +2440,12 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
+    :kwarg tolerance: The tolerance used by locate_cell when deciding which
+        cell each DMSwarm point is found. The default is None which can cause
+        problems if the DMSwarm points are at the boundary of two cells or just
+        outside the mesh.
+    :kwarg redundant: If True, the DMSwarm will be created using only the
+        points specified on MPI rank 0. The default is True.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2468,6 +2479,9 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None):
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
+
+    if redundant:
+        coords = parent_mesh._comm.bcast(coords, root=0)
 
     plex = parent_mesh.topology.topology_dm
     tdim = parent_mesh.topological_dimension()
