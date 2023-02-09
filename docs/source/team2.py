@@ -40,8 +40,13 @@ class Table:
 def cache_web_image(name, url):
     img_name = name.split()[0].lower().encode("punycode").decode()
     img_name = img_name[:-1] if img_name[-1] == "-" else img_name
-    with urlopen(url) as response, open("images/" + img_name + "." + url[-3:], "wb") as fh:
-        fh.write(response.read())
+    with urlopen(url) as response:
+        filetype = response.getheader("Content-Type")
+        ext = filetype.split("/")[1]
+        if ext == "jpeg":
+            ext = "jpg"
+        with open("images/" + img_name + "." + ext, "wb") as fh:
+            fh.write(response.read())
 
 
 #

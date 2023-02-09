@@ -50,7 +50,7 @@ Nacime Bouziani...............<https://www.imperial.ac.uk/people/n.bouziani18>
 
 Romain Brault
 
-Pablo Brubeck
+Pablo Brubeck.................<https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez>
 
 Ed Bueler
 
@@ -110,7 +110,7 @@ Fabio Luporini................<http://www.imperial.ac.uk/people/f.luporini12>
 
 Scott MacLachlan..............<https://www.math.mun.ca/~smaclachlan/>
 
-Graham Markall................<https://gmarkall.wordpress.com>
+Graham Markall................<https://big-grey.co.uk/>
 
 India Marsden.................<https://www.maths.ox.ac.uk/people/india.marsden>
 
@@ -120,11 +120,11 @@ Andrew McRae..................<https://www2.physics.ox.ac.uk/contacts/people/mcr
 
 Oliver Meister................<https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>
 
-Lawrence Mitchell
+Lawrence Mitchell.............<https://www.wence.uk/>
 
 Eike Mueller
 
-Reuben Nixon-Hill.............<https://www.imperial.ac.uk/people/reuben.hill10>
+Reuben W. Nixon-Hill..........<https://www.imperial.ac.uk/people/reuben.nixon-hill10>
 
 Alberto Paganini..............<https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>
 
