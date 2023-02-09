@@ -17,9 +17,9 @@ Baylor University.............<https://www.baylor.edu>
 
 Durham University.............<https://www.durham.ac.uk>
 
-Imperial College London.......<http://www.imperial.ac.uk>
+Imperial College London.......<https://www.imperial.ac.uk>
 
-University of Bath............<http://www.bath.ac.uk>
+University of Bath............<https://www.bath.ac.uk>
 
 University of Leeds...........<https://www.leeds.ac.uk>
 
@@ -62,7 +62,7 @@ Cyrus Cheng
 
 Teodoro Fields Collin
 
-Colin Cotter..................<http://www.imperial.ac.uk/people/colin.cotter>
+Colin Cotter..................<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
 
@@ -80,7 +80,7 @@ Alastair Gregory
 
 Tom Gregory...................<https://www.imperial.ac.uk/people/t.gregory18>
 
-David Ham.....................<http://www.imperial.ac.uk/people/david.ham>
+David Ham.....................<https://www.imperial.ac.uk/people/david.ham>
 
 Christopher Hawkes
 
@@ -94,9 +94,9 @@ Nick Johnson
 
 Anna Kalogirou
 
-Paul Kelly....................<http://www.imperial.ac.uk/people/p.kelly>
+Paul Kelly....................<https://www.imperial.ac.uk/people/p.kelly>
 
-Rob Kirby.....................<http://www.baylor.edu/math/index.php?id=90540>
+Rob Kirby.....................<https://www.baylor.edu/math/index.php?id=90540>
 
 Stephan Kramer................<https://www.imperial.ac.uk/people/s.kramer>
 
@@ -106,7 +106,7 @@ Michael Lange.................<https://www.linkedin.com/in/michael-lange-5667599
 
 Nicolas Loriant
 
-Fabio Luporini................<http://www.imperial.ac.uk/people/f.luporini12>
+Fabio Luporini................<https://www.imperial.ac.uk/people/f.luporini12>
 
 Scott MacLachlan..............<https://www.math.mun.ca/~smaclachlan/>
 
@@ -140,7 +140,7 @@ Thomas Roy
 
 Francis P. Russell
 
-Koki Sagiyama.................<http://www.imperial.ac.uk/people/k.sagiyama>
+Koki Sagiyama.................<https://www.imperial.ac.uk/people/k.sagiyama>
 
 Tomasz Salwa
 
@@ -148,7 +148,7 @@ Kaho Sato
 
 Ben Sepanski..................<https://bensepanski.github.io>
 
-Daniel Shapero................<http://psc.apl.uw.edu/people/investigators/daniel-shapero/>
+Daniel Shapero................<https://psc.apl.uw.edu/people/investigators/daniel-shapero/>
 
 Jemma Shipton
 
