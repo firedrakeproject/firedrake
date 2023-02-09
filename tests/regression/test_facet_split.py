@@ -53,11 +53,11 @@ def test_facet_split(quadrilateral, ptype):
     uh = Function(V)
 
     a = inner(grad(u), grad(v)) * dx
-    L = inner(Constant(0), v) * dx
+    L = inner(Constant(0, domain=mesh), v) * dx
     x = SpatialCoordinate(mesh)
     u_exact = 42 * x[1]
-    bcs = [DirichletBC(V, Constant(0), 3),
-           DirichletBC(V, Constant(42), 4)]
+    bcs = [DirichletBC(V, Constant(0, domain=mesh), 3),
+           DirichletBC(V, Constant(42, domain=mesh), 4)]
 
     solve(a == L, uh, bcs=bcs, solver_parameters=parameters)
     assert sqrt(assemble(inner(uh - u_exact, uh - u_exact) * dx)) < 1E-10
