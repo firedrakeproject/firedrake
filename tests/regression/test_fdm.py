@@ -262,7 +262,7 @@ def test_static_condensation(mesh):
     quad_degree = 2*degree+1
     cell = mesh.ufl_cell()
     e = FiniteElement('Lagrange', cell=cell, degree=degree, variant='fdm_feec')
-    Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
+    Z = FunctionSpace(mesh, MixedElement(*[RestrictedElement(e, d) for d in ("interior", "facet")]))
     z = Function(Z)
     u = sum(split(z))
 
