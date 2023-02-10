@@ -40,7 +40,7 @@ def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-        a :class:`~slate.TensorBase` expression.
+        a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
     :kwarg diagonal: If assembling a matrix is it diagonal?

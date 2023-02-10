@@ -32,7 +32,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function`).
-    :kwarg subset: An optional :class:`pyop2.Subset` to apply the
+    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over.
     :kwarg access: The access descriptor for combining updates to shared dofs.
     :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
@@ -67,7 +67,7 @@ class Interpolator(object):
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
-    :kwarg subset: An optional :class:`pyop2.Subset` to apply the
+    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over.
     :kwarg freeze_expr: Set to True to prevent the expression being
         re-evaluated on each call.

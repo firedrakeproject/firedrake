@@ -195,8 +195,8 @@ An image of the solution is shown below.
 .. figure:: ma.png
    :align: center
 
-A python script version of this demo can be found `here
-<ma-demo.py>`__.
+A python script version of this demo can be found :demo:`here
+<ma-demo.py>`.
 
 .. rubric:: References
 
