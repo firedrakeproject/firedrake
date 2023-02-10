@@ -181,7 +181,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     :arg coffee: compile coffee kernel instead of loopy kernel
 
     Returns a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
+    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
 
     ``needs_orientations`` indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
@@ -290,7 +290,7 @@ def gather_integer_subdomain_ids(knls):
 
 
 def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
-    """Convert a loopy kernel to a PyOP2 :class:`pyop2.LocalKernel`.
+    """Convert a loopy kernel to a PyOP2 ``pyop2.LocalKernel``.
 
     :arg ast: The kernel code. This could be, for example, a loopy kernel.
     :arg name: The kernel name.

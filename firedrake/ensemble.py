@@ -78,7 +78,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def allreduce(self, f, f_reduced, op=MPI.SUM):
         """
-        Allreduce a function f into f_reduced over :attr:`ensemble_comm`.
+        Allreduce a function f into f_reduced over ``ensemble_comm`` .
 
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
@@ -95,7 +95,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def iallreduce(self, f, f_reduced, op=MPI.SUM):
         """
-        Allreduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm`.
+        Allreduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` .
 
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
@@ -112,7 +112,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
-        Reduce a function f into f_reduced over :attr:`ensemble_comm` to rank root
+        Reduce a function f into f_reduced over ``ensemble_comm`` to rank root
 
         :arg f: The a :class:`.Function` to reduce.
         :arg f_reduced: the result of the reduction on rank root.
@@ -135,7 +135,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
-        Reduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm` to rank root
+        Reduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` to rank root
 
         :arg f: The a :class:`.Function` to reduce.
         :arg f_reduced: the result of the reduction on rank root.
@@ -153,7 +153,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def bcast(self, f, root=0):
         """
-        Broadcast a function f over :attr:`ensemble_comm` from rank root
+        Broadcast a function f over ``ensemble_comm`` from rank root
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
@@ -168,7 +168,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def ibcast(self, f, root=0):
         """
-        Broadcast (non-blocking) a function f over :attr:`ensemble_comm` from rank root
+        Broadcast (non-blocking) a function f over ``ensemble_comm`` from rank root
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
@@ -183,7 +183,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def send(self, f, dest, tag=0):
         """
-        Send (blocking) a function f over :attr:`ensemble_comm` to another
+        Send (blocking) a function f over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg f: The a :class:`.Function` to send
@@ -198,7 +198,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
         """
-        Receive (blocking) a function f over :attr:`ensemble_comm` from
+        Receive (blocking) a function f over ``ensemble_comm`` from
         another ensemble rank.
 
         :arg f: The a :class:`.Function` to receive into
@@ -216,7 +216,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def isend(self, f, dest, tag=0):
         """
-        Send (non-blocking) a function f over :attr:`ensemble_comm` to another
+        Send (non-blocking) a function f over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg f: The a :class:`.Function` to send
@@ -232,7 +232,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
-        Receive (non-blocking) a function f over :attr:`ensemble_comm` from
+        Receive (non-blocking) a function f over ``ensemble_comm`` from
         another ensemble rank.
 
         :arg f: The a :class:`.Function` to receive into
@@ -248,7 +248,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def sendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG, status=None):
         """
-        Send (blocking) a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        Send (blocking) a function fsend and receive a function frecv over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg fsend: The a :class:`.Function` to send.
@@ -271,7 +271,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def isendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG):
         """
-        Send a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        Send a function fsend and receive a function frecv over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg fsend: The a :class:`.Function` to send.

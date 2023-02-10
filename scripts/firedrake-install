@@ -1419,6 +1419,7 @@ def install_documentation_dependencies():
     run_pip(["install", "-U", "sphinx"])
     run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
+    run_pip(["install", "-U", "sphinxcontrib-svg2pdfconverter"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
     run_pip(["install", "-U", "numpydoc"])

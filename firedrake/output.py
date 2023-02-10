@@ -370,7 +370,7 @@ class File(object):
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
         :kwarg target_degree: override the degree of the output space.
         :kwarg target_continuity: override the continuity of the output space;
-            A UFL :class:`~.SobolevSpace` object: `H1` for a
+            A UFL :class:`ufl.sobolevspace.SobolevSpace` object: `H1` for a
             continuous output and `L2` for a discontinuous output.
         :kwarg adaptive: allow different meshes at different exports if `True`.
 

@@ -31,7 +31,7 @@ def get_topological_dimension(PETSc.DM dm):
 
     :arg dm: A DMPlex or DMSwarm.
 
-    :returns: For a DMPlex ``dm.getDimension()`, for a DMSwarm ``0``.
+    :returns: For a DMPlex ``dm.getDimension()``, for a DMSwarm ``0``.
     """
     if type(dm) is PETSc.DMPlex:
         return dm.getDimension()
@@ -874,13 +874,13 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
     coneSize = 2
 
     UFCTriangle
-   
+
      2
      | \
      4   3
      | 6   \
      0--5---1
-   
+
     physical triangle mapped onto UFCTriangle
 
     33
@@ -955,11 +955,11 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
     # UFCQuadrilateral:
     #
     #  eo\io    0      1      2      3
-    #                                     
+    #
     #         1---3  0---2  3---1  2---0
     #    0    |   |  |   |  |   |  |   |
     #         0---2  1---3  2---0  3---1
-    #                                    
+    #
     #         2---3  3---2  0---1  1---0
     #    1    |   |  |   |  |   |  |   |
     #         0---1  1---0  2---3  3---2
@@ -1037,12 +1037,12 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
         dim = 2
-        _reorder_plex_cone(dm, p, cone, plex_cone) 
+        _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron    <- PETSc.DM.PolytopeType.HEXAHEDRON
         dim = 3
-        _reorder_plex_cone(dm, p, cone, plex_cone) 
+        _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
     else:
         raise ValueError(f"Unknown cell type: {dm.getCellType(p)}")
@@ -1061,7 +1061,7 @@ def entity_orientations(mesh,
     :returns: A 2D array of the same shape as cell_closure, each row of which
         contains orientations of the entities in the closure of the associated cell
 
-    See :meth:`~.AbstractMeshTopology.entity_orientations` for details on the
+    See ``AbstractMeshTopology.entity_orientations`` for details on the
     returned array.
 
     See `get_cell_nodes` for the usage of the returned array.
@@ -1554,8 +1554,8 @@ def cell_facet_labeling(PETSc.DM plex,
 
     cell_facets[c, i]
 
-    If `cell_facets[c, i, 0]` is :data:`0`, then the local facet
-    :data:`i` is an exterior facet, otherwise if the result is :data:`1`
+    If `cell_facets[c, i, 0]` is ``0``, then the local facet
+    ``i`` is an exterior facet, otherwise if the result is ``1``
     it is interior. `cell_facets[c, i, 1]` returns the subdomain marker
     for the local facet.
 

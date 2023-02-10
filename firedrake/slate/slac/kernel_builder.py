@@ -37,7 +37,7 @@ Context information for creating coefficient temporaries.
                      the vector temporary for assignment.
 :param shape: A singleton with an integer describing the shape of
               the coefficient temporary.
-:param vector: The :class:`slate.AssembledVector` containing the
+:param vector: The :class:`~.slate.AssembledVector` containing the
                relevant data to be placed into the temporary.
 :param local_temp: The local temporary for the coefficient vector.
 """
@@ -97,7 +97,7 @@ class LocalKernelBuilder(object):
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalKernelBuilder class.
 
-        :arg expression: a :class:`TensorBase` object.
+        :arg expression: a :class:`~.firedrake.slate.TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
             TSFC when constructing subkernels associated with the expression.
         """
@@ -429,7 +429,7 @@ class LocalLoopyKernelBuilder(object):
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
-        :arg expression: a :class:`TensorBase` object.
+        :arg expression: a :class:`~.firedrake.slate.TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
             TSFC when constructing subkernels associated with the expression.
         """
