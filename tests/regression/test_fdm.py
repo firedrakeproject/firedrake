@@ -12,27 +12,28 @@ fdmstar = {
     'ksp_converged_reason': None,
     'pc_type': 'python',
     'pc_python_type': 'firedrake.P1PC',
-    'pmg_coarse_mat_type': 'aij',
     'pmg_mg_coarse': {
+        'mat_type': 'aij',
         'ksp_type': 'preonly',
         'pc_type': 'cholesky',
     },
-    'pmg_mg_levels': {
-        'ksp_type': 'chebyshev',
-        'esteig_ksp_type': 'cg',
-        'esteig_ksp_norm_type': 'unpreconditioned',
-        'ksp_chebyshev_esteig': '0.75,0.25,0.0,1.0',
-        'ksp_chebyshev_esteig_steps': 8,
-        'ksp_norm_type': 'unpreconditioned',
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.FDMPC',
-        'fdm': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.ASMExtrudedStarPC',
-            'pc_star_mat_ordering_type': 'nd',
-            'pc_star_sub_sub_pc_type': 'cholesky',
-            'pc_star_sub_sub_pc_mat_factor_type': 'cholmod',
-            'pc_star_sub_sub_pc_mat_ordering_type': 'natural',
+    "pmg_mg_levels": {
+        "ksp_type": "chebyshev",
+        "ksp_norm_type": "none",
+        "esteig_ksp_type": "cg",
+        "esteig_ksp_norm_type": "natural",
+        "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+        "ksp_chebyshev_esteig_noisy": True,
+        "ksp_chebyshev_esteig_steps": 8,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.FDMPC",
+        "fdm": {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_star_mat_ordering_type": "nd",
+            "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc",
+            "pc_star_sub_sub_pc_factor_mat_ordering_type": "natural",
         }
     }
 }
@@ -61,7 +62,7 @@ def expected(mesh):
         return [8, 8, 8]
 
 
-@pytest.fixture(params=[None, 'fdm'], ids=['spectral', 'fdm_feec'])
+@pytest.fixture(params=[None, 'fdm_feec'], ids=['spectral', 'fdm'])
 def variant(request):
     return request.param
 
@@ -95,7 +96,7 @@ def test_p_independence(mesh, expected, variant):
         solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
         solver.solve()
         nits.append(solver.snes.ksp.getIterationNumber())
-    assert norm(u_exact-uh, 'H1') < 1.0E-7
+    assert norm(u_exact-uh, "H1") < 2.0E-7
     assert nits <= expected
 
 

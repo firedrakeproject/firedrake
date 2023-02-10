@@ -76,6 +76,7 @@ class FDMPC(PCBase):
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
+        self.appctx = appctx
 
         # Get original Jacobian form and bcs
         if Pmat.getType() == "python":
@@ -223,6 +224,7 @@ class FDMPC(PCBase):
 
         # dict of cell to global mappings for each function space
         self.cell_to_global = dict()
+        self.lgmaps = dict()
 
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             result = cell_to_local(cell_index, result=result)
@@ -234,6 +236,7 @@ class FDMPC(PCBase):
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
             cell_to_local, nel = glonum_fun(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
+            self.lgmaps[Vsub] = lgmap
 
             own = Vsub.dof_dset.layout_vec.getLocalSize()
             bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
@@ -293,8 +296,6 @@ class FDMPC(PCBase):
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
-                del d_nnz
-                del o_nnz
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -1149,7 +1150,7 @@ class PoissonFDMPC(FDMPC):
 
     _variant = "fdm"
 
-    def assemble_reference_tensors(self, V, appctx):
+    def assemble_reference_tensor(self, V):
         from firedrake.preconditioners.pmg import get_line_elements
         try:
             line_elements, shifts = get_line_elements(V)
@@ -1160,46 +1161,53 @@ class PoissonFDMPC(FDMPC):
         self.axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
-        quad_degree = 2*degree+1
-        eta = float(appctx.get("eta", degree*(degree+1)))
+        eta = float(self.appctx.get("eta", degree*(degree+1)))
         element = V.finat_element
         is_dg = element.entity_dofs() == element.entity_closure_dofs()
 
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
+        bdof = []  # indices of point evaluation dofs for each direction
         for e in line_elements:
-            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
             if not (e.formdegree or is_dg):
                 Dfdm[0] = None
+        return Afdm, Dfdm, bdof
 
-        return Afdm, Dfdm, quad_degree, eta
-
-    def assemble_mat(self, A, V, bcs, coefficients, Afdm, Dfdm, bcflags):
+    @PETSc.Log.EventDecorator("FDMSetValues")
+    def set_values(self, A, Vrow, Vcol, addv, triu=False):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
-        :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
-        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
-        :arg Afdm: the list with sparse interval matrices
-        :arg Dfdm: the list with normal derivatives matrices
-        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
+        :arg Vrow: the :class:`firedrake.FunctionSpace` test space
+        :arg Vcol: the :class:`firedrake.FunctionSpace` trial space
         """
-        Gq = coefficients.get("Gq")
-        Bq = coefficients.get("Bq")
-        Gq_facet = coefficients.get("Gq_facet")
-        PT_facet = coefficients.get("PT_facet")
+        set_values_csr = self.load_set_values(triu=triu)
+        update_A = lambda A, Ae, rindices: set_values_csr(A, Ae, rindices, rindices, addv)
+        condense_element_mat = self.get_static_condensation.get(Vrow, lambda x: x)
+        condense_element_mat = lambda x: x
 
-        lgmap = V.local_to_global_map(bcs)
+        get_rindices = self.cell_to_global[Vrow]
+        rtensor = self.reference_tensor_on_diag.get(Vrow, None) or self.assemble_reference_tensor(Vrow)
+        self.reference_tensor_on_diag[Vrow] = rtensor
+        Afdm, Dfdm, bdof = rtensor
+
+        Gq = self.coefficients.get("alpha")
+        Bq = self.coefficients.get("beta")
+        bcflags = self.coefficients.get("bcflags")
+        Gq_facet = self.coefficients.get("Gq_facet")
+        PT_facet = self.coefficients.get("PT_facet")
+
+        V = Vrow
         bsize = V.value_size
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         ndim = V.ufl_domain().topological_dimension()
         shift = self.axes_shifts * bsize
 
-        index_cell, nel = glonum_fun(V.cell_node_map())
         index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
+        index_bc, _ = glonum_fun(bcflags.cell_node_map())
         flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
@@ -1212,16 +1220,10 @@ class PoissonFDMPC(FDMPC):
             assert ncomp == ndim
             pshape = [tuple(numpy.roll(pshape, -shift[k])) for k in range(ncomp)]
 
-        if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
-            A.zeroEntries()
-            for assemble_coef in self.assembly_callables:
-                assemble_coef()
-
-        self.set_bc_values(A, V.dof_dset.lgmap.indices[lgmap.indices < 0])
-
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
+        rindices = None
         use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
         if not use_diag_Bq:
             bshape = Bq.ufl_shape
@@ -1232,28 +1234,30 @@ class PoissonFDMPC(FDMPC):
 
             aptr = numpy.arange(0, (bshape[0]+1)*bshape[1], bshape[1], dtype=PETSc.IntType)
             aidx = numpy.tile(numpy.arange(bshape[1], dtype=PETSc.IntType), bshape[0])
-            for e in range(nel):
+            for e in range(self.nel):
                 # Ae = Be kron Bq[e]
                 adata = numpy.sum(Bq.dat.data_ro[index_coef(e)], axis=0)
                 Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
                 Ae = Be.kron(Ae)
-
-                ie = index_cell(e)
-                ie = numpy.repeat(ie*bsize, bsize) + numpy.tile(numpy.arange(bsize, dtype=ie.dtype), len(ie))
-                rows = lgmap.apply(ie)
-                self.update_A(A, Ae, rows)
+                rindices = get_rindices(e, result=rindices)
+                update_A(A, Ae, rindices)
                 Ae.destroy()
             Be.destroy()
             Bq = None
 
         # assemble the second order term and the zero-th order term if any,
-        # discarding mixed derivatives and mixed components
+        # discarding mixed derivatives and mixed componentsget_weak_bc_flags(J)
         mue = numpy.zeros((ncomp, ndim), dtype=PETSc.RealType)
         bqe = numpy.zeros((ncomp,), dtype=PETSc.RealType)
-        for e in range(nel):
-            ie = numpy.reshape(index_cell(e), (ncomp//bsize, -1))
+
+        for e in range(self.nel):
             je = index_coef(e)
-            bce = bcflags[e]
+            bce = bcflags.dat.data_ro[index_bc(e)] > 1E-8
+
+            rindices = get_rindices(e, result=rindices)
+            rows = numpy.reshape(rindices, (-1, bsize))
+            rows = numpy.transpose(rows)
+            rows = numpy.reshape(rows, (ncomp, -1))
 
             # get second order coefficient on this cell
             if Gq is not None:
@@ -1297,9 +1301,8 @@ class PoissonFDMPC(FDMPC):
                         Ae = Ae.kron(Afdm[axes[m]][0])
                     Ae.scale(bqe[k])
 
-                Ae = self.condense_element_mat(Ae)
-                rows = lgmap.apply(ie[0]*bsize+k if bsize == ncomp else ie[k])
-                self.update_A(A, Ae, rows)
+                Ae = condense_element_mat(Ae)
+                update_A(A, Ae, rows[k].astype(PETSc.IntType))
                 Ae.destroy()
 
         # assemble SIPG interior facet terms if the normal derivatives have been set up
@@ -1308,10 +1311,13 @@ class PoissonFDMPC(FDMPC):
                 raise NotImplementedError("Static condensation for SIPG not implemented")
             if ndim < V.ufl_domain().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
-            eta = float(coefficients.get("eta"))
+            eta = float(self.appctx.get("eta"))
+
+            lgmap = self.lgmaps[V]
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
+
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
                 ie = index_facet(e)
@@ -1354,13 +1360,12 @@ class PoissonFDMPC(FDMPC):
                     for j, jface in enumerate(lfd):
                         j0 = j * offset
                         j1 = j0 + offset
-                        jj = j0 + (offset-1) * (jface % 2)
+                        jj = j0 + bdof[axes[0]][jface % 2]
                         dense_indices.append(jj)
                         for i, iface in enumerate(lfd):
                             i0 = i * offset
                             i1 = i0 + offset
-                            ii = i0 + (offset-1) * (iface % 2)
-
+                            ii = i0 + bdof[axes[0]][iface % 2]
                             sij = 0.5E0 if i == j else -0.5E0
                             if PT_facet:
                                 smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
@@ -1388,23 +1393,10 @@ class PoissonFDMPC(FDMPC):
                         rows[0] = pull_axis(icell[0][k0], pshape[k0], idir[0])
                         rows[1] = pull_axis(icell[1][k1], pshape[k1], idir[1])
 
-                    self.update_A(A, Ae, rows)
+                    update_A(A, Ae, rows)
                     Ae.destroy()
-        A.assemble()
 
-    def assemble_coef(self, J, quad_deg, discard_mixed=True, cell_average=True):
-        """
-        Return the coefficients of the Jacobian form arguments and their gradient with respect to the reference coordinates.
-
-        :arg J: the Jacobian bilinear form
-        :arg quad_deg: the quadrature degree used for the coefficients
-        :arg discard_mixed: discard entries in second order coefficient with mixed derivatives and mixed components
-        :arg cell_average: to return the coefficients as DG_0 Functions
-
-        :returns: a 2-tuple of
-            coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
-            assembly_callables: a list of assembly callables for each coefficient of the form
-        """
+    def assemble_coef(self, J, form_compiler_parameters, discard_mixed=True, cell_average=True):
         from ufl import inner, diff
         from ufl.algorithms.ad import expand_derivatives
 
@@ -1414,6 +1406,16 @@ class PoissonFDMPC(FDMPC):
         mesh = J.ufl_domain()
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
+
+        args_J = J.arguments()
+        V = args_J[-1].function_space()
+        degree = V.ufl_element().degree()
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        quad_deg = 2*degree+1
+        quad_deg = (form_compiler_parameters or {}).get("degree", quad_deg)
         dx = firedrake.dx(degree=quad_deg)
 
         if cell_average:
@@ -1424,7 +1426,6 @@ class PoissonFDMPC(FDMPC):
             degree = quad_deg
 
         # extract coefficients directly from the bilinear form
-        args_J = J.arguments()
         integrals_J = J.integrals_by_type("cell")
         mapping = args_J[0].ufl_element().mapping().lower()
         Piola = get_piola_tensor(mapping, mesh)
@@ -1471,7 +1472,7 @@ class PoissonFDMPC(FDMPC):
             Q = firedrake.FunctionSpace(mesh, Qe)
             q = firedrake.TestFunction(Q)
             Gq = firedrake.Function(Q)
-            coefficients["Gq"] = Gq
+            coefficients["alpha"] = Gq
             assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
@@ -1486,7 +1487,7 @@ class PoissonFDMPC(FDMPC):
             Q = firedrake.FunctionSpace(mesh, Qe)
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
-            coefficients["Bq"] = Bq
+            coefficients["beta"] = Bq
             assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx, Bq))
 
         if Piola:
@@ -1517,10 +1518,44 @@ class PoissonFDMPC(FDMPC):
             coefficients["PT_facet"] = PT_facet
             assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
 
+        # make DGT functions with BC flags
+        rvs = V.ufl_element().reference_value_shape()
+        cell = mesh.ufl_cell()
+        family = "CG" if cell.topological_dimension() == 1 else "DGT"
+        degree = 1 if cell.topological_dimension() == 1 else 0
+        Qe = ufl.FiniteElement(family, cell=cell, degree=degree)
+        if rvs:
+            Qe = ufl.TensorElement(Qe, shape=rvs)
+        Q = firedrake.FunctionSpace(mesh, Qe)
+        q = firedrake.TestFunction(Q)
+        bcflags = firedrake.Function(Q)
+
+        ref_args = [ufl.variable(t) for t in args_J]
+        replace_args = {t: s for t, s in zip(args_J, ref_args)}
+
+        forms = []
+        md = {"quadrature_degree": 0}
+        for it in J.integrals():
+            itype = it.integral_type()
+            if itype.startswith("exterior_facet"):
+                beta = ufl.diff(ufl.diff(ufl.replace(it.integrand(), replace_args), ref_args[0]), ref_args[1])
+                beta = expand_derivatives(beta)
+                if rvs:
+                    beta = ufl.diag_vector(beta)
+                ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
+                forms.append(ufl.inner(q, beta)*ds_ext)
+
+        if len(forms):
+            form = sum(forms)
+            if len(form.arguments()) == 1:
+                assembly_callables.append(partial(firedrake.assemble, form, bcflags))
+                coefficients["bcflags"] = bcflags
+
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
                 cvec.set(1.0E0)
+        self.coefficients = coefficients
         return coefficients, assembly_callables
 
 
@@ -1542,33 +1577,41 @@ def pull_axis(x, pshape, idir):
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
 
-def numpy_to_petsc(A_numpy, dense_indices, diag=True):
+def set_submat_csr(A_global, A_local, global_indices, imode):
+    """insert values from A_local to A_global on the diagonal block with indices global_indices"""
+    indptr, indices, data = A_local.getValuesCSR()
+    for i, row in enumerate(global_indices.flat):
+        i0 = indptr[i]
+        i1 = indptr[i+1]
+        A_global.setValues(row, global_indices.flat[indices[i0:i1]], data[i0:i1], imode)
+
+
+def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
     """
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
     If dense_indices is empty, then also include the off-diagonal corners of the matrix.
     """
     n = A_numpy.shape[0]
-    nbase = int(diag) + len(dense_indices)
+    nbase = int(diag) if block else min(n, int(diag) + len(dense_indices))
     nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
-    if dense_indices:
-        nnz[dense_indices] = n
-    else:
-        nnz[[0, -1]] = 2
+    nnz[dense_indices] = len(dense_indices) if block else n
 
     imode = PETSc.InsertMode.INSERT
-    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, 1, nnz=(nnz, [0]), comm=PETSc.COMM_SELF)
-    if diag:
-        for j, ajj in enumerate(A_numpy.diagonal()):
-            A_petsc.setValue(j, j, ajj, imode)
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=PETSc.COMM_SELF)
 
-    if dense_indices:
-        idx = numpy.arange(n, dtype=PETSc.IntType)
-        for j in dense_indices:
-            A_petsc.setValues(j, idx, A_numpy[j], imode)
-            A_petsc.setValues(idx, j, A_numpy[:][j], imode)
+    idx = numpy.arange(n, dtype=PETSc.IntType)
+    if block:
+        values = A_numpy[dense_indices, :][:, dense_indices]
+        A_petsc.setValues(dense_indices, dense_indices, values, imode)
     else:
-        A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
-        A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
+        for j in dense_indices:
+            A_petsc.setValues(j, idx, A_numpy[j, :], imode)
+            A_petsc.setValues(idx, j, A_numpy[:, j], imode)
+
+    if diag:
+        idx = idx[:, None]
+        values = A_numpy.diagonal()[:, None]
+        A_petsc.setValuesRCV(idx, idx, values, imode)
 
     A_petsc.assemble()
     return A_petsc
@@ -1584,16 +1627,19 @@ def fdm_setup_ipdg(fdm_element, eta):
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
 
-    :returns: 2-tuple of:
+    :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
         Bhat, and bcs(Ahat) for every combination of either natural or weak
         Dirichlet BCs on each endpoint.
         Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+        bdof: the indices of PointEvaluation dofs.
     """
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
+    from FIAT.functional import PointEvaluation
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
+    bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, PointEvaluation)]
 
     phi = fdm_element.tabulate(1, rule.get_points())
     Jhat = phi[(0, )]
@@ -1606,17 +1652,18 @@ def fdm_setup_ipdg(fdm_element, eta):
     Dfacet = basis[(1,)]
     Dfacet[:, 0] = -Dfacet[:, 0]
 
-    Afdm = [numpy_to_petsc(Bhat, [])]
+    Afdm = [numpy_to_petsc(Bhat, bdof, block=True)]
     for bc in range(4):
         bcs = (bc % 2, bc//2)
         Abc = Ahat.copy()
-        for j in (0, -1):
-            if bcs[j] == 1:
-                Abc[:, j] -= Dfacet[:, j]
-                Abc[j, :] -= Dfacet[:, j]
+        for k in range(2):
+            if bcs[k] == 1:
+                j = bdof[k]
+                Abc[:, j] -= Dfacet[:, k]
+                Abc[j, :] -= Dfacet[:, k]
                 Abc[j, j] += eta
-        Afdm.append(numpy_to_petsc(Abc, [0, Abc.shape[0]-1]))
-    return Afdm, Dfacet
+        Afdm.append(numpy_to_petsc(Abc, bdof))
+    return Afdm, Dfacet, bdof
 
 
 @lru_cache(maxsize=10)
@@ -1776,49 +1823,6 @@ def glonum(node_map):
             nelz = layers[:, 1]-layers[:, 0]-1
             to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
         return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
-
-
-def get_weak_bc_flags(J):
-    """
-    Return flags indicating whether the zero-th order coefficient on each facet of every cell is non-zero
-    """
-    from ufl.algorithms.ad import expand_derivatives
-    mesh = J.ufl_domain()
-    args_J = J.arguments()
-    V = args_J[0].function_space()
-    rvs = V.ufl_element().reference_value_shape()
-    cell = mesh.ufl_cell()
-    family = "CG" if cell.topological_dimension() == 1 else "DGT"
-    degree = 1 if cell.topological_dimension() == 1 else 0
-    Qe = ufl.FiniteElement(family, cell=cell, degree=degree)
-    if rvs:
-        Qe = ufl.TensorElement(Qe, shape=rvs)
-    Q = firedrake.FunctionSpace(mesh, Qe)
-    q = firedrake.TestFunction(Q)
-
-    ref_args = [ufl.variable(t) for t in args_J]
-    replace_args = {t: s for t, s in zip(args_J, ref_args)}
-
-    forms = []
-    md = {"quadrature_degree": 0}
-    for it in J.integrals():
-        itype = it.integral_type()
-        if itype.startswith("exterior_facet"):
-            beta = ufl.diff(ufl.diff(ufl.replace(it.integrand(), replace_args), ref_args[0]), ref_args[1])
-            beta = expand_derivatives(beta)
-            if rvs:
-                beta = ufl.diag_vector(beta)
-            ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
-            forms.append(ufl.inner(q, beta)*ds_ext)
-
-    tol = 1E-8
-    if len(forms):
-        form = sum(forms)
-        if len(form.arguments()) == 1:
-            bq = firedrake.assemble(form)
-            fbc = bq.dat.data_with_halos[glonum(Q.cell_node_map())]
-            return (abs(fbc) > tol).astype(PETSc.IntType)
-    return numpy.zeros(glonum(Q.cell_node_map()).shape, dtype=PETSc.IntType)
 
 
 def spy(A, comm=None):
