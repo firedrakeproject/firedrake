@@ -1,2 +1,2 @@
 from .backends import get_backend
-from .ml_backend_coupling import HybridOperator, torch_operator
+from .pytorch_custom_operator import torch_operator

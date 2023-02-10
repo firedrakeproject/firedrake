@@ -1,9 +1,11 @@
 import collections
-
 import torch.autograd as torch_ad
+from functools import partial
 
 from firedrake.external_operators.neural_networks import get_backend
 from firedrake.function import Function
+
+from pyadjoint.reduced_functional import ReducedFunctional
 
 
 backend = get_backend('pytorch')
@@ -67,13 +69,15 @@ class FiredrakeTorchOperator(torch_ad.Function):
         return None, *[backend.to_ml_backend(Δωi) for Δωi in Δω]
 
 
-def to_pytorch(*args, **kwargs):
-    # Avoid circular import
-    from firedrake.external_operators.neural_networks.backends import PytorchBackend
-    return PytorchBackend().to_ml_backend(*args, **kwargs)
+def torch_operator(F):
+    """Operator that converts a pyadjoint.ReducedFunctional into a firedrake.FiredrakeTorchOperator
+       whose inputs and outputs are PyTorch tensors.
+    """
+    if not isinstance(F, ReducedFunctional):
+        raise ValueError("F must be a ReducedFunctional")
 
-
-def from_pytorch(*args, **kwargs):
-    # Avoid circular import
-    from firedrake.external_operators.neural_networks.backends import PytorchBackend
-    return PytorchBackend().from_ml_backend(*args, **kwargs)
+    V_output = backend.get_function_space(F.functional)
+    V_controls = [c.control.function_space() for c in F.controls]
+    metadata = {'F': F, 'V_controls': V_controls, 'V_output': V_output}
+    φ = partial(backend.custom_operator, metadata)
+    return φ
