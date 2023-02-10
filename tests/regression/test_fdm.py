@@ -32,7 +32,7 @@ fdmstar = {
             "pc_python_type": "firedrake.ASMExtrudedStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
-            "pc_star_sub_sub_pc_factor_mat_solver_type": "cholmod",
+            "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc",
             "pc_star_sub_sub_pc_factor_mat_ordering_type": "natural",
         }
     }
