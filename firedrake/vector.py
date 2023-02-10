@@ -46,7 +46,7 @@ def as_backend_type(tensor):
 
 class Vector(object):
     def __init__(self, x):
-        """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.
+        """Build a `Vector` that wraps a :class:`pyop2.types.dat.Dat` for Dolfin compatibilty.
 
         :arg x: an :class:`~.Function` to wrap or a :class:`Vector` to copy.
                 The former shares data, the latter copies data.

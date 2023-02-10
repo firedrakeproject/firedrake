@@ -118,10 +118,10 @@ different simulations on the two halves we would write.
    ...
 
 To access the communicator a mesh was created on, we can use the
-:attr:`~.mesh.comm` property, or the function :func:`~.mesh.mpi_comm`.
+``mesh.comm`` property, or the function ``mesh.mpi_comm``.
 
 .. warning::
-  Do not use the internal :attr:`~.mesh._comm` attribute for communication.
+  Do not use the internal ``mesh._comm`` attribute for communication.
   This communicator is for internal Firedrake MPI communication only.
 
 
@@ -177,7 +177,7 @@ and functions derived from the mesh.
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
 
-The ensemble sub-communicator is then available through the method :attr:`~.Ensemble.ensemble_comm`.
+The ensemble sub-communicator is then available through the attribute ``Ensemble.ensemble_comm``.
 
 .. code-block:: python3
 
@@ -187,7 +187,7 @@ The ensemble sub-communicator is then available through the method :attr:`~.Ense
 MPI communications across the spatial sub-communicator (i.e., within
 an ensemble member) are handled automatically by Firedrake, whilst MPI
 communications across the ensemble sub-communicator (i.e., between ensemble
-members) are handled through methods of :class:`~.Ensemble`. Currently 
+members) are handled through methods of :class:`~.Ensemble`. Currently
 send/recv, reductions and broadcasts are supported, as well as their
 non-blocking variants.
 

@@ -454,10 +454,10 @@ class SchurComplementBuilder(object):
 
         .. code-block:: text
 
-                A.inv = [[I, -A00.inv * A01]    *   [[A00.inv, 0    ]   *   [[I,             0]
-                        [0,  I             ]]       [0,        S.inv]]      [-A10* A00.inv,  I]]
-                        --------------------        -----------------       -------------------
-                        block1                      block2                  block3
+                A.inv=[[I, -A00.inv * A01] * [[A00.inv, 0    ] * [[I,            0]
+                      [0,  I             ]]  [0,        S.inv]]  [-A10* A00.inv, I]]
+                      --------------------   -----------------   ------------------
+                             block1                block2              block3
                 with the (inner) schur complement S = A11 - A10 * A00.inv * A01
         """
 

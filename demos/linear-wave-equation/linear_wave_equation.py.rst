@@ -149,4 +149,4 @@ visualising the results Paraview will use it::
    An animation, produced in Paraview, illustrating the output of this simulation can be found `on youtube <https://www.youtube.com/watch?v=xhxvM1N8mDQ>`_.
   
 
-A python script version of this demo can be found `here <linear_wave_equation.py>`__. The gmsh input file is `here <wave_tank.geo>`__.
+A python script version of this demo can be found :demo:`here <linear_wave_equation.py>`. The gmsh input file is :demo:`here <wave_tank.geo>`.

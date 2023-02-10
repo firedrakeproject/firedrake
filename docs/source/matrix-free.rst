@@ -42,7 +42,7 @@ Splitting unassembled matrices
 For the purposes of fieldsplit preconditioners, the PETSc matrix
 object must be able to extract submatrices.  For unassembled matrices,
 this is achieved through a specialized
-:meth:`.ImplicitMatrixContext.getSubMatrix` method that partitions
+:meth:`.ImplicitMatrixContext.createSubMatrix` method that partitions
 the UFL form defining the operator into pieces corresponding to the
 integer labels of the unknown fields.  This is in
 contrast to the normal splitting of assembled matrices which operates

@@ -100,7 +100,7 @@ def MeshHierarchy(mesh, refinement_levels,
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
-    :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
+    :arg mesh_builder: Function to turn a DM into a ``Mesh``. Used by pyadjoint.
     """
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
@@ -194,7 +194,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+    :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
@@ -247,7 +247,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+    :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.

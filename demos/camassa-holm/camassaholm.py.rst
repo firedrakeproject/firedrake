@@ -247,7 +247,7 @@ Images of the solution at shown below.
 
    Solution at :math:`t = 5.3.`
 
-A python script version of this demo can be found `here <camassaholm.py>`__.
+A python script version of this demo can be found :demo:`here <camassaholm.py>`.
 
 .. rubric:: References
 

@@ -66,8 +66,8 @@ class Transformer(Visitor):
     class is primarily for COFFEE acrobatics, jumping through
     nodes and redefining where appropriate.
 
-    The default name of :data:`"A"` is assigned, otherwise a
-    specified name may be passed as the :data:`name` keyword
+    The default name of ``"A"`` is assigned, otherwise a
+    specified name may be passed as the :data:``name`` keyword
     argument when calling the visitor.
     """
 

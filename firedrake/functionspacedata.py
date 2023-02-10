@@ -505,13 +505,13 @@ class FunctionSpaceData(object):
 
 @PETSc.Log.EventDecorator()
 def get_shared_data(mesh, ufl_element):
-    """Return the :class:`FunctionSpaceData` for the given
+    """Return the ``FunctionSpaceData`` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
     :raises ValueError: if mesh or ufl_element are invalid.
-    :returns: a :class:`FunctionSpaceData` object with the shared
+    :returns: a ``FunctionSpaceData`` object with the shared
         data.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
