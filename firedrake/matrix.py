@@ -87,8 +87,8 @@ class Matrix(MatrixBase):
 
     :arg mat_type: matrix type of assembled matrix.
 
-    A :class:`pyop2.Mat` will be built from the remaining
-    arguments, for valid values, see :class:`pyop2.Mat`.
+    A ``pyop2.types.mat.Mat`` will be built from the remaining
+    arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
 
     .. note::
 

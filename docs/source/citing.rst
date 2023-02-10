@@ -1,4 +1,6 @@
-:orphan: true
+.. raw:: latex
+
+   \clearpage
 
 ==================
  Citing Firedrake
@@ -19,7 +21,7 @@ computation be printed when exiting by calling
 Alternatively, you can select that this should occur by passing the
 command-line option ``-citations``.  In both cases, you will also
 obtain the correct `citations for PETSc
-<http://www.mcs.anl.gov/petsc/documentation/referencing.html>`_.
+<https://petsc.org/release/#citing-petsc>`_.
 
 If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
@@ -38,8 +40,8 @@ COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2017`.
 If you make use of matrix-free functionality and custom block
 preconditioning, please cite :cite:`Kirby2017`.
 
-If you would like to help us to keep track of research directly 
-benefitting from Firedrake, please feel free to add your paper in 
+If you would like to help us to keep track of research directly
+benefitting from Firedrake, please feel free to add your paper in
 bibtex format in the `bibliography for firedrake applications
 <https://github.com/firedrakeproject/firedrake/blob/master/docs/source/_static/firedrake-apps.bib>`_.
 
@@ -48,7 +50,7 @@ Citing other packages
 
 Firedrake relies heavily on PETSc, which you should cite
 `appropriately
-<http://www.mcs.anl.gov/petsc/documentation/referencing.html>`_.
+<https://petsc.org/release/#citing-petsc>`_.
 Additionally, if you talk about UFL in your work, please cite the `UFL
 paper <http://fenicsproject.org/citing/>`_.
 

@@ -80,7 +80,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     interior facets that are marked will also be coloured.
 
     The interior and boundary keyword arguments can be any keyword argument for
-    :class:`LineCollection <matplotlib.collections.LinecCollection>` and
+    :class:`LineCollection <matplotlib.collections.LineCollection>` and
     related types.
 
     :arg mesh: mesh to be plotted
@@ -581,7 +581,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     :arg start_width: line width at beginning of streamline
     :arg end_width: line width at end of streamline, to convey direction
     :arg tolerance: dimensionless tolerance for adaptive ODE integration
-    :arg loc_tolerance: point location tolerance for :meth:`~firedrake.functions.Function.at`
+    :arg loc_tolerance: point location tolerance for :meth:`~firedrake.function.Function.at`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
     :kwarg kwargs: same as for matplotlib :class:`~matplotlib.collections.LineCollection`

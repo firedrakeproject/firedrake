@@ -44,7 +44,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.Dat` or
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat` or
             :class:`~.Vector`) providing initial values (optional).
             This :class:`Function` will share data with the provided
             value.
@@ -241,7 +241,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.  In this
             case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
@@ -334,7 +334,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         See also :attr:`subfunctions`.
 
         If the :class:`Function` is defined on a
-        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace` this returns a proxy object
+        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if len(self.function_space()) == 1:
@@ -389,7 +389,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         will add twice `g` to `f`.
 
-        If present, subset must be an :class:`pyop2.Subset` of this
+        If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Function`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
 
