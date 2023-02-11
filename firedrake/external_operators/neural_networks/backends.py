@@ -81,19 +81,23 @@ class PytorchBackend(AbstractMLBackend):
             raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
 
     def from_ml_backend(self, x, V=None, gather=False):
+        if x.device.type != "cpu":
+            raise NotImplementedError("Firedrake does not support GPU tensors")
+
         if V is None:
             val = x.detach().numpy()
             if val.shape == (1,):
                 val = val[0]
             return Constant(val)
         else:
-            x_F = Function(V)
+            x = x.detach().numpy()
+            x_F = Function(V, dtype=x.dtype)
             # Default behaviour: squeeze before converting to Firedrake
             # This is motivated by the fact that assigning to numpy array to `u` will automatically squeeze
             # the batch dimension behind the scenes
             # Shape: [x.shape]
             x = x.squeeze(0)
-            x_F.vector().set_local(x.detach().numpy())
+            x_F.vector().set_local(x)
             return x_F
 
 
