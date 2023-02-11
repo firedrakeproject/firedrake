@@ -26,10 +26,12 @@ class AbstractMLBackend(object):
         """Get function space out of x"""
         if isinstance(x, Function):
             return x.function_space()
+        elif isinstance(x, Vector):
+            return self.get_function_space(x.function)
         elif isinstance(x, float):
             return None
         else:
-            raise ValueError('Cannot infer the function space of %s' % x)
+            raise ValueError("Cannot infer the function space of %s" % x)
 
 
 class PytorchBackend(AbstractMLBackend):
@@ -47,40 +49,52 @@ class PytorchBackend(AbstractMLBackend):
         from firedrake.external_operators.neural_networks.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator().apply
 
-    def to_ml_backend(self, x, unsqueeze=True, unsqueeze_dim=0):
-        # Work out what's the right thing to do here ?
-        requires_grad = True
-        if isinstance(x, (Function, Vector)):
-            # Should we use `.dat.data` instead of `.dat.data_ro` to increase the state counter ?
-            x_P = self.backend.tensor(x.dat.data_ro, requires_grad=requires_grad)
-            # Default behaviour: unsqueeze after converting to PyTorch
-            # Shape: [1, x.dat.shape]
-            if unsqueeze:
-                x_P = x_P.unsqueeze(unsqueeze_dim)
-            return x_P
-        # Add case subclass constant representing theta
-        # elif isinstance(x, ...):
-        elif isinstance(x, Constant):
-            return self.backend.tensor(x.values(), requires_grad=requires_grad)
-        elif isinstance(x, (float, int)):
-            # Covers pyadjoint AdjFloat as well
-            return self.backend.tensor(x, requires_grad=requires_grad)
-        else:
-            raise ValueError("Cannot convert %s to the ML backend environment" % str(type(x)))
+    def to_ml_backend(self, x, gather=False, batched=True, **kwargs):
+        """ Convert a Firedrake object `x` into a PyTorch tensor
 
-    def from_ml_backend(self, x, V=None):
+            x: Firedrake object (Function, Vector, Constant)
+            gather: if True, gather data from all processes
+            batched: if True, add a batch dimension to the tensor
+            kwargs: additional arguments to be passed to torch.Tensor constructor
+                - device: device on which the tensor is allocated (default: "cpu")
+                - dtype: the desired data type of returned tensor (default: type of x.dat.data)
+                - requires_grad: if the tensor should be annotated (default: False)
+        """
+        if isinstance(x, (Function, Vector)):
+            # State counter: get_local does a copy and increase the state counter while gather does not.
+            # We probably always want to increase the state counter and therefore should do something for the gather case
+            if gather:
+                # Gather data from all processes
+                x_P = self.backend.tensor(x.vector().gather(), **kwargs)
+            else:
+                # Use local data
+                x_P = self.backend.tensor(x.vector().get_local(), **kwargs)
+            if batched:
+                # Default behaviour: add batch dimension after converting to PyTorch
+                return x_P[None, :]
+            return x_P
+        elif isinstance(x, Constant):
+            return self.backend.tensor(x.values(), **kwargs)
+        elif isinstance(x, (float, int)):
+            return self.backend.tensor(x, **kwargs)
+        else:
+            raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
+
+    def from_ml_backend(self, x, V=None, gather=False):
         if V is None:
             val = x.detach().numpy()
+            if val.shape == (1,):
+                val = val[0]
             return Constant(val)
         else:
-            u = Function(V)
+            x_F = Function(V)
             # Default behaviour: squeeze before converting to Firedrake
             # This is motivated by the fact that assigning to numpy array to `u` will automatically squeeze
             # the batch dimension behind the scenes
             # Shape: [x.shape]
             x = x.squeeze(0)
-            u.vector()[:] = x.detach().numpy()
-            return u
+            x_F.vector().set_local(x.detach().numpy())
+            return x_F
 
 
 def get_backend(backend_name='pytorch'):
