@@ -6,7 +6,6 @@ correctly."""
 from os.path import abspath, dirname
 import numpy as np
 import pytest
-from ufl.domain import extract_unique_domain
 
 from firedrake import *
 
@@ -45,7 +44,7 @@ def helmholtz(V):
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Function(V)
-    x = SpatialCoordinate(extract_unique_domain(V))
+    x = SpatialCoordinate(V.ufl_domain())
     f.project(np.prod([cos(2*pi*xi) for xi in x]))
     a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
     L = inner(f, v) * dx

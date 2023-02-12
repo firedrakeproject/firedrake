@@ -15,8 +15,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(extract_unique_domain(Vf))
-    hierarchyc, levelc = get_level(extract_unique_domain(Vc))
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -53,8 +53,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(extract_unique_domain(Vf))
-    hierarchyc, levelc = get_level(extract_unique_domain(Vc))
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -91,8 +91,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(extract_unique_domain(Vf))
-    hierarchyc, levelc = get_level(extract_unique_domain(Vc))
+    hierarchyf, levelf = get_level(Vf.ufl_domain())
+    hierarchyc, levelc = get_level(Vc.ufl_domain())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")

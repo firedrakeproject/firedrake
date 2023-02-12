@@ -1,7 +1,6 @@
 from firedrake.petsc import *
 from firedrake import *
 import pytest
-from ufl.domain import extract_unique_domain
 distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
 
@@ -29,7 +28,7 @@ class BiharmonicProblem(object):
         return mesh
 
     def bcs(self, Z):
-        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(extract_unique_domain(Z)), "on_boundary"),
+        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.ufl_domain()), "on_boundary"),
                DirichletBC(Z.sub(1), zero(), "on_boundary")]
         return bcs
 

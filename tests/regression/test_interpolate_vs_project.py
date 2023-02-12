@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from firedrake import *
-from ufl.domain import extract_unique_domain
 
 
 @pytest.fixture(params=["square", "cube"], scope="module")
@@ -30,7 +29,7 @@ def V(request, mesh):
 
 
 def test_interpolate_vs_project(V):
-    mesh = extract_unique_domain(V)
+    mesh = V.ufl_domain()
     dim = mesh.geometric_dimension()
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
