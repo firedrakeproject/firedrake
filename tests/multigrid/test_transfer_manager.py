@@ -2,7 +2,6 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
-from ufl.domain import extract_unique_domain
 
 
 @pytest.mark.parametrize("sub", (True, False), ids=["Z.sub(0)", "V"])

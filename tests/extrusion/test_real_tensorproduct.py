@@ -1,7 +1,6 @@
 """Tests for (foo x Real) exturded spaces"""
 import numpy as np
 import pytest
-from ufl.domain import extract_unique_domain
 
 from firedrake import *
 

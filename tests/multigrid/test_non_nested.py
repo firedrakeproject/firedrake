@@ -1,7 +1,6 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from functools import singledispatch
-from ufl.domain import extract_unique_domain
 
 
 def test_coarsen_callback():

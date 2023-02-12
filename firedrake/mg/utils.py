@@ -4,7 +4,6 @@ from pyop2 import op2
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import ufl
-from ufl.domain import extract_unique_domain
 import firedrake
 from firedrake.cython import mgimpl as impl
 

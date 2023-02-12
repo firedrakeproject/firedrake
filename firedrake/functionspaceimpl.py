@@ -17,7 +17,6 @@ from pyop2 import op2, mpi
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
-from ufl.domain import extract_unique_domain
 
 
 class WithGeometry(ufl.FunctionSpace):
