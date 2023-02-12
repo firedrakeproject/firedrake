@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from firedrake import *
-from ufl.domain import extract_unique_domain
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these
@@ -40,7 +39,7 @@ def V(request, mesh, degree):
 
 
 def test_div_curl_preserving(V):
-    mesh = extract_unique_domain(V)
+    mesh = V.ufl_domain()
     dim = mesh.geometric_dimension()
     if dim == 3 and V.ufl_element().degree() == 3 and "Nedelec" not in V.ufl_element().family():
         pytest.skip("N2div interpolation kernel with exact quadrature creates tensors which risk stack overflow")

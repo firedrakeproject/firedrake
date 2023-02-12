@@ -26,7 +26,7 @@ def test_coarsen_callback():
     @coarsen.register(functionspaceimpl.FunctionSpace)
     @coarsen.register(functionspaceimpl.WithGeometry)
     def coarsen_fs(V, self, coefficient_mapping=None):
-        mesh = self(extract_unique_domain(V), self)
+        mesh = self(V.ufl_domain(), self)
         return FunctionSpace(mesh, "CG", 1)
 
     uh = Function(V)

@@ -177,7 +177,7 @@ def make_interpolator(expr, V, subset, access):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = extract_unique_domain(V)
+        target_mesh = V.ufl_domain()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
         if target_mesh is not source_mesh:
@@ -250,7 +250,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access):
                            % (expr.ufl_shape, V.ufl_element().value_shape()))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = extract_unique_domain(V)
+    target_mesh = V.ufl_domain()
     source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:

@@ -38,7 +38,7 @@ def test_transfer_manager_inside_coarsen(sub):
 
     bc, = cctx._problem.bcs
     V = bc.function_space()
-    mesh = extract_unique_domain(V)
+    mesh = V.ufl_domain()
     x, y = SpatialCoordinate(mesh)
     expect = project(as_vector([-y, x]), V)
     assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro)
