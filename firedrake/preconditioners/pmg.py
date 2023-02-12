@@ -11,7 +11,6 @@ from firedrake.utils import ScalarType_c, IntType_c
 from firedrake.petsc import PETSc
 import firedrake
 import ufl
-from ufl.domain import extract_unique_domain
 import loopy
 import numpy
 import os
