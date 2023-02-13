@@ -14,7 +14,7 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
-from ufl.domain import extract_unique_domain, extract_domains
+from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 import weakref
 
