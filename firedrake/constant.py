@@ -64,7 +64,8 @@ class Constant(ufl.Coefficient, ConstantMixin):
         if domain:
             self.comm = domain.comm
         else:
-            raise ValueError("Constant with no domain")
+            import warnings
+            warnings.warn("Constant with no domain")
             self.comm = mpi.COMM_WORLD
         self._comm = mpi.internal_comm(self.comm)
         self.dat, rank, shape = _globalify(value, self._comm)
