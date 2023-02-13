@@ -32,7 +32,6 @@ from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
-from ufl.domain import extract_unique_domain, extract_domains
 from gem.utils import groupby
 from gem import impero_utils
 from itertools import chain
@@ -91,7 +90,7 @@ class SlateKernel(TSFCKernel):
     def _cache_key(cls, expr, compiler_parameters, coffee):
         return md5((expr.expression_hash
                     + str(sorted(compiler_parameters.items()))
-                    + str(coffee)).encode()).hexdigest(), extract_domains(expr)[0].comm
+                    + str(coffee)).encode()).hexdigest(), expr.ufl_domains()[0].comm
 
     def __init__(self, expr, compiler_parameters, coffee=False):
         if self._initialized:
@@ -159,7 +158,7 @@ def get_temp_info(loopy_kernel):
 
 def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     cpu_time = time.time()
-    if len(extract_domains(slate_expr)) > 1:
+    if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
@@ -220,7 +219,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 def generate_kernel(slate_expr, compiler_parameters=None):
     cpu_time = time.time()
 
-    if len(extract_domains(slate_expr)) > 1:
+    if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
     Citations().register("Gibson2018")
@@ -553,7 +552,7 @@ def tensor_assembly_calls(builder):
                 int_calls.extend(stmts)
 
         # Compute the number of facets to loop over
-        domain = extract_unique_domain(builder.expression)
+        domain = builder.expression.ufl_domain()
         if domain.cell_set._extruded:
             num_facets = domain.ufl_cell()._cells[0].num_facets()
         else:
