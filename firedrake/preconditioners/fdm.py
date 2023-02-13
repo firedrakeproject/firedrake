@@ -42,7 +42,7 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
 
-    _variant = "fdm_feec"
+    _variant = "fdm"
 
     _reference_tensor_cache = {}
     _coefficient_cache = {}
@@ -1148,7 +1148,7 @@ class PoissonFDMPC(FDMPC):
     provided in the application context, keyed on ``"eta"``.
     """
 
-    _variant = "fdm"
+    _variant = "fdm_ipdg"
 
     def assemble_reference_tensor(self, V):
         from firedrake.preconditioners.pmg import get_line_elements
@@ -1252,7 +1252,7 @@ class PoissonFDMPC(FDMPC):
 
         for e in range(self.nel):
             je = index_coef(e)
-            bce = bcflags.dat.data_ro[index_bc(e)] > 1E-8
+            bce = bcflags.dat.data_ro_with_halos[index_bc(e)] > 1E-8
 
             rindices = get_rindices(e, result=rindices)
             rows = numpy.reshape(rindices, (-1, bsize))

@@ -62,7 +62,7 @@ def expected(mesh):
         return [8, 8, 8]
 
 
-@pytest.fixture(params=[None, 'fdm_feec'], ids=['spectral', 'fdm'])
+@pytest.fixture(params=[None, 'fdm'], ids=['spectral', 'fdm'])
 def variant(request):
     return request.param
 
@@ -138,7 +138,7 @@ def fs(request, mesh):
     ndim = mesh.topological_dimension()
     cell = mesh.ufl_cell()
     element = request.param
-    variant = 'fdm'
+    variant = 'fdm_ipdg'
     if element == 'rt':
         family = 'RTCF' if ndim == 2 else 'NCF'
         return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
@@ -262,7 +262,7 @@ def test_static_condensation(mesh):
     degree = 3
     quad_degree = 2*degree+1
     cell = mesh.ufl_cell()
-    e = FiniteElement('Lagrange', cell=cell, degree=degree, variant='fdm_feec')
+    e = FiniteElement('Lagrange', cell=cell, degree=degree, variant='fdm')
     Z = FunctionSpace(mesh, MixedElement(*[RestrictedElement(e, d) for d in ("interior", "facet")]))
     z = Function(Z)
     u = sum(split(z))
