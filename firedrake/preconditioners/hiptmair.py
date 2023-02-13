@@ -17,6 +17,8 @@ __all__ = ("HiptmairPC",)
 
 
 class TwoLevelPC(PCBase):
+    """A class for implementing two-level methods.
+    """
 
     needs_python_pmat = False
 
@@ -120,7 +122,7 @@ class TwoLevelPC(PCBase):
 
 
 class HiptmairPC(TwoLevelPC):
-    """ A two-level method for H(curl) or H(div) problems with an auxiliary
+    """A two-level method for H(curl) or H(div) problems with an auxiliary
     potential space in H^1 or H(curl), respectively.
 
     Internally this creates a PETSc PCMG object that can be controlled by
