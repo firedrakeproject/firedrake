@@ -187,15 +187,15 @@ def matrix_funptr(form, state):
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
 
-        mesh = extract_domains(form)[kinfo.domain_number]
+        mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
-            c = extract_unique_domain(form).cell_orientations()
+            c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = extract_unique_domain(form).cell_sizes
+            c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_map:
@@ -276,16 +276,16 @@ def residual_funptr(form, state):
         arg = dat(op2.INC, entity_node_map)
         args.append(arg)
 
-        mesh = extract_domains(form)[kinfo.domain_number]
+        mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
 
         if kinfo.oriented:
-            c = extract_unique_domain(form).cell_orientations()
+            c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = extract_unique_domain(form).cell_sizes
+            c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_map:
@@ -505,11 +505,11 @@ def load_c_function(code, name, comm):
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
-    coeffs = [extract_unique_domain(form).coordinates]
+    coeffs = [form.ufl_domain().coordinates]
     if kernel.kinfo.oriented:
-        coeffs.append(extract_unique_domain(form).cell_orientations())
+        coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(extract_unique_domain(form).cell_sizes)
+        coeffs.append(form.ufl_domain().cell_sizes)
     for n, indices in kernel.kinfo.coefficient_map:
         c = form.coefficients()[n]
         if c is state:
@@ -536,7 +536,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                     map_args.append(k)
                     seen.add(k)
     if require_facet_number:
-        data_args.extend(extract_unique_domain(form).interior_facets.local_facet_dat._kernel_args_)
+        data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
 
 

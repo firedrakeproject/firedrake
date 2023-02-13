@@ -17,7 +17,6 @@ import collections
 import ufl
 from ufl import Form, conj
 from .ufl_expr import TestFunction
-from ufl.domain import extract_domains
 
 from tsfc import compile_form as tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
@@ -121,7 +120,7 @@ class TSFCKernel(Cached):
                     + str(number_map)
                     + str(type(interface))
                     + str(coffee)
-                    + str(diagonal)).encode()).hexdigest(), extract_domains(form)[0].comm
+                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
     def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
