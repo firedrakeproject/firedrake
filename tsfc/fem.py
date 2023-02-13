@@ -20,7 +20,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          ReferenceCellEdgeVectors,
                          ReferenceFacetVolume, ReferenceNormal,
                          SpatialCoordinate)
-
+from ufl.domain import extract_unique_domain
 
 from FIAT.reference_element import make_affine_mapping
 from FIAT.reference_element import UFCSimplex
@@ -485,7 +485,7 @@ def translate_facet_coordinate(terminal, mt, ctx):
 @translate.register(SpatialCoordinate)
 def translate_spatialcoordinate(terminal, mt, ctx):
     # Replace terminal with a Coefficient
-    terminal = ctx.coordinate(terminal.ufl_domain())
+    terminal = ctx.coordinate(extract_unique_domain(terminal))
     # Get back to reference space
     terminal = preprocess_expression(terminal, complex_mode=ctx.complex_mode)
     # Rebuild modified terminal
