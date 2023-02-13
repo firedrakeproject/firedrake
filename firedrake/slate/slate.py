@@ -19,7 +19,6 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Coefficient, Constant
-from ufl.domain import extract_unique_domain, extract_domains
 
 from firedrake.function import Function
 from firedrake.utils import cached_property
@@ -235,20 +234,20 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
-    def extract_unique_domain(self):
+    def ufl_domain(self):
         """This function returns a single domain of integration occuring
         in the tensor.
 
         The function will fail if multiple domains are found.
         """
-        domains = extract_domains(self)
+        domains = self.ufl_domains()
         assert all(domain == domains[0] for domain in domains), (
             "All integrals must share the same domain of integration."
         )
         return domains[0]
 
     @abstractmethod
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
@@ -469,17 +468,17 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return extract_domains(self._function)
+        return self._function.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {extract_unique_domain(self): {"cell": [None]}}
+        return {self.ufl_domain(): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -545,16 +544,16 @@ class BlockAssembledVector(AssembledVector):
         """Returns a BlockFunction in a tuple which carries all information to generate the right coefficients and maps."""
         return (BlockFunction(self._function, self._indices, self._original_function),)
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
         """
-        return tuple(domain for fs in self.arg_function_spaces for domain in extract_domains(fs))
+        return tuple(domain for fs in self.arg_function_spaces for domain in fs.ufl_domains())
 
     def subdomain_data(self):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": [None]}} for domain in extract_unique_domain(self))
+        return tuple({domain: {"cell": [None]}} for domain in self.ufl_domain())
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -713,12 +712,12 @@ class Block(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
         tensor, = self.operands
-        return extract_domains(tensor)
+        return tensor.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -803,12 +802,12 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
         tensor, = self.operands
-        return extract_domains(tensor)
+        return tensor.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -902,11 +901,11 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return extract_domains(self.form)
+        return self.form.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -951,11 +950,11 @@ class TensorOp(TensorBase):
         coeffs = [op.slate_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
-    def extract_domains(self):
+    def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        collected_domains = [extract_domains(op) for op in self.operands]
+        collected_domains = [op.ufl_domains() for op in self.operands]
         return join_domains(chain(*collected_domains))
 
     def subdomain_data(self):
@@ -964,7 +963,7 @@ class TensorOp(TensorBase):
         """
         sd = {}
         for op in self.operands:
-            op_sd = op.subdomain_data()[extract_unique_domain(op)]
+            op_sd = op.subdomain_data()[op.ufl_domain()]
 
             for it_type, domain in op_sd.items():
                 if it_type not in sd:
@@ -976,7 +975,7 @@ class TensorOp(TensorBase):
                             "Domains must agree!"
                         )
 
-        return {extract_unique_domain(self): sd}
+        return {self.ufl_domain(): sd}
 
     @cached_property
     def _key(self):
