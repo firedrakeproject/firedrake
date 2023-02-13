@@ -1,5 +1,4 @@
 import pytest
-from ufl.domain import extract_unique_domain
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
 import math
@@ -185,16 +184,16 @@ def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_te
 
     # Checks the generated information of the tensor agrees with the original
     # data directly in its associated `ufl.Form` object
-    assert extract_unique_domain(S) == extract_unique_domain(S.form)
-    assert extract_unique_domain(M) == extract_unique_domain(M.form)
-    assert extract_unique_domain(N) == extract_unique_domain(N.form)
-    assert extract_unique_domain(F) == extract_unique_domain(F.form)
-    assert extract_unique_domain(G) == extract_unique_domain(G.form)
-    assert extract_unique_domain(M.inv) == extract_unique_domain(M.form)
-    assert extract_unique_domain(M.T) == extract_unique_domain(M.form)
-    assert extract_unique_domain(-N) == extract_unique_domain(N.form)
-    assert extract_unique_domain(F + G) == extract_unique_domain(F.form + G.form)
-    assert extract_unique_domain(M + N) == extract_unique_domain(M.form + N.form)
+    assert S.ufl_domain() == S.form.ufl_domain()
+    assert M.ufl_domain() == M.form.ufl_domain()
+    assert N.ufl_domain() == N.form.ufl_domain()
+    assert F.ufl_domain() == F.form.ufl_domain()
+    assert G.ufl_domain() == G.form.ufl_domain()
+    assert M.inv.ufl_domain() == M.form.ufl_domain()
+    assert M.T.ufl_domain() == M.form.ufl_domain()
+    assert (-N).ufl_domain() == N.form.ufl_domain()
+    assert (F + G).ufl_domain() == (F.form + G.form).ufl_domain()
+    assert (M + N).ufl_domain() == (M.form + N.form).ufl_domain()
 
     assert _is_equal_subdomain_data(S, S.form)
     assert _is_equal_subdomain_data(N, N.form)
