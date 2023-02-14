@@ -160,10 +160,10 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
     # Check the parent cell indexes match those in the parent mesh unless
-    # extruded, in which case they should all be -1
+    # parent mesh is shifted, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        if parentmesh.extruded or coords_dat_version > 0:
+        if coords_dat_version > 0:
             assert index == -1
         else:
             assert np.any(index == cell_indexes)

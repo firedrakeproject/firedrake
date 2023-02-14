@@ -2559,8 +2559,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
         base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
         extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
-        # Can't find plex numbering for extruded meshes so set all to -1
-        plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
     elif coords_dat_version > 0:
         # The parent mesh coordinates have been modified. The DMSwarm parent
         # mesh plex numbering is now not guaranteed to match up with DMPlex
