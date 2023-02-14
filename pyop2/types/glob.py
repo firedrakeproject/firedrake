@@ -50,6 +50,9 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
             EmptyDataMixin.__init__(self, data, dtype, self._dim)
             self._buf = np.empty(self.shape, dtype=self.dtype)
             self._name = name or "global_#x%x" % id(self)
+            if comm is None:
+                import warnings
+                warnings.warn("PyOP2.Global has no comm, this is likely to break in parallel!")
             self.comm = mpi.internal_comm(comm)
             # Object versioning setup
             petsc_counter = (comm and self.dtype == PETSc.ScalarType)

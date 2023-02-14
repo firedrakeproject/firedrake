@@ -354,7 +354,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
         ret = Dat(self.dataset, None, self.dtype)
         if np.isscalar(other):
-            other = Global(1, data=other)
+            other = Global(1, data=other, comm=self.comm)
             globalp = True
         else:
             self._check_shape(other)
@@ -403,7 +403,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
         globalp = False
         if np.isscalar(other):
-            other = Global(1, data=other)
+            other = Global(1, data=other, comm=self.comm)
             globalp = True
         elif other is not self:
             self._check_shape(other)
@@ -450,7 +450,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         from pyop2.types.glob import Global
 
         self._check_shape(other)
-        ret = Global(1, data=0, dtype=self.dtype)
+        ret = Global(1, data=0, dtype=self.dtype, comm=self.comm)
         parloop(self._inner_kernel(other.dtype), self.dataset.set,
                 self(Access.READ), other(Access.READ), ret(Access.INC))
         return ret.data_ro[0]
