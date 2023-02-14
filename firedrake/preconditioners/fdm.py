@@ -5,7 +5,6 @@ import firedrake.dmhooks as dmhooks
 import firedrake
 import numpy
 import ufl
-from ufl.domain import extract_unique_domain
 from firedrake_citations import Citations
 
 Citations().add("Brubeck2021", """
@@ -462,7 +461,7 @@ class FDMPC(PCBase):
         coefficients = {}
         assembly_callables = []
 
-        mesh = extract_unique_domain(J)
+        mesh = J.ufl_domain()
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
         dx = firedrake.dx(degree=quad_deg)
@@ -800,7 +799,7 @@ def get_weak_bc_flags(J):
     Return flags indicating whether the zero-th order coefficient on each facet of every cell is non-zero
     """
     from ufl.algorithms.ad import expand_derivatives
-    mesh = extract_unique_domain(J)
+    mesh = J.ufl_domain()
     args_J = J.arguments()
     V = args_J[0].function_space()
     rvs = V.ufl_element().reference_value_shape()
