@@ -495,7 +495,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :arg args: Additional points.
         :kwarg dont_raise: Do not raise an error if a point is not found.
         :kwarg tolerance: Tolerence to use when checking if a point is in a
-            cell. Default is the :attr:`MeshTopology.tolerance` of the mesh the
+            cell. Default is the ``MeshTopology.tolerance`` of the mesh the
             function is defined on. Changing this from default will cause the
             spatial index to be rebuilt which can take some time.
         """

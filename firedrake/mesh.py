@@ -796,7 +796,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         the distance a point can be from a cell and still be considered to be
         in the cell.
 
-        Should always be set via the :attr:`MeshGeometry.tolerance` to ensure
+        Should always be set via the ``MeshGeometry.tolerance`` to ensure
         the spatial index is updated as necessary.
         """
         return self._tolerance
@@ -1838,7 +1838,7 @@ values from f.)"""
 
         Notes
         -----
-        Modifying this property will modify the :attr:`MeshTopology.tolerance`
+        Modifying this property will modify the ``MeshTopology.tolerance``
         property of the underlying mesh topology. Furthermore, after changing
         it any requests for :attr:`spatial_index` will cause the spatial index
         to be rebuilt with the new tolerance which may take some time.
@@ -1870,7 +1870,7 @@ values from f.)"""
         Notes
         -----
 
-        If this mesh has a :attr:`MeshTopology.tolerance` property, which
+        If this mesh has a :attr:`tolerance` property, which
         should be a float, this tolerance is added to the extrama of the
         spatial index so that points just outside the mesh, within tolerance,
         can be found.
@@ -1939,7 +1939,7 @@ values from f.)"""
 
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
-            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :returns: cell number (int), or None (if the point is not
@@ -1953,7 +1953,7 @@ values from f.)"""
 
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
-            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :returns: reference coordinates within cell (numpy array) or
@@ -1967,7 +1967,7 @@ values from f.)"""
 
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
-            Default is this mesh's :attr:`MeshTopology.tolerance`. Changing
+            Default is this mesh's :attr:` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :returns: tuple either (cell number, reference coordinates)
@@ -2426,7 +2426,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         considered to be in the cell. Note that this tolerance uses an L1
         distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
-        mesh's :attr:`MeshTopology.tolerance`. Changing this from default will
+        mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the mesh will be built using just the vertices
@@ -2605,7 +2605,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         considered to be in the cell. Note that this tolerance uses an L1
         distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
-        mesh's :attr:`MeshTopology.tolerance`. Changing this from default will
+        mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
