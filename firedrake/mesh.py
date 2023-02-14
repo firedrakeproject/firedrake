@@ -2564,8 +2564,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
 
     Vertices not located in cells owned by this rank are discarded.
     """
-    if len(vertex_coords) > 0:
-        vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
+    vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
 
     num_vertices = len(vertex_coords)
     max_num_vertices = parent_mesh._comm.allreduce(num_vertices, op=MPI.MAX)
@@ -2604,6 +2603,10 @@ def _on_rank_vertices(vertex_coords, parent_mesh):
     """Discard those vertices that are definitely not on this MPI rank."""
     bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf)
     bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf)
+    if len(vertex_coords) == 0:
+        # Can skip the rest of the work if there are no vertices, but have to
+        # make sure we ask for the bounding box minima and maxima on all ranks.
+        return vertex_coords
     length_scale = (bounding_box_max - bounding_box_min).max()
     # This is basically to avoid roundoff, so 1% is very conservative.
     bounding_box_min -= 0.01 * length_scale
