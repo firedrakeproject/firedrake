@@ -153,7 +153,7 @@ class CoordinateMapping(PhysicalGeometry):
     def jacobian_at(self, point):
         ps = PointSingleton(point)
         expr = Jacobian(self.mt.terminal.ufl_domain())
-        assert ps.expression.shape == (expr.ufl_domain().topological_dimension(), )
+        assert ps.expression.shape == (extract_unique_domain(expr).topological_dimension(), )
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -551,7 +551,7 @@ def translate_cellorigin(terminal, mt, ctx):
 
 @translate.register(CellVertices)
 def translate_cell_vertices(terminal, mt, ctx):
-    coords = SpatialCoordinate(terminal.ufl_domain())
+    coords = SpatialCoordinate(extract_unique_domain(terminal))
     ufl_expr = construct_modified_terminal(mt, coords)
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
 
@@ -569,7 +569,7 @@ def translate_cell_vertices(terminal, mt, ctx):
 @translate.register(CellEdgeVectors)
 def translate_cell_edge_vectors(terminal, mt, ctx):
     # WARNING: Assumes straight edges!
-    coords = CellVertices(terminal.ufl_domain())
+    coords = CellVertices(extract_unique_domain(terminal))
     ufl_expr = construct_modified_terminal(mt, coords)
     cell_vertices = ctx.translator(ufl_expr)
 
