@@ -212,7 +212,7 @@ def matrix_funptr(form, state):
                 args.append(arg)
 
         if kinfo.integral_type == "interior_facet":
-            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
+            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -764,7 +764,7 @@ class PatchBase(PCSNESBase):
             J = ctx.Jp or ctx.J
             bcs = ctx._problem.bcs
 
-        mesh = extract_unique_domain(J)
+        mesh = J.ufl_domain()
         self.plex = mesh.topology_dm
         # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
@@ -824,7 +824,7 @@ class PatchBase(PCSNESBase):
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
             facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
-            point2facet = extract_unique_domain(J).interior_facets.point2facetnumber.ctypes.data
+            point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
                                              point2facet=point2facet)

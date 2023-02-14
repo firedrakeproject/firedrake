@@ -89,7 +89,7 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = extract_unique_domain(it)
+        mesh = it.ufl_domain()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
         if isinstance(integrand, ufl.classes.Zero):
