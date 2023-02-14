@@ -13,11 +13,14 @@ import firedrake.dmhooks as dmhooks
 import ufl
 
 
-__all__ = ("HiptmairPC",)
+__all__ = ("TwoLevelPC", "HiptmairPC")
 
 
 class TwoLevelPC(PCBase):
-    """A class for implementing two-level methods.
+    """ PC for two-level methods
+
+    should implement:
+    - :meth:`coarsen`
     """
 
     needs_python_pmat = False
