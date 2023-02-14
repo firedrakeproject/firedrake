@@ -374,6 +374,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
 
+    def zero(self, subset=None):
+        """Set all values to zero.
+
+        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
+            zero. If ``None`` then the whole function is zeroed.
+        """
+        # Use assign here so we can reuse _ad_annotate_assign instead of needing
+        # to write an _ad_annotate_zero function
+        return self.assign(0, subset=subset)
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
     def assign(self, expr, subset=None):
@@ -400,8 +410,11 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
-        from firedrake.assign import Assigner
-        Assigner(self, expr, subset).assign()
+        if expr == 0:
+            self.dat.zero(subset=subset)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
         return self
 
     @FunctionMixin._ad_annotate_iadd
