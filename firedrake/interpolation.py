@@ -474,9 +474,9 @@ def rebuild_te(element, expr, rt_var_name):
 
 def compose_map_and_cache(map1, map2):
     """
-    Retrieve a :class:`PyOP2.ComposedMap` map from the cache of map1
+    Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
     using map2 as the cache key. The composed map maps from the iterset
-    of map1 to the toset of map2. Makes :class:`PyOP2.ComposedMap` and
+    of map1 to the toset of map2. Makes :class:`pyop2.ComposedMap` and
     caches the result on map1 if the composed map is not found.
 
     :arg map1: The map with the desired iterset from which the result is
@@ -497,19 +497,19 @@ def compose_map_and_cache(map1, map2):
 
 def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     """Build a map from the cells of a vertex only mesh to the nodes of the
-    source mesh's cell node map where the source mesh is extruded.
+    nodes on the source mesh where the source mesh is extruded.
 
     Parameters
     ----------
     vertex_only_mesh : :class:`mesh.MeshGeometry`
         The ``mesh.VertexOnlyMesh`` whose cells we iterate over.
-    extruded_cell_node_map : :class:`PyOP2.Map`
+    extruded_cell_node_map : :class:`pyop2.Map`
         The cell node map of the function space on the extruded mesh within
         which the ``mesh.VertexOnlyMesh`` is immersed.
 
     Returns
     -------
-    :class:`PyOP2.Map`
+    :class:`pyop2.Map`
         The map from the cells of the vertex only mesh to the nodes of the
         source mesh's cell node map. The map iterset is the
         ``vertex_only_mesh.cell_set`` and the map toset is the
@@ -519,8 +519,8 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     -----
 
     For an extruded mesh the cell node map is a map from a
-    :class:`PyOP2.ExtrudedSet` (the cells of the extruded mesh) to a
-    :class:`PyOP2.Set` (the nodes of the extruded mesh).
+    :class:`pyop2.ExtrudedSet` (the cells of the extruded mesh) to a
+    :class:`pyop2.Set` (the nodes of the extruded mesh).
 
     Take for example
 
@@ -544,7 +544,7 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
         |                      |                      |
         | extrusion_height = 0 | extrusion_height = 0 |
         -------------------layer 1-------------------
-        base_cell_num = 0         base_cell_num = 1
+          base_cell_num = 0      base_cell_num = 1
 
 
     If we declare ``FunctionSpace(mx, "CG", 2)`` then the node numbering (i.e.
@@ -563,9 +563,9 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
         2 ---------9-----------16---------23---------30
         |                       |                     |
         1          8           15         22         29
-        | base_cell_num = 0     |  base_cell_num = 1  |
+        |                       |                     |
         0 ---------7-----------14---------21---------28
-
+          base_cell_num = 0       base_cell_num = 1
 
     Cell node map values for an extruded mesh are indexed by the base cell
     number (rows) and the degree of freedom (DoF) index (columns). So
