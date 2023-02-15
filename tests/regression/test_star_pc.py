@@ -301,7 +301,7 @@ def test_vanka_equivalence(problem_type):
         (z, p) = split(u)
         (v, q) = split(TestFunction(V))
 
-        a = inner(grad(z), grad(v))*dx + inner(p, q)*dx
+        a = inner(grad(z), grad(v))*dx + inner(p, div(v))*dx + inner(q,div(z))*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
@@ -322,7 +322,8 @@ def test_vanka_equivalence(problem_type):
                        "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu"}
+                       "mg_coarse_assembled_pc_type": "lu",
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -344,7 +345,8 @@ def test_vanka_equivalence(problem_type):
                        "mg_levels_patch_sub_pc_type": "lu",
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu"}
+                       "mg_coarse_assembled_pc_type": "lu",
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
