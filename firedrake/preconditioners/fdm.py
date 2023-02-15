@@ -3,12 +3,14 @@ from itertools import product
 from pyop2.sparsity import get_preallocation
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake_citations import Citations
 import firedrake.dmhooks as dmhooks
 import firedrake
+import ctypes
 import numpy
 import ufl
-import ctypes
-from firedrake_citations import Citations
+import FIAT
+import finat
 
 Citations().add("Brubeck2021", """
 @misc{Brubeck2021,
@@ -597,7 +599,6 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
-        import FIAT
         ndim = V.mesh().topological_dimension()
         value_size = V.value_size
         formdegree = V.finat_element.formdegree
@@ -626,12 +627,12 @@ class FDMPC(PCBase):
             eq = FIAT.FDMQuadrature(cell, degree)
             e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
             e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
-            if hasattr(e0.dual, "rule"):
-                rule = e0.dual.rule
-            else:
-                rule = FIAT.quadrature.make_quadratture(cell, degree+1)
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
+            if hasattr(eq.dual, "rule"):
+                rule = eq.dual.rule
+            else:
+                rule = FIAT.quadrature.make_quadrature(cell, degree+1)
 
             pts = rule.get_points()
             wts = rule.get_weights()
@@ -1110,8 +1111,6 @@ def unrestrict_element(ele):
 
 
 def get_base_elements(e):
-    import finat
-    import FIAT
     if isinstance(e, finat.EnrichedElement):
         return sum(list(map(get_base_elements, e.elements)), [])
     elif isinstance(e, finat.TensorProductElement):
@@ -1634,12 +1633,13 @@ def fdm_setup_ipdg(fdm_element, eta):
         Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
         bdof: the indices of PointEvaluation dofs.
     """
-    from FIAT.quadrature import GaussLegendreQuadratureLineRule
-    from FIAT.functional import PointEvaluation
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
-    rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
-    bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, PointEvaluation)]
+    if hasattr(fdm_element.dual, "rule"):
+        rule = fdm_element.dual.rule
+    else:
+        rule = FIAT.quadrature.make_quadrature(cell, degree+1)
+    bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, FIAT.functional.PointEvaluation)]
 
     phi = fdm_element.tabulate(1, rule.get_points())
     Jhat = phi[(0, )]
