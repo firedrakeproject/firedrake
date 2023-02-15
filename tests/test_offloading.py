@@ -10,9 +10,13 @@ from pyop2.backends.cpu import cpu_backend
 
 AVAILABLE_BACKENDS = [cpu_backend]
 
-if firedrake_configuration.get_config()["options"].get("cuda"):
+firedrake_config = firedrake_configuration.get_config()
+if firedrake_config["options"].get("cuda"):
     from pyop2.backends.cuda import cuda_backend
     AVAILABLE_BACKENDS.append(cuda_backend)
+if firedrake_config["options"].get("opencl"):
+    from pyop2.backends.opencl import opencl_backend
+    AVAILABLE_BACKENDS.append(opencl_backend)
 
 
 def allclose(a, b, rtol=1e-05, atol=1e-08):
