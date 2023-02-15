@@ -15,8 +15,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    if isinstance(m.topology, mesh.ExtrudedMeshTopology):
-        raise NotImplementedError("Extruded meshes are not supported")
     m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
@@ -24,7 +22,7 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = m.cell_set.size
+    num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
     local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
@@ -39,19 +37,22 @@ def cell_midpoints(m):
 
 @pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
+                        "periodicrectangle",
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -61,7 +62,7 @@ def parentmesh(request):
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
-        m = UnitSquareMesh(1, 1)
+        m = UnitSquareMesh(10, 10)
         m.coordinates.dat.data[:] -= 0.5
         return m
 
@@ -109,10 +110,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     vm.init()
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
-    _, owned, _ = m.cell_set.sizes
+    # this method of getting owned cells works for all mesh types
+    owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
         cell_num = m.locate_cell(inputvertexcoords[i])
-        if cell_num is not None and cell_num < owned:
+        if cell_num is not None and cell_num < owned_cells:
             in_bounds.append(i)
     # Correct coordinates (though not guaranteed to be in same order)
     np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
@@ -217,3 +219,19 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     vm = VertexOnlyMesh(m, coords, tolerance=None)
     assert vm.cell_set.size == 0
+
+
+def test_missing_points_behaviour(parentmesh):
+    """
+    Generate points outside of the parentmesh and check we get the expected
+    error behaviour
+    """
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
+    assert len(inputcoord) == 1
+    # No error by default
+    vm = VertexOnlyMesh(parentmesh, inputcoord)
+    assert vm.cell_set.size == 0
+    with pytest.raises(ValueError):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
