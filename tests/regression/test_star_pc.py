@@ -301,29 +301,29 @@ def test_vanka_equivalence(problem_type):
         (z, p) = split(u)
         (v, q) = split(TestFunction(V))
 
-        a = inner(grad(z), grad(v))*dx + inner(p, div(v))*dx + inner(q,div(z))*dx
+        a = inner(grad(z), grad(v))*dx + inner(p, div(v))*dx + inner(q, div(z))*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
 
         vanka_params = {"mat_type": "aij",
-                       "snes_type": "ksponly",
-                       "ksp_type": "richardson",
-                       "pc_type": "mg",
-                       "pc_mg_type": "multiplicative",
-                       "pc_mg_cycles": "v",
-                       "mg_levels_ksp_type": "chebyshev",
-                       "mg_levels_ksp_max_it": 2,
-                       "mg_levels_ksp_convergence_test": "skip",
-                       "mg_levels_pc_type": "python",
-                       "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
-                       "mg_levels_pc_vanka_construct_dim": 0,
-                       "mg_levels_pc_vanka_exclude_subspace": 1,
-                       "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                        "snes_type": "ksponly",
+                        "ksp_type": "richardson",
+                        "pc_type": "mg",
+                        "pc_mg_type": "multiplicative",
+                        "pc_mg_cycles": "v",
+                        "mg_levels_ksp_type": "chebyshev",
+                        "mg_levels_ksp_max_it": 2,
+                        "mg_levels_ksp_convergence_test": "skip",
+                        "mg_levels_pc_type": "python",
+                        "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
+                        "mg_levels_pc_vanka_construct_dim": 0,
+                        "mg_levels_pc_vanka_exclude_subspace": 1,
+                        "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
+                        "mg_coarse_pc_type": "python",
+                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                        "mg_coarse_assembled_pc_type": "lu",
+                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
