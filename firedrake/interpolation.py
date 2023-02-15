@@ -234,7 +234,7 @@ def make_interpolator(expr, V, subset, access):
 def _interpolator(V, tensor, expr, subset, arguments, access):
     try:
         expr = ufl.as_ufl(expr)
-    except ufl.UFLException:
+    except ValueError:
         raise ValueError("Expecting to interpolate a UFL expression")
     try:
         to_element = create_element(V.ufl_element())

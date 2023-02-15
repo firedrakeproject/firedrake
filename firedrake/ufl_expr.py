@@ -1,6 +1,5 @@
 import ufl
 import ufl.argument
-from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
@@ -63,11 +62,10 @@ class Argument(ufl.argument.Argument):
         if number is self._number and part is self._part \
            and function_space is self.function_space():
             return self
-        ufl_assert(isinstance(number, int),
-                   "Expecting an int, not %s" % number)
-        ufl_assert(function_space.ufl_element().value_shape()
-                   == self.ufl_element().value_shape(),
-                   "Cannot reconstruct an Argument with a different value shape.")
+        if not isinstance(number, int):
+            raise TypeError(f"Expecting an int, not {number}")
+        if function_space.ufl_element().value_shape() != self.ufl_element().value_shape():
+            raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
 
