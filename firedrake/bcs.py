@@ -5,7 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, UFLException, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
@@ -347,11 +347,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 g = as_ufl(g)
                 self._function_arg = g
-            except UFLException:
+            except ValueError:
                 try:
                     # Recurse to handle this through interpolation.
                     self.function_arg = as_ufl(as_tensor(g))
-                except UFLException:
+                except ValueError:
                     raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
