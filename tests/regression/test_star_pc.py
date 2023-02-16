@@ -320,6 +320,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_vanka_construct_dim": 0,
                         "mg_levels_pc_vanka_exclude_subspace": 1,
                         "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
+                        "mg_levels_pc_vanka_sub_sub_pc_factor_mat_solver_type": "mumps",
                         "mg_coarse_pc_type": "python",
                         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                         "mg_coarse_assembled_pc_type": "lu",
