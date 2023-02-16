@@ -115,11 +115,11 @@ class _Facets(object):
        The unique_markers argument **must** be the same on all processes."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
+    def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number, markers=None,
                  unique_markers=None):
 
         self.mesh = mesh
-
+        self.facets = facets
         classes = as_tuple(classes, int, 3)
         self.classes = classes
 
@@ -208,11 +208,8 @@ class _Facets(object):
             try:
                 return self._subsets[key]
             except KeyError:
-                ids = [np.where(self.markers == sid)[0]
-                       for sid in all_integer_subdomain_ids]
-                to_remove = np.unique(np.concatenate(ids))
-                indices = np.arange(self.set.total_size, dtype=np.int32)
-                indices = np.delete(indices, to_remove)
+                unmarked_points = self._collect_unmarked_points(all_integer_subdomain_ids)
+                _, indices, _ = np.intersect1d(self.facets, unmarked_points, return_indices=True)
                 return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
@@ -238,9 +235,33 @@ class _Facets(object):
 
             # build a list of indices corresponding to the subsets selected by
             # markers
-            indices = np.concatenate([np.nonzero(self.markers == i)[0]
-                                      for i in markers])
-            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            marked_points_list = []
+            for i in markers:
+                if i == unmarked:
+                    _markers = self.mesh.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+                    # Can exclude points labeled with i\in markers here,
+                    # as they will be included in the below anyway.
+                    marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
+                else:
+                    if self.mesh.topology_dm.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+                        marked_points_list.append(self.mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+            if marked_points_list:
+                _, indices, _ = np.intersect1d(self.facets, np.concatenate(marked_points_list), return_indices=True)
+                return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            else:
+                return self._subsets.setdefault(markers, self._null_subset)
+
+    def _collect_unmarked_points(self, markers):
+        """Collect points that are not marked by markers."""
+        plex = self.mesh.topology_dm
+        indices_list = []
+        for i in markers:
+            if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+                indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+        if indices_list:
+            return np.setdiff1d(self.facets, np.concatenate(indices_list))
+        else:
+            return self.facets
 
     @utils.cached_property
     def facet_cell_map(self):
@@ -1088,7 +1109,7 @@ class MeshTopology(AbstractMeshTopology):
 
         point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
-        obj = _Facets(self, classes, kind,
+        obj = _Facets(self, facets, classes, kind,
                       facet_cell, local_facet_number,
                       markers, unique_markers=unique_markers)
         obj.point2facetnumber = point2facetnumber
@@ -1294,7 +1315,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
         base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _Facets(self, base.classes,
+        return _Facets(self, base.facets, base.classes,
                        kind,
                        base.facet_cell,
                        base.local_facet_dat.data_ro_with_halos,
