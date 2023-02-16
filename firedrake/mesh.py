@@ -1911,10 +1911,12 @@ values from f.)"""
             src += """
     int locator(struct Function *f, double *x, double *X)
     {
-        struct ReferenceCoords reference_coords;
-        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        /* The type definitions and arguments used here are defined as
+           statics in pointquery_utils.py */
+        struct ReferenceCoords temp_reference_coords, found_reference_coords;
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords);
         for(int i=0; i<%(geometric_dimension)d; i++) {
-            X[i] = reference_coords.X[i];
+            X[i] = found_reference_coords.X[i];
         }
         return cell;
     }
