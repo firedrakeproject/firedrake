@@ -235,3 +235,42 @@ def test_missing_points_behaviour(parentmesh):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
+
+
+def test_outside_boundary_behaviour(parentmesh):
+    """
+    Generate points just outside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just outside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is too small to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0
+    # Tolerance is large enough to pick up point - note that we need to go up
+    # by 2 orders of magnitude for this to work consistently
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+
+
+def test_inside_boundary_behaviour(parentmesh):
+    """
+    Generate points just inside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just inside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is large enough to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+    # Tolerance might be too small to pick up point, but it's not deterministic
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0 or vm.cell_set.size == 1
