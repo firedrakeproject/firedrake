@@ -206,7 +206,7 @@ def test_extrude(parentmesh):
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
-    assert m.tolerance == 1e-14
+    assert m.tolerance == 1.0
     assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]

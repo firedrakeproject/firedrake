@@ -455,13 +455,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name, tolerance=1e-14):
+    def __init__(self, name, tolerance=1.0):
         """Initialise an abstract mesh topology.
 
         :arg name: name of the mesh
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Defaults to 1e-14. Note that
+            still be considered to be in the cell. Defaults to 1.0. Note that
             this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
@@ -806,7 +806,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1e-14):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -829,7 +829,7 @@ class MeshTopology(AbstractMeshTopology):
         :kwarg comm: MPI communicator
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Default is 1e-14. Note that
+            still be considered to be in the cell. Default is 1.0. Note that
             this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
@@ -1210,7 +1210,7 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, name=None, tolerance=1e-14):
+    def __init__(self, mesh, layers, name=None, tolerance=1.0):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
@@ -1220,7 +1220,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :kwarg tolerance:    The relative tolerance (i.e. as defined on the
                              reference cell) for the distance a point can be
                              from a cell and still be considered to be in the
-                             cell. Default is 1e-14. Note that this tolerance
+                             cell. Default is 1.0. Note that this tolerance
                              uses an L1 distance (aka 'manhatten', 'taxicab' or
                              rectilinear distance) so will scale with the
                              dimension of the mesh.
@@ -1423,7 +1423,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1e-14):
+    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
         """
         Half-initialise a mesh topology.
 
@@ -1436,7 +1436,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         :arg reorder: whether to reorder the mesh (bool)
         :tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Defaults to 1e-14.
+            still be considered to be in the cell. Defaults to 1.0.
         """
 
         super().__init__(name, tolerance=tolerance)
@@ -2167,7 +2167,7 @@ def Mesh(meshfile, **kwargs):
 
     :param tolerance: The relative tolerance (i.e. as defined on the reference
            cell) for the distance a point can be from a cell and still be
-           considered to be in the cell. Defaults to 1.0e-14. Increase
+           considered to be in the cell. Defaults to 1.0. Increase
            this if point at mesh boundaries (either rank local or global) are
            reported as being outside the mesh, for example when creating a
            :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
@@ -2218,7 +2218,7 @@ def Mesh(meshfile, **kwargs):
     if coordinates is not None:
         return make_mesh_from_coordinates(coordinates, name)
 
-    tolerance = kwargs.get("tolerance", 1.0e-14)
+    tolerance = kwargs.get("tolerance", 1.0)
 
     utils._init()
 
@@ -2260,7 +2260,7 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None, tolerance=1.0e-14):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None, tolerance=1.0):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -2291,7 +2291,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     :kwarg tolerance:    The relative tolerance (i.e. as defined on the
                          reference cell) for the distance a point can be from a
                          cell and still be considered to be in the cell.
-                         Default is 1e-14. Note that this tolerance uses an L1
+                         Default is 1.0. Note that this tolerance uses an L1
                          distance (aka 'manhatten', 'taxicab' or rectilinear
                          distance) so will scale with the dimension of the
                          mesh.

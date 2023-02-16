@@ -125,10 +125,12 @@ def test_dont_raise_mixed():
 
     # raise exception without dont_raise
     with pytest.raises(PointNotInDomainError):
-        f.at([1.2, 0.5])
+        # Point has to be well outside the mesh since the tolerance is of order
+        # cell size
+        f.at([2.2, 0.5])
 
     # dont_raise=True
-    assert f.at([1.2, 0.5], dont_raise=True) is None
+    assert f.at([2.2, 0.5], dont_raise=True) is None
 
 
 @pytest.mark.parallel(nprocs=3)
