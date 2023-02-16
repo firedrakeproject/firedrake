@@ -9,7 +9,7 @@ except ImportError:
 
 @pytest.fixture(params=["scalar",
                         pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
-                        "mixed"])
+                        pytest.param("mixed", marks=pytest.mark.skipcomplexnoslate)])
 def problem_type(request):
     return request.param
 
