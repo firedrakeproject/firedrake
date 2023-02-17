@@ -115,7 +115,7 @@ class _Facets(object):
        The unique_markers argument **must** be the same on all processes."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number, markers=None,
+    def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number,
                  unique_markers=None):
 
         self.mesh = mesh
@@ -143,12 +143,6 @@ class _Facets(object):
                                        "%s_%s_local_facet_number" %
                                        (self.mesh.name, self.kind))
 
-        # assert that markers is a proper subset of unique_markers
-        if markers is not None:
-            assert set(markers) <= set(unique_markers).union([unmarked]), \
-                "Every marker has to be contained in unique_markers"
-
-        self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
@@ -223,8 +217,6 @@ class _Facets(object):
         """
         valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, numbers.Integral)
-        if self.markers is None and valid_markers.intersection(markers):
-            return self._null_subset
         try:
             return self._subsets[markers]
         except KeyError:
@@ -1087,7 +1079,6 @@ class MeshTopology(AbstractMeshTopology):
         label = dmcommon.FACE_SETS_LABEL
         if dm.hasLabel(label):
             from mpi4py import MPI
-            markers = dmcommon.get_facet_markers(dm, facets)
             local_markers = set(dm.getLabelIdIS(label).indices)
 
             def merge_ids(x, y, datatype):
@@ -1099,7 +1090,6 @@ class MeshTopology(AbstractMeshTopology):
                                         dtype=IntType)
             op.Free()
         else:
-            markers = None
             unique_markers = None
 
         local_facet_number, facet_cell = \
@@ -1111,7 +1101,7 @@ class MeshTopology(AbstractMeshTopology):
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, facets, classes, kind,
                       facet_cell, local_facet_number,
-                      markers, unique_markers=unique_markers)
+                      unique_markers=unique_markers)
         obj.point2facetnumber = point2facetnumber
         return obj
 
@@ -1319,7 +1309,6 @@ class ExtrudedMeshTopology(MeshTopology):
                        kind,
                        base.facet_cell,
                        base.local_facet_dat.data_ro_with_halos,
-                       markers=base.markers,
                        unique_markers=base.unique_markers)
 
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):

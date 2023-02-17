@@ -1853,36 +1853,6 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_markers(PETSc.DM dm, np.ndarray[PetscInt, ndim=1, mode="c"] facets):
-    """Get an array of facet labels in the mesh.
-
-    :arg dm: The DM that contains labels.
-    :arg facets: The array of facet points.
-    :returns: a numpy array of facet ids (or None if all facets had
-        the default marker).
-    """
-    cdef:
-        PetscInt nfacet, f, val
-        np.ndarray[PetscInt, ndim=1, mode="c"] ids
-        DMLabel label = NULL
-        PetscBool all_default = PETSC_TRUE
-
-    ids = np.empty_like(facets)
-    nfacet = facets.shape[0]
-    CHKERR(DMGetLabel(dm.dm, FACE_SETS_LABEL.encode(), &label))
-    for f in range(nfacet):
-        CHKERR(DMLabelGetValue(label, facets[f], &val))
-        if val != -1:
-            all_default = PETSC_FALSE
-        ids[f] = val
-    if all_default:
-        return None
-    else:
-        return ids
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
                         np.ndarray[PetscInt, ndim=1, mode="c"] ordering):
     """Builds a list of all facets ordered according to PyOP2 entity
