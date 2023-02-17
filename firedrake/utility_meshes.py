@@ -56,6 +56,8 @@ __all__ = [
     "CubedSphereMesh",
     "UnitCubedSphereMesh",
     "TorusMesh",
+    "AnnulusMesh",
+    "SolidTorusMesh",
     "CylinderMesh",
 ]
 
@@ -2538,6 +2540,110 @@ def TorusMesh(
         comm=comm,
     )
     return m
+
+
+@PETSc.Log.EventDecorator()
+def AnnulusMesh(
+    R,
+    r,
+    nr=4,
+    nt=32,
+    distribution_parameters=None,
+    comm=COMM_WORLD,
+    name=mesh.DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """Generate an annulus mesh periodically extruding an interval mesh
+
+    :arg R: The outer radius
+    :arg r: The inner radius
+    :kwarg nr: (optional), number of cells in the radial direction
+    :kwarg nt: (optional), number of cells in the circumferential direction (min 3)
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    """
+    if nt < 3:
+        raise ValueError("Must have at least 3 cells in the circumferential direction")
+    base_name = name + "_base"
+    base = IntervalMesh(nr,
+                        r,
+                        right=R,
+                        distribution_parameters=distribution_parameters,
+                        comm=comm,
+                        name=base_name,
+                        distribution_name=distribution_name,
+                        permutation_name=permutation_name)
+    bar = mesh.ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
+    x, y = ufl.SpatialCoordinate(bar)
+    V = bar.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(y), x * ufl.sin(y)]))
+    annulus = mesh.make_mesh_from_coordinates(coord.topological, name)
+    annulus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    annulus._base_mesh = base
+    return annulus
+
+
+@PETSc.Log.EventDecorator()
+def SolidTorusMesh(
+    R,
+    r,
+    nR=8,
+    refinement_level=0,
+    reorder=None,
+    distribution_parameters=None,
+    comm=COMM_WORLD,
+    name=mesh.DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """Generate a solid toroidal mesh (with axis z) periodically extruding a disk mesh
+
+    :arg R: The major radius
+    :arg r: The minor radius
+    :kwarg nR: (optional), number of cells in the major direction (min 3, defaults to 8)
+    :kwarg refinement_level: (optional), number of times the base disk mesh is refined (defaults to 0).
+    :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    """
+    if nR < 3:
+        raise ValueError("Must have at least 3 cells in the major direction")
+    base_name = name + "_base"
+    unit = UnitDiskMesh(refinement_level=refinement_level,
+                        reorder=reorder,
+                        distribution_parameters=distribution_parameters,
+                        comm=comm,
+                        distribution_name=distribution_name,
+                        permutation_name=permutation_name)
+    x, y = ufl.SpatialCoordinate(unit)
+    V = unit.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
+    disk = mesh.make_mesh_from_coordinates(coord.topological, base_name)
+    disk.topology.name = mesh._generate_default_mesh_topology_name(base_name)
+    disk.topology.topology_dm.setName(disk.topology.name)
+    bar = mesh.ExtrudedMesh(disk, layers=nR, layer_height=2 * np.pi / nR, extrusion_type="uniform", periodic=True)
+    x, y, z = ufl.SpatialCoordinate(bar)
+    V = bar.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(z), x * ufl.sin(z), -y]))
+    torus = mesh.make_mesh_from_coordinates(coord.topological, name)
+    torus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    torus._base_mesh = disk
+    return torus
 
 
 @PETSc.Log.EventDecorator()
