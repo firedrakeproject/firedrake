@@ -343,12 +343,12 @@ class PMGBase(PCSNESBase):
     def create_transfer(cctx, fctx, mat_type, cbcs, fbcs, inject):
         cbcs = cctx._problem.bcs if cbcs else []
         fbcs = fctx._problem.bcs if fbcs else []
-        if inject:
-            cV = cctx._problem.u
-            fV = fctx._problem.u
-        else:
-            cV = cctx.J.arguments()[0].function_space()
-            fV = fctx.J.arguments()[0].function_space()
+        # if inject:
+        #     cV = cctx._problem.u
+        #     fV = fctx._problem.u
+        # else:
+        cV = cctx.J.arguments()[0].function_space()
+        fV = fctx.J.arguments()[0].function_space()
 
         if mat_type == "matfree":
             return prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
@@ -674,14 +674,31 @@ def compare_dual(l1, l2):
         p2 = b2.get_point_dict()
         if len(p1) != len(p2):
             return False
-        for k1, k2 in zip(p1, p2):
-            if not (numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16) and p1[k1] == p2[k2]):
-                return False
+
+        k1 = numpy.array(list(p1.keys()))
+        k2 = numpy.array(list(p2.keys()))
+        if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
+            return False
+
+        k1 = numpy.array([p1[k][0][0] for k in p1])
+        k2 = numpy.array([p2[k][0][0] for k in p2])
+        if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
+            return False
+
     return True
 
 
-@PETSc.Log.EventDecorator("GetLineElements")
+def compare_primal(e1, e2):
+    C1 = e1.get_coeffs()
+    C2 = e2.get_coeffs()
+    if C1.shape != C2.shape:
+        return False
+
+    return numpy.allclose(C1, C2, rtol=1E-16, atol=1E-16)
+
+
 @lru_cache(maxsize=10)
+@PETSc.Log.EventDecorator("GetLineElements")
 def get_line_elements(V):
     from FIAT.reference_element import LINE
     from tsfc.finatinterface import create_element
@@ -714,10 +731,12 @@ def get_line_elements(V):
             for e1, e2 in zip(perm, expansion):
                 if is_perm:
                     is_perm = compare_dual(e1.dual_basis(), e2.dual_basis())
+                    # is_perm = compare_primal(e1, e2)
 
             if is_perm:
                 shift = len(expansion)-k
                 axes_shifts[-1] = axes_shifts[-1] + (shift, )
+                break
 
         if shift == -1:
             line_elements.append(expansion)
