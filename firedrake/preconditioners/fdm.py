@@ -3,6 +3,7 @@ from itertools import product
 from pyop2.sparsity import get_preallocation
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake_citations import Citations
 import firedrake.dmhooks as dmhooks
 import firedrake
@@ -251,9 +252,9 @@ class FDMPC(PCBase):
 
         def get_coefs(e, result=None):
             vals = []
-            for coef, cmap, indices in zip(coefs, coef_maps, get_coefs.indices):
-                indices = cmap(e, result=indices)
-                vals.append(coef.dat.data_ro[indices])
+            for k in range(len(coefs)):
+                get_coefs.indices[k] = coef_maps[k](e, result=get_coefs.indices[k])
+                vals.append(coefs[k].dat.data_ro[get_coefs.indices[k]])
             return numpy.concatenate(vals, out=result)
         get_coefs.indices = [None for _ in range(len(coefs))]
         self.get_coefs = get_coefs
@@ -318,7 +319,6 @@ class FDMPC(PCBase):
                         rows = bc_rows[Vrow][:, None]
                         vals = numpy.ones(rows.shape, dtype=PETSc.RealType)
                         P.setValuesRCV(rows, rows, vals, addv)
-                        del vals
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
             if diagonal_scale:
@@ -456,8 +456,6 @@ class FDMPC(PCBase):
             self.work_csr = (None, None, None)
             self.work_mats[common_key] = None
             self.work_mats[Vrow, Vcol] = None
-        del rindices
-        del cindices
         if RtAP.buff:
             RtAP.buff.destroy()
 
@@ -608,7 +606,7 @@ class FDMPC(PCBase):
         except TypeError:
             pass
         if formdegree == ndim:
-            degree = degree+1
+            degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
         key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
@@ -623,16 +621,16 @@ class FDMPC(PCBase):
                 return cache[key]
 
             elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
-            cell = elements[0].get_reference_element()
-            eq = FIAT.FDMQuadrature(cell, degree)
-            e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(cell, degree)
-            e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(cell, degree-1)
+            ref_el = elements[0].get_reference_element()
+            eq = FIAT.FDMQuadrature(ref_el, degree)
+            e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
+            e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
             if hasattr(eq.dual, "rule"):
                 rule = eq.dual.rule
             else:
-                rule = FIAT.quadrature.make_quadrature(cell, degree+1)
+                rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
 
             pts = rule.get_points()
             wts = rule.get_weights()
@@ -693,10 +691,6 @@ def factor_interior_mat(A00):
 
     A00.setValuesCSR(indptr, indices, data)
     A00.assemble()
-    del degree
-    del indptr
-    del indices
-    del data
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
@@ -835,70 +829,26 @@ def block_mat(A_blocks):
             insert_block(A, Aij, irows, jcols, imode)
 
     A.assemble()
-    for row in rows:
-        del row
-    for col in cols:
-        del col
     return A
 
 
 def is_restricted(finat_element):
     is_interior = True
     is_facet = True
-    ndim = finat_element.cell.get_spatial_dimension()
+    tdim = finat_element.cell.get_spatial_dimension()
     entity_dofs = finat_element.entity_dofs()
-    for key in entity_dofs:
-        v = sum(list(entity_dofs[key].values()), [])
+    for edim in sorted(entity_dofs):
+        v = sum(list(entity_dofs[edim].values()), [])
         if len(v):
-            edim = key
             try:
                 edim = sum(edim)
             except TypeError:
                 pass
-            if edim == ndim:
+            if edim == tdim:
                 is_facet = False
             else:
                 is_interior = False
     return is_interior, is_facet
-
-
-def restricted_dofs(celem, felem):
-    """
-    find which DOFs from felem are on celem
-
-    :arg celem: the restricted :class:`finat.FiniteElement`
-    :arg felem: the unrestricted :class:`finat.FiniteElement`
-
-    :returns: :class:`numpy.array` with indices of felem that correspond to celem
-    """
-    csplit = split_dofs(celem)
-    fsplit = split_dofs(felem)
-    if len(csplit[0]) and len(csplit[1]):
-        csplit = [numpy.concatenate(csplit)]
-        fsplit = [numpy.concatenate(fsplit)]
-
-    k = len(csplit[0]) == 0
-    if len(csplit[k]) != len(fsplit[k]):
-        raise ValueError("Finite elements have different DOFs")
-    perm = numpy.empty_like(csplit[k])
-    perm[csplit[k]] = numpy.arange(len(perm), dtype=perm.dtype)
-    return fsplit[k][perm]
-
-
-def split_dofs(elem):
-    entity_dofs = elem.entity_dofs()
-    ndim = elem.cell.get_spatial_dimension()
-    edofs = [[], []]
-    for key in entity_dofs:
-        vals = entity_dofs[key]
-        edim = key
-        try:
-            edim = sum(edim)
-        except TypeError:
-            pass
-        for k in vals.keys():
-            edofs[edim < ndim].extend(sorted(vals[k]))
-    return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
 def sort_interior_dofs(idofs, A):
@@ -1011,27 +961,6 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
     return result
 
 
-def assemble_reference_tensor(A, Ahat, Vrow, Vcol, rmap, cmap, addv=None):
-    if addv is None:
-        addv = PETSc.InsertMode.INSERT
-
-    update_A = FDMPC.load_set_values()
-    rlocal, nel = glonum_fun(Vrow.cell_node_map(), bsize=Vrow.value_size)
-    clocal, nel = glonum_fun(Vcol.cell_node_map(), bsize=Vcol.value_size)
-
-    def cell_to_global(lgmap, cell_to_local, e, result=None):
-        result = cell_to_local(e, result=result)
-        return lgmap.apply(result, result=result)
-
-    rindices = None
-    cindices = None
-    for e in range(nel):
-        rindices = cell_to_global(rmap, rlocal, e, result=rindices)
-        cindices = cell_to_global(cmap, clocal, e, result=cindices)
-        update_A(A, Ahat, rindices, cindices, addv)
-    A.assemble()
-
-
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     from tsfc.finatinterface import create_element
     from firedrake.preconditioners.pmg import fiat_reference_prolongator
@@ -1070,21 +999,43 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
         temp.destroy()
         eye.destroy()
 
-    fmap = Vf.local_to_global_map(fbcs)
+    rmap = Vf.local_to_global_map(fbcs)
     cmap = Vc.local_to_global_map(cbcs)
+    rlocal, nel = glonum_fun(Vf.cell_node_map(), bsize=Vf.value_size)
+    clocal, nel = glonum_fun(Vc.cell_node_map(), bsize=Vc.value_size)
+
+    def cell_to_global(lgmap, cell_to_local, e, result=None):
+        result = cell_to_local(e, result=result)
+        return lgmap.apply(result, result=result)
+
     imode = PETSc.InsertMode.INSERT
+    update_Dmat = FDMPC.load_set_values()
+
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
     prealloc = PETSc.Mat().create(comm=Vf.comm)
     prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
     prealloc.setSizes(sizes)
     prealloc.setUp()
-    assemble_reference_tensor(prealloc, Dhat, Vf, Vc, fmap, cmap, addv=imode)
-    nnz = get_preallocation(prealloc, block_size * Vf.dof_dset.set.size)
+
+    rindices = None
+    cindices = None
+    for e in range(nel):
+        rindices = cell_to_global(rmap, rlocal, e, result=rindices)
+        cindices = cell_to_global(cmap, clocal, e, result=cindices)
+        update_Dmat(prealloc, Dhat, rindices, cindices, imode)
+
+    nnz = get_preallocation(prealloc, sizes[0][0])
     prealloc.destroy()
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Vf.comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-    assemble_reference_tensor(Dmat, Dhat, Vf, Vc, fmap, cmap, addv=imode)
+
+    for e in range(nel):
+        rindices = cell_to_global(rmap, rlocal, e, result=rindices)
+        cindices = cell_to_global(cmap, clocal, e, result=cindices)
+        update_Dmat(Dmat, Dhat, rindices, cindices, imode)
+
+    Dmat.assemble()
     Dhat.destroy()
     return Dmat
 
@@ -1638,7 +1589,7 @@ def fdm_setup_ipdg(fdm_element, eta):
     if hasattr(fdm_element.dual, "rule"):
         rule = fdm_element.dual.rule
     else:
-        rule = FIAT.quadrature.make_quadrature(cell, degree+1)
+        rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
     bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, FIAT.functional.PointEvaluation)]
 
     phi = fdm_element.tabulate(1, rule.get_points())
