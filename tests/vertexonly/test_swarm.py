@@ -83,12 +83,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
 
     # Setup
     parentmesh.init()
-    # The coords dat version is > 0 for a shifted mesh. We need to save the it
-    # here because a bug somewhere in the kernel generation of
-    # MeshGeometry.locate_cell_and_reference_coordinate changes its value.
-    # Accessing the coordinates ought to be a read only operation but, for some
-    # reason, it increments the dat version.
-    coords_dat_version = parentmesh.coordinates.dat.dat_version
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
@@ -163,7 +157,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     # parent mesh is shifted, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        if coords_dat_version > 0:
+        if parentmesh.coordinates.dat.dat_version > 0:
             assert index == -1
         else:
             assert np.any(index == cell_indexes)
@@ -172,7 +166,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
         and not parentmesh.extruded
-        and not coords_dat_version > 0
+        and not parentmesh.coordinates.dat.dat_version > 0
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
