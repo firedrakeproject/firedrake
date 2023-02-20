@@ -178,6 +178,7 @@ class FDMPC(PCBase):
         with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
             fdmpc.setFromOptions()
 
+    @PETSc.Log.EventDecorator("FDMPrealloc")
     def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type, diagonal_scale):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
@@ -308,6 +309,7 @@ class FDMPC(PCBase):
 
         self.diag = None
 
+        @PETSc.Log.EventDecorator("FDMAssemble")
         def assemble_P():
             for _assemble in assembly_callables:
                 _assemble()
@@ -459,6 +461,7 @@ class FDMPC(PCBase):
         if RtAP.buff:
             RtAP.buff.destroy()
 
+    @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
@@ -514,7 +517,7 @@ class FDMPC(PCBase):
             qfam = "NCF"
         else:
             qfam = "DQ L2"
-            qdeg = degree-1
+            qdeg = degree - 1
 
         qvariant = "fdm_quadrature"
         elements = [e.reconstruct(variant=qvariant),
@@ -529,6 +532,7 @@ class FDMPC(PCBase):
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
+
         key = (mixed_form.signature(), mesh)
         block_diagonal = True
 
@@ -577,8 +581,7 @@ class FDMPC(PCBase):
         if key not in self._coefficient_cache:
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
-                beta, alpha = tensor.subfunctions
-                coefficients = {"beta": beta, "alpha": alpha}
+                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
                 assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
                                               form_compiler_parameters=form_compiler_parameters)]
             else:
@@ -1013,20 +1016,21 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
-    prealloc = PETSc.Mat().create(comm=Vf.comm)
-    prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
-    prealloc.setSizes(sizes)
-    prealloc.setUp()
+    preallocator = PETSc.Mat().create(comm=Vf.comm)
+    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+    preallocator.setSizes(sizes)
+    preallocator.setUp()
 
     rindices = None
     cindices = None
     for e in range(nel):
         rindices = cell_to_global(rmap, rlocal, e, result=rindices)
         cindices = cell_to_global(cmap, clocal, e, result=cindices)
-        update_Dmat(prealloc, Dhat, rindices, cindices, imode)
+        update_Dmat(preallocator, Dhat, rindices, cindices, imode)
 
-    nnz = get_preallocation(prealloc, sizes[0][0])
-    prealloc.destroy()
+    preallocator.assemble()
+    nnz = get_preallocation(preallocator, sizes[0][0])
+    preallocator.destroy()
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Vf.comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
 
@@ -1346,6 +1350,7 @@ class PoissonFDMPC(FDMPC):
                     update_A(A, Ae, rows)
                     Ae.destroy()
 
+    @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters, discard_mixed=True, cell_average=True):
         from ufl import inner, diff
         from ufl.algorithms.ad import expand_derivatives
