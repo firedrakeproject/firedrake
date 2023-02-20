@@ -203,7 +203,7 @@ class ASMVankaPC(ASMPatchPC):
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
-        exclude_subspace = int(PETSc.Options().getString(self.prefix+"exclude_subspace", default=-1))
+        exclude_subspaces = [int(subspace) for subspace in PETSc.Options().getString(self.prefix+"exclude_subspaces", default="-1").split(",")]
         ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -235,7 +235,7 @@ class ASMVankaPC(ASMPatchPC):
             indices = []
             for (i, W) in enumerate(V):
                 section = W.dm.getDefaultSection()
-                if i == exclude_subspace:
+                if i in exclude_subspaces:
                     loop_list = [seed]
                 else:
                     loop_list = pt_array

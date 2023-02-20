@@ -301,7 +301,7 @@ def test_vanka_equivalence(problem_type):
         (z, p) = split(u)
         (v, q) = split(TestFunction(V))
 
-        a = inner(grad(z), grad(v))*dx + inner(p, div(v))*dx + inner(q, div(z))*dx
+        a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(q, div(z))*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
@@ -318,7 +318,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_type": "python",
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_dim": 0,
-                        "mg_levels_pc_vanka_exclude_subspace": 1,
+                        "mg_levels_pc_vanka_exclude_subspaces": "1",
                         "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
                         "mg_levels_pc_vanka_sub_sub_pc_factor_mat_solver_type": "mumps",
                         "mg_coarse_pc_type": "python",
