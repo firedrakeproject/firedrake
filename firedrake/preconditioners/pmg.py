@@ -180,7 +180,6 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        # is_linear = fproblem.is_linear
         is_linear = fu not in fctx.J.coefficients()
 
         fdeg = PMGBase.max_degree(fV.ufl_element())
@@ -259,9 +258,6 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
-        interp_petscmat = None
-        inject_petscmat = None
-
         interp_petscmat, _ = cdm.createInterpolation(fdm)
         inject_petscmat = cdm.createInjection(fdm)
 
@@ -307,7 +303,6 @@ class PMGBase(PCSNESBase):
         cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
         cctx._near_nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._near_nullspace)
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
-
         cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
         return cdm
@@ -338,16 +333,11 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     @lru_cache(maxsize=20)
-    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs, inject):
+    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
         cbcs = cctx._problem.bcs if cbcs else []
         fbcs = fctx._problem.bcs if fbcs else []
-        # if inject:
-        #     cV = cctx._problem.u
-        #     fV = fctx._problem.u
-        # else:
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
-
         if mat_type == "matfree":
             return prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
         elif mat_type == "aij":
@@ -358,12 +348,12 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False, False), None
+        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False), None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False, True)
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
 
     @staticmethod
     def max_degree(ele):
