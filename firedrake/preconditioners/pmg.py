@@ -7,7 +7,7 @@ from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx
                                get_function_space, set_function_space)
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.utils import ScalarType_c, IntType_c
+from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from firedrake.petsc import PETSc
 import firedrake
 import ufl
@@ -1271,6 +1271,9 @@ class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
+
+    _cache_work = {}
+
     def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
@@ -1278,37 +1281,50 @@ class StandaloneInterpolationMatrix(object):
             self.uf = Vf
             Vf = Vf.function_space()
         else:
-            self.uf = firedrake.Function(Vf)
+            self.uf = self._cache_work.get(Vf, firedrake.Function(Vf))
+            self._cache_work[Vf] = self.uf
         if isinstance(Vc, firedrake.Function):
             self.uc = Vc
             Vc = Vc.function_space()
         else:
-            self.uc = firedrake.Function(Vc)
+            self.uc = self._cache_work.get(Vc, firedrake.Function(Vc))
+            self._cache_work[Vc] = self.uc
+        self.Vf = Vf
+        self.Vc = Vc
 
+    @cached_property
+    def _weight(self):
         # Lawrence's magic code for calculating dof multiplicities
-        self.weight = firedrake.Function(Vf)
-        shapes = (Vf.finat_element.space_dimension(), numpy.prod(Vf.shape))
+        weight = firedrake.Function(self.Vf)
+        shapes = (self.Vf.finat_element.space_dimension(),
+                  numpy.prod(self.Vf.shape))
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
             w[i,j] = w[i,j] + 1
         end
         """
-        self._assemble_weight = partial(firedrake.par_loop, (domain, instructions),
-                                        firedrake.dx, {"w": (self.weight, op2.INC)},
-                                        is_loopy_kernel=True)
+        firedrake.par_loop((domain, instructions),
+                           firedrake.dx, {"w": (weight, op2.INC)},
+                           is_loopy_kernel=True)
+        with weight.dat.vec as w:
+            w.reciprocal()
+        return weight
+
+    @cached_property
+    def _kernels(self):
         try:
-            uf_map = get_permuted_map(Vf)
-            uc_map = get_permuted_map(Vc)
-            prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(Vf, Vc)
+            uf_map = get_permuted_map(self.Vf)
+            uc_map = get_permuted_map(self.Vc)
+            prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
             prolong_args = [prolong_kernel, self.uf.cell_set,
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
-                            self.weight.dat(op2.READ, uf_map)]
+                            self._weight.dat(op2.READ, uf_map)]
         except ValueError:
-            uf_map = Vf.cell_node_map()
-            uc_map = Vc.cell_node_map()
-            prolong_kernel, restrict_kernel, coefficients = self.make_kernels(Vf, Vc)
+            uf_map = self.Vf.cell_node_map()
+            uc_map = self.Vc.cell_node_map()
+            prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
             prolong_args = [prolong_kernel, self.uf.cell_set,
                             self.uf.dat(op2.WRITE, uf_map),
                             self.uc.dat(op2.READ, uc_map)]
@@ -1316,10 +1332,11 @@ class StandaloneInterpolationMatrix(object):
         restrict_args = [restrict_kernel, self.uf.cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
-                         self.weight.dat(op2.READ, uf_map)]
+                         self._weight.dat(op2.READ, uf_map)]
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-        self._prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
-        self._restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
+        prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
+        restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
+        return prolong, restrict
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -1554,19 +1571,10 @@ class StandaloneInterpolationMatrix(object):
 
         return prolong_kernel, restrict_kernel, coefficients
 
-    def assemble_weight(self):
-        if self._assemble_weight:
-            self._assemble_weight()
-            with self.weight.dat.vec as w:
-                w.reciprocal()
-            self._assemble_weight = None
-
     def multTranspose(self, mat, rf, rc):
         """
         Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
-        self.assemble_weight()
-
         with self.uf.dat.vec_wo as uf:
             rf.copy(uf)
         for bc in self.Vf_bcs:
@@ -1574,7 +1582,7 @@ class StandaloneInterpolationMatrix(object):
 
         with self.uc.dat.vec_wo as uc:
             uc.set(0.0E0)
-        self._restrict()
+        self._kernels[1]()
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1585,8 +1593,6 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-        self.assemble_weight()
-
         with self.uc.dat.vec_wo as uc:
             xc.copy(uc)
         for bc in self.Vc_bcs:
@@ -1594,7 +1600,7 @@ class StandaloneInterpolationMatrix(object):
 
         with self.uf.dat.vec_wo as uf:
             uf.set(0.0E0)
-        self._prolong()
+        self._kernels[0]()
 
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1617,25 +1623,25 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     """
     Interpolation matrix for a mixed finite element space.
     """
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
-        self.Vf_bcs = Vf_bcs
-        self.Vc_bcs = Vc_bcs
-        self.uf = Vf if isinstance(Vf, firedrake.Function) else firedrake.Function(Vf)
-        self.uc = Vc if isinstance(Vc, firedrake.Function) else firedrake.Function(Vc)
-
-        self.standalones = []
+    @cached_property
+    def _standalones(self):
+        standalones = []
         for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.subfunctions, self.uc.subfunctions)):
-            Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
-            Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
+            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+            Vc_sub_bcs = [bc for bc in self.Vc_bcs if bc.function_space().index == i]
             standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)
-            self.standalones.append(standalone)
+            standalones.append(standalone)
+        return standalones
 
-        self._prolong = lambda: [standalone._prolong() for standalone in self.standalones]
-        self._restrict = lambda: [standalone._restrict() for standalone in self.standalones]
+    @cached_property
+    def _kernels(self):
+        prolong = lambda: [standalone._kernels[0]() for standalone in self._standalones]
+        restrict = lambda: [standalone._kernels[1]() for standalone in self._standalones]
+        return prolong, restrict
 
     def getNestSubMatrix(self, i, j):
         if i == j:
-            s = self.standalones[i]
+            s = self._standalones[i]
             sizes = (s.uf.dof_dset.layout_vec.getSizes(), s.uc.dof_dset.layout_vec.getSizes())
             M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf._comm)
             M_shll.setUp()
