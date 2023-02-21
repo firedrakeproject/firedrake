@@ -1285,8 +1285,18 @@ class StandaloneInterpolationMatrix(object):
         else:
             self.uc = firedrake.Function(Vc)
 
-        self.weight, self._assemble_weight = self.multiplicity(Vf)
-
+        # Lawrence's magic code for calculating dof multiplicities
+        self.weight = firedrake.Function(Vf)
+        shapes = (Vf.finat_element.space_dimension(), numpy.prod(Vf.shape))
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        self._assemble_weight = partial(firedrake.par_loop, (domain, instructions),
+                                        firedrake.dx, {"w": (self.weight, op2.INC)},
+                                        is_loopy_kernel=True)
         try:
             uf_map = get_permuted_map(Vf)
             uc_map = get_permuted_map(Vc)
@@ -1543,22 +1553,6 @@ class StandaloneInterpolationMatrix(object):
             coefficients = []
 
         return prolong_kernel, restrict_kernel, coefficients
-
-    @staticmethod
-    def multiplicity(V):
-        # Lawrence's magic code for calculating dof multiplicities
-        weight = firedrake.Function(V)
-        shapes = (V.finat_element.space_dimension(),
-                  numpy.prod(V.shape))
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
-        assemble_weight = partial(firedrake.par_loop, (domain, instructions), firedrake.dx,
-                                  {"w": (weight, op2.INC)}, is_loopy_kernel=True)
-        return weight, assemble_weight
 
     def assemble_weight(self):
         if self._assemble_weight:
