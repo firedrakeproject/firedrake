@@ -259,10 +259,13 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
+        interp_petscmat = None
         inject_petscmat = None
-        if not is_linear:
-            inject_petscmat = self.create_injection(cdm, fdm)
 
+        interp_petscmat, _ = cdm.createInterpolation(fdm)
+        inject_petscmat = cdm.createInjection(fdm)
+
+        if not is_linear:
             # injection of the initial state
             def inject_state():
                 with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
@@ -300,16 +303,11 @@ class PMGBase(PCSNESBase):
                 return fine_nullspace
 
         ises = cV._ises
-        if inject_petscmat is None and (fctx._nullspace or fctx._near_nullspace):
-            inject_petscmat = self.create_injection(cdm, fdm)
         cctx._nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._nullspace)
         cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
         cctx._near_nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._near_nullspace)
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
 
-        interp_petscmat = None
-        if fctx._nullspace_T:
-            interp_petscmat, _ = self.create_interpolation(cdm, fdm)
         cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
         return cdm
@@ -666,35 +664,56 @@ def expand_element(ele):
         return ele
 
 
-def compare_dual(l1, l2):
-    if len(l1) != len(l2):
+def evaluate_dual(dual, element, key=None):
+    keys = set(tuple(phi.get_point_dict().keys()) for phi in dual)
+    pts = list(set(sum(keys, ())))
+    if key is None:
+        key = (0, ) * len(pts[0])
+    tab = element.tabulate(sum(key), pts)[key]
+    result = numpy.empty((len(dual), element.space_dimension()), dtype=tab.dtype)
+    zero = [(0.0, ())]
+    for k, phi in enumerate(dual):
+        wts = phi.get_point_dict()
+        wts = numpy.array([wts.get(pt, zero)[0][0] for pt in pts])
+        result[k] = tab.dot(wts).T
+    return result
+
+
+def compare_element(e1, e2):
+    if e1 is e2:
+        return True
+    if e1.space_dimension() != e2.space_dimension():
         return False
-    for b1, b2 in zip(l1, l2):
-        p1 = b1.get_point_dict()
-        p2 = b2.get_point_dict()
-        if len(p1) != len(p2):
-            return False
+    B = evaluate_dual(e1.dual_basis(), e2)
+    numpy.fill_diagonal(B, numpy.diagonal(B)-1.0)
+    return numpy.allclose(B, 0.0, rtol=1E-14, atol=1E-14)
 
-        k1 = numpy.array(list(p1.keys()))
-        k2 = numpy.array(list(p2.keys()))
-        if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
-            return False
 
-        k1 = numpy.array([p1[k][0][0] for k in p1])
-        k2 = numpy.array([p2[k][0][0] for k in p2])
-        if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
-            return False
+def compare_dual(b1, b2):
+    p1 = b1.get_point_dict()
+    p2 = b2.get_point_dict()
+    if len(p1) != len(p2):
+        return False
 
+    k1 = numpy.array(list(p1.keys()))
+    k2 = numpy.array(list(p2.keys()))
+    if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
+        return False
+
+    k1 = numpy.array([p1[k][0][0] for k in p1])
+    k2 = numpy.array([p2[k][0][0] for k in p2])
+    if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
+        return False
     return True
 
 
-def compare_primal(e1, e2):
-    C1 = e1.get_coeffs()
-    C2 = e2.get_coeffs()
-    if C1.shape != C2.shape:
+def compare_dual_basis(l1, l2):
+    if len(l1) != len(l2):
         return False
-
-    return numpy.allclose(C1, C2, rtol=1E-16, atol=1E-16)
+    for b1, b2 in zip(l1, l2):
+        if not compare_dual(b1, b2):
+            return False
+    return True
 
 
 @lru_cache(maxsize=10)
@@ -727,14 +746,14 @@ def get_line_elements(V):
 
         shift = -1
         for k, perm in enumerate(permutations):
-            is_perm = True
+            is_perm = all([e1.space_dimension() == e2.space_dimension()
+                           for e1, e2 in zip(perm, expansion)])
             for e1, e2 in zip(perm, expansion):
                 if is_perm:
-                    is_perm = compare_dual(e1.dual_basis(), e2.dual_basis())
-                    # is_perm = compare_primal(e1, e2)
+                    is_perm = compare_element(e1, e2)
 
             if is_perm:
-                shift = len(expansion)-k
+                shift = len(expansion) - k
                 axes_shifts[-1] = axes_shifts[-1] + (shift, )
                 break
 
@@ -759,19 +778,9 @@ def fiat_reference_prolongator(felem, celem, derivative=False):
 
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
-    if fkey == ckey and compare_dual(fdual, cdual):
+    if fkey == ckey and compare_dual_basis(fdual, cdual):
         return numpy.array([])
-
-    result = numpy.empty((felem.space_dimension(), celem.space_dimension()))
-    keys = set(tuple(phi.get_point_dict().keys()) for phi in fdual)
-    pts = list(sum(keys, ()))
-    cphi = celem.tabulate(sum(ckey), pts)[ckey]
-    zero = [(0.0, ())]
-    for k, phi in enumerate(fdual):
-        wts = phi.get_point_dict()
-        wts = numpy.array([wts.get(pt, zero)[0][0] for pt in pts])
-        result[k] = cphi.dot(wts).T
-    return result
+    return evaluate_dual(fdual, celem, ckey)
 
 
 @lru_cache(maxsize=10)
@@ -1276,9 +1285,7 @@ class StandaloneInterpolationMatrix(object):
         else:
             self.uc = firedrake.Function(Vc)
 
-        self.weight = self.multiplicity(Vf)
-        with self.weight.dat.vec as w:
-            w.reciprocal()
+        self.weight, self._assemble_weight = self.multiplicity(Vf)
 
         try:
             uf_map = get_permuted_map(Vf)
@@ -1540,6 +1547,7 @@ class StandaloneInterpolationMatrix(object):
     @staticmethod
     def multiplicity(V):
         # Lawrence's magic code for calculating dof multiplicities
+        weight = firedrake.Function(V)
         shapes = (V.finat_element.space_dimension(),
                   numpy.prod(V.shape))
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
@@ -1548,15 +1556,23 @@ class StandaloneInterpolationMatrix(object):
             w[i,j] = w[i,j] + 1
         end
         """
-        weight = firedrake.Function(V)
-        firedrake.par_loop((domain, instructions), firedrake.dx,
-                           {"w": (weight, op2.INC)}, is_loopy_kernel=True)
-        return weight
+        assemble_weight = partial(firedrake.par_loop, (domain, instructions), firedrake.dx,
+                                  {"w": (weight, op2.INC)}, is_loopy_kernel=True)
+        return weight, assemble_weight
+
+    def assemble_weight(self):
+        if self._assemble_weight:
+            self._assemble_weight()
+            with self.weight.dat.vec as w:
+                w.reciprocal()
+            self._assemble_weight = None
 
     def multTranspose(self, mat, rf, rc):
         """
         Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
+        self.assemble_weight()
+
         with self.uf.dat.vec_wo as uf:
             rf.copy(uf)
         for bc in self.Vf_bcs:
@@ -1575,6 +1591,8 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
+        self.assemble_weight()
+
         with self.uc.dat.vec_wo as uc:
             xc.copy(uc)
         for bc in self.Vc_bcs:
