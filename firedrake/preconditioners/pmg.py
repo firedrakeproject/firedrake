@@ -1307,22 +1307,23 @@ class StandaloneInterpolationMatrix(object):
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
-                            self.uf.dat(op2.INC, uf_map),
-                            self.uc.dat(op2.READ, uc_map),
-                            self._weight.dat(op2.READ, uf_map)]
+            weighted_prolong = True
         except ValueError:
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
-                            self.uf.dat(op2.WRITE, uf_map),
-                            self.uc.dat(op2.READ, uc_map)]
+            weighted_prolong = False
 
+        weight_arg = self._weight.dat(op2.READ, uf_map)
         restrict_args = [restrict_kernel, self.uf.cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
-                         self._weight.dat(op2.READ, uf_map)]
+                         weight_arg]
+        prolong_args = [prolong_kernel, self.uf.cell_set,
+                        self.uf.dat(op2.WRITE, uf_map),
+                        self.uc.dat(op2.READ, uc_map)]
+        if weighted_prolong:
+            prolong_args.append(weight_arg)
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
         prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
