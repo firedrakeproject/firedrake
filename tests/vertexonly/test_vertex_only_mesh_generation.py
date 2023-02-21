@@ -204,20 +204,29 @@ def test_extrude(parentmesh):
 
 
 def test_point_tolerance():
-    """Test the tolerance parameter to VertexOnlyMesh.
-
-    This test works by checking a point outside the domain. Tolerance does not
-    in fact promise to fix the problem of points outside the domain in the
-    general case. It is instead there to cope with losing points on internal
-    cell boundaries due to roundoff. The latter case is difficult to test in a
-    manner which is robust to roundoff behaviour in different environments."""
+    """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
+    assert m.tolerance == 1.0
+    assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
     vm = VertexOnlyMesh(m, coords, tolerance=0.1)
     assert vm.cell_set.size == 1
-    vm = VertexOnlyMesh(m, coords, tolerance=None)
+    # check that the tolerance is passed through to the parent mesh
+    assert m.tolerance == 0.1
+    assert m.topology.tolerance == 0.1
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0)
+    assert vm.cell_set.size == 0
+    assert m.tolerance == 0.0
+    assert m.topology.tolerance == 0.0
+    # See if changing the tolerance on the parent mesh changes the tolerance
+    # on the VertexOnlyMesh
+    m.tolerance = 0.1
+    vm = VertexOnlyMesh(m, coords)
+    assert vm.cell_set.size == 1
+    m.tolerance = 0.0
+    vm = VertexOnlyMesh(m, coords)
     assert vm.cell_set.size == 0
 
 
@@ -235,3 +244,72 @@ def test_missing_points_behaviour(parentmesh):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
+
+
+def test_outside_boundary_behaviour(parentmesh):
+    """
+    Generate points just outside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just outside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is too small to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0
+    # Tolerance is large enough to pick up point - note that we need to go up
+    # by 2 orders of magnitude for this to work consistently
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+
+
+@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+def test_partition_behaviour_2d_2procs():
+    test_partition_behaviour()
+
+
+@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
+def test_partition_behaviour_2d_3procs():
+    test_partition_behaviour()
+
+
+def test_partition_behaviour():
+    parentmesh = UnitSquareMesh(1, 1)
+    inputcoords = [[0.0-1e-15, 0.5],
+                   [0.5, 0.0-1e-15],
+                   [0.5, 1.0+1e-15],
+                   [1.0+1e-15, 0.5],
+                   [0.5, 0.5],
+                   [0.5, 0.5],
+                   [0.5+1e-15, 0.5],
+                   [0.5, 0.5+1e-15]]
+    npts = len(inputcoords)
+    # Check that we get all the points with a big enough tolerance
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13, missing_points_behaviour='error')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
+    # Check that we lose all but the last 4 points with a small tolerance
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-16, missing_points_behaviour='warn')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
+
+
+def test_inside_boundary_behaviour(parentmesh):
+    """
+    Generate points just inside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just inside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is large enough to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+    # Tolerance might be too small to pick up point, but it's not deterministic
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0 or vm.cell_set.size == 1

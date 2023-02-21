@@ -455,15 +455,23 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name):
+    def __init__(self, name, tolerance=1.0):
         """Initialise an abstract mesh topology.
 
         :arg name: name of the mesh
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Defaults to 1.0. Note that
+            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            rectilinear distance) so will scale with the dimension of the mesh.
         """
 
         utils._init()
 
         self.name = name
+        if not isinstance(tolerance, numbers.Number):
+            raise TypeError("tolerance must be a number")
+        self._tolerance = tolerance
 
         self.topology_dm = None
         r"The PETSc DM representation of the mesh topology."
@@ -782,12 +790,23 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
+    @property
+    def tolerance(self):
+        """The relative tolerance (i.e. as defined on the reference cell) for
+        the distance a point can be from a cell and still be considered to be
+        in the cell.
+
+        Should always be set via the ``MeshGeometry.tolerance`` to ensure
+        the spatial index is updated as necessary.
+        """
+        return self._tolerance
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
         """Half-initialise a mesh topology.
 
         :arg plex: :class:`DMPlex` representing the mesh topology
@@ -807,9 +826,15 @@ class MeshTopology(AbstractMeshTopology):
             if `None`, automatically generated.
         :kwarg permutation_name: name of the entity permutation (reordering);
             if `None`, automatically generated.
+        :kwarg comm: MPI communicator
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Default is 1.0. Note that
+            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            rectilinear distance) so will scale with the dimension of the mesh.
         """
 
-        super().__init__(name)
+        super().__init__(name, tolerance=tolerance)
 
         self._distribution_parameters = distribution_parameters.copy()
         # Do some validation of the input mesh
@@ -1185,13 +1210,20 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, name=None):
+    def __init__(self, mesh, layers, name=None, tolerance=1.0):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         :arg name:           optional name of the extruded mesh topology.
+        :kwarg tolerance:    The relative tolerance (i.e. as defined on the
+                             reference cell) for the distance a point can be
+                             from a cell and still be considered to be in the
+                             cell. Default is 1.0. Note that this tolerance
+                             uses an L1 distance (aka 'manhatten', 'taxicab' or
+                             rectilinear distance) so will scale with the
+                             dimension of the mesh.
         """
 
         # TODO: refactor to call super().__init__
@@ -1212,6 +1244,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
+        self._tolerance = tolerance
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -1390,7 +1423,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder):
+    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
         """
         Half-initialise a mesh topology.
 
@@ -1401,9 +1434,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
+        :tolerance: The relative tolerance (i.e. as defined on the
+            reference cell) for the distance a point can be from a cell and
+            still be considered to be in the cell. Defaults to 1.0.
         """
 
-        super().__init__(name)
+        super().__init__(name, tolerance=tolerance)
 
         # TODO: As a performance optimisation, we should renumber the
         # swarm to in parent-cell order so that we traverse efficiently.
@@ -1783,6 +1819,40 @@ values from f.)"""
         except AttributeError:
             pass
 
+    @property
+    def tolerance(self):
+        """The relative tolerance (i.e. as defined on the reference cell) for
+        the distance a point can be from a cell and still be considered to be
+        in the cell.
+
+        Increase this if points at mesh boundaries (either rank local or
+        global) are reported as being outside the mesh, for example when
+        creating a :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so will
+        scale with the dimension of the mesh.
+
+        If this property is not set (i.e. set to ``None``) no tolerance is
+        added to the bounding box and points deemed at all outside the mesh,
+        even by floating point error distances, will be deemed to be outside
+        it.
+
+        Notes
+        -----
+        Modifying this property will modify the ``MeshTopology.tolerance``
+        property of the underlying mesh topology. Furthermore, after changing
+        it any requests for :attr:`spatial_index` will cause the spatial index
+        to be rebuilt with the new tolerance which may take some time.
+        """
+        return self.topology.tolerance
+
+    @tolerance.setter
+    def tolerance(self, value):
+        if not isinstance(value, numbers.Number):
+            raise TypeError("tolerance must be a number")
+        if value != self.topology.tolerance:
+            self.clear_spatial_index()
+            self.topology._tolerance = value
+
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
 
@@ -1795,7 +1865,17 @@ values from f.)"""
 
     @utils.cached_property
     def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point."""
+        """Spatial index to quickly find which cell contains a given point.
+
+        Notes
+        -----
+
+        If this mesh has a :attr:`tolerance` property, which
+        should be a float, this tolerance is added to the extrama of the
+        spatial index so that points just outside the mesh, within tolerance,
+        can be found.
+
+        """
 
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
@@ -1843,6 +1923,13 @@ values from f.)"""
         coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
+        # Push max and min out so we can find points on the boundary within
+        # tolerance. Note that if tolerance is too small it might not actually
+        # change the value!
+        if hasattr(self, "tolerance") and self.tolerance is not None:
+            coords_min -= self.tolerance
+            coords_max += self.tolerance
+
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
@@ -1851,8 +1938,10 @@ values from f.)"""
         """Locate cell containing a given point.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`tolerance` property. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: cell number (int), or None (if the point is not
             in the domain)
         """
@@ -1863,8 +1952,10 @@ values from f.)"""
         cell the point is in can be queried with the locate_cell method.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`tolerance` property. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: reference coordinates within cell (numpy array) or
             None (if the point is not in the domain)
         """
@@ -1875,16 +1966,20 @@ values from f.)"""
         coordinates of the point within the cell.
 
         :arg x: point coordinates
-        :kwarg tolerance: for checking if a point is in a cell. Default
-            is None.
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:` property. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
         :returns: tuple either (cell number, reference coordinates)
             (int, numpy array), or (None, None) (point is not in the domain)
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
+        if tolerance is None:
+            tolerance = self.tolerance
+        else:
+            self.tolerance = tolerance
         x = np.asarray(x, dtype=utils.ScalarType)
-        if not np.allclose(x.imag, 0):
-            raise ValueError("Point coordinates must have zero imaginary part")
         x = x.real.copy()
         if x.size != self.geometric_dimension():
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
@@ -1911,10 +2006,12 @@ values from f.)"""
             src += """
     int locator(struct Function *f, double *x, double *X)
     {
-        struct ReferenceCoords reference_coords;
-        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+        /* The type definitions and arguments used here are defined as
+           statics in pointquery_utils.py */
+        struct ReferenceCoords temp_reference_coords, found_reference_coords;
+        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords);
         for(int i=0; i<%(geometric_dimension)d; i++) {
-            X[i] = reference_coords.X[i];
+            X[i] = found_reference_coords.X[i];
         }
         return cell;
     }
@@ -2068,6 +2165,15 @@ def Mesh(meshfile, **kwargs):
            If ``meshfile`` is a DMPlex object then must be indentical
            to or congruent with the DMPlex communicator.
 
+    :param tolerance: The relative tolerance (i.e. as defined on the reference
+           cell) for the distance a point can be from a cell and still be
+           considered to be in the cell. Defaults to 1.0. Increase
+           this if point at mesh boundaries (either rank local or global) are
+           reported as being outside the mesh, for example when creating a
+           :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
+           distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+           will scale with the dimension of the mesh.
+
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
     filename extension):
@@ -2112,6 +2218,8 @@ def Mesh(meshfile, **kwargs):
     if coordinates is not None:
         return make_mesh_from_coordinates(coordinates, name)
 
+    tolerance = kwargs.get("tolerance", 1.0)
+
     utils._init()
 
     # We don't need to worry about using a user comm in these cases as
@@ -2147,12 +2255,12 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
-                            comm=user_comm)
+                            comm=user_comm, tolerance=tolerance)
     return make_mesh_from_mesh_topology(topology, name)
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None, tolerance=1.0):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -2180,6 +2288,13 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                          resulting mesh (this is only used if a
                          custom kernel is provided)
     :arg name:           optional name for the extruded mesh.
+    :kwarg tolerance:    The relative tolerance (i.e. as defined on the
+                         reference cell) for the distance a point can be from a
+                         cell and still be considered to be in the cell.
+                         Default is 1.0. Note that this tolerance uses an L1
+                         distance (aka 'manhatten', 'taxicab' or rectilinear
+                         distance) so will scale with the dimension of the
+                         mesh.
 
     The various values of ``extrusion_type`` have the following meanings:
 
@@ -2245,7 +2360,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # layer_height is a scalar; equi-distant layers are fine
         pass
 
-    topology = ExtrudedMeshTopology(mesh.topology, layers)
+    topology = ExtrudedMeshTopology(mesh.topology, layers, tolerance=tolerance)
 
     if extrusion_type == "uniform":
         pass
@@ -2292,7 +2407,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 @PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
-                   tolerance=1.0e-14, redundant=True):
+                   tolerance=None, redundant=True):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
     by a list of coordinates.
@@ -2306,11 +2421,14 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
         that they have the same list of vertices (else the test is not
         possible): this operation scales with number of vertices and number of
         ranks.
-    :kwarg tolerance: the amount by which the local coordinates of a point are
-        allowed to fall outside the cell while still having the point count as
-        in the cell. Increase the default (1.0e-14) somewhat if vertices
-        interior to the domain are being lost in the :class:`VertexOnlyMesh`
-        construction process.
+    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
+        cell) for the distance a point can be from a mesh cell and still be
+        considered to be in the cell. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's ``tolerance`` property. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
     :kwarg redundant: If True, the mesh will be built using just the vertices
         which are specified on rank 0. If False, the mesh will be built using
         the vertices specified by each rank. Care must be taken when using
@@ -2349,12 +2467,20 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
+    if tolerance is None:
+        tolerance = mesh.tolerance
+    else:
+        mesh.tolerance = tolerance
+
     mesh.init()
 
     vertexcoords = np.asarray(vertexcoords, dtype=np.double)
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
     _, pdim = vertexcoords.shape
+
+    if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
+        raise ValueError("Point coordinates must have zero imaginary part")
 
     if gdim != tdim:
         raise NotImplementedError("Immersed manifold meshes are not supported")
@@ -2474,10 +2600,14 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
         <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
-    :kwarg tolerance: The tolerance used by locate_cell when deciding which
-        cell each DMSwarm point is found. The default is None which can cause
-        problems if the DMSwarm points are at the boundary of two cells or just
-        outside the mesh.
+    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
+        cell) for the distance a point can be from a cell and still be
+        considered to be in the cell. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's ``tolerance`` property. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0. The default is True.
     :return: the immersed DMSwarm
@@ -2510,6 +2640,11 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         For more see `this github issue
         <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
     """
+
+    if tolerance is None:
+        tolerance = parent_mesh.tolerance
+    else:
+        parent_mesh.tolerance = tolerance
 
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
@@ -2658,7 +2793,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
 
     Vertices not located in cells owned by this rank are discarded.
     """
-    vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh)
+    vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh, tolerance)
 
     num_vertices = len(vertex_coords)
     max_num_vertices = parent_mesh._comm.allreduce(num_vertices, op=MPI.MAX)
@@ -2694,7 +2829,7 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
                 parent_cell_nums[i] = parent_cell_num
                 reference_coords[i] = reference_coord
         else:
-            parent_mesh.locate_cell(out_of_mesh_point)  # should return None
+            parent_mesh.locate_cell(out_of_mesh_point, tolerance)  # should return None
 
     vertex_coords = np.compress(valid, vertex_coords, axis=0)
     reference_coords = np.compress(valid, reference_coords, axis=0)
@@ -2703,10 +2838,10 @@ def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
     return vertex_coords, reference_coords, parent_cell_nums
 
 
-def _on_rank_vertices(vertex_coords, parent_mesh):
+def _on_rank_vertices(vertex_coords, parent_mesh, tolerance):
     """Discard those vertices that are definitely not on this MPI rank."""
-    bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf)
-    bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf)
+    bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf) - tolerance
+    bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf) + tolerance
     if len(vertex_coords) == 0:
         # Can skip the rest of the work if there are no vertices, but have to
         # make sure we ask for the bounding box minima and maxima on all ranks.
