@@ -183,7 +183,7 @@ def test_star_equivalence(problem_type, backend):
 
 def test_vanka_equivalence(problem_type):
     distribution_parameters = {"partition": True,
-                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
     if problem_type == "scalar":
         base = UnitSquareMesh(10, 10, distribution_parameters=distribution_parameters)
