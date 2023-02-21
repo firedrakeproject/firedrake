@@ -3,6 +3,7 @@ import operator
 
 import numpy as np
 from pyadjoint.tape import annotate_tape
+from pyop2.op2 import compute_backend, cpu_backend
 from pyop2.utils import cached_property
 import pytools
 import ufl
@@ -199,15 +200,78 @@ class Assigner:
 
     # TODO: It would be more efficient in permissible cases to use VecMAXPY instead of numpy operations.
     def _assign_single_dat(self, assignee_dat, function_dats):
-        assignee_dat.data_with_halos[self._indices] = self._compute_rvalue(function_dats)
+        if compute_backend is cpu_backend:
+            # Non-contiguous indexing is fine on CPU
+            assignee_dat.data_with_halos[self._indices] = self._compute_rvalue(function_dats)
+        else:
+            # ~ breakpoint()
+            import pycuda.driver as cudadrv
+            import pycuda.autoprimaryctx
+            temp = self._compute_rvalue(function_dats)
+            if temp.shape != self._indices.shape:
+                # If it's a scalar fill the array
+                for idx in self._indices:
+                    cudadrv.memcpy_dtod_async(
+                        int(assignee_dat.data_with_halos[idx].gpudata),
+                        temp[0].gpudata,
+                        1
+                    )
+                    # Should be equivalent to:
+                    # assignee_dat.data_with_halos[idx] = temp[0]
+                    # But for some reason assignee_dat.data_with_halos[idx].gpudata
+                    # is an np.int64() not an int()
+            else:
+                for idx in self._indices:
+                    cudadrv.memcpy_dtod_async(
+                        int(assignee_dat.data_with_halos[idx].gpudata),
+                        int(temp[idx].gpudata),
+                        1
+                    )
+                    # assignee_dat.data_with_halos[np.int64(idx)] = temp[np.int64(idx)]
+            pycuda.autoprimaryctx.context.synchronize()
 
     def _compute_rvalue(self, function_dats=()):
         # There are two components to the rvalue: weighted functions (in the same function space),
         # and constants (e.g. u.assign(2*v + 3)).
-        func_data = np.array([f.data_ro_with_halos[self._indices] for f in function_dats])
-        func_rvalue = (func_data.T @ self._function_weights).T
-        const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
-        const_rvalue = const_data.T @ self._constant_weights
+        # Conditional to work around https://github.com/inducer/pycuda/issues/373
+        if compute_backend is cpu_backend:
+            # Non-contiguous indexing is fine on CPU
+            func_data = np.array([f.data_ro_with_halos[self._indices] for f in function_dats])
+            func_rvalue = (func_data.T @ self._function_weights).T
+            const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
+            const_rvalue = const_data.T @ self._constant_weights
+        else:
+            import pycuda.driver as cudadrv
+            import pycuda.autoprimaryctx
+            if function_dats:
+                shape = function_dats[0].data_ro_with_halos.shape
+                dtype = function_dats[0].data_ro_with_halos.dtype
+                if isinstance(self._indices, type(Ellipsis)):
+                    func_rvalue = compute_backend.zeros(shape, ScalarType)
+                    for w, f in zip(self._function_weights, function_dats):
+                        func_rvalue += w*f.data_ro_with_halos[:]
+                else:
+                    func_rvalue = compute_backend.zeros(shape, ScalarType)
+                    temp = compute_backend.zeros(shape, ScalarType)
+                    for w, f in zip(self._function_weights, function_dats):
+                        for idx in self._indices:
+                            cudadrv.memcpy_dtod_async(
+                                int(temp[idx].gpudata),
+                                int(f.data_ro_with_halos[idx].gpudata),
+                                1
+                            )
+                        func_rvalue += w*temp
+            else:
+                func_rvalue = 0
+
+            if self._constants:
+                shape = self._constants[0].dat.data_ro.shape
+                const_rvalue = compute_backend.zeros(shape, ScalarType)
+                for w, c in zip(self._constant_weights, self._constants):
+                    const_rvalue += w * c.dat.data_ro
+            else:
+                const_rvalue = 0
+            pycuda.autoprimaryctx.context.synchronize()
         return func_rvalue + const_rvalue
 
     @cached_property
