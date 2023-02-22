@@ -31,7 +31,7 @@ from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
-           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME']
+           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology']
 
 
 _cells = {
