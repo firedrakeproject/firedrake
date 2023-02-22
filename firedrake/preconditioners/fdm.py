@@ -248,17 +248,18 @@ class FDMPC(PCBase):
 
         # get coefficients on a given cell
         coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
-        coefs = [coefficients.get(k) for k in ("beta", "alpha")]
-        coef_maps = [glonum_fun(ck.cell_node_map())[0] for ck in coefs]
+        coeffs = [coefficients.get(k) for k in ("beta", "alpha")]
+        cmaps = [glonum_fun(ck.cell_node_map())[0] for ck in coeffs]
 
-        def get_coefs(e, result=None):
+        @PETSc.Log.EventDecorator("FDMGetCoeffs")
+        def get_coeffs(e, result=None):
             vals = []
-            for k in range(len(coefs)):
-                get_coefs.indices[k] = coef_maps[k](e, result=get_coefs.indices[k])
-                vals.append(coefs[k].dat.data_ro[get_coefs.indices[k]])
+            for k, (coeff, cmap) in enumerate(zip(coeffs, cmaps)):
+                get_coeffs.indices[k] = cmap(e, result=get_coeffs.indices[k])
+                vals.append(coeff.dat.data_ro[get_coeffs.indices[k]])
             return numpy.concatenate(vals, out=result)
-        get_coefs.indices = [None for _ in range(len(coefs))]
-        self.get_coefs = get_coefs
+        get_coeffs.indices = [None for _ in range(len(coeffs))]
+        self.get_coeffs = get_coeffs
 
         self.nel = nel
         self.work_mats = dict()
@@ -421,15 +422,15 @@ class FDMPC(PCBase):
                 rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
 
-                data = self.get_coefs(e, result=data)
-                De.setValuesCSR(*self.work_csr)
+                data = self.get_coeffs(e, result=data)
+                De.setValuesCSR(*self.work_csr, addv=PETSc.InsertMode.INSERT)
                 De.assemble()
                 Ae = assemble_element_mat(De, result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
 
         elif self.nel:
             if common_key not in self.work_mats:
-                data = self.get_coefs(0)
+                data = self.get_coeffs(0)
                 data.fill(1.0E0)
                 shape = data.shape + (1,)*(3-len(data.shape))
                 nrows = shape[0] * shape[1]

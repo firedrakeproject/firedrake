@@ -1284,19 +1284,16 @@ class StandaloneInterpolationMatrix(object):
 
     @cached_property
     def _weight(self):
-        # Lawrence's magic code for calculating dof multiplicities
         weight = firedrake.Function(self.Vf)
-        shapes = (self.Vf.finat_element.space_dimension(),
-                  numpy.prod(self.Vf.shape))
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
+        size = self.Vf.finat_element.space_dimension() * self.Vf.value_size
+        kernel_code = f"""
+        void weight(PetscScalar *restrict w){{
+            for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
+            return;
+        }}
         """
-        firedrake.par_loop((domain, instructions),
-                           firedrake.dx, {"w": (weight, op2.INC)},
-                           is_loopy_kernel=True)
+        kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
+        op2.par_loop(kernel, weight.cell_set, weight.dat(op2.INC, weight.cell_node_map()))
         with weight.dat.vec as w:
             w.reciprocal()
         return weight
@@ -1307,23 +1304,22 @@ class StandaloneInterpolationMatrix(object):
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            weighted_prolong = True
+            prolong_args = [prolong_kernel, self.uf.cell_set,
+                            self.uf.dat(op2.INC, uf_map),
+                            self.uc.dat(op2.READ, uc_map),
+                            self._weight.dat(op2.READ, uf_map)]
         except ValueError:
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
-            weighted_prolong = False
+            prolong_args = [prolong_kernel, self.uf.cell_set,
+                            self.uf.dat(op2.WRITE, uf_map),
+                            self.uc.dat(op2.READ, uc_map)]
 
-        weight_arg = self._weight.dat(op2.READ, uf_map)
         restrict_args = [restrict_kernel, self.uf.cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
-                         weight_arg]
-        prolong_args = [prolong_kernel, self.uf.cell_set,
-                        self.uf.dat(op2.WRITE, uf_map),
-                        self.uc.dat(op2.READ, uc_map)]
-        if weighted_prolong:
-            prolong_args.append(weight_arg)
+                         self._weight.dat(op2.READ, uf_map)]
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
         prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
@@ -1340,7 +1336,7 @@ class StandaloneInterpolationMatrix(object):
 
     def getInfo(self, mat, info=None):
         from mpi4py import MPI
-        memory = self.uf.dat.nbytes + self.uc.dat.nbytes + self.weight.dat.nbytes
+        memory = self.uf.dat.nbytes + self.uc.dat.nbytes + self._weight.dat.nbytes
         if info is None:
             info = PETSc.Mat.InfoType.GLOBAL_SUM
         if info == PETSc.Mat.InfoType.LOCAL:
