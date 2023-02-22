@@ -456,9 +456,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             c_function.extruded = 0
             c_function.n_layers = 1
-        c_function.coords = coordinates.dat.data.ctypes.data_as(c_void_p)
+        c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
