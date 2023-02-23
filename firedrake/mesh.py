@@ -30,8 +30,12 @@ from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
-           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
+__all__ = [
+    'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
+    'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
+    'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
+    'AbstractMeshTopology', 'ExtrudedMeshTopology'
+]
 
 
 _cells = {
@@ -810,7 +814,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         the distance a point can be from a cell and still be considered to be
         in the cell.
 
-        Should always be set via the ``MeshGeometry.tolerance`` to ensure
+        Should always be set via :attr:`MeshGeometry.tolerance` to ensure
         the spatial index is updated as necessary.
         """
         return self._tolerance
@@ -1921,7 +1925,7 @@ values from f.)"""
 
         Notes
         -----
-        Modifying this property will modify the ``MeshTopology.tolerance``
+        Modifying this property will modify the :attr:`AbstractMeshTopology.tolerance`
         property of the underlying mesh topology. Furthermore, after changing
         it any requests for :attr:`spatial_index` will cause the spatial index
         to be rebuilt with the new tolerance which may take some time.
@@ -2289,7 +2293,8 @@ def Mesh(meshfile, **kwargs):
     * CGNS: with extension `.cgns`
     * Triangle: with extension `.node`
     * HDF5: with extension `.h5`, `.hdf5`
-      (Can only load HDF5 files created by ``MeshGeometry.save`` method.)
+      (Can only load HDF5 files created by
+      :meth:`~.CheckpointFile.save_mesh` method.)
 
     .. note::
 
