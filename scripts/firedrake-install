@@ -761,8 +761,11 @@ def get_petsc_options(minimal=False):
 
     if options["with_exodusii"]:
         petsc_options.add("--download-exodusii")
+        # Exodus dependencies
         petsc_options.add("--download-netcdf")
         petsc_options.add("--download-pnetcdf")
+        # NetCDF dependencies
+        petsc_options.add("--download-zlib")
 
     if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
