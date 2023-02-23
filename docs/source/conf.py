@@ -278,7 +278,9 @@ latex_elements = {
 
     'maketitle': r'\sphinxpoptitlepages',
 
-    'makeindex': r'\usepackage[columns=1]{idxlayout}\makeindex'
+    'makeindex': r'\usepackage[columns=1]{idxlayout}\makeindex',
+
+    'maxlistdepth' : '8'
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
