@@ -3,7 +3,7 @@ Creating Firedrake-compatible meshes in Cubit
 
 The purpose of this demo is to summarize the use of Coreform Cubit 
 --- the commercial distribution of the CUBIT software that is developed by 
-Sandia National Laboratories (see `Sandia's CUBIT webpage <cubit.sandia.gov>`_ for more information) 
+Sandia National Laboratories (see `Sandia's CUBIT webpage <https://cubit.sandia.gov>`_ for more information) 
 --- for creating a Firedrake-compatible mesh using the Exodus format. 
 For more details about Coreform Cubit, please refer to the 
 `Coreform Cubit documentation documentation <https://coreform.com/products/coreform-cubit/documentation/>`_.
