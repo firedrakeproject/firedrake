@@ -31,7 +31,7 @@ from firedrake.adjoint import MeshGeometryMixin
 
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
-           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology']
+           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
 
 
 _cells = {
@@ -597,8 +597,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         the FInAT (FIAT) reference cell and each entity of the FInAT (FIAT)
         reference cell has a canonical representation based on the entity ids of
         the lower dimensional entities.) Orientations of vertices are always 0.
-        See :class:`FIAT.reference_element.Simplex` and
-        :class:`FIAT.reference_element.UFCQuadrilateral` for example computations
+        See ``FIAT.reference_element.Simplex`` and
+        ``FIAT.reference_element.UFCQuadrilateral`` for example computations
         of orientations.
         """
         pass
@@ -620,7 +620,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def cell_to_facets(self):
-        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -679,7 +679,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
 
-        Use :func:`init_cell_orientations` on the mesh *geometry* to initialise."""
+        Use :meth:`.init_cell_orientations` on the mesh *geometry* to initialise."""
         if not hasattr(self, '_cell_orientations'):
             raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
@@ -741,7 +741,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.Subset` for iteration.
+         :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
         if subdomain_id == "everywhere":
             return self.cell_set
@@ -787,7 +787,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
              subdomains 1 and 2.  This should be a dict mapping
              ``integral_type`` to the explicitly enumerated subdomain ids.
 
-         :returns: A :class:`pyop2.Subset` for iteration.
+         :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
         if all_integer_subdomain_ids is not None:
             all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
@@ -839,16 +839,16 @@ class MeshTopology(AbstractMeshTopology):
     def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
         """Half-initialise a mesh topology.
 
-        :arg plex: :class:`DMPlex` representing the mesh topology
+        :arg plex: PETSc DMPlex representing the mesh topology
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`Mesh` for details.
-        :kwarg sfXB: :class:`PetscSF` that pushes forward the global point number
+        :kwarg sfXB: PETSc PetscSF that pushes forward the global point number
             slab :math:`[0, NX)` to input (naive) plex (only significant when
             the mesh topology is loaded from file and only passed from inside
             :class:`~.CheckpointFile`).
-        :kwarg perm_is: :class:`IS` that is used as `_plex_renumbering`; only
+        :kwarg perm_is: PETSc IS that is used as `_plex_renumbering`; only
             makes sense if we know the exact parallel distribution of `plex`
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, `reorder` param will be ignored.
@@ -1132,7 +1132,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def cell_to_facets(self):
-        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -1641,7 +1641,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
@@ -1660,7 +1660,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
@@ -1681,7 +1681,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
@@ -2105,7 +2105,7 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
-        """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
+        """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
         :arg expr: a UFL expression evaluated to produce a
              reference normal direction.
