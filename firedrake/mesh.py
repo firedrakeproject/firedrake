@@ -6,6 +6,7 @@ import ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
+from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
 import enum
 import numbers
@@ -29,8 +30,8 @@ from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'SubDomainData', 'unmarked',
-           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME']
+__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
+           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
 
 
 _cells = {
@@ -115,11 +116,11 @@ class _Facets(object):
        The unique_markers argument **must** be the same on all processes."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
+    def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number,
                  unique_markers=None):
 
         self.mesh = mesh
-
+        self.facets = facets
         classes = as_tuple(classes, int, 3)
         self.classes = classes
 
@@ -143,12 +144,6 @@ class _Facets(object):
                                        "%s_%s_local_facet_number" %
                                        (self.mesh.name, self.kind))
 
-        # assert that markers is a proper subset of unique_markers
-        if markers is not None:
-            assert set(markers) <= set(unique_markers).union([unmarked]), \
-                "Every marker has to be contained in unique_markers"
-
-        self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
@@ -208,11 +203,8 @@ class _Facets(object):
             try:
                 return self._subsets[key]
             except KeyError:
-                ids = [np.where(self.markers == sid)[0]
-                       for sid in all_integer_subdomain_ids]
-                to_remove = np.unique(np.concatenate(ids))
-                indices = np.arange(self.set.total_size, dtype=np.int32)
-                indices = np.delete(indices, to_remove)
+                unmarked_points = self._collect_unmarked_points(all_integer_subdomain_ids)
+                _, indices, _ = np.intersect1d(self.facets, unmarked_points, return_indices=True)
                 return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
@@ -226,8 +218,6 @@ class _Facets(object):
         """
         valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, numbers.Integral)
-        if self.markers is None and valid_markers.intersection(markers):
-            return self._null_subset
         try:
             return self._subsets[markers]
         except KeyError:
@@ -238,9 +228,33 @@ class _Facets(object):
 
             # build a list of indices corresponding to the subsets selected by
             # markers
-            indices = np.concatenate([np.nonzero(self.markers == i)[0]
-                                      for i in markers])
-            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            marked_points_list = []
+            for i in markers:
+                if i == unmarked:
+                    _markers = self.mesh.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+                    # Can exclude points labeled with i\in markers here,
+                    # as they will be included in the below anyway.
+                    marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
+                else:
+                    if self.mesh.topology_dm.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+                        marked_points_list.append(self.mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+            if marked_points_list:
+                _, indices, _ = np.intersect1d(self.facets, np.concatenate(marked_points_list), return_indices=True)
+                return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
+            else:
+                return self._subsets.setdefault(markers, self._null_subset)
+
+    def _collect_unmarked_points(self, markers):
+        """Collect points that are not marked by markers."""
+        plex = self.mesh.topology_dm
+        indices_list = []
+        for i in markers:
+            if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+                indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+        if indices_list:
+            return np.setdiff1d(self.facets, np.concatenate(indices_list))
+        else:
+            return self.facets
 
     @utils.cached_property
     def facet_cell_map(self):
@@ -583,8 +597,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         the FInAT (FIAT) reference cell and each entity of the FInAT (FIAT)
         reference cell has a canonical representation based on the entity ids of
         the lower dimensional entities.) Orientations of vertices are always 0.
-        See :class:`FIAT.reference_element.Simplex` and
-        :class:`FIAT.reference_element.UFCQuadrilateral` for example computations
+        See ``FIAT.reference_element.Simplex`` and
+        ``FIAT.reference_element.UFCQuadrilateral`` for example computations
         of orientations.
         """
         pass
@@ -606,7 +620,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def cell_to_facets(self):
-        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -665,7 +679,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
 
-        Use :func:`init_cell_orientations` on the mesh *geometry* to initialise."""
+        Use :meth:`.init_cell_orientations` on the mesh *geometry* to initialise."""
         if not hasattr(self, '_cell_orientations'):
             raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
@@ -727,7 +741,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.Subset` for iteration.
+         :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
         if subdomain_id == "everywhere":
             return self.cell_set
@@ -773,7 +787,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
              subdomains 1 and 2.  This should be a dict mapping
              ``integral_type`` to the explicitly enumerated subdomain ids.
 
-         :returns: A :class:`pyop2.Subset` for iteration.
+         :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
         if all_integer_subdomain_ids is not None:
             all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
@@ -801,6 +815,22 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         return self._tolerance
 
+    @abc.abstractmethod
+    def mark_entities(self, tf, label_name, label_value):
+        """Mark selected entities.
+
+        :arg tf: The :class:`.CoordinatelessFunction` object that marks
+            selected entities as 1. f.function_space().ufl_element()
+            must be "DP" or "DQ" (degree 0) to mark cell entities and
+            "HDiv Trace " (degree 0) to mark facet entities.
+        :arg label_name: The name of the label to store entity selections.
+        :arg lable_value: The value used in the label.
+
+        All entities must live on the same topological dimension. Currently,
+        one can only mark cell or facet entities.
+        """
+        pass
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -809,16 +839,16 @@ class MeshTopology(AbstractMeshTopology):
     def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
         """Half-initialise a mesh topology.
 
-        :arg plex: :class:`DMPlex` representing the mesh topology
+        :arg plex: PETSc DMPlex representing the mesh topology
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribution_parameters: options controlling mesh
             distribution, see :func:`Mesh` for details.
-        :kwarg sfXB: :class:`PetscSF` that pushes forward the global point number
+        :kwarg sfXB: PETSc PetscSF that pushes forward the global point number
             slab :math:`[0, NX)` to input (naive) plex (only significant when
             the mesh topology is loaded from file and only passed from inside
             :class:`~.CheckpointFile`).
-        :kwarg perm_is: :class:`IS` that is used as `_plex_renumbering`; only
+        :kwarg perm_is: PETSc IS that is used as `_plex_renumbering`; only
             makes sense if we know the exact parallel distribution of `plex`
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, `reorder` param will be ignored.
@@ -1066,7 +1096,6 @@ class MeshTopology(AbstractMeshTopology):
         label = dmcommon.FACE_SETS_LABEL
         if dm.hasLabel(label):
             from mpi4py import MPI
-            markers = dmcommon.get_facet_markers(dm, facets)
             local_markers = set(dm.getLabelIdIS(label).indices)
 
             def merge_ids(x, y, datatype):
@@ -1078,7 +1107,6 @@ class MeshTopology(AbstractMeshTopology):
                                         dtype=IntType)
             op.Free()
         else:
-            markers = None
             unique_markers = None
 
         local_facet_number, facet_cell = \
@@ -1088,9 +1116,9 @@ class MeshTopology(AbstractMeshTopology):
 
         point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
-        obj = _Facets(self, classes, kind,
+        obj = _Facets(self, facets, classes, kind,
                       facet_cell, local_facet_number,
-                      markers, unique_markers=unique_markers)
+                      unique_markers=unique_markers)
         obj.point2facetnumber = point2facetnumber
         return obj
 
@@ -1104,7 +1132,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def cell_to_facets(self):
-        """Returns a :class:`op2.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -1205,6 +1233,45 @@ class MeshTopology(AbstractMeshTopology):
         """Get partitioner actually used for (re)distributing underlying plex over comm."""
         return self.topology_dm.getPartitioner()
 
+    def mark_entities(self, tf, label_name, label_value):
+        import firedrake.function as function
+
+        if label_name in (dmcommon.CELL_SETS_LABEL,
+                          dmcommon.FACE_SETS_LABEL,
+                          "Vertex Sets",
+                          "depth",
+                          "celltype",
+                          "ghost",
+                          "exterior_facets",
+                          "interior_facets",
+                          "pyop2_core",
+                          "pyop2_owned",
+                          "pyop2_ghost"):
+            raise ValueError(f"Label name {label_name} is reserved")
+        if not isinstance(tf, function.CoordinatelessFunction):
+            raise TypeError(f"tf must be an instance of CoordinatelessFunction: {type(tf)} is not CoordinatelessFunction")
+        tV = tf.function_space()
+        elem = tV.ufl_element()
+        if tV.mesh() is not self:
+            raise RuntimeError(f"tf must be defined on {self}: {tf.mesh()} is not {self}")
+        if elem.value_shape() != ():
+            raise RuntimeError(f"tf must be scalar: {elem.value_shape()} != ()")
+        if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
+            # cells
+            height = 0
+        elif elem.family() == "HDiv Trace" and elem.degree() == 0:
+            # facets
+            height = 1
+        else:
+            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'HDiv Trace' (degree 0) to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
+        plex = self.topology_dm
+        if not plex.hasLabel(label_name):
+            plex.createLabel(label_name)
+        label = plex.getLabel(label_name)
+        section = tV.dm.getSection()
+        array = tf.dat.data_ro_with_halos.real.astype(IntType)
+        dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -1294,11 +1361,10 @@ class ExtrudedMeshTopology(MeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
         base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _Facets(self, base.classes,
+        return _Facets(self, base.facets, base.classes,
                        kind,
                        base.facet_cell,
                        base.local_facet_dat.data_ro_with_halos,
-                       markers=base.markers,
                        unique_markers=base.unique_markers)
 
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
@@ -1412,6 +1478,9 @@ class ExtrudedMeshTopology(MeshTopology):
     @property
     def _permutation_name(self):
         return self._base_mesh._permutation_name
+
+    def mark_entities(self, tf, label_name, label_value):
+        raise NotImplementedError("Currently not implemented for ExtrudedMesh")
 
 
 # TODO: Could this be merged with MeshTopology given that dmcommon.pyx
@@ -1572,7 +1641,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
@@ -1591,7 +1660,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
@@ -1612,13 +1681,16 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
-        """Return the :class:`pyop2.Map` from vertex only mesh cells to
+        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_extrusion_height_list, "cell_parent_extrusion_height")
+
+    def mark_entities(self, tf, label_name, label_value):
+        raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
 
 class MeshGeometryCargo:
@@ -2033,7 +2105,7 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
-        """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
+        """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
         :arg expr: a UFL expression evaluated to produce a
              reference normal direction.
@@ -2074,6 +2146,21 @@ values from f.)"""
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
+
+    def mark_entities(self, f, label_name, label_value):
+        """Mark selected entities.
+
+        :arg f: The :class:`.Function` object that marks
+            selected entities as 1. f.function_space().ufl_element()
+            must be "DP" or "DQ" (degree 0) to mark cell entities and
+            "HDiv Trace " (degree 0) to mark facet entities.
+        :arg label_name: The name of the label to store entity selections.
+        :arg lable_value: The value used in the label.
+
+        All entities must live on the same topological dimension. Currently,
+        one can only mark cell or facet entities.
+        """
+        self.topology.mark_entities(f.topological, label_name, label_value)
 
 
 @PETSc.Log.EventDecorator()
@@ -2855,6 +2942,89 @@ def _on_rank_vertices(vertex_coords, parent_mesh, tolerance):
         | (vertex_coords > bounding_box_min).all(axis=1)
 
     return np.compress(on_rank, vertex_coords, axis=0)
+
+
+def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
+    """Construct a new mesh that has new subdomain ids.
+
+    :arg mesh: base :class:`~.MeshGeometry` object using which the
+        new one is constructed.
+    :arg indicator_functions: list of indicator functions that mark
+        selected entities (cells or facets) as 1; must use
+        "DP"/"DQ" (degree 0) functions to mark cell entities and
+        "HDiv Trace" (degree 0) functions to mark facet entities.
+    :arg subdomain_ids: list of subdomain ids associated with
+        the indicator functions in indicator_functions; thus,
+        must have the same length as indicator_functions.
+    :kwarg name: optional name of the output mesh object.
+    """
+    import firedrake.function as function
+
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError(f"mesh must be a MeshGeometry, not a {type(mesh)}")
+    tmesh = mesh.topology
+    if isinstance(tmesh, VertexOnlyMeshTopology):
+        raise NotImplementedError("Currently does not work with VertexOnlyMesh")
+    elif isinstance(tmesh, ExtrudedMeshTopology):
+        raise NotImplementedError("Currently does not work with ExtrudedMesh; use RelabeledMesh() on the base mesh and then extrude")
+    if not isinstance(indicator_functions, Sequence) or \
+       not isinstance(subdomain_ids, Sequence):
+        raise ValueError("indicator_functions and subdomain_ids must be `list`s or `tuple`s of the same length")
+    if len(indicator_functions) != len(subdomain_ids):
+        raise ValueError("indicator_functions and subdomain_ids must be `list`s or `tuple`s of the same length")
+    if len(indicator_functions) == 0:
+        raise RuntimeError("At least one indicator function must be given")
+    for f in indicator_functions:
+        if not isinstance(f, function.Function):
+            raise TypeError(f"indicator functions must be instances of function.Function: got {type(f)}")
+        if f.function_space().mesh() is not mesh:
+            raise ValueError(f"indicator functions must be defined on {mesh}")
+    for subid in subdomain_ids:
+        if not isinstance(subid, numbers.Integral):
+            raise TypeError(f"subdomain id must be an integer: got {subid}")
+    name1 = kwargs.get("name", DEFAULT_MESH_NAME)
+    plex = tmesh.topology_dm
+    # Clone plex: plex1 will share topology with plex.
+    plex1 = plex.clone()
+    plex1.setName(_generate_default_mesh_topology_name(name1))
+    # Remove pyop2 labels.
+    plex1.removeLabel("pyop2_core")
+    plex1.removeLabel("pyop2_owned")
+    plex1.removeLabel("pyop2_ghost")
+    # Do not remove "exterior_facets" and "interior_facets" labels;
+    # those should be reused as the mesh has already been distributed (if size > 1).
+    for label_name in [dmcommon.CELL_SETS_LABEL, dmcommon.FACE_SETS_LABEL]:
+        if not plex1.hasLabel(label_name):
+            plex1.createLabel(label_name)
+    for f, subid in zip(indicator_functions, subdomain_ids):
+        elem = f.topological.function_space().ufl_element()
+        if elem.value_shape() != ():
+            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape()} != ()")
+        if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
+            # cells
+            height = 0
+            dmlabel_name = dmcommon.CELL_SETS_LABEL
+        elif elem.family() == "HDiv Trace" and elem.degree() == 0:
+            # facets
+            height = 1
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+        else:
+            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'HDiv Trace' (degree 0) to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
+        # Clear label stratum; this is a copy, so safe to change.
+        plex1.clearLabelStratum(dmlabel_name, subid)
+        dmlabel = plex1.getLabel(dmlabel_name)
+        section = f.topological.function_space().dm.getSection()
+        dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
+    distribution_parameters_noop = {"partition": False,
+                                    "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    reorder_noop = None
+    tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
+                          distribution_parameters=distribution_parameters_noop,
+                          perm_is=tmesh._plex_renumbering,
+                          distribution_name=tmesh._distribution_name,
+                          permutation_name=tmesh._permutation_name,
+                          comm=tmesh.comm)
+    return make_mesh_from_mesh_topology(tmesh1, name1)
 
 
 @PETSc.Log.EventDecorator()

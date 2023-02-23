@@ -18,7 +18,7 @@ from firedrake.adjoint import FunctionMixin
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Function', 'PointNotInDomainError']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
 
 
 class _CFunction(ctypes.Structure):
@@ -146,13 +146,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def cell_set(self):
-        r"""The :class:`pyop2.Set` of cells for the mesh on which this
+        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
         return self.function_space()._mesh.cell_set
 
     @property
     def node_set(self):
-        r"""A :class:`pyop2.Set` containing the nodes of this
+        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
         :class:`Function`. One or (for rank-1 and 2
         :class:`.FunctionSpace`\s) more degrees of freedom are stored
         at each node.
@@ -161,7 +161,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def dof_dset(self):
-        r"""A :class:`pyop2.DataSet` containing the degrees of freedom of
+        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
         this :class:`Function`."""
         return self.function_space().dof_dset
 
