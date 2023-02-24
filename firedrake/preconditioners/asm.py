@@ -143,8 +143,6 @@ class ASMPointPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the patches
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
-                                             default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -240,7 +238,6 @@ class ASMVankaPC(ASMPatchPC):
     ASMVankaPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the closure of the star of the mesh entity
     specified by `pc_vanka_construct_dim` (or codim).
-
     '''
 
     _prefix = "pc_vanka_"
