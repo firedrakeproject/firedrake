@@ -333,7 +333,7 @@ def test_point_equivalence(problem_type):
                         "mg_levels_ksp_max_it": 1,
                         "mg_levels_pc_type": "python",
                         "mg_levels_pc_python_type": "firedrake.ASMPointPC",
-                        "mg_levels_pc_vanka_construct_dim": 0,
+                        "mg_levels_pc_point_construct_dim": 0,
                         "mg_coarse_pc_type": "python",
                         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                         "mg_coarse_assembled_pc_type": "lu",
@@ -358,7 +358,7 @@ def test_point_equivalence(problem_type):
         base = UnitSquareMesh(2, 2, distribution_parameters=distribution_parameters)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
-        V = VectorFunctionSpace(mesh, "CG", 1)
+        V = VectorFunctionSpace(mesh, "CG", 2)
 
         u = Function(V)
         v = TestFunction(V)
@@ -377,9 +377,13 @@ def test_point_equivalence(problem_type):
                         "mg_levels_ksp_type": "richardson",
                         "mg_levels_ksp_richardson_scale": 3/10,
                         "mg_levels_ksp_max_it": 1,
-                        "mg_levels_pc_type": "python",
-                        "mg_levels_pc_python_type": "firedrake.ASMPointPC",
-                        "mg_levels_pc_vanka_construct_dim": 0,
+                        "mg_levels_pc_type": "composite",
+                        "mg_levels_pc_composite_type": "additive",
+                        "mg_levels_pc_composite_pcs": "python,python",
+                        "mg_levels_sub_0_pc_python_type": "firedrake.ASMPointPC",
+                        "mg_levels_sub_0_pc_point_construct_dim": 0,
+                        "mg_levels_sub_1_pc_python_type": "firedrake.ASMPointPC",
+                        "mg_levels_sub_1_pc_point_construct_dim": 1,
                         "mg_coarse_pc_type": "python",
                         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                         "mg_coarse_assembled_pc_type": "lu",
