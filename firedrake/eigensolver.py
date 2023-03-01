@@ -3,13 +3,13 @@ from firedrake import solving_utils
 from firedrake import utils
 import numpy as np
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.logging import warning
-try:
-    from slepc4py import SLEPc
-except ImportError:
-    import sys
-    warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-    sys.exit(0)
+# from firedrake.logging import warning
+# try:
+#     from slepc4py import SLEPc
+# except ImportError:
+#     import sys
+#     warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
+#     sys.exit(0)
 
 class LinearEigenproblem:
     def __init__(self, A, M=None, bcs=None):
@@ -123,27 +123,26 @@ class LinearEigensolver(OptionsManager):
 #     err = Lin_ES.errors(nconv)
 #     print(err)
 
-def tutorial():
-    mesh = UnitSquareMesh(10, 10)
-    Vcg  = FunctionSpace(mesh,'CG',3)
-    bc = DirichletBC(Vcg, 0.0, "on_boundary")
-    beta = Constant('1.0')
-    F    = Constant('1.0')
-    phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
-    a =  beta*phi*psi.dx(0)*dx
-    m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
-    eigenprob = LinearEigenproblem(a, m) # try with no m
+# def tutorial():
+#     mesh = UnitSquareMesh(10, 10)
+#     Vcg  = FunctionSpace(mesh,'CG',3)
+#     bc = DirichletBC(Vcg, 0.0, "on_boundary")
+#     beta = Constant('1.0')
+#     F    = Constant('1.0')
+#     phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
+#     a =  beta*phi*psi.dx(0)*dx
+#     m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
+#     eigenprob = LinearEigenproblem(a, m) # try with no m
 
-    eigensolver = LinearEigensolver(eigenprob, 1)
-    opts_dict = {"eps_gen_non_hermitian": None, 
-            "st_pc_factor_shift_type": "NONZERO",
-            "eps_type": "krylovschur",
-            "eps_largest_imaginary": None,
-            "eps_tol":1e-10}
-    eigensolver.set_from_options(opts_dict)
-    eigensolver.set_num_eigenvals(1)
-    eigensolver.solve()
-    evals = eigensolver.eigenvalues()
-    evecs = eigensolver.eigenfunctions(2)
-    print(evals)
-tutorial()
+#     eigensolver = LinearEigensolver(eigenprob, 1)
+#     opts_dict = {"eps_gen_non_hermitian": None, 
+#             "st_pc_factor_shift_type": "NONZERO",
+#             "eps_type": "krylovschur",
+#             "eps_largest_imaginary": None,
+#             "eps_tol":1e-10}
+#     eigensolver.set_from_options(opts_dict)
+#     eigensolver.set_num_eigenvals(1)
+#     eigensolver.solve()
+#     evals = eigensolver.eigenvalues()
+#     evecs = eigensolver.eigenfunctions(2)
+#     print(evals)
