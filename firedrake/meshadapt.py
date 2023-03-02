@@ -488,3 +488,20 @@ class MetricBasedAdaptor(AdaptorBase):
         raise NotImplementedError(
             "Consistent interpolation has not yet been implemented in parallel"
         )  # TODO
+
+
+def adapt(mesh, *metrics):
+    r"""
+    Adapt a mesh with respect to a metric and some adaptor parameters.
+
+    If multiple metrics are provided, then they are intersected.
+
+    :param mesh: :class:`~firedrake.mesh.MeshGeometry` to be adapted.
+    :param metrics: list of :class:`.RiemannianMetric`\s
+    :return: a new :class:`~firedrake.mesh.MeshGeometry`.
+    """
+    metric = metrics[0]
+    if len(metrics) > 1:
+        metric.intersect(*metrics[1:])
+    adaptor = MetricBasedAdaptor(mesh, metric)
+    return adaptor.adapted_mesh
