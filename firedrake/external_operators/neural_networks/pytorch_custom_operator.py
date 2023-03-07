@@ -33,7 +33,7 @@ class FiredrakeTorchOperator(torch_ad.Function):
         V = metadata['V_controls']
         # Convert PyTorch input (i.e. controls) to Firedrake
         ω_F = [backend.from_ml_backend(ωi, Vi) for ωi, Vi in zip(ω, V)]
-        # Forward operator: Delegated to pyadjoint.ReducedFunctional which recomputes the blocks on the tape
+        # Forward operator: delegated to pyadjoint.ReducedFunctional which recomputes the blocks on the tape
         y_F = F(ω_F)
         # Stash metadata to the PyTorch context
         ctx.metadata.update(metadata)
@@ -51,10 +51,10 @@ class FiredrakeTorchOperator(torch_ad.Function):
         if isinstance(adj_input, Function):
             adj_input = adj_input.vector()
 
-        # Compute adjoint model of `F`: Delegated to pyadjoint.ReducedFunctional
+        # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
         Δω = F.derivative(adj_input=adj_input)
 
-        # Tuplify
+        # Tuplify adjoint output
         Δω = (Δω,) if not isinstance(Δω, collections.abc.Sequence) else Δω
 
         # None is for metadata arg in `forward`

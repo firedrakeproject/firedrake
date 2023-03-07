@@ -1,3 +1,5 @@
+import numpy as np
+
 from firedrake.function import Function
 from firedrake.vector import Vector
 from firedrake.constant import Constant
@@ -76,7 +78,7 @@ class PytorchBackend(AbstractMLBackend):
         elif isinstance(x, Constant):
             return self.backend.tensor(x.values(), **kwargs)
         elif isinstance(x, (float, int)):
-            return self.backend.tensor(x, **kwargs)
+            return self.backend.tensor(np.array(x), **kwargs)
         else:
             raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
 
