@@ -12,13 +12,10 @@ __all__ = ("HypreADS",)
 
 class HypreADS(PCBase):
     def initialize(self, obj):
-        A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
-        prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
-        family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
         degree = V.ufl_element().degree()
         try:
@@ -26,48 +23,64 @@ class HypreADS(PCBase):
         except TypeError:
             pass
         if formdegree != 2 or degree != 1:
+            family = str(V.ufl_element().family())
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
+            self.G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
         else:
-            G = G_callback(NC1, P1)
+            self.G = G_callback(NC1, P1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
+            self.C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
         else:
-            C = C_callback(V, NC1)
+            self.C = C_callback(V, NC1)
 
-        pc = PETSc.PC().create(comm=obj.comm)
+        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+        self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)
+
+        self.pc = PETSc.PC()
+        self.build_hypre(obj, self.pc)
+
+    def build_hypre(self, obj, pc):
+        A, P = obj.getOperators()
+        prefix = obj.getOptionsPrefix()
+
+        pc.create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
         pc.setOptionsPrefix(prefix + "hypre_ads_")
-        pc.setOperators(A, P)
+        pc.setOperators(A=A, P=P)
 
         pc.setType('hypre')
         pc.setHYPREType('ads')
-        pc.setHYPREDiscreteGradient(G)
-        pc.setHYPREDiscreteCurl(C)
-        V = VectorFunctionSpace(mesh, "Lagrange", 1)
-        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
-        pc.setCoordinates(linear_coordinates)
-
+        pc.setHYPREDiscreteGradient(self.G)
+        pc.setHYPREDiscreteCurl(self.C)
+        pc.setCoordinates(self.coordinates.dat.data_ro)
         pc.setUp()
-        self.pc = pc
 
-    def apply(self, pc, x, y):
+    def apply(self, obj, x, y):
         self.pc.apply(x, y)
 
-    def applyTranspose(self, pc, x, y):
+    def applyTranspose(self, obj, x, y):
         self.pc.applyTranspose(x, y)
 
-    def view(self, pc, viewer=None):
-        super(HypreADS, self).view(pc, viewer)
+    def view(self, obj, viewer=None):
+        super(HypreADS, self).view(obj, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
-    def update(self, pc):
-        self.pc.setUp()
+    def update(self, obj):
+        self.pc.destroy()
+        self.build_hypre(obj, self.pc)
+
+    def destroy(self, obj):
+        if hasattr(self, "G"):
+            self.G.destroy()
+        if hasattr(self, "C"):
+            self.C.destroy()
+        if hasattr(self, "pc"):
+            self.pc.destroy()

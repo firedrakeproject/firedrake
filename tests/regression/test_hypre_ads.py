@@ -85,3 +85,36 @@ def test_homogeneous_field_nonlinear():
 
     solve(F == 0, u, bc, solver_parameters=params)
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+
+
+@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
+def test_update_solver():
+    mesh = UnitCubeMesh(10, 10, 10)
+    V = FunctionSpace(mesh, "RT", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    beta = Constant(1E-8)
+    a = inner(div(u), div(v))*dx + inner(u, beta*v)*dx
+    L = inner(Constant((1, 0.5, 4)), beta*v)*dx
+
+    x, y, z = SpatialCoordinate(mesh)
+    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+
+    params = {'snes_type': 'ksponly',
+              'ksp_type': 'cg',
+              'ksp_itmax': '30',
+              'ksp_rtol': '1e-15',
+              'ksp_atol': '1e-15',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HypreADS',
+              }
+
+    A = Function(V)
+    problem = LinearVariationalProblem(a, L, A, bcs=bc)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    for val in [1E-8, 1E0, 1E8]:
+        beta.assign(val)
+        solver.solve()
+        assert solver.snes.ksp.getIterationNumber() < 23
