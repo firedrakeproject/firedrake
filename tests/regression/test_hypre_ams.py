@@ -136,3 +136,39 @@ def test_homogeneous_field_linear_convergence():
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 10
+
+
+@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
+def test_update_solver():
+    N = 4
+    mesh = UnitCubeMesh(2**N, 2**N, 2**N)
+    V = FunctionSpace(mesh, "N1curl", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    x, y, z = SpatialCoordinate(mesh)
+    B0 = 1
+    constant_field = as_vector([-0.5*B0*(y - 0.5), 0.5*B0*(x - 0.5), 0])
+
+    beta = Constant(1E-8)
+    a = inner(curl(u), curl(v))*dx + inner(u, beta*v)*dx
+    L = inner(constant_field, beta*v)*dx
+
+    bc = DirichletBC(V, constant_field, (1, 2, 3, 4))
+
+    params = {'snes_type': 'ksponly',
+              'ksp_type': 'cg',
+              'ksp_max_it': '30',
+              'ksp_rtol': '1e-8',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HypreAMS',
+              }
+
+    A = Function(V)
+    problem = LinearVariationalProblem(a, L, A, bcs=bc)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    for val in [1E-8, 1E0, 1E8]:
+        beta.assign(val)
+        solver.solve()
+        assert solver.snes.ksp.getIterationNumber() < 12
