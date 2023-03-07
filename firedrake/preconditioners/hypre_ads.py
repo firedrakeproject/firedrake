@@ -52,13 +52,13 @@ class HypreADS(PCBase):
         pc.create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
         pc.setOptionsPrefix(prefix + "hypre_ads_")
-        pc.setOperators(A, P)
+        pc.setOperators(A=A, P=P)
 
         pc.setType('hypre')
         pc.setHYPREType('ads')
         pc.setHYPREDiscreteGradient(self.G)
         pc.setHYPREDiscreteCurl(self.C)
-        pc.setCoordinates(self.coordinates.dat.data_ro.copy())
+        pc.setCoordinates(self.coordinates.dat.data_ro)
         pc.setUp()
 
     def apply(self, obj, x, y):
@@ -74,14 +74,13 @@ class HypreADS(PCBase):
             self.pc.view(viewer)
 
     def update(self, obj):
-        # self.pc.setUp()
         self.pc.destroy()
         self.build_hypre(obj, self.pc)
 
     def destroy(self, obj):
-        if hasattr(self, "pc"):
-            self.pc.destroy()
         if hasattr(self, "G"):
             self.G.destroy()
         if hasattr(self, "C"):
             self.C.destroy()
+        if hasattr(self, "pc"):
+            self.pc.destroy()

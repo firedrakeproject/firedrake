@@ -66,13 +66,13 @@ class HypreAMS(PCBase):
 
         pc.create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
-        pc.setOperators(A=A, P=P)
         pc.setOptionsPrefix(prefix + "hypre_ams_")
+        pc.setOperators(A=A, P=P)
 
         pc.setType('hypre')
         pc.setHYPREType('ams')
         pc.setHYPREDiscreteGradient(self.G)
-        pc.setCoordinates(self.coordinates.dat.data_ro.copy())
+        pc.setCoordinates(self.coordinates.dat.data_ro)
 
         zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
         if zero_beta:
@@ -93,12 +93,11 @@ class HypreAMS(PCBase):
             self.pc.view(viewer)
 
     def update(self, obj):
-        # self.pc.setUp()
         self.pc.destroy()
         self.build_hypre(obj, self.pc)
 
     def destroy(self, obj):
-        if hasattr(self, "pc"):
-            self.pc.destroy()
         if hasattr(self, "G"):
             self.G.destroy()
+        if hasattr(self, "pc"):
+            self.pc.destroy()

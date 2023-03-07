@@ -1336,7 +1336,9 @@ class StandaloneInterpolationMatrix(object):
 
     def getInfo(self, mat, info=None):
         from mpi4py import MPI
-        memory = self.uf.dat.nbytes + self.uc.dat.nbytes + self._weight.dat.nbytes
+        memory = self.uf.dat.nbytes + self.uc.dat.nbytes
+        if self._weight is not None:
+            memory += self._weight.dat.nbytes
         if info is None:
             info = PETSc.Mat.InfoType.GLOBAL_SUM
         if info == PETSc.Mat.InfoType.LOCAL:
@@ -1610,6 +1612,10 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     """
     Interpolation matrix for a mixed finite element space.
     """
+    @cached_property
+    def _weight(self):
+        return None
+
     @cached_property
     def _standalones(self):
         standalones = []

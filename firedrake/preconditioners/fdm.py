@@ -148,9 +148,8 @@ class FDMPC(PCBase):
                 self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
             else:
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-
-        self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
-                                          fcp=fcp, options_prefix=options_prefix)
+            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+                                              fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type, diagonal_scale)
@@ -167,15 +166,16 @@ class FDMPC(PCBase):
 
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. multigrid or patch solves.
-        fdm_dm = V_fdm.dm
-        self._dm = fdm_dm
-
-        fdmpc.setDM(fdm_dm)
+        self._dm = V_fdm.dm
+        fdmpc.setDM(self._dm)
         fdmpc.setOptionsPrefix(options_prefix)
         fdmpc.setOperators(A=Amat, P=Pmat)
         fdmpc.setUseAmat(use_amat)
         self.pc = fdmpc
-        with dmhooks.add_hooks(fdm_dm, self, appctx=self._ctx_ref, save=False):
+        if hasattr(self, "_ctx_ref"):
+            with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref, save=False):
+                fdmpc.setFromOptions()
+        else:
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
@@ -230,6 +230,7 @@ class FDMPC(PCBase):
         self.cell_to_global = dict()
         self.lgmaps = dict()
 
+        @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
@@ -340,26 +341,24 @@ class FDMPC(PCBase):
         self._assemble_P()
 
     def apply(self, pc, x, y):
-        dm = self._dm
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            if hasattr(self, "fdm_interp"):
-                self.fdm_interp.multTranspose(x, self.work_vec_x)
+        if hasattr(self, "_ctx_ref"):
+            self.fdm_interp.multTranspose(x, self.work_vec_x)
+            with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.apply(self.work_vec_x, self.work_vec_y)
-                self.fdm_interp.mult(self.work_vec_y, y)
-                y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
-            else:
-                self.pc.apply(x, y)
+            self.fdm_interp.mult(self.work_vec_y, y)
+            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+        else:
+            self.pc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
-        dm = self._dm
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            if hasattr(self, "fdm_interp"):
-                self.fdm_interp.multTranspose(x, self.work_vec_y)
+        if hasattr(self, "_ctx_ref"):
+            self.fdm_interp.multTranspose(x, self.work_vec_y)
+            with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.applyTranspose(self.work_vec_y, self.work_vec_x)
-                self.fdm_interp.mult(self.work_vec_x, y)
-                y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
-            else:
-                self.pc.applyTranspose(x, y)
+            self.fdm_interp.mult(self.work_vec_x, y)
+            y.array_w[self.bc_nodes] = x.array_r[self.bc_nodes]
+        else:
+            self.pc.applyTranspose(x, y)
 
     def view(self, pc, viewer=None):
         super(FDMPC, self).view(pc, viewer)
@@ -418,15 +417,29 @@ class FDMPC(PCBase):
             Ae = self.work_mats[Vrow, Vcol]
             De = self.work_mats[common_key]
             data = self.work_csr[2]
+            insert = PETSc.InsertMode.INSERT
+            work_vec = De.getDiagonal()
+            if len(data.shape) == 3:
+                @PETSc.Log.EventDecorator("FDMUpdateDiag")
+                def update_De(data):
+                    De.setValuesCSR(*self.work_csr, addv=insert)
+                    De.assemble()
+                    return De
+            else:
+                @PETSc.Log.EventDecorator("FDMUpdateDiag")
+                def update_De(data):
+                    work_vec.setArray(data)
+                    De.setDiagonal(work_vec, addv=insert)
+                    return De
+
             for e in range(self.nel):
                 rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
-
                 data = self.get_coeffs(e, result=data)
-                De.setValuesCSR(*self.work_csr, addv=PETSc.InsertMode.INSERT)
-                De.assemble()
-                Ae = assemble_element_mat(De, result=Ae)
+                Ae = assemble_element_mat(update_De(data), result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
+
+            work_vec.destroy()
 
         elif self.nel:
             if common_key not in self.work_mats:
