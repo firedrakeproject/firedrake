@@ -1260,11 +1260,8 @@ class MeshTopology(AbstractMeshTopology):
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
-        elif (
-            (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1)
-                or
-            (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1)
-        ):
+        elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1) or \
+                (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1):
             # facets
             height = 1
         else:
@@ -3011,11 +3008,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             # cells
             height = 0
             dmlabel_name = dmcommon.CELL_SETS_LABEL
-        elif (
-            (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension() > 1)
-                or
-            (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1)
-        ):
+        elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension() > 1) or \
+                (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1):
             # facets
             height = 1
             dmlabel_name = dmcommon.FACE_SETS_LABEL

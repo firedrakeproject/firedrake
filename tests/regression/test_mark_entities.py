@@ -91,6 +91,7 @@ def test_mark_entities_mesh_mark_entities_2d():
     assert label.getStratumIS(label_value).getSize() == 2
     assert all(label.getStratumIS(label_value).getIndices() == [20, 30])
 
+
 def test_mark_entities_mesh_mark_entities_1d():
     label_name = "test_label"
     label_value = 999
