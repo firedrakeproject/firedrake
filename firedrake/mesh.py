@@ -822,7 +822,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg tf: The :class:`.CoordinatelessFunction` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
-            "HDiv Trace " (degree 0) to mark facet entities.
+            "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
+            to mark facet entities.
         :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
 
@@ -1259,11 +1260,15 @@ class MeshTopology(AbstractMeshTopology):
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
-        elif elem.family() == "HDiv Trace" and elem.degree() == 0:
+        elif (
+            (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1)
+                or
+            (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1)
+        ):
             # facets
             height = 1
         else:
-            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'HDiv Trace' (degree 0) to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
+            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'P' (degree 1) in 1D or 'HDiv Trace' (degree 0) in 2D or 3D to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
         plex = self.topology_dm
         if not plex.hasLabel(label_name):
             plex.createLabel(label_name)
@@ -2153,7 +2158,8 @@ values from f.)"""
         :arg f: The :class:`.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
-            "HDiv Trace " (degree 0) to mark facet entities.
+            "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
+            to mark facet entities.
         :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
 
@@ -2952,7 +2958,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     :arg indicator_functions: list of indicator functions that mark
         selected entities (cells or facets) as 1; must use
         "DP"/"DQ" (degree 0) functions to mark cell entities and
-        "HDiv Trace" (degree 0) functions to mark facet entities.
+        "P" (degree 1) functions in 1D or "HDiv Trace" (degree 0) functions
+        in 2D or 3D to mark facet entities.
     :arg subdomain_ids: list of subdomain ids associated with
         the indicator functions in indicator_functions; thus,
         must have the same length as indicator_functions.
@@ -3004,12 +3011,16 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             # cells
             height = 0
             dmlabel_name = dmcommon.CELL_SETS_LABEL
-        elif elem.family() == "HDiv Trace" and elem.degree() == 0:
+        elif (
+            (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension() > 1)
+                or
+            (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1)
+        ):
             # facets
             height = 1
             dmlabel_name = dmcommon.FACE_SETS_LABEL
         else:
-            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'HDiv Trace' (degree 0) to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
+            raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'P' (degree 1) in 1D or 'HDiv Trace' (degree 0) in 2D or 3D to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)

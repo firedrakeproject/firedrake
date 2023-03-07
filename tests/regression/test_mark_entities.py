@@ -70,7 +70,7 @@ def test_mark_entities_overlapping_facet_subdomains():
     assert abs(v - 1.0) < 1.e-10
 
 
-def test_mark_entities_mesh_mark_entities():
+def test_mark_entities_mesh_mark_entities_2d():
     # +---+---+
     # | \ | \ |  mark        \
     # +---+---+ -----> +---+
@@ -90,3 +90,16 @@ def test_mark_entities_mesh_mark_entities():
     label = plex.getLabel(label_name)
     assert label.getStratumIS(label_value).getSize() == 2
     assert all(label.getStratumIS(label_value).getIndices() == [20, 30])
+
+def test_mark_entities_mesh_mark_entities_1d():
+    label_name = "test_label"
+    label_value = 999
+    mesh = UnitIntervalMesh(2)
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "P", 1)
+    f = Function(V).interpolate(conditional(x < 0.25, 1., 0.))
+    mesh.mark_entities(f, label_name, label_value)
+    plex = mesh.topology.topology_dm
+    label = plex.getLabel(label_name)
+    assert label.getStratumIS(label_value).getSize() == 1
+    assert all(label.getStratumIS(label_value).getIndices() == [2])
