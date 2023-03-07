@@ -48,7 +48,7 @@ class PytorchBackend(AbstractMLBackend):
 
     @utils.cached_property
     def custom_operator(self):
-        from firedrake.external_operators.neural_networks.pytorch_custom_operator import FiredrakeTorchOperator
+        from firedrake.preconditioners.pytorch_coupling.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator().apply
 
     def to_ml_backend(self, x, gather=False, batched=True, **kwargs):

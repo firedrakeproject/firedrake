@@ -1,1 +1,0 @@
-from firedrake.external_operators.neural_networks import *

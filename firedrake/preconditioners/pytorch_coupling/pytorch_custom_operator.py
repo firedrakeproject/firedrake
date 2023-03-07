@@ -2,7 +2,7 @@ import collections
 import torch.autograd as torch_ad
 from functools import partial
 
-from firedrake.external_operators.neural_networks import get_backend
+from firedrake.preconditioners.pytorch_coupling import get_backend
 from firedrake.function import Function
 
 from pyadjoint.reduced_functional import ReducedFunctional

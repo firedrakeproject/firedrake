@@ -11,3 +11,4 @@ from firedrake.preconditioners.hypre_ams import *  # noqa: F401
 from firedrake.preconditioners.hypre_ads import *  # noqa: F401
 from firedrake.preconditioners.fdm import *        # noqa: F401
 from firedrake.preconditioners.facet_split import *  # noqa: F401
+from firedrake.preconditioners.pytorch_coupling import *  # noqa: F401
