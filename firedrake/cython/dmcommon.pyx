@@ -1853,36 +1853,6 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_markers(PETSc.DM dm, np.ndarray[PetscInt, ndim=1, mode="c"] facets):
-    """Get an array of facet labels in the mesh.
-
-    :arg dm: The DM that contains labels.
-    :arg facets: The array of facet points.
-    :returns: a numpy array of facet ids (or None if all facets had
-        the default marker).
-    """
-    cdef:
-        PetscInt nfacet, f, val
-        np.ndarray[PetscInt, ndim=1, mode="c"] ids
-        DMLabel label = NULL
-        PetscBool all_default = PETSC_TRUE
-
-    ids = np.empty_like(facets)
-    nfacet = facets.shape[0]
-    CHKERR(DMGetLabel(dm.dm, FACE_SETS_LABEL.encode(), &label))
-    for f in range(nfacet):
-        CHKERR(DMLabelGetValue(label, facets[f], &val))
-        if val != -1:
-            all_default = PETSC_FALSE
-        ids[f] = val
-    if all_default:
-        return None
-    else:
-        return ids
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
                         np.ndarray[PetscInt, ndim=1, mode="c"] ordering):
     """Builds a list of all facets ordered according to PyOP2 entity
@@ -3166,3 +3136,32 @@ def compute_point_cone_global_sizes(PETSc.DM dm):
     out = np.zeros((2, ), dtype=IntType)
     dm.comm.tompi4py().Allreduce(arraySizes, out, op=MPI.SUM)
     return out
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def mark_points_with_function_array(PETSc.DM plex,
+                                    PETSc.Section section,
+                                    PetscInt height,
+                                    np.ndarray[PetscInt, ndim=1, mode="c"] array,
+                                    PETSc.DMLabel dmlabel,
+                                    PetscInt label_value):
+
+    """Marks points in a DMLabel using an indicator function array.
+
+    :arg plex: DMPlex representing the mesh topology
+    :arg section: Section describing the function space DoF layout and order
+    :arg height: Height of marked points (0 for cells, 1 for facets)
+    :arg array: Array representing the indicator function whose layout is
+        defined by plex, section, and height
+    :arg dmlabel: DMLabel that records marked entities
+    :arg label_value: Value used in dmlabel
+    """
+    cdef:
+        PetscInt pStart, pEnd, p, offset
+
+    get_height_stratum(plex.dm, height, &pStart, &pEnd)
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
+        if array[offset] == 1:
+            CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))

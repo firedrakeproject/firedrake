@@ -28,7 +28,7 @@ from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
-from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
+from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 
 
@@ -248,7 +248,7 @@ def prolong_kernel(expression):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 if (celldist < bestdist) {
                     bestdist = celldist;
                     bestcell = i;
@@ -285,7 +285,7 @@ def prolong_kernel(expression):
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "tdim": mesh.topological_dimension()}
@@ -339,7 +339,7 @@ def restrict_kernel(Vf, Vc):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
                 fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
                 if (celldist < bestdist) {
@@ -372,7 +372,7 @@ def restrict_kernel(Vf, Vc):
                "evaluate": str(evaluate_kernel),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "args": args,
@@ -431,7 +431,7 @@ def inject_kernel(Vf, Vc):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 if (celldist < bestdist) {
                     bestdist = celldist;
                     bestcell = i;
@@ -463,7 +463,7 @@ def inject_kernel(Vf, Vc):
             "evaluate": str(evaluate_kernel),
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
-            "compute_celldist": compute_celldist(Vc.finat_element.cell, X="Xref", celldist="celldist"),
+            "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
             "tdim": Vc.ufl_domain().topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
