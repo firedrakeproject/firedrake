@@ -75,7 +75,6 @@ class FDMPC(PCBase):
 
         use_amat = options.getBool("pc_use_amat", True)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
-        diagonal_scale = options.getBool("diagonal_scale", False)
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -152,7 +151,7 @@ class FDMPC(PCBase):
                                               fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type, diagonal_scale)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -179,7 +178,7 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type, diagonal_scale):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
@@ -309,8 +308,6 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
 
-        self.diag = None
-
         @PETSc.Log.EventDecorator("FDMAssemble")
         def assemble_P():
             for _assemble in assembly_callables:
@@ -325,12 +322,6 @@ class FDMPC(PCBase):
                         P.setValuesRCV(rows, rows, vals, addv)
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
-            if diagonal_scale:
-                diag = Pmat.getDiagonal(result=self.diag)
-                diag.sqrtabs()
-                diag.reciprocal()
-                Pmat.diagonalScale(L=diag, R=diag)
-                self.diag = diag
 
         return Pmat, assemble_P
 
@@ -341,7 +332,7 @@ class FDMPC(PCBase):
         self._assemble_P()
 
     def apply(self, pc, x, y):
-        if hasattr(self, "_ctx_ref"):
+        if hasattr(self, "fdm_interp"):
             self.fdm_interp.multTranspose(x, self.work_vec_x)
             with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.apply(self.work_vec_x, self.work_vec_y)
@@ -351,7 +342,7 @@ class FDMPC(PCBase):
             self.pc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
-        if hasattr(self, "_ctx_ref"):
+        if hasattr(self, "fdm_interp"):
             self.fdm_interp.multTranspose(x, self.work_vec_y)
             with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.applyTranspose(self.work_vec_y, self.work_vec_x)
