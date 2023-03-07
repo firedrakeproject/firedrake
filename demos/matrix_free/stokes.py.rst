@@ -151,4 +151,4 @@ matrix using unpreconditioned conjugate gradients. ::
   solve(a == L, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
 
 A runnable python script implementing this demo file is available
-`here <stokes.py>`__.
+:demo:`here <stokes.py>`.

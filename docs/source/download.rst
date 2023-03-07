@@ -1,4 +1,6 @@
-:orphan: true
+.. raw:: latex
+
+   \clearpage
 
 ===================
 Obtaining Firedrake

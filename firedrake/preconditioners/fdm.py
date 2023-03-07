@@ -186,7 +186,7 @@ class FDMPC(PCBase):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg V: the :class:`~.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg appctx: the application context
@@ -208,8 +208,9 @@ class FDMPC(PCBase):
 
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
+        bdof = []  # indices of point evaluation dofs for each direction
         for e in line_elements:
-            Afdm[:0], Dfdm[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
             if not (e.formdegree or is_dg):
                 Dfdm[0] = None
 
@@ -229,27 +230,27 @@ class FDMPC(PCBase):
         prealloc.setType(PETSc.Mat.Type.PREALLOCATOR)
         prealloc.setSizes(sizes)
         prealloc.setUp()
-        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags)
+        self.assemble_kron(prealloc, V, bcs, eta, coefficients, Afdm, Dfdm, bdof, bcflags)
         nnz = get_preallocation(prealloc, block_size * V.dof_dset.set.size)
         Pmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=self.comm)
         Pmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         assemble_P = partial(self.assemble_kron, Pmat, V, bcs, eta,
-                             coefficients, Afdm, Dfdm, bcflags)
+                             coefficients, Afdm, Dfdm, bdof, bcflags)
         prealloc.destroy()
         return Pmat, assemble_P
 
-    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bcflags):
+    def assemble_kron(self, A, V, bcs, eta, coefficients, Afdm, Dfdm, bdof, bcflags):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
-        :arg bcs: an iterable of :class:`firedrake.DirichletBCs`
+        :arg V: the :class:`~.FunctionSpace` of the form arguments
+        :arg bcs: an iterable of :class:`~.DirichletBC` s
         :arg eta: a ``float`` penalty parameter for the symmetric interior penalty method
-        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.Functions` with the form coefficients
+        :arg coefficients: a ``dict`` mapping strings to :class:`firedrake.function.Function` s with the form coefficients
         :arg Afdm: the list with sparse interval matrices
         :arg Dfdm: the list with normal derivatives matrices
-        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by `get_weak_bc_flags`
+        :arg bcflags: the :class:`numpy.ndarray` with BC facet flags returned by ``get_weak_bc_flags``
         """
         from firedrake.preconditioners.pmg import get_axes_shift
         Gq = coefficients.get("Gq")
@@ -362,6 +363,7 @@ class FDMPC(PCBase):
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
+
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
                 ie = index_facet(e)
@@ -404,13 +406,12 @@ class FDMPC(PCBase):
                     for j, jface in enumerate(lfd):
                         j0 = j * offset
                         j1 = j0 + offset
-                        jj = j0 + (offset-1) * (jface % 2)
+                        jj = j0 + bdof[axes[0]][jface % 2]
                         dense_indices.append(jj)
                         for i, iface in enumerate(lfd):
                             i0 = i * offset
                             i1 = i0 + offset
-                            ii = i0 + (offset-1) * (iface % 2)
-
+                            ii = i0 + bdof[axes[0]][iface % 2]
                             sij = 0.5E0 if i == j else -0.5E0
                             if PT_facet:
                                 smu = [sij*numpy.dot(numpy.dot(mu[0], Piola[i]), Piola[j]),
@@ -452,7 +453,7 @@ class FDMPC(PCBase):
         :arg cell_average: to return the coefficients as DG_0 Functions
 
         :returns: a 2-tuple of
-            coefficients: a dictionary mapping strings to :class:`firedrake.Functions` with the coefficients of the form,
+            coefficients: a dictionary mapping strings to :class:`firedrake.function.Function` s with the coefficients of the form,
             assembly_callables: a list of assembly callables for each coefficient of the form
         """
         from ufl import inner, diff
@@ -594,33 +595,32 @@ def set_submat_csr(A_global, A_local, global_indices, imode):
         A_global.setValues(row, global_indices.flat[indices[i0:i1]], data[i0:i1], imode)
 
 
-def numpy_to_petsc(A_numpy, dense_indices, diag=True):
+def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
     """
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
     If dense_indices is empty, then also include the off-diagonal corners of the matrix.
     """
     n = A_numpy.shape[0]
-    nbase = int(diag) + len(dense_indices)
+    nbase = int(diag) if block else min(n, int(diag) + len(dense_indices))
     nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)
-    if dense_indices:
-        nnz[dense_indices] = n
-    else:
-        nnz[[0, -1]] = 2
+    nnz[dense_indices] = len(dense_indices) if block else n
 
     imode = PETSc.InsertMode.INSERT
-    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=nnz, comm=PETSc.COMM_SELF)
-    if diag:
-        for j, ajj in enumerate(A_numpy.diagonal()):
-            A_petsc.setValue(j, j, ajj, imode)
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=PETSc.COMM_SELF)
 
-    if dense_indices:
-        idx = numpy.arange(n, dtype=PETSc.IntType)
-        for j in dense_indices:
-            A_petsc.setValues(j, idx, A_numpy[j], imode)
-            A_petsc.setValues(idx, j, A_numpy[:][j], imode)
+    idx = numpy.arange(n, dtype=PETSc.IntType)
+    if block:
+        values = A_numpy[dense_indices, :][:, dense_indices]
+        A_petsc.setValues(dense_indices, dense_indices, values, imode)
     else:
-        A_petsc.setValue(0, n-1, A_numpy[0][-1], imode)
-        A_petsc.setValue(n-1, 0, A_numpy[-1][0], imode)
+        for j in dense_indices:
+            A_petsc.setValues(j, idx, A_numpy[j, :], imode)
+            A_petsc.setValues(idx, j, A_numpy[:, j], imode)
+
+    if diag:
+        idx = idx[:, None]
+        values = A_numpy.diagonal()[:, None]
+        A_petsc.setValuesRCV(idx, idx, values, imode)
 
     A_petsc.assemble()
     return A_petsc
@@ -636,16 +636,19 @@ def fdm_setup_ipdg(fdm_element, eta):
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
 
-    :returns: 2-tuple of:
+    :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
         Bhat, and bcs(Ahat) for every combination of either natural or weak
         Dirichlet BCs on each endpoint.
         Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
+        bdof: the indices of PointEvaluation dofs.
     """
     from FIAT.quadrature import GaussLegendreQuadratureLineRule
+    from FIAT.functional import PointEvaluation
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
     rule = GaussLegendreQuadratureLineRule(ref_el, degree+1)
+    bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, PointEvaluation)]
 
     phi = fdm_element.tabulate(1, rule.get_points())
     Jhat = phi[(0, )]
@@ -658,17 +661,18 @@ def fdm_setup_ipdg(fdm_element, eta):
     Dfacet = basis[(1,)]
     Dfacet[:, 0] = -Dfacet[:, 0]
 
-    Afdm = [numpy_to_petsc(Bhat, [])]
+    Afdm = [numpy_to_petsc(Bhat, bdof, block=True)]
     for bc in range(4):
         bcs = (bc % 2, bc//2)
         Abc = Ahat.copy()
-        for j in (0, -1):
-            if bcs[j] == 1:
-                Abc[:, j] -= Dfacet[:, j]
-                Abc[j, :] -= Dfacet[:, j]
+        for k in range(2):
+            if bcs[k] == 1:
+                j = bdof[k]
+                Abc[:, j] -= Dfacet[:, k]
+                Abc[j, :] -= Dfacet[:, k]
                 Abc[j, j] += eta
-        Afdm.append(numpy_to_petsc(Abc, [0, Abc.shape[0]-1]))
-    return Afdm, Dfacet
+        Afdm.append(numpy_to_petsc(Abc, bdof))
+    return Afdm, Dfacet, bdof
 
 
 @lru_cache(maxsize=10)
@@ -676,7 +680,7 @@ def get_interior_facet_maps(V):
     """
     Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
 
-    :arg V: a :class:`FunctionSpace`
+    :arg V: a :class:`~.FunctionSpace`
 
     :returns: the 3-tuple of
         facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,

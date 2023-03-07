@@ -7,10 +7,10 @@
    :alt: Durham Cathedral
    :align: right
    :target: https://commons.wikimedia.org/wiki/File:Durham_MMB_02_Cathedral.jpg
-               
+
 Firedrake '19
 -------------
-               
+
 We are very happy to announce that the third Firedrake user and
 developer workshop will be held on 26 and 27 September 2019 at `Durham
 University <https://www.durham.ac.uk/>`_.
@@ -33,9 +33,8 @@ Key Dates
 ---------
 
 * Early registration deadline: 17 August 2019
-* Registration deadline: 6 September 2019 (`via Durham event
-  registration
-  <https://www.dur.ac.uk/conference.booking/details/?id=1266>`_).
+* Registration deadline: 6 September 2019 (via Durham event
+  registration).
 * Abstract submission deadline: 17 August 2019 (`via Easychair
   <https://easychair.org/conferences/?conf=firedrake19>`_).
 * Workshop: 26-27 September 2019
@@ -95,8 +94,7 @@ Registration
 ------------
 
 Early bird registration is now closed. Registration (before 6th
-September) costs £80. Please register `via Event Durham
-<https://www.dur.ac.uk/conference.booking/details/?id=1266>`_.
+September) costs £80. Please register via Event Durham.
 Registration for the tutorial only is free.
 
 
