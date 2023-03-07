@@ -151,7 +151,7 @@ def fs(request, mesh):
 
 
 @pytest.mark.skipcomplex
-def test_direct_solver(fs):
+def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     ndim = mesh.geometric_dimension()
