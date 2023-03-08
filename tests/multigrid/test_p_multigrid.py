@@ -52,7 +52,7 @@ def test_prolongation_matrix_matfree():
                 if u != v:
                     v.assign(0)
                     P = prolongation_matrix_matfree(v, u).getPythonContext()
-                    P._prolong()
+                    P._kernels[0]()
                     assert norm(v-expr, "L2") < tol
 
 
@@ -240,7 +240,8 @@ def test_p_multigrid_mixed(mat_type):
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
-    coarse = {"ksp_type": "richardson",
+    coarse = {"mat_type": "aij",
+              "ksp_type": "richardson",
               "ksp_max_it": 1,
               "ksp_norm_type": "unpreconditioned",
               "ksp_monitor": None,
@@ -255,12 +256,12 @@ def test_p_multigrid_mixed(mat_type):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          # "mat_type": mat_type,  # FIXME bug with mat-free jacobi on MixedFunctionSpace
+          "mat_type": mat_type,
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
 
-    basis = VectorSpaceBasis([assemble(TestFunction(Z.sub(1))*dx)])
+    basis = VectorSpaceBasis([interpolate(Constant(1), Z.sub(1))])
     basis.orthonormalize()
     nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
     problem = NonlinearVariationalProblem(F, z, bcs)
@@ -313,6 +314,7 @@ def test_p_fas_scalar():
     atol = rtol * Fnorm
 
     coarse = {
+        "mat_type": "aij",
         "ksp_type": "preonly",
         "ksp_norm_type": None,
         "pc_type": "cholesky"}
@@ -321,7 +323,6 @@ def test_p_fas_scalar():
         "ksp_type": "chebyshev",
         "ksp_monitor_true_residual": None,
         "ksp_norm_type": "unpreconditioned",
-        "ksp_max_it": 3,
         "pc_type": "jacobi"}
 
     pmg = {
@@ -340,7 +341,7 @@ def test_p_fas_scalar():
         "pmg_mg_coarse": coarse}
 
     pfas = {
-        "mat_type": "aij",
+        "mat_type": mat_type,
         "snes_monitor": None,
         "snes_converged_reason": None,
         "snes_atol": atol,
@@ -364,23 +365,23 @@ def test_p_fas_scalar():
 @pytest.mark.skipcomplex
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
-    N = 4
-    dxq = dx(degree=3*N+2)  # here we also test coarsening of quadrature degree
+    degree = 4
+    dxq = dx(degree=3*degree+2)  # here we also test coarsening of quadrature degree
 
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
-    V = FunctionSpace(mesh, "CG", N)
+    V = FunctionSpace(mesh, "CG", degree)
     u = Function(V)
     f = Constant(1)
     bcs = DirichletBC(V, 0, "on_boundary")
 
     # Regularized p-Laplacian
     p = 5
-    eps = 1
+    eps = Constant(1)
     y = eps + inner(grad(u), grad(u))
     E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
     F = derivative(E, u, TestFunction(V))
 
-    fcp = {"quadrature_degree": 3*N+2}
+    fcp = {"quadrature_degree": 3*degree+2}
     problem = NonlinearVariationalProblem(F, u, bcs, form_compiler_parameters=fcp)
 
     # Due to the convoluted nature of the nested iteration
