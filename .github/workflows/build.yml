@@ -55,6 +55,7 @@ jobs:
           python $(which firedrake-clean)
           python -m pip install pytest-cov pytest-timeout pytest-xdist pytest-timeout
           python -m pip list
+          python -m pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Test Firedrake
         run: |
           . ../build/bin/activate
