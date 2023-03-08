@@ -48,7 +48,6 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-    _is_linear = False
 
     def coarsen_element(self, ele):
         """
@@ -92,7 +91,6 @@ class PMGBase(PCSNESBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        opts = PETSc.Options(options_prefix)
         pdm = PETSc.DMShell().create(comm=pc.comm)
         pdm.setOptionsPrefix(options_prefix)
 
@@ -144,7 +142,6 @@ class PMGBase(PCSNESBase):
         add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx), call_setup=True)
         self.ppc.setUp()
 
-
     def update(self, pc):
         pass
 
@@ -189,10 +186,9 @@ class PMGBase(PCSNESBase):
         fdeg = PMGBase.max_degree(fV.ufl_element())
         cdeg = PMGBase.max_degree(cV.ufl_element())
 
-        fine_to_coarse_map = {test: test.reconstruct(function_space=cV),
+        fine_to_coarse_map = {fu: cu,
+                              test: test.reconstruct(function_space=cV),
                               trial: trial.reconstruct(function_space=cV)}
-        if not self._is_linear:
-            fine_to_coarse_map[fu] = cu
 
         def _coarsen_form(a):
             if isinstance(a, ufl.Form):
@@ -238,8 +234,7 @@ class PMGBase(PCSNESBase):
 
         # Coarsen the problem and the _SNESContext
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
-                                                         form_compiler_parameters=fcp,
-                                                         is_linear=self._is_linear)
+                                                         form_compiler_parameters=fcp)
 
         cctx = type(fctx)(cproblem, mat_type, pmat_type,
                           appctx=cappctx,
@@ -265,11 +260,11 @@ class PMGBase(PCSNESBase):
         interp_petscmat, _ = cdm.createInterpolation(fdm)
         inject_petscmat = cdm.createInjection(fdm)
 
-        if not self._is_linear:
+        if cu in cJ.coefficients():
             # injection of the initial state
             def inject_state():
                 with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                    inject_petscmat.multTranspose(xf, xc)
+                    inject_petscmat.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
 
@@ -303,9 +298,9 @@ class PMGBase(PCSNESBase):
                 return fine_nullspace
 
         ises = cV._ises
-        cctx._nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._nullspace)
+        cctx._nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace)
         cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
-        cctx._near_nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._near_nullspace)
+        cctx._near_nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._near_nullspace)
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
@@ -352,13 +347,14 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False), None
+        interpolate = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
+        rscale = interpolate.createVecRight()  # only used as a workaround in the creation of coarse vecs
+        return interpolate, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        I = self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
-        return PETSc.Mat().createTranspose(I)
+        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
 
     @staticmethod
     def max_degree(ele):
@@ -422,7 +418,6 @@ class PMGBase(PCSNESBase):
 
 class PMGPC(PCBase, PMGBase):
     _prefix = "pmg_"
-    _is_linear = True
 
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
@@ -461,7 +456,6 @@ class PMGPC(PCBase, PMGBase):
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
-    _is_linear = False
 
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()

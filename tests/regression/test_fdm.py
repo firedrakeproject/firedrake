@@ -12,7 +12,6 @@ fdmstar = {
     "ksp_converged_reason": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
-    "pmg_coarse_mat_type": "aij",
     "pmg_mg_coarse": {
         "mat_type": "aij",
         "ksp_type": "preonly",
