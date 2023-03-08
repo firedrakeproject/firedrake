@@ -70,15 +70,14 @@ def variant(request):
 @pytest.mark.skipcomplex
 def test_p_independence(mesh, expected, variant):
     nits = []
-    for p in range(3, 6):
-        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=p, variant=variant)
+    for degree, nits in zip(range(3, 6), expected):
+        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant=variant)
         V = FunctionSpace(mesh, e)
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        ndim = mesh.geometric_dimension()
         x = SpatialCoordinate(mesh)
-        x -= Constant([0.5]*ndim)
+        x -= Constant([0.5]*len(x))
         u_exact = dot(x, x)
         f_exact = grad(u_exact)
         B = -div(f_exact)
@@ -95,9 +94,50 @@ def test_p_independence(mesh, expected, variant):
         problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
         solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
         solver.solve()
-        nits.append(solver.snes.ksp.getIterationNumber())
+        assert solver.snes.ksp.getIterationNumber() <= nits
     assert norm(u_exact-uh, "H1") < 2.0E-7
-    assert nits <= expected
+
+
+def solve_riesz_map(V, d):
+    beta = Constant(1E-8)
+    subs = [(1, 3)]
+
+    x = SpatialCoordinate(V.mesh())
+    x -= Constant([0.5]*len(x))
+    expr = x * exp(-10*dot(x, x))
+    if V.mesh().extruded:
+        subs += ["top"]
+
+    u_exact = Function(V)
+    u_exact.project(expr, solver_parameters={"mat_type": "matfree", "pc_type": "jacobi"})
+    bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
+
+    uh = Function(V)
+    test = TestFunction(V)
+    trial = TrialFunction(V)
+    a = lambda v, u: inner(v, beta*u)*dx + inner(d(v), d(u))*dx
+    problem = LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
+    solver.solve()
+    return solver.snes.ksp.getIterationNumber()
+
+
+@pytest.mark.skipcomplex
+def test_hcurl(mesh, expected):
+    family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
+    for degree, nits in zip(range(3, 6), expected):
+        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
+        V = FunctionSpace(mesh, element)
+        assert solve_riesz_map(V, curl) <= nits
+
+
+@pytest.mark.skipcomplex
+def test_hdiv(mesh, expected):
+    family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
+    for degree, nits in zip(range(3, 6), expected):
+        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
+        V = FunctionSpace(mesh, element)
+        assert solve_riesz_map(V, div) <= nits
 
 
 @pytest.mark.skipcomplex
