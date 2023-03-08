@@ -354,6 +354,58 @@ def calculate_dof_offset(finat_element):
     return dof_offset
 
 
+@functools.lru_cache()
+def calculate_dof_offset_quotient(finat_element):
+    """Return the offset quotient for each DoF within the base cell.
+
+    :arg finat_element: A FInAT element.
+    :returns: A numpy array containing the offset quotient for each DoF.
+
+    offset_quotient q of each DoF (in a local cell) is defined as
+    i // o, where i is the local DoF ID of the DoF on the entity and
+    o is the offset of that DoF computed in ``calculate_dof_offset()``.
+
+    Let DOF(e, l, i) represent a DoF on (base-)entity e on layer l that has local ID i
+    and suppose this DoF has offset o and offset_quotient q. In periodic extrusion it
+    is convenient to identify DOF(e, l, i) as DOF(e, l + q, i % o); this transformation
+    allows one to always work with the "unit cell" in which i < o always holds.
+
+    In FEA offset_quotient is 0 or 1.
+
+    Example::
+
+               local ID   offset     offset_quotient
+
+               2--2--2    2--2--2    1--1--1
+               |     |    |     |    |     |
+        CG2    1  1  1    2  2  2    0  0  0
+               |     |    |     |    |     |
+               0--0--0    2--2--2    0--0--0
+
+               +-----+    +-----+    +-----+
+               | 1 3 |    | 4 4 |    | 0 0 |
+        DG1    |     |    |     |    |     |
+               | 0 2 |    | 4 4 |    | 0 0 |
+               +-----+    +-----+    +-----+
+
+    """
+    # scalar-valued elements only
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+    if is_real_tensor_product_element(finat_element):
+        return None
+    dof_offset_quotient = numpy.zeros(finat_element.space_dimension(), dtype=IntType)
+    for (b, v), entities in finat_element.entity_dofs().items():
+        for entity, dof_indices in entities.items():
+            quotient = 1 if v == 0 and entity % 2 == 1 else 0
+            for i in dof_indices:
+                dof_offset_quotient[i] = quotient
+    if (dof_offset_quotient == 0).all():
+        # Avoid unnecessary codegen in pyop2/codegen/builder.
+        dof_offset_quotient = None
+    return dof_offset_quotient
+
+
 def is_real_tensor_product_element(element):
     """Is the provided FInAT element a tensor product involving the real space?
 
