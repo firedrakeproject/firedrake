@@ -6,7 +6,6 @@ from torch.nn import Module, Flatten, Linear
 
 from firedrake import *
 from firedrake_adjoint import *
-from firedrake.external_operators.neural_networks.backends import get_backend
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
@@ -30,12 +29,12 @@ def handle_annotation():
         pause_annotation()
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def mesh():
     return UnitSquareMesh(10, 10)
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def V(mesh):
     return FunctionSpace(mesh, "CG", 1)
 
@@ -51,27 +50,25 @@ class EncoderDecoder(Module):
 
     def __init__(self, n):
         super(EncoderDecoder, self).__init__()
-        self.n1 = n
-        self.n2 = int(n/2)
+        self.n = n
+        self.m = int(n/2)
         self.flatten = Flatten()
-        self.encoder_1 = Linear(self.n1, self.n2)
-        self.decoder_1 = Linear(self.n2, self.n1)
+        self.linear_encoder = Linear(self.n, self.m)
+        self.linear_decoder = Linear(self.m, self.n)
 
     def encode(self, x):
-        return self.encoder_1(x)
+        return torch_func.relu(self.linear_encoder(x))
 
     def decode(self, x):
-        return self.decoder_1(x)
+        return torch_func.relu(self.linear_decoder(x))
 
     def forward(self, x):
         # [batch_size, n]
         x = self.flatten(x)
-        # [batch_size, n2]
-        encoded = self.encode(x)
-        hidden = torch_func.relu(encoded)
+        # [batch_size, m]
+        hidden = self.encode(x)
         # [batch_size, n]
-        decoded = self.decode(hidden)
-        return torch_func.relu(decoded)
+        return self.decode(hidden)
 
 
 # Set of Firedrake operations that will be composed with PyTorch operations
@@ -84,7 +81,7 @@ def poisson_residual(u, f, V):
 
 # Set of Firedrake operations that will be composed with PyTorch operations
 def solve_poisson(f, V):
-    """Solve Poisson problem"""
+    """Solve Poisson problem with homogeneous Dirichlet boundary conditions"""
     u = Function(V)
     v = TestFunction(V)
     F = (inner(grad(u), grad(v)) + inner(u, v) - inner(f, v)) * dx
@@ -95,18 +92,18 @@ def solve_poisson(f, V):
     return assemble(u ** 2 * dx)
 
 
-@pytest.fixture(params=['poisson_residual', 'solve_poisson'])
+@pytest.fixture(params=["poisson_residual", "solve_poisson"])
 def firedrake_operator(request, f_exact, V):
     # Return firedrake operator and the corresponding non-control arguments
-    if request.param == 'poisson_residual':
+    if request.param == "poisson_residual":
         return poisson_residual, (f_exact, V)
-    elif request.param == 'solve_poisson':
+    elif request.param == "solve_poisson":
         return solve_poisson, (V,)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_pytorch_loss_backward(V, f_exact):
-    """Add doc """
+    """Test backpropagation through a vector-valued Firedrake operator"""
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -120,27 +117,24 @@ def test_pytorch_loss_backward(V, f_exact):
     # Get machine learning backend (default: PyTorch)
     pytorch_backend = get_backend()
 
-    # Model input
-    f = Function(V)
-
-    # Convert f to torch.Tensor
-    f_P = pytorch_backend.to_ml_backend(f)
+    # Convert f_exact to torch.Tensor
+    f_P = pytorch_backend.to_ml_backend(f_exact)
 
     # Forward pass
-    y_P = model(f_P)
+    u_P = model(f_P)
 
     # Set control
-    u_F = Function(V)
-    c = Control(u_F)
+    u = Function(V)
+    c = Control(u)
 
     # Set reduced functional which expresses the Firedrake operations in terms of the control
-    Jhat = ReducedFunctional(poisson_residual(u_F, f_exact, V), c)
+    Jhat = ReducedFunctional(poisson_residual(u, f_exact, V), c)
 
     # Construct the torch operator that takes a callable representing the Firedrake operations
     G = torch_operator(Jhat)
 
     # Compute Poisson residual in Firedrake using the torch operator: `residual_P` is a torch.Tensor
-    residual_P = G(y_P)
+    residual_P = G(u_P)
 
     # Compute PyTorch loss
     loss = (residual_P ** 2).sum()
@@ -154,16 +148,16 @@ def test_pytorch_loss_backward(V, f_exact):
     assert all([θi.grad is not None for θi in model.parameters()])
 
     # -- Check forward operator -- #
-    y_F = pytorch_backend.from_ml_backend(y_P, V)
-    residual_F = poisson_residual(y_F, f_exact, V)
-    residual_P_exact = pytorch_backend.to_ml_backend(residual_F)
+    u = pytorch_backend.from_ml_backend(u_P, V)
+    residual = poisson_residual(u, f_exact, V)
+    residual_P_exact = pytorch_backend.to_ml_backend(residual)
 
     assert (residual_P - residual_P_exact).detach().norm() < 1e-10
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_firedrake_loss_backward(V, f_exact):
-    """Add doc """
+def test_firedrake_loss_backward(V):
+    """Test backpropagation through a scalar-valued Firedrake operator"""
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -209,15 +203,16 @@ def test_firedrake_loss_backward(V, f_exact):
     assert all([θi.grad is not None for θi in model.parameters()])
 
     # -- Check forward operator -- #
-    f_F = pytorch_backend.from_ml_backend(f_P, V)
-    loss_F = solve_poisson(f_F, V)
-    loss_P_exact = pytorch_backend.to_ml_backend(loss_F)
+    f = pytorch_backend.from_ml_backend(f_P, V)
+    loss = solve_poisson(f, V)
+    loss_P_exact = pytorch_backend.to_ml_backend(loss)
 
     assert (loss_P - loss_P_exact).detach().norm() < 1e-10
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_taylor_torch_operator(firedrake_operator, V):
+    """Taylor test for the torch operator"""
     # Control value
     ω = Function(V)
     # Get Firedrake operator and other operator arguments
@@ -229,4 +224,4 @@ def test_taylor_torch_operator(firedrake_operator, V):
     # `gradcheck` is likey to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
     x_P = torch.rand(V.dim(), dtype=torch.double, requires_grad=True)
     # Taylor test (`eps` is the perturbation)
-    torch.autograd.gradcheck(G, x_P, eps=1e-6)
+    assert torch.autograd.gradcheck(G, x_P, eps=1e-6)
