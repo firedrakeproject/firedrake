@@ -1,5 +1,4 @@
 import collections
-import torch.autograd as torch_ad
 from functools import partial
 
 from firedrake.preconditioners.pytorch_coupling import get_backend
@@ -11,7 +10,7 @@ from pyadjoint.reduced_functional import ReducedFunctional
 backend = get_backend('pytorch')
 
 
-class FiredrakeTorchOperator(torch_ad.Function):
+class FiredrakeTorchOperator(backend.backend.autograd.Function):
     """
     PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
     `FiredrakeTorchOperator` is a wrapper around `torch.autograd.Function` that executes forward and backward
