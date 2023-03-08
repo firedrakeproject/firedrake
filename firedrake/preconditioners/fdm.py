@@ -182,10 +182,12 @@ class FDMPC(PCBase):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg V: the :class:`.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
+        :arg form_compiler_parameters: parameters to assemble diagonal factors
         :arg appctx: the application context
+        :pmat_type: the preconditioner `PETSc.Mat.Type`
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
@@ -1139,8 +1141,10 @@ class PoissonFDMPC(FDMPC):
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
-        :arg Vrow: the :class:`firedrake.FunctionSpace` test space
-        :arg Vcol: the :class:`firedrake.FunctionSpace` trial space
+        :arg Vrow: the :class:`.FunctionSpace` test space
+        :arg Vcol: the :class:`.FunctionSpace` trial space
+        :arg addv: a `PETSc.Mat.InsertMode`
+        :arg triu: are we assembling only the upper triangular part?
         """
         set_values_csr = self.load_set_values(triu=triu)
         update_A = lambda A, Ae, rindices: set_values_csr(A, Ae, rindices, rindices, addv)
@@ -1632,7 +1636,7 @@ def get_interior_facet_maps(V):
     """
     Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
 
-    :arg V: a :class:`FunctionSpace`
+    :arg V: a :class:`.FunctionSpace`
 
     :returns: the 3-tuple of
         facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,

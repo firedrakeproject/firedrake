@@ -234,7 +234,8 @@ class PMGBase(PCSNESBase):
 
         # Coarsen the problem and the _SNESContext
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
-                                                         form_compiler_parameters=fcp)
+                                                         form_compiler_parameters=fcp,
+                                                         is_linear=fproblem.is_linear)
 
         cctx = type(fctx)(cproblem, mat_type, pmat_type,
                           appctx=cappctx,
@@ -471,7 +472,7 @@ class PMGSNES(SNESBase, PMGBase):
         psnes.setFunction(fun, f.duplicate(), args=args, kargs=kargs)
 
         pdm.setGlobalVector(f.duplicate())
-        psnes.setSolution(f.duplicate())
+        psnes.setSolution(snes.getSolution())
 
         # PETSc unfortunately requires us to make an ugly hack.
         # We would like to use GMG for the coarse solve, at least
