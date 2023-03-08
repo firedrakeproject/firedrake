@@ -82,7 +82,7 @@ def pytest_runtest_call(item):
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import SLATE_SUPPORTS_COMPLEX
-    from firedrake.preconditioners.pytorch_coupling import get_backend
+    from firedrake.pytorch_coupling import get_backend
 
     backend = get_backend("pytorch")
 

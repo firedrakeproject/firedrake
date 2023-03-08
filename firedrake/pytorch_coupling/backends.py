@@ -1,5 +1,3 @@
-import numpy as np
-
 from firedrake.function import Function
 from firedrake.vector import Vector
 from firedrake.constant import Constant
@@ -13,14 +11,16 @@ class AbstractMLBackend(object):
         raise NotImplementedError
 
     def to_ml_backend(self, x):
-        """Convert from Firedrake to ML backend
-           x: Firedrake object
+        r"""Convert from Firedrake to ML backend.
+
+           :arg x: Firedrake object
         """
         raise NotImplementedError
 
     def from_ml_backend(self, x, V):
-        """Convert from ML backend to Firedrake
-           x: ML backend object
+        r"""Convert from ML backend to Firedrake.
+
+           :arg x: ML backend object
         """
         raise NotImplementedError
 
@@ -57,23 +57,21 @@ class PytorchBackend(AbstractMLBackend):
 
     @utils.cached_property
     def custom_operator(self):
-        from firedrake.preconditioners.pytorch_coupling.pytorch_custom_operator import FiredrakeTorchOperator
+        from firedrake.pytorch_coupling.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator().apply
 
     def to_ml_backend(self, x, gather=False, batched=True, **kwargs):
-        """ Convert a Firedrake object `x` into a PyTorch tensor
+        r"""Convert a Firedrake object `x` into a PyTorch tensor.
 
-            x: Firedrake object (Function, Vector, Constant)
-            gather: if True, gather data from all processes
-            batched: if True, add a batch dimension to the tensor
-            kwargs: additional arguments to be passed to torch.Tensor constructor
+            :arg x: Firedrake object (Function, Vector, Constant)
+            :kwarg gather: if True, gather data from all processes
+            :kwarg batched: if True, add a batch dimension to the tensor
+            :kwarg kwargs: additional arguments to be passed to torch.Tensor constructor
                 - device: device on which the tensor is allocated (default: "cpu")
                 - dtype: the desired data type of returned tensor (default: type of x.dat.data)
                 - requires_grad: if the tensor should be annotated (default: False)
         """
         if isinstance(x, (Function, Vector)):
-            # State counter: get_local does a copy and increase the state counter while gather does not.
-            # We probably always want to increase the state counter and therefore should do something for the gather case
             if gather:
                 # Gather data from all processes
                 x_P = self.backend.tensor(x.vector().gather(), **kwargs)
@@ -87,11 +85,19 @@ class PytorchBackend(AbstractMLBackend):
         elif isinstance(x, Constant):
             return self.backend.tensor(x.values(), **kwargs)
         elif isinstance(x, (float, int)):
-            return self.backend.tensor(np.array(x), **kwargs)
+            if isinstance(x, float):
+                # Set double-precision
+                kwargs['dtype'] = self.backend.double
+            return self.backend.tensor(x, **kwargs)
         else:
             raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
 
-    def from_ml_backend(self, x, V=None, gather=False):
+    def from_ml_backend(self, x, V=None):
+        r"""Convert a PyTorch tensor `x` into a Firedrake object.
+
+            :arg x: PyTorch tensor (torch.Tensor)
+            :kwarg V: function space of the corresponding Function or None when `x` is to be mapped to a Constant
+        """
         if x.device.type != "cpu":
             raise NotImplementedError("Firedrake does not support GPU tensors")
 

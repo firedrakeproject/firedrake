@@ -1,7 +1,7 @@
 import collections
 from functools import partial
 
-from firedrake.preconditioners.pytorch_coupling import get_backend
+from firedrake.pytorch_coupling import get_backend
 from firedrake.function import Function
 
 from pyadjoint.reduced_functional import ReducedFunctional
