@@ -44,6 +44,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
+    config.addinivalue_line(
+        "markers",
+        "skiptorch: mark as skipped if PyTorch is not installed")
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +82,10 @@ def pytest_runtest_call(item):
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import SLATE_SUPPORTS_COMPLEX
+    from firedrake.preconditioners.pytorch_coupling import get_backend
+
+    backend = get_backend("pytorch")
+
     for item in items:
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
@@ -88,6 +95,10 @@ def pytest_collection_modifyitems(session, config, items):
         else:
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+
+        if not backend:
+            if item.get_closest_marker("skiptorch") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
 
 
 @pytest.fixture(scope="module", autouse=True)

@@ -1,12 +1,42 @@
 import pytest
 
-import torch
-import torch.nn.functional as torch_func
-from torch.nn import Module, Flatten, Linear
-
 from firedrake import *
 from firedrake_adjoint import *
 from pyadjoint.tape import get_working_tape, pause_annotation
+
+
+pytorch_backend = get_backend("pytorch")
+
+if pytorch_backend:
+    # PyTorch is installed
+    import torch
+    import torch.nn.functional as torch_func
+    from torch.nn import Module, Flatten, Linear
+
+    class EncoderDecoder(Module):
+        """Build a simple toy model"""
+
+        def __init__(self, n):
+            super(EncoderDecoder, self).__init__()
+            self.n = n
+            self.m = int(n/2)
+            self.flatten = Flatten()
+            self.linear_encoder = Linear(self.n, self.m)
+            self.linear_decoder = Linear(self.m, self.n)
+
+        def encode(self, x):
+            return torch_func.relu(self.linear_encoder(x))
+
+        def decode(self, x):
+            return torch_func.relu(self.linear_decoder(x))
+
+        def forward(self, x):
+            # [batch_size, n]
+            x = self.flatten(x)
+            # [batch_size, m]
+            hidden = self.encode(x)
+            # [batch_size, n]
+            return self.decode(hidden)
 
 
 @pytest.fixture(autouse=True)
@@ -45,32 +75,6 @@ def f_exact(V, mesh):
     return Function(V).interpolate(sin(pi * x) * sin(pi * y))
 
 
-class EncoderDecoder(Module):
-    """Build a simple toy model"""
-
-    def __init__(self, n):
-        super(EncoderDecoder, self).__init__()
-        self.n = n
-        self.m = int(n/2)
-        self.flatten = Flatten()
-        self.linear_encoder = Linear(self.n, self.m)
-        self.linear_decoder = Linear(self.m, self.n)
-
-    def encode(self, x):
-        return torch_func.relu(self.linear_encoder(x))
-
-    def decode(self, x):
-        return torch_func.relu(self.linear_decoder(x))
-
-    def forward(self, x):
-        # [batch_size, n]
-        x = self.flatten(x)
-        # [batch_size, m]
-        hidden = self.encode(x)
-        # [batch_size, n]
-        return self.decode(hidden)
-
-
 # Set of Firedrake operations that will be composed with PyTorch operations
 def poisson_residual(u, f, V):
     """Assemble the residual of a Poisson problem"""
@@ -102,6 +106,7 @@ def firedrake_operator(request, f_exact, V):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_pytorch_loss_backward(V, f_exact):
     """Test backpropagation through a vector-valued Firedrake operator"""
 
@@ -113,9 +118,6 @@ def test_pytorch_loss_backward(V, f_exact):
 
     # Check that gradients are initially set to None
     assert all([θi.grad is None for θi in model.parameters()])
-
-    # Get machine learning backend (default: PyTorch)
-    pytorch_backend = get_backend()
 
     # Convert f_exact to torch.Tensor
     f_P = pytorch_backend.to_ml_backend(f_exact)
@@ -156,6 +158,7 @@ def test_pytorch_loss_backward(V, f_exact):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_firedrake_loss_backward(V):
     """Test backpropagation through a scalar-valued Firedrake operator"""
 
@@ -167,9 +170,6 @@ def test_firedrake_loss_backward(V):
 
     # Check that gradients are initially set to None
     assert all([θi.grad is None for θi in model.parameters()])
-
-    # Get machine learning backend (default: PyTorch)
-    pytorch_backend = get_backend()
 
     # Model input
     λ = Function(V)
@@ -211,6 +211,7 @@ def test_firedrake_loss_backward(V):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_taylor_torch_operator(firedrake_operator, V):
     """Taylor test for the torch operator"""
     # Control value

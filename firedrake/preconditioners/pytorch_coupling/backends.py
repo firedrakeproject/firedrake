@@ -38,13 +38,22 @@ class AbstractMLBackend(object):
 
 class PytorchBackend(AbstractMLBackend):
 
-    @utils.cached_property
-    def backend(self):
+    def __init__(self):
         try:
             import torch
+            self._backend = torch
         except ImportError:
-            raise ImportError("Error when trying to import PyTorch")
-        return torch
+            self._backend = None
+
+    @property
+    def backend(self):
+        if self:
+            return self._backend
+        else:
+            raise ImportError("Error when trying to import PyTorch.")
+
+    def __bool__(self):
+        return self._backend is not None
 
     @utils.cached_property
     def custom_operator(self):

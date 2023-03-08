@@ -7,10 +7,19 @@ from firedrake.function import Function
 from pyadjoint.reduced_functional import ReducedFunctional
 
 
-backend = get_backend('pytorch')
+backend = get_backend("pytorch")
+
+if backend:
+    # PyTorch is installed
+    BackendFunction = backend.backend.autograd.Function
+else:
+    class BackendFunction(object):
+        """Dummy class that exceptions on instantiation."""
+        def __init__(self):
+            raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 
-class FiredrakeTorchOperator(backend.backend.autograd.Function):
+class FiredrakeTorchOperator(BackendFunction):
     """
     PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
     `FiredrakeTorchOperator` is a wrapper around `torch.autograd.Function` that executes forward and backward
@@ -23,6 +32,9 @@ class FiredrakeTorchOperator(backend.backend.autograd.Function):
     Outputs:
         y: PyTorch tensor representing the output of the Firedrake operator F
     """
+
+    def __init__(self):
+        super(FiredrakeTorchOperator, self).__init__()
 
     # This method is wrapped by something cancelling annotation (probably 'with torch.no_grad()')
     @staticmethod
