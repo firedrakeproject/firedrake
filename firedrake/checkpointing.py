@@ -573,6 +573,7 @@ class CheckpointFile(object):
                 path = self._path_to_topology_extruded(tmesh.name)
                 self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
+                self.set_attr(path, PREFIX_EXTRUDED + "_periodic", tmesh.extruded_periodic)
                 self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
                 if tmesh.variable_layers:
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
@@ -874,6 +875,7 @@ class CheckpointFile(object):
             if tmesh_key in self._tmesh_cache:
                 tmesh = self._tmesh_cache[tmesh_key]
             else:
+                periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
                 variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
                 if variable_layers:
                     cell = base_tmesh.ufl_cell()
@@ -898,7 +900,7 @@ class CheckpointFile(object):
                     lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
                 else:
                     layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
-                tmesh = ExtrudedMeshTopology(base_tmesh, layers, name=tmesh_name)
+                tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name)
                 self._tmesh_cache[tmesh_key] = tmesh
             # -- Load mesh --
             mesh_key = self._generate_mesh_key_from_names(name,

@@ -56,6 +56,8 @@ __all__ = [
     "CubedSphereMesh",
     "UnitCubedSphereMesh",
     "TorusMesh",
+    "AnnulusMesh",
+    "SolidTorusMesh",
     "CylinderMesh",
 ]
 
@@ -80,8 +82,9 @@ def IntervalMesh(
     :arg right: (optional) position of the right
          boundary point (in which case ``length_or_left`` should
          be the left boundary point).
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -153,8 +156,9 @@ def UnitIntervalMesh(
     Generate a uniform mesh of the interval [0,1].
 
     :arg ncells: The number of the cells over the interval.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -192,8 +196,9 @@ def PeriodicIntervalMesh(
 
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -279,8 +284,9 @@ def PeriodicUnitIntervalMesh(
     """Generate a periodic mesh of the unit interval
 
     :arg ncells: The number of cells in the interval.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -318,8 +324,9 @@ def OneElementThickMesh(
     :arg ncells: The number of cells in the mesh.
     :arg Lx: The width of the domain in the x-direction.
     :arg Ly: The width of the domain in the y-direction.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -491,8 +498,7 @@ def UnitTriangleMesh(
 ):
     """Generate a mesh of the reference triangle
 
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -537,10 +543,11 @@ def RectangleMesh(
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
         bottom right (``"left"``), or put in both diagonals (``"crossed"``).
@@ -596,10 +603,11 @@ def TensorRectangleMesh(
 
     :arg xcoords: mesh points for the x direction
     :arg ycoords: mesh points for the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
         bottom right (``"left"``), or put in both diagonals (``"crossed"``).
@@ -721,10 +729,11 @@ def SquareMesh(
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg L: The extent in the x and y directions
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -773,10 +782,11 @@ def UnitSquareMesh(
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -831,12 +841,13 @@ def PeriodicRectangleMesh(
     :arg Ly: The extent in the y direction
     :arg direction: The direction of the periodicity, one of
         ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes. Only used for direction ``"x"`` or direction ``"y"``.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -994,12 +1005,13 @@ def PeriodicSquareMesh(
     :arg L: The extent in the x and y directions
     :arg direction: The direction of the periodicity, one of
         ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1055,12 +1067,13 @@ def PeriodicUnitSquareMesh(
     :arg ny: The number of cells in the y direction
     :arg direction: The direction of the periodicity, one of
         ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1110,12 +1123,12 @@ def CircleManifoldMesh(
 
     :arg ncells: number of cells the circle should be
          divided into (min 3)
-    :kwarg radius: (optional) radius of the circle to approximate
-           (defaults to 1).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: cells are straight line segments)
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg radius: (optional) radius of the circle to approximate.
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           cells are straight line segments if degree=1).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1188,8 +1201,9 @@ def UnitDiskMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1267,8 +1281,9 @@ def UnitBallMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an octahedron)
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional MPI communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional MPI communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1348,8 +1363,7 @@ def UnitTetrahedronMesh(
 ):
     """Generate a mesh of the reference tetrahedron.
 
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1399,13 +1413,14 @@ def BoxMesh(
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
     :arg Lz: The extent in the z direction
-    :kwarg hexahedral: (optional), creates hexahedral mesh, defaults to False
+    :kwarg hexahedral: (optional), creates hexahedral mesh.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
     :kwarg diagonal: Two ways of cutting hexadra, should be cut into 6
         tetrahedra (``"default"``), or 5 tetrahedra thus less biased
         (``"crossed"``)
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
 
     The boundary surfaces are numbered as follows:
 
@@ -1542,10 +1557,11 @@ def CubeMesh(
     :arg ny: The number of cells in the y direction
     :arg nz: The number of cells in the z direction
     :arg L: The extent in the x, y and z directions
-    :kwarg hexahedral: (optional), creates hexahedral mesh, defaults to False
+    :kwarg hexahedral: (optional), creates hexahedral mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1598,10 +1614,11 @@ def UnitCubeMesh(
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg nz: The number of cells in the z direction
-    :kwarg hexahedral: (optional), creates hexahedral mesh, defaults to False
+    :kwarg hexahedral: (optional), creates hexahedral mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1658,8 +1675,9 @@ def PeriodicBoxMesh(
     :arg Ly: The extent in the y direction
     :arg Lz: The extent in the z direction
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1802,8 +1820,9 @@ def PeriodicUnitCubeMesh(
     :arg ny: The number of cells in the y direction
     :arg nz: The number of cells in the z direction
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1853,11 +1872,12 @@ def IcosahedralSphereMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: flat triangles)
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -1973,11 +1993,12 @@ def UnitIcosahedralSphereMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: flat triangles)
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2021,16 +2042,16 @@ def OctahedralSphereMesh(
     :arg radius: The radius of the sphere to approximate.
     :kwarg refinement_level: optional number of refinements (0 is an
         octahedron).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: flat triangles)
-    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           flat triangles if degree=1).
+    :kwarg hemisphere: One of "both", "north", or "south"
     :kwarg z0: for abs(z/R)>z0, blend from a mesh where the higher-order
         non-vertex nodes are on lines of latitude to a mesh where these nodes
-        are just pushed out radially from the equivalent P1 mesh. (defaults to
-        z0=0.8).
+        are just pushed out radially from the equivalent P1 mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2172,16 +2193,16 @@ def UnitOctahedralSphereMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an
         octahedron).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: flat triangles)
-    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           flat triangles if degree=1).
+    :kwarg hemisphere: One of "both", "north", or "south"
     :kwarg z0: for abs(z)>z0, blend from a mesh where the higher-order
         non-vertex nodes are on lines of latitude to a mesh where these nodes
-        are just pushed out radially from the equivalent P1 mesh. (defaults to
-        z0=0.8).
+        are just pushed out radially from the equivalent P1 mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2355,11 +2376,12 @@ def CubedSphereMesh(
 
     :arg radius: The radius of the sphere to approximate.
     :kwarg refinement_level: optional number of refinements (0 is a cube).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: bilinear quads)
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2423,11 +2445,12 @@ def UnitCubedSphereMesh(
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
-    :kwarg degree: polynomial degree of coordinate space (defaults
-        to 1: bilinear quads)
+    :kwarg degree: polynomial degree of coordinate space (e.g.,
+           bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2469,10 +2492,11 @@ def TorusMesh(
     :arg nr: The number of cells in the minor direction (min 3)
     :arg R: The major radius
     :arg r: The minor radius
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2542,6 +2566,112 @@ def TorusMesh(
 
 
 @PETSc.Log.EventDecorator()
+def AnnulusMesh(
+    R,
+    r,
+    nr=4,
+    nt=32,
+    distribution_parameters=None,
+    comm=COMM_WORLD,
+    name=mesh.DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """Generate an annulus mesh periodically extruding an interval mesh
+
+    :arg R: The outer radius
+    :arg r: The inner radius
+    :kwarg nr: (optional), number of cells in the radial direction
+    :kwarg nt: (optional), number of cells in the circumferential direction (min 3)
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    """
+    if nt < 3:
+        raise ValueError("Must have at least 3 cells in the circumferential direction")
+    base_name = name + "_base"
+    base = IntervalMesh(nr,
+                        r,
+                        right=R,
+                        distribution_parameters=distribution_parameters,
+                        comm=comm,
+                        name=base_name,
+                        distribution_name=distribution_name,
+                        permutation_name=permutation_name)
+    bar = mesh.ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
+    x, y = ufl.SpatialCoordinate(bar)
+    V = bar.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(y), x * ufl.sin(y)]))
+    annulus = mesh.make_mesh_from_coordinates(coord.topological, name)
+    annulus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    annulus._base_mesh = base
+    return annulus
+
+
+@PETSc.Log.EventDecorator()
+def SolidTorusMesh(
+    R,
+    r,
+    nR=8,
+    refinement_level=0,
+    reorder=None,
+    distribution_parameters=None,
+    comm=COMM_WORLD,
+    name=mesh.DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """Generate a solid toroidal mesh (with axis z) periodically extruding a disk mesh
+
+    :arg R: The major radius
+    :arg r: The minor radius
+    :kwarg nR: (optional), number of cells in the major direction (min 3)
+    :kwarg refinement_level: (optional), number of times the base disk mesh is refined.
+    :kwarg reorder: (optional), should the mesh be reordered
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if ``None``, the name is automatically
+           generated.
+    """
+    if nR < 3:
+        raise ValueError("Must have at least 3 cells in the major direction")
+    base_name = name + "_base"
+    unit = UnitDiskMesh(refinement_level=refinement_level,
+                        reorder=reorder,
+                        distribution_parameters=distribution_parameters,
+                        comm=comm,
+                        distribution_name=distribution_name,
+                        permutation_name=permutation_name)
+    x, y = ufl.SpatialCoordinate(unit)
+    V = unit.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
+    disk = mesh.make_mesh_from_coordinates(coord.topological, base_name)
+    disk.topology.name = mesh._generate_default_mesh_topology_name(base_name)
+    disk.topology.topology_dm.setName(disk.topology.name)
+    bar = mesh.ExtrudedMesh(disk, layers=nR, layer_height=2 * np.pi / nR, extrusion_type="uniform", periodic=True)
+    x, y, z = ufl.SpatialCoordinate(bar)
+    V = bar.coordinates.function_space()
+    coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(z), x * ufl.sin(z), -y]))
+    torus = mesh.make_mesh_from_coordinates(coord.topological, name)
+    torus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    torus._base_mesh = disk
+    return torus
+
+
+@PETSc.Log.EventDecorator()
 def CylinderMesh(
     nr,
     nl,
@@ -2562,17 +2692,16 @@ def CylinderMesh(
     :arg nr: number of cells the cylinder circumference should be
          divided into (min 3)
     :arg nl: number of cells along the longitudinal axis of the cylinder
-    :kwarg radius: (optional) radius of the cylinder to approximate
-         (default 1).
-    :kwarg depth: (optional) depth of the cylinder to approximate
-         (default 1).
+    :kwarg radius: (optional) radius of the cylinder to approximate.
+    :kwarg depth: (optional) depth of the cylinder to approximate.
     :kwarg longitudinal_direction: (option) direction for the
          longitudinal axis of the cylinder.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically
@@ -2732,13 +2861,14 @@ def PartiallyPeriodicRectangleMesh(
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
-    :kwarg direction: The direction of the periodicity (default x).
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg direction: The direction of the periodicity.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``. ``"left"`` is the default.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+    :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
            when checkpointing; if `None`, the name is automatically

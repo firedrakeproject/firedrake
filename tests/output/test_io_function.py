@@ -4,6 +4,7 @@ import pytest
 from os.path import abspath, dirname, join
 import functools
 from pyop2.mpi import COMM_WORLD
+from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
 from firedrake.utils import IntType
 
@@ -550,6 +551,35 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name, variable_layers=True)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_io_function_extrusion_periodic(tmpdir):
+    filename = join(str(tmpdir), "test_io_function_extrusion_periodic_dump.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    m = 5  # num. element in radial direction
+    n = 31  # num. element in circumferential direction
+    mesh = IntervalMesh(m, 1.0, 2.0, name=mesh_name)
+    extm = ExtrudedMesh(mesh, layers=n, layer_height=2 * pi / n, extrusion_type="uniform", periodic=True, name=extruded_mesh_name)
+    elem = extm.coordinates.ufl_element()
+    coordV = FunctionSpace(extm, elem)
+    x, y = SpatialCoordinate(extm)
+    coord = Function(coordV).interpolate(as_vector([x * cos(y), x * sin(y)]))
+    extm = make_mesh_from_coordinates(coord.topological, name=extruded_mesh_name)
+    extm._base_mesh = mesh
+    V = FunctionSpace(extm, "RTCF", 3)
+    method = get_embedding_method_for_checkpointing(V.ufl_element())
+    f = Function(V, name=func_name)
+    _initialise_function(f, _get_expr(V), method)
+    with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
+        afile.save_function(f)
+    # Load -> View cycle
+    ntimes = COMM_WORLD.size
+    for i in range(ntimes):
+        mycolor = (COMM_WORLD.rank > ntimes - 1 - i)
+        comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
+        if mycolor == 0:
+            _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
 
 
 @pytest.mark.parallel(nprocs=2)

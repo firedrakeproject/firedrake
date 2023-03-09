@@ -1168,6 +1168,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
 
     variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
+    extruded_periodic = mesh.cell_set._extruded_periodic
     on_base_ = on_base
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
     if variable:
@@ -1176,7 +1177,10 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         if on_base:
             nodes_per_entity = sum(nodes_per_entity[:, i] for i in range(2))
         else:
-            nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
+            if extruded_periodic:
+                nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - 1) for i in range(2))
+            else:
+                nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
     section = PETSc.Section().create(comm=mesh._comm)
 
@@ -1242,7 +1246,7 @@ def get_cell_nodes(mesh,
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
         np.ndarray[PetscInt, ndim=2, mode="c"] entity_orientations
-        bint is_swarm, variable
+        bint is_swarm, variable, extruded_periodic_1_layer
 
     dm = mesh.topology_dm
     is_swarm = type(dm) is PETSc.DMSwarm
@@ -1255,6 +1259,10 @@ def get_cell_nodes(mesh,
         layer_extents = mesh.layer_extents
         if offset is None:
             raise ValueError("Offset cannot be None with variable layer extents")
+    # Special case: DoFs on the top layer are identified as those on the bottom layer.
+    extruded_periodic_1_layer = isinstance(mesh, firedrake.mesh.ExtrudedMeshTopology) and \
+                                mesh.extruded_periodic and \
+                                mesh.layers == 1 + 1
     nclosure = cell_closures.shape[1]
     # Extract ordering from FInAT element entity DoFs
     ndofs_list = []
@@ -1315,15 +1323,25 @@ def get_cell_nodes(mesh,
                 if variable:
                     off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
                 if entity_permutations is not None:
-                    for j in range(ceil_ndofs[i]):
-                        cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j]
-                        k += 1
+                    if extruded_periodic_1_layer:
+                        for j in range(ceil_ndofs[i]):
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
+                            k += 1
+                    else:
+                        for j in range(ceil_ndofs[i]):
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j]
+                            k += 1
                     perm_offset += ceil_ndofs[i] * num_orientations_c[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
-                    for j in range(ceil_ndofs[i]):
-                        cell_nodes[cell, flat_index[k]] = off + j
-                        k += 1
+                    if extruded_periodic_1_layer:
+                        for j in range(ceil_ndofs[i]):
+                            cell_nodes[cell, flat_index[k]] = off + j % offset[flat_index[k]]
+                            k += 1
+                    else:
+                        for j in range(ceil_ndofs[i]):
+                            cell_nodes[cell, flat_index[k]] = off + j
+                            k += 1
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
     if entity_permutations is not None:
