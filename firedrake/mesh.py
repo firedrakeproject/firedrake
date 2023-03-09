@@ -831,6 +831,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
+    @utils.cached_property
+    def extruded_periodic(self):
+        return self.cell_set._extruded_periodic
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -1277,12 +1281,12 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, name=None, tolerance=1.0):
+    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=1.0):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
-        :arg layers:         number of extruded cell layers in the "vertical"
-                             direction.
+        :arg layers:         number of occurence of base layer in the "vertical" direction.
+        :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
         :arg name:           optional name of the extruded mesh topology.
         :kwarg tolerance:    The relative tolerance (i.e. as defined on the
                              reference cell) for the distance a point can be
@@ -1303,6 +1307,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         if isinstance(mesh.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
+        if layers.shape and periodic:
+            raise ValueError("Must provide constant layer for periodic extrusion")
 
         mesh.init()
         self._base_mesh = mesh
@@ -1343,7 +1349,7 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1417,7 +1423,10 @@ class ExtrudedMeshTopology(MeshTopology):
             return extnum.node_classes(self, nodes_per_entity)
         else:
             nodes = np.asarray(nodes_per_entity)
-            nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
+            if self.extruded_periodic:
+                nodes_per_entity = sum(nodes[:, i]*(self.layers - 1) for i in range(2))
+            else:
+                nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
     @utils.cached_property
@@ -2347,7 +2356,7 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None, name=None, tolerance=1.0):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=1.0):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -2368,6 +2377,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     :arg extrusion_type: the algorithm to employ to calculate the extruded
                          coordinates. One of "uniform", "radial",
                          "radial_hedgehog" or "custom". See below.
+    :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
+                         Can be used with any "extrusion_type" to make annulus, torus, etc.
     :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
                          the extruded mesh. See :func:`~.make_extruded_coords`
                          for more details.
@@ -2417,6 +2428,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     mesh.init()
     layers = np.asarray(layers, dtype=IntType)
     if layers.shape:
+        if periodic:
+            raise ValueError("Must provide constant layer for periodic extrusion")
         if layers.shape != (mesh.cell_set.total_size, 2):
             raise ValueError("Must provide single layer number or array of shape (%d, 2), not %s",
                              mesh.cell_set.total_size, layers.shape)
@@ -2447,7 +2460,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # layer_height is a scalar; equi-distant layers are fine
         pass
 
-    topology = ExtrudedMeshTopology(mesh.topology, layers, tolerance=tolerance)
+    topology = ExtrudedMeshTopology(mesh.topology, layers, periodic=periodic, tolerance=tolerance)
 
     if extrusion_type == "uniform":
         pass
@@ -2466,7 +2479,10 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     helement = mesh._coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
-    velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    if periodic:
+        velement = ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+    else:
+        velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
     element = ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
