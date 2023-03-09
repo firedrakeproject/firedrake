@@ -101,12 +101,12 @@ def test_p_independence(mesh, expected, variant):
 def solve_riesz_map(V, d):
     beta = Constant(1E-8)
     subs = [(1, 3)]
+    if V.mesh().extruded:
+        subs += ["top"]
 
     x = SpatialCoordinate(V.mesh())
     x -= Constant([0.5]*len(x))
     expr = x * exp(-10*dot(x, x))
-    if V.mesh().extruded:
-        subs += ["top"]
 
     u_exact = Function(V)
     u_exact.project(expr, solver_parameters={"mat_type": "matfree", "pc_type": "jacobi"})
