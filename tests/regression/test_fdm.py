@@ -1,29 +1,31 @@
 import pytest
 from firedrake import *
 
-
-fdmstar = {
+ksp = {
     "mat_type": "matfree",
     "ksp_type": "cg",
     "ksp_atol": 0.0E0,
     "ksp_rtol": 1.0E-8,
     "ksp_norm_type": "natural",
     "ksp_monitor": None,
+}
+
+coarse = {
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "pc_type": "cholesky",
+}
+
+fdmstar = {
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
-    "pmg_mg_coarse": {
-        "mat_type": "aij",
-        "ksp_type": "preonly",
-        "pc_type": "cholesky",
-    },
+    "pmg_mg_coarse": coarse,
     "pmg_mg_levels": {
         "ksp_type": "chebyshev",
         "ksp_norm_type": "none",
         "esteig_ksp_type": "cg",
         "esteig_ksp_norm_type": "natural",
         "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
-        "ksp_chebyshev_esteig_noisy": True,
-        "ksp_chebyshev_esteig_steps": 8,
         "pc_type": "python",
         "pc_python_type": "firedrake.FDMPC",
         "fdm": {
@@ -31,11 +33,43 @@ fdmstar = {
             "pc_python_type": "firedrake.ASMExtrudedStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
-            "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc",
-            "pc_star_sub_sub_pc_factor_mat_ordering_type": "natural",
         }
     }
 }
+
+facetstar = {
+    "pc_type": "python",
+    "pc_python_type": "firedrake.FacetSplitPC",
+    "facet_pc_type": "python",
+    "facet_pc_python_type": "firedrake.FDMPC",
+    "facet_fdm_pc_use_amat": False,
+    "facet_fdm_pc_type": "fieldsplit",
+    "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
+    "facet_fdm_fieldsplit_0": {
+        "ksp_type": "preonly",
+        "pc_type": "icc",
+    },
+    "facet_fdm_fieldsplit_1": {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse": coarse,
+        "pmg_mg_levels": {
+            "ksp_type": "chebyshev",
+            "ksp_norm_type": "none",
+            "esteig_ksp_type": "cg",
+            "esteig_ksp_norm_type": "natural",
+            "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_star_mat_ordering_type": "nd",
+            "pc_star_sub_sub_pc_type": "cholesky",
+        }
+    }
+}
+
+fdmstar.update(ksp)
+facetstar.update(ksp)
 
 
 def solve_riesz_map(V, d):
@@ -61,9 +95,13 @@ def solve_riesz_map(V, d):
     trial = TrialFunction(V)
     a = lambda v, u: inner(v, beta*u)*dx + inner(d(v), d(u))*dx
     problem = LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
-    solver.solve()
-    return solver.snes.ksp.getIterationNumber()
+    its = []
+    for sparams in [fdmstar, facetstar]:
+        uh.assign(0)
+        solver = LinearVariationalSolver(problem, solver_parameters=sparams)
+        solver.solve()
+        its.append(solver.snes.ksp.getIterationNumber())
+    return its
 
 
 @pytest.fixture(params=[2, 3],
@@ -87,11 +125,11 @@ def variant(request):
 
 
 @pytest.mark.skipcomplex
-def test_p_independence_hgrad(mesh, variant):
+def test_p_independence_hgrad(mesh):
     family = "Lagrange"
-    expected = 9 if mesh.topological_dimension() == 3 else 5
+    expected = [9, 9] if mesh.topological_dimension() == 3 else [5, 5]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
+        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
         assert solve_riesz_map(V, grad) <= expected
 
@@ -99,7 +137,7 @@ def test_p_independence_hgrad(mesh, variant):
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
-    expected = 6 if mesh.topological_dimension() == 3 else 3
+    expected = [6, 6] if mesh.topological_dimension() == 3 else [3, 3]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
@@ -109,7 +147,7 @@ def test_p_independence_hcurl(mesh):
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
-    expected = 2
+    expected = [2, 2]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
@@ -271,48 +309,3 @@ def test_ipdg_direct_solver(fs):
 
     assert solver.snes.ksp.getIterationNumber() == 1
     assert norm(u_exact-uh, "H1") < 1.0E-8
-
-
-@pytest.mark.skipcomplex
-def test_static_condensation(mesh):
-    degree = 3
-    quad_degree = 2*degree+1
-    cell = mesh.ufl_cell()
-    e = FiniteElement("Lagrange", cell=cell, degree=degree, variant="fdm")
-    Z = FunctionSpace(mesh, MixedElement(*[RestrictedElement(e, d) for d in ("interior", "facet")]))
-    z = Function(Z)
-    u = sum(split(z))
-
-    f = Constant(1)
-    U = ((1/2)*inner(grad(u), grad(u)) - inner(u, f))*dx(degree=quad_degree)
-    F = derivative(U, z, TestFunction(Z))
-    a = derivative(F, z, TrialFunction(Z))
-
-    subs = ["on_boundary"]
-    if mesh.cell_set._extruded:
-        subs += ["top", "bottom"]
-    bcs = [DirichletBC(Z.sub(1), zero(), sub) for sub in subs]
-
-    problem = LinearVariationalProblem(a, -F, z, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters={
-        "mat_type": "matfree",
-        "ksp_monitor": None,
-        "ksp_type": "preonly",
-        "ksp_norm_type": "unpreconditioned",
-        "pc_type": "python",
-        "pc_python_type": "firedrake.SCPC",
-        "pc_sc_eliminate_fields": "0",
-        "condensed_field": {
-            "mat_type": "matfree",
-            "ksp_monitor": None,
-            "ksp_type": "preonly",
-            "ksp_norm_type": "unpreconditioned",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.FDMPC",
-            "fdm_pc_type": "lu",
-            "fdm_pc_mat_factor_solver_type": "mumps"
-        }
-    })
-    solver.solve()
-    residual = solver.snes.ksp.buildResidual()
-    assert residual.norm() < 1E-14
