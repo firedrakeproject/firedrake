@@ -387,9 +387,9 @@ class FDMPC(PCBase):
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
             update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, rindices, addv)
-            rtensor = self.reference_tensor_on_diag.get(Vrow, None) or self.assemble_reference_tensor(Vrow)
+            rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
             assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
-            condense_element_mat = self.get_static_condensation.get(Vrow, None)
+            condense_element_mat = self.get_static_condensation.get(Vrow)
         else:
             get_cindices = self.cell_to_global[Vcol]
             update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, cindices, addv)
@@ -543,48 +543,6 @@ class FDMPC(PCBase):
         key = (mixed_form.signature(), mesh)
         block_diagonal = True
 
-        if key not in self._coefficient_cache and False:
-            M = assemble(mixed_form, mat_type="matfree",
-                         form_compiler_parameters=form_compiler_parameters)
-
-            coefs = []
-            mats = []
-            for iset in Z.dof_dset.field_ises:
-                Msub = M.petscmat.createSubMatrix(iset, iset)
-                coefs.append(Msub.getPythonContext()._diagonal)
-                mats.append(Msub)
-
-            def scale_coefficients():
-                for Msub, coef in zip(mats, coefs):
-                    ksp = PETSc.KSP().create(comm=V.comm)
-                    ksp.setOperators(A=Msub, P=Msub)
-                    ksp.setType(PETSc.KSP.Type.CG)
-                    ksp.setNormType(PETSc.KSP.NormType.NATURAL)
-                    ksp.pc.setType(PETSc.PC.Type.JACOBI)
-                    ksp.setTolerances(rtol=1E-3, atol=0.0E0, max_it=8)
-                    ksp.setComputeEigenvalues(True)
-                    ksp.setUp()
-
-                    x = Msub.createVecRight()
-                    b = Msub.createVecLeft()
-                    x.set(0)
-                    b.setRandom()
-                    ksp.solve(b, x)
-                    ew = numpy.real(ksp.computeEigenvalues())
-                    ksp.destroy()
-                    x.destroy()
-                    b.destroy()
-                    dscale = (max(ew) + min(ew))/2
-                    dscale = sum(ew) / len(ew)
-                    scale = dscale if dscale == dscale else 1
-                    with coef.dat.vec as diag:
-                        diag.scale(scale)
-
-            coefficients = {"beta": coefs[0], "alpha": coefs[1]}
-            assembly_callables = [scale_coefficients]
-            self._coefficient_cache[key] = (coefficients, assembly_callables)
-            return self._coefficient_cache[key]
-
         if key not in self._coefficient_cache:
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
@@ -621,8 +579,7 @@ class FDMPC(PCBase):
         key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
         if key not in cache:
-            full_key = (degree, ndim, formdegree, V.value_size, 0, 0)
-
+            full_key = (degree, ndim, formdegree, V.value_size, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
@@ -1148,11 +1105,10 @@ class PoissonFDMPC(FDMPC):
         """
         set_values_csr = self.load_set_values(triu=triu)
         update_A = lambda A, Ae, rindices: set_values_csr(A, Ae, rindices, rindices, addv)
-        condense_element_mat = self.get_static_condensation.get(Vrow, lambda x: x)
         condense_element_mat = lambda x: x
 
         get_rindices = self.cell_to_global[Vrow]
-        rtensor = self.reference_tensor_on_diag.get(Vrow, None) or self.assemble_reference_tensor(Vrow)
+        rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
         self.reference_tensor_on_diag[Vrow] = rtensor
         Afdm, Dfdm, bdof = rtensor
 

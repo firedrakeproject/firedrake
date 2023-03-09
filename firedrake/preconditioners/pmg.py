@@ -83,7 +83,7 @@ class PMGBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         test, trial = ctx.J.arguments()
         if test.function_space() != trial.function_space():
@@ -521,6 +521,14 @@ def load_c_code(code, name, argtypes, comm):
 
 
 def reference_moments(*args, **kwargs):
+    """
+    Return a python function that computes the L2 inner product of the
+    arguments in the reference cell.
+
+    :arg test: the test `ufl.Argument`
+    :arg trial: the trial `ufl.Argument` or `ufl.Coefficient`
+    :kwarg diagonal: are we assembling the diagonal of the bilinear form?
+    """
     import ctypes
     from tsfc import compile_form
     quad_degree = 1+sum([PMGBase.max_degree(t.ufl_element()) for t in args])
@@ -555,6 +563,9 @@ def reference_moments(*args, **kwargs):
 
 @lru_cache(maxsize=10)
 def matfree_reference_prolongator(Vf, Vc):
+    """
+    Return the prolongation from Vc to Vf on the reference element.
+    """
     dimf = Vf.value_size * Vf.finat_element.space_dimension()
     dimc = Vc.value_size * Vc.finat_element.space_dimension()
     build_Afc = reference_moments(ufl.TestFunction(Vf), ufl.TrialFunction(Vc))
@@ -607,8 +618,8 @@ def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     """
-
     if ele.cell().cellname().startswith("quadrilateral"):
+        # Handle immersed quadrilaterals
         quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
         return expand_element(ele.reconstruct(cell=quadrilateral_tpc))
     elif ele.cell() == ufl.hexahedron:
@@ -967,6 +978,9 @@ static inline void ipermute_axis(PetscBLASInt axis,
 
 @PETSc.Log.EventDecorator("MakeKronCode")
 def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
+    """
+    Return interpolation and restriction sub-kernels between enriched tensor product elements
+    """
     operator_decl = []
     prolong_code = []
     restrict_code = []
@@ -1271,13 +1285,13 @@ class StandaloneInterpolationMatrix(object):
             self.uf = Vf
             Vf = Vf.function_space()
         else:
-            self.uf = self._cache_work.get(Vf, firedrake.Function(Vf))
+            self.uf = self._cache_work.get(Vf) or firedrake.Function(Vf)
             self._cache_work[Vf] = self.uf
         if isinstance(Vc, firedrake.Function):
             self.uc = Vc
             Vc = Vc.function_space()
         else:
-            self.uc = self._cache_work.get(Vc, firedrake.Function(Vc))
+            self.uc = self._cache_work.get(Vc) or firedrake.Function(Vc)
             self._cache_work[Vc] = self.uc
         self.Vf = Vf
         self.Vc = Vc
