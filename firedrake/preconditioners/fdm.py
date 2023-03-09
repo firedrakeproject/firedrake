@@ -75,7 +75,6 @@ class FDMPC(PCBase):
 
         use_amat = options.getBool("pc_use_amat", True)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
-        diagonal_scale = options.getBool("diagonal_scale", False)
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -152,7 +151,7 @@ class FDMPC(PCBase):
                                               fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type, diagonal_scale)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -179,14 +178,16 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type, diagonal_scale):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type):
         """
         Assemble the sparse preconditioner with cell-wise constant coefficients.
 
-        :arg V: the :class:`firedrake.FunctionSpace` of the form arguments
+        :arg V: the :class:`.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
+        :arg form_compiler_parameters: parameters to assemble diagonal factors
         :arg appctx: the application context
+        :pmat_type: the preconditioner `PETSc.Mat.Type`
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
@@ -309,8 +310,6 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
 
-        self.diag = None
-
         @PETSc.Log.EventDecorator("FDMAssemble")
         def assemble_P():
             for _assemble in assembly_callables:
@@ -325,12 +324,6 @@ class FDMPC(PCBase):
                         P.setValuesRCV(rows, rows, vals, addv)
                     self.set_values(P, Vrow, Vcol, addv)
             Pmat.assemble()
-            if diagonal_scale:
-                diag = Pmat.getDiagonal(result=self.diag)
-                diag.sqrtabs()
-                diag.reciprocal()
-                Pmat.diagonalScale(L=diag, R=diag)
-                self.diag = diag
 
         return Pmat, assemble_P
 
@@ -341,7 +334,7 @@ class FDMPC(PCBase):
         self._assemble_P()
 
     def apply(self, pc, x, y):
-        if hasattr(self, "_ctx_ref"):
+        if hasattr(self, "fdm_interp"):
             self.fdm_interp.multTranspose(x, self.work_vec_x)
             with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.apply(self.work_vec_x, self.work_vec_y)
@@ -351,7 +344,7 @@ class FDMPC(PCBase):
             self.pc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
-        if hasattr(self, "_ctx_ref"):
+        if hasattr(self, "fdm_interp"):
             self.fdm_interp.multTranspose(x, self.work_vec_y)
             with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
                 self.pc.applyTranspose(self.work_vec_y, self.work_vec_x)
@@ -1148,8 +1141,10 @@ class PoissonFDMPC(FDMPC):
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
         :arg A: the :class:`PETSc.Mat` to assemble
-        :arg Vrow: the :class:`firedrake.FunctionSpace` test space
-        :arg Vcol: the :class:`firedrake.FunctionSpace` trial space
+        :arg Vrow: the :class:`.FunctionSpace` test space
+        :arg Vcol: the :class:`.FunctionSpace` trial space
+        :arg addv: a `PETSc.Mat.InsertMode`
+        :arg triu: are we assembling only the upper triangular part?
         """
         set_values_csr = self.load_set_values(triu=triu)
         update_A = lambda A, Ae, rindices: set_values_csr(A, Ae, rindices, rindices, addv)
@@ -1641,7 +1636,7 @@ def get_interior_facet_maps(V):
     """
     Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
 
-    :arg V: a :class:`FunctionSpace`
+    :arg V: a :class:`.FunctionSpace`
 
     :returns: the 3-tuple of
         facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,

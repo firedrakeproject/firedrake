@@ -91,17 +91,22 @@ class PMGBase(PCSNESBase):
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
-        opts = PETSc.Options(options_prefix)
         pdm = PETSc.DMShell().create(comm=pc.comm)
         pdm.setOptionsPrefix(options_prefix)
+
+        self.ppc = self.configure_pmg(pc, pdm)
+        self.ppc.setFromOptions()
+
+        print(self.ppc.getOptionsPrefix())
+        copts = PETSc.Options(self.ppc.getOptionsPrefix()+self.ppc.getType()+"_coarse_")
 
         # Get the coarse degree from PETSc options
         fcp = ctx._problem.form_compiler_parameters
         mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
-        self.coarse_degree = opts.getInt("mg_coarse_degree", default=1)
-        self.coarse_mat_type = opts.getString("mg_coarse_mat_type", default=ctx.mat_type)
-        self.coarse_pmat_type = opts.getString("mg_coarse_pmat_type", default=self.coarse_mat_type)
-        self.coarse_form_compiler_mode = opts.getString("mg_coarse_form_compiler_mode", default=mode)
+        self.coarse_degree = copts.getInt("degree", default=1)
+        self.coarse_mat_type = copts.getString("mat_type", default=ctx.mat_type)
+        self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
+        self.coarse_form_compiler_mode = copts.getString("form_compiler_mode", default=mode)
 
         # Construct a list with the elements we'll be using
         V = test.function_space()
@@ -125,8 +130,8 @@ class PMGBase(PCSNESBase):
         pdm.setCreateInterpolation(self.create_interpolation)
         # We need this for p-FAS
         pdm.setCreateInjection(self.create_injection)
-        pdm.setSNESJacobian(_SNESContext.form_jacobian)
         pdm.setSNESFunction(_SNESContext.form_function)
+        pdm.setSNESJacobian(_SNESContext.form_jacobian)
         pdm.setKSPComputeOperators(_SNESContext.compute_operators)
 
         set_function_space(pdm, get_function_space(odm))
@@ -135,9 +140,6 @@ class PMGBase(PCSNESBase):
         assert parent is not None
         add_hook(parent, setup=partial(push_parent, pdm, parent), teardown=partial(pop_parent, pdm, parent), call_setup=True)
         add_hook(parent, setup=partial(push_appctx, pdm, ctx), teardown=partial(pop_appctx, pdm, ctx), call_setup=True)
-
-        self.ppc = self.configure_pmg(pc, pdm)
-        self.ppc.setFromOptions()
         self.ppc.setUp()
 
     def update(self, pc):
@@ -147,7 +149,8 @@ class PMGBase(PCSNESBase):
         if viewer is None:
             viewer = PETSc.Viewer.STDOUT
         viewer.printfASCII("p-multigrid PC\n")
-        self.ppc.view(viewer)
+        if hasattr(self, "ppc"):
+            self.ppc.view(viewer)
 
     def destroy(self, pc):
         if hasattr(self, "ppc"):
@@ -180,15 +183,12 @@ class PMGBase(PCSNESBase):
         fu = fproblem.u
         cu = firedrake.Function(cV)
 
-        is_linear = fu not in fctx.J.coefficients()
-
         fdeg = PMGBase.max_degree(fV.ufl_element())
         cdeg = PMGBase.max_degree(cV.ufl_element())
 
-        fine_to_coarse_map = {test: test.reconstruct(function_space=cV),
+        fine_to_coarse_map = {fu: cu,
+                              test: test.reconstruct(function_space=cV),
                               trial: trial.reconstruct(function_space=cV)}
-        if not is_linear:
-            fine_to_coarse_map[fu] = cu
 
         def _coarsen_form(a):
             if isinstance(a, ufl.Form):
@@ -235,7 +235,7 @@ class PMGBase(PCSNESBase):
         # Coarsen the problem and the _SNESContext
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
                                                          form_compiler_parameters=fcp,
-                                                         is_linear=is_linear)
+                                                         is_linear=fproblem.is_linear)
 
         cctx = type(fctx)(cproblem, mat_type, pmat_type,
                           appctx=cappctx,
@@ -261,7 +261,7 @@ class PMGBase(PCSNESBase):
         interp_petscmat, _ = cdm.createInterpolation(fdm)
         inject_petscmat = cdm.createInjection(fdm)
 
-        if not is_linear:
+        if cu in cJ.coefficients():
             # injection of the initial state
             def inject_state():
                 with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
@@ -299,9 +299,9 @@ class PMGBase(PCSNESBase):
                 return fine_nullspace
 
         ises = cV._ises
-        cctx._nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._nullspace)
+        cctx._nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace)
         cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
-        cctx._near_nullspace = coarsen_nullspace(cV, inject_petscmat, fctx._near_nullspace)
+        cctx._near_nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._near_nullspace)
         cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
         cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
@@ -326,7 +326,7 @@ class PMGBase(PCSNESBase):
                 cV_ = cV_.sub(index)
             cbc_value = self.coarsen_bc_value(bc, cV_)
             if isinstance(bc, firedrake.DirichletBC):
-                cbcs.append(bc.reconstruct(V=cV, g=cbc_value))
+                cbcs.append(bc.reconstruct(V=cV_, g=cbc_value))
             else:
                 raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
         return cbcs
@@ -348,7 +348,9 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False), None
+        interpolate = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
+        rscale = interpolate.createVecRight()  # only used as a workaround in the creation of coarse vecs
+        return interpolate, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -470,8 +472,7 @@ class PMGSNES(SNESBase, PMGBase):
         psnes.setFunction(fun, f.duplicate(), args=args, kargs=kargs)
 
         pdm.setGlobalVector(f.duplicate())
-        self.dummy = f.duplicate()
-        psnes.setSolution(f.duplicate())
+        psnes.setSolution(snes.getSolution())
 
         # PETSc unfortunately requires us to make an ugly hack.
         # We would like to use GMG for the coarse solve, at least
@@ -491,7 +492,7 @@ class PMGSNES(SNESBase, PMGBase):
         ctx = get_appctx(snes.dm)
         push_appctx(self.ppc.dm, ctx)
         x.copy(y)
-        self.ppc.solve(snes.vec_rhs or self.dummy, y)
+        self.ppc.solve(snes.vec_rhs or None, y)
         y.aypx(-1, x)
         snes.setConvergedReason(self.ppc.getConvergedReason())
         pop_appctx(self.ppc.dm)
@@ -1391,7 +1392,7 @@ class StandaloneInterpolationMatrix(object):
             except Exception:
                 qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
-                    qelem = ufl.TensorElement(qelem, shape=felem._shape, symmetry=felem.symmetry())
+                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 
