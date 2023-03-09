@@ -97,7 +97,6 @@ class PMGBase(PCSNESBase):
         self.ppc = self.configure_pmg(pc, pdm)
         self.ppc.setFromOptions()
 
-        print(self.ppc.getOptionsPrefix())
         copts = PETSc.Options(self.ppc.getOptionsPrefix()+self.ppc.getType()+"_coarse_")
 
         # Get the coarse degree from PETSc options
