@@ -1,11 +1,10 @@
 import pytest
 
 from firedrake import *
-from firedrake_adjoint import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
-pytorch_backend = get_backend("pytorch")
+pytorch_backend = load_backend("pytorch")
 
 if pytorch_backend:
     # PyTorch is installed
@@ -110,6 +109,8 @@ def firedrake_operator(request, f_exact, V):
 def test_pytorch_loss_backward(V, f_exact):
     """Test backpropagation through a vector-valued Firedrake operator"""
 
+    from firedrake_adjoint import ReducedFunctional, Control
+
     # Instantiate model
     model = EncoderDecoder(V.dim())
 
@@ -161,6 +162,8 @@ def test_pytorch_loss_backward(V, f_exact):
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_firedrake_loss_backward(V):
     """Test backpropagation through a scalar-valued Firedrake operator"""
+
+    from firedrake_adjoint import ReducedFunctional, Control
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -214,6 +217,9 @@ def test_firedrake_loss_backward(V):
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_taylor_torch_operator(firedrake_operator, V):
     """Taylor test for the torch operator"""
+
+    from firedrake_adjoint import ReducedFunctional, Control
+
     # Control value
     ω = Function(V)
     # Get Firedrake operator and other operator arguments
@@ -222,7 +228,7 @@ def test_taylor_torch_operator(firedrake_operator, V):
     Jhat = ReducedFunctional(fd_op(ω, *args), Control(ω))
     # Define the torch operator
     G = torch_operator(Jhat)
-    # `gradcheck` is likey to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
+    # `gradcheck` is likely to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
     x_P = torch.rand(V.dim(), dtype=torch.double, requires_grad=True)
     # Taylor test (`eps` is the perturbation)
     assert torch.autograd.gradcheck(G, x_P, eps=1e-6)

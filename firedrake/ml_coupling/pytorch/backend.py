@@ -1,39 +1,9 @@
 from firedrake.function import Function
 from firedrake.vector import Vector
 from firedrake.constant import Constant
+from firedrake.ml_coupling.backend_base import AbstractMLBackend
 
 import firedrake.utils as utils
-
-
-class AbstractMLBackend(object):
-
-    def backend(self):
-        raise NotImplementedError
-
-    def to_ml_backend(self, x):
-        r"""Convert from Firedrake to ML backend.
-
-           :arg x: Firedrake object
-        """
-        raise NotImplementedError
-
-    def from_ml_backend(self, x, V):
-        r"""Convert from ML backend to Firedrake.
-
-           :arg x: ML backend object
-        """
-        raise NotImplementedError
-
-    def get_function_space(self, x):
-        """Get function space out of x"""
-        if isinstance(x, Function):
-            return x.function_space()
-        elif isinstance(x, Vector):
-            return self.get_function_space(x.function)
-        elif isinstance(x, float):
-            return None
-        else:
-            raise ValueError("Cannot infer the function space of %s" % x)
 
 
 class PytorchBackend(AbstractMLBackend):
@@ -57,7 +27,7 @@ class PytorchBackend(AbstractMLBackend):
 
     @utils.cached_property
     def custom_operator(self):
-        from firedrake.pytorch_coupling.pytorch_custom_operator import FiredrakeTorchOperator
+        from firedrake.ml_coupling.pytorch.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator().apply
 
     def to_ml_backend(self, x, gather=False, batched=True, **kwargs):
@@ -111,10 +81,3 @@ class PytorchBackend(AbstractMLBackend):
             x_F = Function(V, dtype=x.dtype)
             x_F.vector().set_local(x)
             return x_F
-
-
-def get_backend(backend_name='pytorch'):
-    if backend_name == 'pytorch':
-        return PytorchBackend()
-    else:
-        raise NotImplementedError("The backend: %s is not supported." % backend_name)

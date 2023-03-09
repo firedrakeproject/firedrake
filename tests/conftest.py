@@ -82,9 +82,9 @@ def pytest_runtest_call(item):
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import SLATE_SUPPORTS_COMPLEX
-    from firedrake.pytorch_coupling import get_backend
+    from firedrake.ml_coupling import load_backend
 
-    backend = get_backend("pytorch")
+    ml_backend = load_backend("pytorch")
 
     for item in items:
         if complex_mode:
@@ -96,7 +96,7 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if not backend:
+        if not ml_backend:
             if item.get_closest_marker("skiptorch") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
 
