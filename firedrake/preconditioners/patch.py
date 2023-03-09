@@ -747,14 +747,14 @@ class PatchBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         if P.getType() == "python":
             ictx = P.getPythonContext()
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ictx)
+                raise ValueError("Don't know how to get form from %r" % ictx)
             J = ictx.a
             bcs = ictx.row_bcs
             if bcs != ictx.col_bcs:
