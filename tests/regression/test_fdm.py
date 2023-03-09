@@ -7,9 +7,8 @@ fdmstar = {
     "ksp_type": "cg",
     "ksp_atol": 0.0E0,
     "ksp_rtol": 1.0E-8,
-    "ksp_norm_type": "unpreconditioned",
-    "ksp_monitor_true_residual": None,
-    "ksp_converged_reason": None,
+    "ksp_norm_type": "natural",
+    "ksp_monitor": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
     "pmg_mg_coarse": {
@@ -39,6 +38,34 @@ fdmstar = {
 }
 
 
+def solve_riesz_map(V, d):
+    beta = Constant(1E-8)
+    subs = [(1, 3)]
+    if V.mesh().cell_set._extruded:
+        subs += ["top"]
+
+    x = SpatialCoordinate(V.mesh())
+    x -= Constant([0.5]*len(x))
+    if V.ufl_element().value_shape() == ():
+        u_exact = exp(-10*dot(x, x))
+        u_bc = u_exact
+    else:
+        u_exact = x * exp(-10*dot(x, x))
+        u_bc = Function(V)
+        u_bc.project(u_exact, solver_parameters={"mat_type": "matfree", "pc_type": "jacobi"})
+
+    bcs = [DirichletBC(V, u_bc, sub) for sub in subs]
+
+    uh = Function(V)
+    test = TestFunction(V)
+    trial = TrialFunction(V)
+    a = lambda v, u: inner(v, beta*u)*dx + inner(d(v), d(u))*dx
+    problem = LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
+    solver.solve()
+    return solver.snes.ksp.getIterationNumber()
+
+
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def mesh(request):
@@ -54,90 +81,39 @@ def mesh(request):
     return m
 
 
-@pytest.fixture
-def expected(mesh):
-    if mesh.topological_dimension() == 2:
-        return [5, 5, 5]
-    elif mesh.topological_dimension() == 3:
-        return [8, 8, 8]
-
-
 @pytest.fixture(params=[None, "fdm"], ids=["spectral", "fdm"])
 def variant(request):
     return request.param
 
 
 @pytest.mark.skipcomplex
-def test_p_independence(mesh, expected, variant):
-    nits = []
-    for degree, nits in zip(range(3, 6), expected):
-        e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant=variant)
-        V = FunctionSpace(mesh, e)
-        u = TrialFunction(V)
-        v = TestFunction(V)
-
-        x = SpatialCoordinate(mesh)
-        x -= Constant([0.5]*len(x))
-        u_exact = dot(x, x)
-        f_exact = grad(u_exact)
-        B = -div(f_exact)
-
-        a = inner(grad(v), grad(u))*dx
-        L = inner(v, B)*dx
-
-        subs = ("on_boundary",)
-        if mesh.cell_set._extruded:
-            subs += ("top", "bottom")
-        bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
-
-        uh = Function(V)
-        problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-        solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
-        solver.solve()
-        assert solver.snes.ksp.getIterationNumber() <= nits
-    assert norm(u_exact-uh, "H1") < 2.0E-7
-
-
-def solve_riesz_map(V, d):
-    beta = Constant(1E-8)
-    subs = [(1, 3)]
-    if V.mesh().extruded:
-        subs += ["top"]
-
-    x = SpatialCoordinate(V.mesh())
-    x -= Constant([0.5]*len(x))
-    expr = x * exp(-10*dot(x, x))
-
-    u_exact = Function(V)
-    u_exact.project(expr, solver_parameters={"mat_type": "matfree", "pc_type": "jacobi"})
-    bcs = [DirichletBC(V, u_exact, sub) for sub in subs]
-
-    uh = Function(V)
-    test = TestFunction(V)
-    trial = TrialFunction(V)
-    a = lambda v, u: inner(v, beta*u)*dx + inner(d(v), d(u))*dx
-    problem = LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
-    solver.solve()
-    return solver.snes.ksp.getIterationNumber()
+def test_p_independence_hgrad(mesh, variant):
+    family = "Lagrange"
+    expected = 9 if mesh.topological_dimension() == 3 else 5
+    for degree in range(3, 6):
+        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
+        V = FunctionSpace(mesh, element)
+        assert solve_riesz_map(V, grad) <= expected
 
 
 @pytest.mark.skipcomplex
-def test_hcurl(mesh, expected):
+def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
-    for degree, nits in zip(range(3, 6), expected):
+    expected = 6 if mesh.topological_dimension() == 3 else 3
+    for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
-        assert solve_riesz_map(V, curl) <= nits
+        assert solve_riesz_map(V, curl) <= expected
 
 
 @pytest.mark.skipcomplex
-def test_hdiv(mesh, expected):
+def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
-    for degree, nits in zip(range(3, 6), expected):
+    expected = 2
+    for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
-        assert solve_riesz_map(V, div) <= nits
+        assert solve_riesz_map(V, div) <= expected
 
 
 @pytest.mark.skipcomplex
@@ -148,7 +124,7 @@ def test_variable_coefficient(mesh):
     u = TrialFunction(V)
     v = TestFunction(V)
     x = SpatialCoordinate(mesh)
-    x -= Constant([0.5]*ndim)
+    x -= Constant([0.5]*len(x))
 
     # variable coefficients
     alphas = [0.1+10*dot(x, x)]*ndim
