@@ -606,7 +606,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
     kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
-        coefficients = [Vf.ufl_domain().coordinates] + coefficients
+        coefficients = [Vf.mesh().coordinates] + coefficients
 
     return op2.Kernel(kernel.ast, kernel.name,
                       requires_zeroed_output_arguments=True,
@@ -790,7 +790,7 @@ def finat_reference_prolongator(felem, celem):
     from gem.interpreter import evaluate
 
     ref_el = felem.cell
-    ndim = ref_el.get_spatial_dimension()
+    tdim = ref_el.get_spatial_dimension()
     degree = felem.degree
     try:
         degree = max(degree)
@@ -804,11 +804,12 @@ def finat_reference_prolongator(felem, celem):
 
     is_facet_element = True
     entity_dofs = felem.entity_dofs()
-    for key in entity_dofs:
-        v = sum(list(entity_dofs[key].values()), [])
+    for edim in sorted(entity_dofs):
+        v = sum(list(entity_dofs[edim].values()), [])
         if len(v):
-            edim = sum(key) if type(key) == tuple else key
-            if edim == ndim:
+            if type(edim) == tuple:
+                edim = sum(edim)
+            if edim == tdim:
                 is_facet_element = False
 
     if is_facet_element and degree > 5:
@@ -816,7 +817,7 @@ def finat_reference_prolongator(felem, celem):
         quadratures = []
         for key in ref_el.sub_entities:
             edim = sum(key) if type(key) == tuple else key
-            if edim == ndim-1:
+            if edim == tdim-1:
                 sub_entities = ref_el.sub_entities[key]
                 entities.extend([(key, f) for f in sub_entities])
                 quadratures.extend([make_quadrature(ref_el.construct_subelement(key), quad_degree)]*len(sub_entities))
@@ -1113,6 +1114,11 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     prolong_code = "".join(prolong_code)
     restrict_code = "".join(reversed(restrict_code))
     shapes = [tuple(map(max, zip(*fshapes))), tuple(map(max, zip(*cshapes)))]
+
+    if fskip > numpy.prod(shapes[0]):
+        shapes[0] = (fskip, 1, 1, 1)
+    if cskip > numpy.prod(shapes[1]):
+        shapes[1] = (cskip, 1, 1, 1)
     return operator_decl, prolong_code, restrict_code, shapes
 
 
@@ -1158,9 +1164,8 @@ def cache_generate_code(kernel, comm):
 def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     if fmapping == cmapping:
         return None
-    domain = Q.ufl_domain()
-    A = get_piola_tensor(cmapping, domain, inverse=False)
-    B = get_piola_tensor(fmapping, domain, inverse=True)
+    A = get_piola_tensor(cmapping, Q.mesh(), inverse=False)
+    B = get_piola_tensor(fmapping, Q.mesh(), inverse=True)
     tensor = A
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
@@ -1285,14 +1290,16 @@ class StandaloneInterpolationMatrix(object):
             self.uf = Vf
             Vf = Vf.function_space()
         else:
-            self.uf = self._cache_work.get(Vf) or firedrake.Function(Vf)
-            self._cache_work[Vf] = self.uf
+            if Vf not in self._cache_work:
+                self._cache_work[Vf] = firedrake.Function(Vf)
+            self.uf = self._cache_work[Vf]
         if isinstance(Vc, firedrake.Function):
             self.uc = Vc
             Vc = Vc.function_space()
         else:
-            self.uc = self._cache_work.get(Vc) or firedrake.Function(Vc)
-            self._cache_work[Vc] = self.uc
+            if Vc not in self._cache_work:
+                self._cache_work[Vc] = firedrake.Function(Vc)
+            self.uc = self._cache_work[Vc]
         self.Vf = Vf
         self.Vc = Vc
 
@@ -1338,6 +1345,16 @@ class StandaloneInterpolationMatrix(object):
         prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
         restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
         return prolong, restrict
+
+    def _prolong(self):
+        with self.uf.dat.vec_wo as uf:
+            uf.set(0.0E0)
+        self._kernels[0]()
+
+    def _restrict(self):
+        with self.uc.dat.vec_wo as uc:
+            uc.set(0.0E0)
+        self._kernels[1]()
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -1399,14 +1416,14 @@ class StandaloneInterpolationMatrix(object):
                 qelem = felem
                 if qelem.mapping() != "identity":
                     qelem = qelem.reconstruct(mapping="identity")
-                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
-                Qf = firedrake.FunctionSpace(Vf.ufl_domain(), qelem)
+                Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
 
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
@@ -1583,9 +1600,7 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
 
-        with self.uc.dat.vec_wo as uc:
-            uc.set(0.0E0)
-        self._kernels[1]()
+        self._restrict()
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1601,9 +1616,7 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
 
-        with self.uf.dat.vec_wo as uf:
-            uf.set(0.0E0)
-        self._kernels[0]()
+        self._prolong()
 
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1642,8 +1655,8 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
 
     @cached_property
     def _kernels(self):
-        prolong = lambda: [standalone._kernels[0]() for standalone in self._standalones]
-        restrict = lambda: [standalone._kernels[1]() for standalone in self._standalones]
+        prolong = lambda: [s._prolong() for s in self._standalones]
+        restrict = lambda: [s._restrict() for s in self._standalones]
         return prolong, restrict
 
     def getNestSubMatrix(self, i, j):
@@ -1667,7 +1680,7 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
                       (Pk.cell_node_map(),
                        P1.cell_node_map()))
     mat = op2.Mat(sp, PETSc.ScalarType)
-    mesh = Pk.ufl_domain()
+    mesh = Pk.mesh()
 
     fele = Pk.ufl_element()
     if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):

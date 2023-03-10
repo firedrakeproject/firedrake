@@ -36,11 +36,11 @@ class FDMPC(PCBase):
 
     Here we assume that the volume integrals in the Jacobian can be expressed as:
 
-    inner(d(v), alpha(d(u)))*dx + inner(v, beta(u))*dx
+    inner(d(v), alpha * d(u))*dx + inner(v, beta * u)*dx
 
-    where alpha and beta are linear functions (tensor contractions).
-    The sparse matrix is obtained by approximating (v, alpha u) and (v, beta u) as
-    diagonal mass matrices
+    where alpha and beta are possibly tensor-valued.  The sparse matrix is
+    obtained by approximating (v, alpha * u) and (v, beta * u) as diagonal mass
+    matrices.
     """
 
     _prefix = "fdm_"
@@ -107,7 +107,12 @@ class FDMPC(PCBase):
             # Matrix-free assembly of the transformed Jacobian
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
-            bcs_fdm = tuple(bc.reconstruct(V=V_fdm, g=0) for bc in bcs)
+            bcs_fdm = []
+            for bc in bcs:
+                W = V_fdm
+                for index in bc._indices:
+                    W = W.sub(index)
+                bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
             self.work_vec_x = Amat.createVecLeft()
@@ -280,7 +285,6 @@ class FDMPC(PCBase):
                 triu = on_diag and symmetric
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
-                # bsizes = tuple(Vsub.dof_dset.layout_vec.getBlockSize() for Vsub in (Vrow, Vcol))
 
                 preallocator = PETSc.Mat().create(comm=self.comm)
                 preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -297,7 +301,6 @@ class FDMPC(PCBase):
                 P = PETSc.Mat().create(comm=self.comm)
                 P.setType(ptype)
                 P.setSizes(sizes)
-                # P.setBlockSizes(*bsizes)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
                 if ptype.endswith("sbaij"):
@@ -483,10 +486,10 @@ class FDMPC(PCBase):
             splitter = ExtractSubBlock()
             J = splitter.split(J, argument_indices=(index, index))
 
-        mesh = J.ufl_domain()
-        ndim = mesh.topological_dimension()
         args_J = J.arguments()
         e = args_J[0].ufl_element()
+        mesh = args_J[0].function_space().mesh()
+        tdim = mesh.topological_dimension()
         if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
@@ -501,7 +504,7 @@ class FDMPC(PCBase):
             dku = ufl.div(u) if sobolev == ufl.HDiv else ufl.curl(u)
             eps = expand_derivatives(ufl.diff(ufl.replace(expand_derivatives(dku), {ufl.grad(u): du}), du))
             if sobolev == ufl.HDiv:
-                map_grad = lambda p: ufl.outer(p, eps/ndim)
+                map_grad = lambda p: ufl.outer(p, eps/tdim)
             elif len(eps.ufl_shape) == 3:
                 map_grad = lambda p: ufl.dot(p, eps/2)
             else:
@@ -515,12 +518,12 @@ class FDMPC(PCBase):
         except TypeError:
             pass
         qdeg = degree
-        if formdegree == ndim:
-            qfam = "DG" if ndim == 1 else "DQ"
+        if formdegree == tdim:
+            qfam = "DG" if tdim == 1 else "DQ"
             qdeg = 0
         elif formdegree == 0:
-            qfam = "DG" if ndim == 1 else "RTCE" if ndim == 2 else "NCE"
-        elif formdegree == 1 and ndim == 3:
+            qfam = "DG" if tdim == 1 else "RTCE" if tdim == 2 else "NCE"
+        elif formdegree == 1 and tdim == 3:
             qfam = "NCF"
         else:
             qfam = "DQ L2"
@@ -565,7 +568,7 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
-        ndim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension()
         value_size = V.value_size
         formdegree = V.finat_element.formdegree
         degree = V.finat_element.degree
@@ -573,13 +576,13 @@ class FDMPC(PCBase):
             degree = max(degree)
         except TypeError:
             pass
-        if formdegree == ndim:
+        if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
-        key = (degree, ndim, formdegree, V.value_size, is_interior, is_facet)
+        key = (degree, tdim, formdegree, V.value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
         if key not in cache:
-            full_key = (degree, ndim, formdegree, V.value_size, False, False)
+            full_key = (degree, tdim, formdegree, V.value_size, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
@@ -613,8 +616,8 @@ class FDMPC(PCBase):
             A10 = numpy.linalg.solve(A11, A10)
             A11 = numpy.eye(A11.shape[0])
 
-            Ihat = mass_matrix(ndim, formdegree, A00, A11)
-            Dhat = diff_matrix(ndim, formdegree, A00, A11, A10)
+            Ihat = mass_matrix(tdim, formdegree, A00, A11)
+            Dhat = diff_matrix(tdim, formdegree, A00, A11, A10)
             result = block_mat([[Ihat], [Dhat]])
             Ihat.destroy()
             Dhat.destroy()
@@ -846,19 +849,19 @@ def kron3(A, B, C, scale=None):
     return result
 
 
-def mass_matrix(ndim, formdegree, B00, B11):
+def mass_matrix(tdim, formdegree, B00, B11):
     B00 = petsc_sparse(B00)
     B11 = petsc_sparse(B11)
-    if ndim == 1:
+    if tdim == 1:
         B_blocks = [B11 if formdegree else B00]
-    elif ndim == 2:
+    elif tdim == 2:
         if formdegree == 0:
             B_blocks = [B00.kron(B00)]
         elif formdegree == 1:
             B_blocks = [B00.kron(B11), B11.kron(B00)]
         else:
             B_blocks = [B11.kron(B11)]
-    elif ndim == 3:
+    elif tdim == 3:
         if formdegree == 0:
             B_blocks = [kron3(B00, B00, B00)]
         elif formdegree == 1:
@@ -887,9 +890,9 @@ def mass_matrix(ndim, formdegree, B00, B11):
     return result
 
 
-def diff_matrix(ndim, formdegree, A00, A11, A10):
-    if formdegree == ndim:
-        ncols = A10.shape[0]**ndim
+def diff_matrix(tdim, formdegree, A00, A11, A10):
+    if formdegree == tdim:
+        ncols = A10.shape[0]**tdim
         A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=PETSc.COMM_SELF)
         A_zero.assemble()
         return A_zero
@@ -897,15 +900,15 @@ def diff_matrix(ndim, formdegree, A00, A11, A10):
     A00 = petsc_sparse(A00)
     A11 = petsc_sparse(A11)
     A10 = petsc_sparse(A10)
-    if ndim == 1:
+    if tdim == 1:
         return A10
-    elif ndim == 2:
+    elif tdim == 2:
         if formdegree == 0:
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
             A_blocks = [[A10.kron(A11), A11.kron(A10)]]
             A_blocks[-1][-1].scale(-1)
-    elif ndim == 3:
+    elif tdim == 3:
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
@@ -946,8 +949,8 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
     A10 = fiat_reference_prolongator(e1, e0, derivative=True)
 
-    ndim = Vc.mesh().topological_dimension()
-    Dhat = diff_matrix(ndim, ec.formdegree, A00, A11, A10)
+    tdim = Vc.mesh().topological_dimension()
+    Dhat = diff_matrix(tdim, ec.formdegree, A00, A11, A10)
 
     scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
     fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
@@ -1056,7 +1059,7 @@ class PoissonFDMPC(FDMPC):
 
     inner(grad(v), alpha(grad(u)))*dx + inner(v, beta(u))*dx
 
-    where alpha and beta are linear functions (tensor contractions).
+    where alpha and beta are possibly tensor-valued.
     The sparse matrix is obtained by approximating alpha and beta by cell-wise
     constants and discarding the coefficients in alpha that couple together
     mixed derivatives and mixed components.
@@ -1122,12 +1125,12 @@ class PoissonFDMPC(FDMPC):
         bsize = V.value_size
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
-        ndim = V.ufl_domain().topological_dimension()
+        tdim = V.mesh().topological_dimension()
         shift = self.axes_shifts * bsize
 
         index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
         index_bc, _ = glonum_fun(bcflags.cell_node_map())
-        flag2id = numpy.kron(numpy.eye(ndim, ndim, dtype=PETSc.IntType), [[1], [2]])
+        flag2id = numpy.kron(numpy.eye(tdim, tdim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
         pshape = tuple(Ak[0].size[0] for Ak in Afdm)
@@ -1136,7 +1139,7 @@ class PoissonFDMPC(FDMPC):
             static_condensation = True
 
         if set(shift) != {0}:
-            assert ncomp == ndim
+            assert ncomp == tdim
             pshape = [tuple(numpy.roll(pshape, -shift[k])) for k in range(ncomp)]
 
         # assemble zero-th order term separately, including off-diagonals (mixed components)
@@ -1148,7 +1151,7 @@ class PoissonFDMPC(FDMPC):
             bshape = Bq.ufl_shape
             # Be = Bhat kron ... kron Bhat
             Be = Afdm[0][0].copy()
-            for k in range(1, ndim):
+            for k in range(1, tdim):
                 Be = Be.kron(Afdm[k][0])
 
             aptr = numpy.arange(0, (bshape[0]+1)*bshape[1], bshape[1], dtype=PETSc.IntType)
@@ -1166,7 +1169,7 @@ class PoissonFDMPC(FDMPC):
 
         # assemble the second order term and the zero-th order term if any,
         # discarding mixed derivatives and mixed componentsget_weak_bc_flags(J)
-        mue = numpy.zeros((ncomp, ndim), dtype=PETSc.RealType)
+        mue = numpy.zeros((ncomp, tdim), dtype=PETSc.RealType)
         bqe = numpy.zeros((ncomp,), dtype=PETSc.RealType)
 
         for e in range(self.nel):
@@ -1187,7 +1190,7 @@ class PoissonFDMPC(FDMPC):
 
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
-                axes = numpy.roll(numpy.arange(ndim), -shift[k])
+                axes = numpy.roll(numpy.arange(tdim), -shift[k])
                 # for each component: compute the stiffness matrix Ae
                 bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
@@ -1200,13 +1203,13 @@ class PoissonFDMPC(FDMPC):
                     if Bq is not None:
                         Ae.axpy(bqe[k], Be)
 
-                    if ndim > 1:
+                    if tdim > 1:
                         # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
                         Ae = Ae.kron(Afdm[axes[1]][0])
                         if Gq is not None:
                             Ae.axpy(mue[k][1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
 
-                        if ndim > 2:
+                        if tdim > 2:
                             # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
                             Be = Be.kron(Afdm[axes[1]][0])
                             Ae = Ae.kron(Afdm[axes[2]][0])
@@ -1216,7 +1219,7 @@ class PoissonFDMPC(FDMPC):
 
                 elif Bq is not None:
                     Ae = Afdm[axes[0]][0]
-                    for m in range(1, ndim):
+                    for m in range(1, tdim):
                         Ae = Ae.kron(Afdm[axes[m]][0])
                     Ae.scale(bqe[k])
 
@@ -1228,7 +1231,7 @@ class PoissonFDMPC(FDMPC):
         if any(Dk is not None for Dk in Dfdm):
             if static_condensation:
                 raise NotImplementedError("Static condensation for SIPG not implemented")
-            if ndim < V.ufl_domain().geometric_dimension():
+            if tdim < V.mesh().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             eta = float(self.appctx.get("eta"))
 
@@ -1246,8 +1249,8 @@ class PoissonFDMPC(FDMPC):
 
                 if PT_facet:
                     icell = numpy.reshape(lgmap.apply(ie), (2, ncomp, -1))
-                    iord0 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[0]), 0, idir[0])
-                    iord1 = numpy.insert(numpy.delete(numpy.arange(ndim), idir[1]), 0, idir[1])
+                    iord0 = numpy.insert(numpy.delete(numpy.arange(tdim), idir[0]), 0, idir[0])
+                    iord1 = numpy.insert(numpy.delete(numpy.arange(tdim), idir[1]), 0, idir[1])
                     je = je[[0, 1], lfd]
                     Pfacet = PT_facet.dat.data_ro_with_halos[je]
                     Gfacet = Gq_facet.dat.data_ro_with_halos[je]
@@ -1255,14 +1258,14 @@ class PoissonFDMPC(FDMPC):
                     Gfacet = numpy.sum(Gq.dat.data_ro_with_halos[je], axis=1)
 
                 for k in range(ncomp):
-                    axes = numpy.roll(numpy.arange(ndim), -shift[k])
+                    axes = numpy.roll(numpy.arange(tdim), -shift[k])
                     Dfacet = Dfdm[axes[0]]
                     if Dfacet is None:
                         continue
 
                     if PT_facet:
-                        k0 = iord0[k] if shift != 1 else ndim-1-iord0[-k-1]
-                        k1 = iord1[k] if shift != 1 else ndim-1-iord1[-k-1]
+                        k0 = iord0[k] if shift != 1 else tdim-1-iord0[-k-1]
+                        k1 = iord1[k] if shift != 1 else tdim-1-iord1[-k-1]
                         Piola = Pfacet[[0, 1], [k0, k1]]
                         mu = Gfacet[[0, 1], idir]
                     else:
@@ -1297,10 +1300,10 @@ class PoissonFDMPC(FDMPC):
                             Adense[ii, j0:j1] -= smu[j] * Dfacet[:, jface % 2]
 
                     Ae = numpy_to_petsc(Adense, dense_indices, diag=False)
-                    if ndim > 1:
+                    if tdim > 1:
                         # assume that the mesh is oriented
                         Ae = Ae.kron(Afdm[axes[1]][0])
-                        if ndim > 2:
+                        if tdim > 2:
                             Ae = Ae.kron(Afdm[axes[2]][0])
 
                     if bsize == ncomp:
@@ -1323,12 +1326,12 @@ class PoissonFDMPC(FDMPC):
         coefficients = {}
         assembly_callables = []
 
-        mesh = J.ufl_domain()
+        args_J = J.arguments()
+        V = args_J[-1].function_space()
+        mesh = V.mesh()
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
 
-        args_J = J.arguments()
-        V = args_J[-1].function_space()
         degree = V.ufl_element().degree()
         try:
             degree = max(degree)
@@ -1590,7 +1593,7 @@ def fdm_setup_ipdg(fdm_element, eta):
 @lru_cache(maxsize=10)
 def get_interior_facet_maps(V):
     """
-    Extrude V.interior_facet_node_map and V.ufl_domain().interior_facets.local_facet_dat
+    Extrude V.interior_facet_node_map and V.mesh().interior_facets.local_facet_dat
 
     :arg V: a :class:`.FunctionSpace`
 
@@ -1599,7 +1602,7 @@ def get_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     intfacets = mesh.interior_facets
     facet_to_cells = intfacets.facet_cell_map.values
     local_facet_data = intfacets.local_facet_dat.data_ro

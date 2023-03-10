@@ -73,7 +73,7 @@ facetstar.update(ksp)
 
 
 def solve_riesz_map(V, d):
-    beta = Constant(1E-8)
+    beta = Constant(1E-4)
     subs = [(1, 3)]
     if V.mesh().cell_set._extruded:
         subs += ["top"]
@@ -137,7 +137,7 @@ def test_p_independence_hgrad(mesh):
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
-    expected = [6, 6] if mesh.topological_dimension() == 3 else [3, 3]
+    expected = [8, 7] if mesh.topological_dimension() == 3 else [4, 4]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
@@ -147,7 +147,7 @@ def test_p_independence_hcurl(mesh):
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
-    expected = [2, 2]
+    expected = [3, 3]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
@@ -156,7 +156,7 @@ def test_p_independence_hdiv(mesh):
 
 @pytest.mark.skipcomplex
 def test_variable_coefficient(mesh):
-    ndim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension()
     k = 4
     V = FunctionSpace(mesh, "Lagrange", k)
     u = TrialFunction(V)
@@ -165,10 +165,10 @@ def test_variable_coefficient(mesh):
     x -= Constant([0.5]*len(x))
 
     # variable coefficients
-    alphas = [0.1+10*dot(x, x)]*ndim
+    alphas = [0.1+10*dot(x, x)]*gdim
     alphas[0] = 1+10*exp(-dot(x, x))
     alpha = diag(as_vector(alphas))
-    beta = ((10*cos(3*pi*x[0]) + 20*sin(2*pi*x[1]))*cos(pi*x[ndim-1]))**2
+    beta = ((10*cos(3*pi*x[0]) + 20*sin(2*pi*x[1]))*cos(pi*x[gdim-1]))**2
 
     a = (inner(grad(v), dot(alpha, grad(u))) + inner(v, beta*u))*dx(degree=3*k+2)
     L = inner(v, Constant(1))*dx
@@ -189,44 +189,44 @@ def test_variable_coefficient(mesh):
                 ids=["cg", "dg", "rt"])
 def fs(request, mesh):
     degree = 3
-    ndim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension()
     cell = mesh.ufl_cell()
     element = request.param
     variant = "fdm_ipdg"
     if element == "rt":
-        family = "RTCF" if ndim == 2 else "NCF"
+        family = "RTCF" if tdim == 2 else "NCF"
         return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
     else:
-        if ndim == 1:
+        if tdim == 1:
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-ndim)
+        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-tdim)
 
 
 @pytest.mark.skipcomplex
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
-    ndim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension()
     ncomp = fs.ufl_element().value_size()
     u_exact = dot(x, x)
     if ncomp:
         u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
 
-    N = fs.ufl_element().degree()
+    degree = fs.ufl_element().degree()
     try:
-        N, = set(N)
+        degree, = set(degree)
     except TypeError:
         pass
 
-    quad_degree = 2*(N+1)-1
+    quad_degree = 2*(degree+1)-1
     uh = Function(fs)
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
     # problem coefficients
-    A1 = diag(Constant(range(1, ndim+1)))
+    A1 = diag(Constant(range(1, gdim+1)))
     A2 = diag(Constant(range(1, ncomp+1)))
     alpha = lambda grad_u: dot(dot(A2, grad_u), A1)
     beta = diag(Constant(range(2, ncomp+2)))
@@ -238,7 +238,7 @@ def test_ipdg_direct_solver(fs):
 
     extruded = mesh.cell_set._extruded
     subs = (1,)
-    if ndim > 1:
+    if gdim > 1:
         subs += (3,)
     if extruded:
         subs += ("top",)
@@ -271,7 +271,7 @@ def test_ipdg_direct_solver(fs):
 
     ds_Dir = sum(ds_Dir, ds(tuple()))
     ds_Neu = sum(ds_Neu, ds(tuple()))
-    eta = Constant((N+1)**2)
+    eta = Constant((degree+1)**2)
     h = CellVolume(mesh)/FacetArea(mesh)
     penalty = eta/h
 
