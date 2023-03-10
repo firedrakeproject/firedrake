@@ -61,7 +61,7 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
     ref_solver = LinearVariationalSolver(ref_problem, solver_parameters=params)
     ref_solver.solve()
 
-    _, __, uhat_ref = s.split()
+    _, __, uhat_ref = s.subfunctions
 
     # Now using Slate expressions only
     _O = Tensor(a)

@@ -5,7 +5,7 @@ def test_all_dofs_on_facets():
     mesh = UnitSquareMesh(5, 5)
     V_elt = FiniteElement("BDM", triangle, 1)
     # BDM has all dofs on facets, so these should be the same
-    W1_elt = FacetElement(V_elt)
+    W1_elt = RestrictedElement(V_elt, "facet")
     V = FunctionSpace(mesh, V_elt)
     W1 = FunctionSpace(mesh, W1_elt)
     f = Function(V).assign(1)

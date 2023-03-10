@@ -78,7 +78,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def allreduce(self, f, f_reduced, op=MPI.SUM):
         """
-        Allreduce a function f into f_reduced over :attr:`ensemble_comm`.
+        Allreduce a function f into f_reduced over ``ensemble_comm`` .
 
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
@@ -95,12 +95,12 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def iallreduce(self, f, f_reduced, op=MPI.SUM):
         """
-        Allreduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm`.
+        Allreduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` .
 
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions).
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
@@ -112,7 +112,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
-        Reduce a function f into f_reduced over :attr:`ensemble_comm` to rank root
+        Reduce a function f into f_reduced over ``ensemble_comm`` to rank root
 
         :arg f: The a :class:`.Function` to reduce.
         :arg f_reduced: the result of the reduction on rank root.
@@ -135,13 +135,13 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
-        Reduce (non-blocking) a function f into f_reduced over :attr:`ensemble_comm` to rank root
+        Reduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` to rank root
 
         :arg f: The a :class:`.Function` to reduce.
         :arg f_reduced: the result of the reduction on rank root.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
         :arg root: rank to reduce to. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions).
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
@@ -153,7 +153,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def bcast(self, f, root=0):
         """
-        Broadcast a function f over :attr:`ensemble_comm` from rank root
+        Broadcast a function f over ``ensemble_comm`` from rank root
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
@@ -168,11 +168,11 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def ibcast(self, f, root=0):
         """
-        Broadcast (non-blocking) a function f over :attr:`ensemble_comm` from rank root
+        Broadcast (non-blocking) a function f over ``ensemble_comm`` from rank root
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -183,7 +183,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def send(self, f, dest, tag=0):
         """
-        Send (blocking) a function f over :attr:`ensemble_comm` to another
+        Send (blocking) a function f over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg f: The a :class:`.Function` to send
@@ -198,13 +198,13 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
         """
-        Receive (blocking) a function f over :attr:`ensemble_comm` from
+        Receive (blocking) a function f over ``ensemble_comm`` from
         another ensemble rank.
 
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :arg statuses: MPI.Status objects (one for each of f.split() or None).
+        :arg statuses: MPI.Status objects (one for each of f.subfunctions or None).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -216,13 +216,13 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def isend(self, f, dest, tag=0):
         """
-        Send (non-blocking) a function f over :attr:`ensemble_comm` to another
+        Send (non-blocking) a function f over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg f: The a :class:`.Function` to send
         :arg dest: the rank to send to
         :arg tag: the tag of the message. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -232,13 +232,13 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
-        Receive (non-blocking) a function f over :attr:`ensemble_comm` from
+        Receive (non-blocking) a function f over ``ensemble_comm`` from
         another ensemble rank.
 
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of f.split()).
+        :returns: list of MPI.Request objects (one for each of f.subfunctions).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
@@ -248,7 +248,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def sendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG, status=None):
         """
-        Send (blocking) a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        Send (blocking) a function fsend and receive a function frecv over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg fsend: The a :class:`.Function` to send.
@@ -271,7 +271,7 @@ class Ensemble(object):
     @PETSc.Log.EventDecorator()
     def isendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG):
         """
-        Send a function fsend and receive a function frecv over :attr:`ensemble_comm` to another
+        Send a function fsend and receive a function frecv over ``ensemble_comm`` to another
         ensemble rank.
 
         :arg fsend: The a :class:`.Function` to send.
@@ -280,7 +280,7 @@ class Ensemble(object):
         :arg frecv: The a :class:`.Function` to receive into.
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg recvtag: the tag of the received message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of fsend.split() and frecv.split()).
+        :returns: list of MPI.Request objects (one for each of fsend.subfunctions and frecv.subfunctions).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         # functions don't necessarily have to match

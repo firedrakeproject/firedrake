@@ -92,7 +92,7 @@ def test_nonlinear_stokes_hdiv():
 
     solve(F == 0, w, bcs=bcs, solver_parameters=params)
 
-    u, p = w.split()
+    u, p = w.subfunctions
 
     # test for penetration on bottom
     assert sqrt(assemble(dot(u, n)**2*ds(3))) < 1e-14

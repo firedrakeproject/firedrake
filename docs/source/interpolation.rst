@@ -41,7 +41,7 @@ including:
   :py:class:`~.Function`\s, and :py:class:`~.Constant`\s.
 * Literal numbers, basic arithmetic operations, and also mathematical
   functions such as ``sin``, ``cos``, ``sqrt``, ``abs``, etc.
-* Conditional expressions using UFL :py:class:`~ufl.conditional`.
+* Conditional expressions using UFL :py:mod:`~ufl.conditional`.
 * Compound expressions involving any of the above.
 
 Here is an example demonstrating some of these features:
@@ -187,7 +187,7 @@ Python expression classes
    now been removed. Users should use UFL expressions instead. This
    section only remains to assist in the transition of existing code.
 
-Since Python :py:class:`~.Expression` classes expressions are
+Since Python ``Expression`` classes expressions are
 deprecated, below are a few examples on how to replace them with UFL
 expressions:
 
@@ -208,18 +208,13 @@ expressions:
    f.interpolate(dot(x, x))
 
 
-.. _math.h: http://en.cppreference.com/w/c/numeric/math
-.. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
-.. _TSFC: https://github.com/firedrakeproject/tsfc
-
-
 Generating Functions with randomised values
 -------------------------------------------
 
-The :py:mod:`~.randomfunctiongen` module wraps  the external package `randomgen <https://pypi.org/project/randomgen/>`__,
+The :py:mod:`~.randomfunctiongen` module wraps  the external numpy package `numpy.random`_,
 which gives Firedrake users an easy access to many stochastically sound random number generators,
-including :py:class:`~.PCG64`, :py:class:`~.Philox`, and :py:class:`~.ThreeFry`, which are parallel-safe.
-All distribution methods defined in `randomgen <https://pypi.org/project/randomgen/>`__
+including :py:class:`~numpy.random.PCG64`, :py:class:`~numpy.random.Philox`, and :py:class:`~numpy.random.SFC64`, which are parallel-safe.
+All distribution methods defined in `numpy.random`_,
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
 to generate a randomised :class:`.Function`.
 
@@ -237,3 +232,9 @@ to generate a randomised :class:`.Function`.
 
     # produces:
     # [0.56462514 0.11585311 0.01247943 0.398984 0.19097059 0.5446709 0.1078666 0.2178807 0.64848515]
+
+
+.. _math.h: http://en.cppreference.com/w/c/numeric/math
+.. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
+.. _TSFC: https://github.com/firedrakeproject/tsfc
+.. _numpy.random: https://numpy.org/doc/stable/reference/random/index.html

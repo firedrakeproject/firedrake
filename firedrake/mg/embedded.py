@@ -160,7 +160,7 @@ class TransferManager(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V.comm)
+            ksp = PETSc.KSP().create(comm=V._comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")
@@ -211,7 +211,7 @@ class TransferManager(object):
             return self._native_transfer(source_element, transfer_op)(source, target)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
-            for source_, target_ in zip(source.split(), target.split()):
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
             return target
         # Get some work vectors
@@ -273,7 +273,7 @@ class TransferManager(object):
             return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
-            for source_, target_ in zip(gf.split(), gc.split()):
+            for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
             return gc
         dgf = self.DG_work(Vf)

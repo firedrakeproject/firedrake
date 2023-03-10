@@ -135,7 +135,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
          provide the derivative of a coefficient function.
 
     :raises ValueError: If any of the coefficients in ``form`` were
-        obtained from ``u.split()``.  UFL doesn't notice that these
+        obtained from ``u.subfunctions``.  UFL doesn't notice that these
         are related to ``u`` and so therefore the derivative is
         wrong (instead one should have written ``split(u)``).
 
@@ -148,8 +148,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
     uc, = (u,) if u_is_x else extract_coefficients(u)
-    if not u_is_x and len(uc.split()) > 1 and set(extract_coefficients(form)) & set(uc.split()):
-        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
+    if not u_is_x and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
+        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 
     mesh = form.ufl_domain()
