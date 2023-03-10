@@ -163,7 +163,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == ufl_MixedElement:
-                subcoeffs = coefficient.split()  # Firedrake-specific
+                subcoeffs = coefficient.subfunctions  # Firedrake-specific
                 self.coefficient_split[coefficient] = subcoeffs
                 for j, subcoeff in enumerate(subcoeffs):
                     self._coefficient(subcoeff, f"w_{i}_{j}")
