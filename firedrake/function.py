@@ -304,14 +304,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     @utils.cached_property
+    @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_split
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
