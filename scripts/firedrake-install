@@ -260,7 +260,7 @@ honoured.""",
     parser.add_argument("--tinyasm", action="store_true",
                         help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
-                        help="Install PyTorch")
+                        help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -396,7 +396,7 @@ else:
     parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
                         help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
-                        help="Install PyTorch")
+                        help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -1339,7 +1339,10 @@ def build_and_install_pythonocc():
 
 
 def build_and_install_torch():
-    log.info("Installing PyTorch")
+    """Install PyTorch for a CPU or CUDA backend."""
+    log.info("Installing PyTorch (backend: %s)" % args.torch)
+    if osname == "Darwin" and args.torch == "cuda":
+        raise InstallError("CUDA installation is not available on MacOS.")
     extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/cpu"] if args.torch == "cpu" else []
     run_pip_install(["torch"] + extra_index_url)
 
