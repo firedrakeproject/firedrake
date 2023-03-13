@@ -164,7 +164,6 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         # is not the default behaviour so it must be specified explicitly.
         vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
 
-    vm = VertexOnlyMesh(parentmesh, inputcoords)
     # Midpoints located in correct cells of parent mesh
     V = VectorFunctionSpace(parentmesh, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(parentmesh))
