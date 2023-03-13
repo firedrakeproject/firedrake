@@ -17,6 +17,7 @@ concurrency:
 jobs:
   build:
     name: "Build Firedrake"
+    if: false
     # The type of runner that the job will run on
     runs-on: self-hosted
     # The docker container to use.
@@ -197,7 +198,8 @@ jobs:
           tags: firedrakeproject/firedrake-complex:latest
   docker_spack:
     name: "Build Docker Spack environment container"
-    needs: build
+    # The type of runner that the job will run on
+    #~ needs: build
     if: ${{ github.head_ref == 'JDBetteridge/spack_changes' }}
     runs-on: self-hosted
     steps:
@@ -232,6 +234,8 @@ jobs:
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
+        with:
+          driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=10485760,env.BUILDKIT_STEP_LOG_MAX_SPEED=-1
       - name: Build firedrake-spack
         uses: docker/build-push-action@v2
         with:
