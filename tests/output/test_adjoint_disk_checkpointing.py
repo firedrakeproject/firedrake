@@ -35,7 +35,7 @@ def adjoint_example(mesh):
     u, v = w.subfunctions
     # FunctionAssignBlock, FunctionMergeBlock
     v.assign(m)
-    # FunctionSplitBlock, GenericSolveBlock
+    # SubfunctionBlock, GenericSolveBlock
     u.project(v)
 
     # AssembleBlock
