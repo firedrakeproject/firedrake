@@ -5,7 +5,7 @@ from firedrake import *
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def tp_mesh(request):
-    nx = 4
+    nx = 1
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
@@ -28,26 +28,32 @@ def tp_family(tp_mesh, request):
     return families[request.param]
 
 
-@pytest.fixture(params=[None, "fdm", "hierarchical"], ids=["spectral", "fdm", "hierarchical"])
+@pytest.fixture(params=[None, "hierarchical", "fdm"], ids=["spectral", "hierarchical", "fdm"])
 def variant(request):
     return request.param
 
 
-def test_reconstruct_degree(tp_mesh):
-    tdim = tp_mesh.topological_dimension()
-    elist = []
-    for degree in [7, 2, 31]:
-        V = VectorFunctionSpace(tp_mesh, "Q", degree)
-        Q = FunctionSpace(tp_mesh, "DQ", degree-2)
-        Z = MixedFunctionSpace([V, Q])
-        e = Z.ufl_element()
-        elist.append(e)
-        assert e == PMGPC.reconstruct_degree(elist[0], degree)
+@pytest.fixture(params=[0, 1],
+                ids=["CG-DG", "HDiv-DG"])
+def mixed_family(tp_mesh, request):
+    if request.param == 0:
+        Vfamily = "Q"
+    else:
+        tdim = tp_mesh.topological_dimension()
+        Vfamily = "NCF" if tdim == 3 else "RTCF"
+    Qfamily = "DQ"
+    return Vfamily, Qfamily
 
+
+def test_reconstruct_degree(tp_mesh, mixed_family):
     elist = []
+    Vfamily, Qfamily = mixed_family
     for degree in [7, 2, 31]:
-        V = FunctionSpace(tp_mesh, "NCF" if tdim == 3 else "RTCF", degree)
-        Q = FunctionSpace(tp_mesh, "DQ", degree-1)
+        if Vfamily in ["NCF", "RTCF"]:
+            V = FunctionSpace(tp_mesh, Vfamily, degree)
+        else:
+            V = VectorFunctionSpace(tp_mesh, Vfamily, degree)
+        Q = FunctionSpace(tp_mesh, Qfamily, degree-2)
         Z = MixedFunctionSpace([V, Q])
         e = Z.ufl_element()
         elist.append(e)
@@ -80,7 +86,7 @@ def test_prolong_de_rham(tp_mesh):
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
-    degree = 3
+    degree = 2
     cell = tp_mesh.ufl_cell()
     element = FiniteElement(tp_family, cell=cell, degree=degree, variant=variant)
     Vi = FunctionSpace(tp_mesh, RestrictedElement(element, restriction_domain="interior"))
@@ -90,14 +96,14 @@ def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
     ui = Function(Vi)
     uf = Function(Vf)
     uc = Function(Vc)
-    uc.dat.data[0::2] = 0.0
+    uc.dat.data[0::2] = 2.0
     uc.dat.data[1::2] = 1.0
 
     for v in [ui, uf]:
         P = prolongation_matrix_matfree(v, uc).getPythonContext()
         P._prolong()
 
-    assert norm(ui + uf - uc, "L2")  < 2E-14
+    assert norm(ui + uf - uc, "L2") < 2E-14
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
@@ -436,7 +442,7 @@ def test_p_fas_nonlinear_scalar():
 
     rtol = 1E-8
     atol = rtol * Fnorm
-
+    rtol = 0.0
     newton = {
         "mat_type": "aij",
         "snes_monitor": None,
@@ -444,7 +450,7 @@ def test_p_fas_nonlinear_scalar():
         "snes_type": "newtonls",
         "snes_max_it": 20,
         "snes_atol": atol,
-        "snes_rtol": 1E-50}
+        "snes_rtol": rtol}
 
     coarse = {
         "ksp_type": "preonly",
@@ -459,7 +465,7 @@ def test_p_fas_nonlinear_scalar():
 
     pmg = {
         "ksp_atol": atol*1E-1,
-        "ksp_rtol": 1E-50,
+        "ksp_rtol": rtol,
         "ksp_type": "cg",
         "ksp_converged_reason": None,
         "ksp_monitor_true_residual": None,
@@ -479,7 +485,7 @@ def test_p_fas_nonlinear_scalar():
         "snes_monitor": None,
         "snes_converged_reason": None,
         "snes_atol": atol,
-        "snes_rtol": 1E-50,
+        "snes_rtol": rtol,
         "snes_type": "python",
         "snes_python_type": "firedrake.PMGSNES",
         "pfas_snes_fas_type": "kaskade",
@@ -503,7 +509,7 @@ def test_p_fas_nonlinear_scalar():
             Nq, = Nq
             Nl = p.u.ufl_element().degree()
             try:
-                Nl, = set(Nl)
+                Nl = max(Nl)
             except TypeError:
                 pass
             assert Nq == 3*Nl+2

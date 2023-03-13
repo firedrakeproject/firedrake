@@ -21,11 +21,12 @@ fdmstar = {
     "pc_python_type": "firedrake.P1PC",
     "pmg_mg_coarse": coarse,
     "pmg_mg_levels": {
+        "ksp_max_it": 1,
         "ksp_type": "chebyshev",
         "ksp_norm_type": "none",
         "esteig_ksp_type": "cg",
         "esteig_ksp_norm_type": "natural",
-        "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+        "ksp_chebyshev_esteig": "0.5,0.5,0.0,1.0",
         "pc_type": "python",
         "pc_python_type": "firedrake.FDMPC",
         "fdm": {
@@ -55,11 +56,12 @@ facetstar = {
         "pc_python_type": "firedrake.P1PC",
         "pmg_mg_coarse": coarse,
         "pmg_mg_levels": {
+            "ksp_max_it": 1,
             "ksp_type": "chebyshev",
             "ksp_norm_type": "none",
             "esteig_ksp_type": "cg",
             "esteig_ksp_norm_type": "natural",
-            "ksp_chebyshev_esteig": "0.75,0.25,0.0,1.0",
+            "ksp_chebyshev_esteig": "0.5,0.5,0.0,1.0",
             "pc_type": "python",
             "pc_python_type": "firedrake.ASMExtrudedStarPC",
             "pc_star_mat_ordering_type": "nd",
@@ -72,7 +74,7 @@ fdmstar.update(ksp)
 facetstar.update(ksp)
 
 
-def solve_riesz_map(V, d):
+def build_riesz_map(V, d):
     beta = Constant(1E-4)
     subs = [(1, 3)]
     if V.mesh().cell_set._extruded:
@@ -84,7 +86,8 @@ def solve_riesz_map(V, d):
         u_exact = exp(-10*dot(x, x))
         u_bc = u_exact
     else:
-        u_exact = x * exp(-10*dot(x, x))
+        A = Constant([[-1.]*len(x)]*len(x)) + diag(Constant([len(x)]*len(x)))
+        u_exact = dot(A, x) * exp(-10*dot(x, x))
         u_bc = Function(V)
         u_bc.project(u_exact, solver_parameters={"mat_type": "matfree", "pc_type": "jacobi"})
 
@@ -94,14 +97,14 @@ def solve_riesz_map(V, d):
     test = TestFunction(V)
     trial = TrialFunction(V)
     a = lambda v, u: inner(v, beta*u)*dx + inner(d(v), d(u))*dx
-    problem = LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
-    its = []
-    for sparams in [fdmstar, facetstar]:
-        uh.assign(0)
-        solver = LinearVariationalSolver(problem, solver_parameters=sparams)
-        solver.solve()
-        its.append(solver.snes.ksp.getIterationNumber())
-    return its
+    return LinearVariationalProblem(a(test, trial), a(test, u_exact), uh, bcs=bcs)
+
+
+def solve_riesz_map(problem, solver_parameters):
+    problem.u.assign(0)
+    solver = LinearVariationalSolver(problem, solver_parameters=solver_parameters)
+    solver.solve()
+    return solver.snes.ksp.getIterationNumber()
 
 
 @pytest.fixture(params=[2, 3],
@@ -125,33 +128,42 @@ def variant(request):
 
 
 @pytest.mark.skipcomplex
-def test_p_independence_hgrad(mesh):
+def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
-    expected = [9, 9] if mesh.topological_dimension() == 3 else [5, 5]
+    expected = [16, 12] if mesh.topological_dimension() == 3 else [9, 7]
+    solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
+        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
         V = FunctionSpace(mesh, element)
-        assert solve_riesz_map(V, grad) <= expected
+        problem = build_riesz_map(V, grad)
+        for sp, max_it in zip(solvers, expected[:len(solvers)]):
+            assert solve_riesz_map(problem, sp) <= max_it
 
 
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
-    expected = [8, 7] if mesh.topological_dimension() == 3 else [4, 4]
+    expected = [13, 10] if mesh.topological_dimension() == 3 else [6, 6]
+    solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
-        assert solve_riesz_map(V, curl) <= expected
+        problem = build_riesz_map(V, curl)
+        for sp, max_it in zip(solvers, expected[:len(solvers)]):
+            assert solve_riesz_map(problem, sp) <= max_it
 
 
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
-    expected = [3, 3]
+    expected = [6, 6]
+    solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
-        assert solve_riesz_map(V, div) <= expected
+        problem = build_riesz_map(V, div)
+        for sp, max_it in zip(solvers, expected[:len(solvers)]):
+            assert solve_riesz_map(problem, sp) <= max_it
 
 
 @pytest.mark.skipcomplex
@@ -182,7 +194,8 @@ def test_variable_coefficient(mesh):
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=fdmstar)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() <= 14
+    expected = 23 if gdim == 3 else 14
+    assert solver.snes.ksp.getIterationNumber() <= expected
 
 
 @pytest.fixture(params=["cg", "dg", "rt"],

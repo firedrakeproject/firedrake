@@ -1072,9 +1072,9 @@ class PoissonFDMPC(FDMPC):
     _variant = "fdm_ipdg"
 
     def assemble_reference_tensor(self, V):
-        from firedrake.preconditioners.pmg import get_line_elements
+        from firedrake.preconditioners.pmg import get_permutation_to_line_elements
         try:
-            line_elements, shifts = get_line_elements(V)
+            _, line_elements, shifts = get_permutation_to_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
@@ -1602,6 +1602,8 @@ def get_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
+    if isinstance(V, firedrake.Function):
+        V = V.function_space()
     mesh = V.mesh()
     intfacets = mesh.interior_facets
     facet_to_cells = intfacets.facet_cell_map.values
