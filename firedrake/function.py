@@ -18,7 +18,7 @@ from firedrake.adjoint import FunctionMixin
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Function', 'PointNotInDomainError']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
 
 
 class _CFunction(ctypes.Structure):
@@ -146,13 +146,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def cell_set(self):
-        r"""The :class:`pyop2.Set` of cells for the mesh on which this
+        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
         return self.function_space()._mesh.cell_set
 
     @property
     def node_set(self):
-        r"""A :class:`pyop2.Set` containing the nodes of this
+        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
         :class:`Function`. One or (for rank-1 and 2
         :class:`.FunctionSpace`\s) more degrees of freedom are stored
         at each node.
@@ -161,7 +161,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @property
     def dof_dset(self):
-        r"""A :class:`pyop2.DataSet` containing the degrees of freedom of
+        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
         this :class:`Function`."""
         return self.function_space().dof_dset
 
@@ -304,14 +304,14 @@ class Function(ufl.Coefficient, FunctionMixin):
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     @utils.cached_property
+    @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_split
+    @FunctionMixin._ad_annotate_subfunctions
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
@@ -374,6 +374,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
 
+    def zero(self, subset=None):
+        """Set all values to zero.
+
+        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
+            zero. If ``None`` then the whole function is zeroed.
+        """
+        # Use assign here so we can reuse _ad_annotate_assign instead of needing
+        # to write an _ad_annotate_zero function
+        return self.assign(0, subset=subset)
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
     def assign(self, expr, subset=None):
@@ -400,8 +410,11 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
-        from firedrake.assign import Assigner
-        Assigner(self, expr, subset).assign()
+        if expr == 0:
+            self.dat.zero(subset=subset)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
         return self
 
     @FunctionMixin._ad_annotate_iadd
@@ -456,9 +469,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             c_function.extruded = 0
             c_function.n_layers = 1
-        c_function.coords = coordinates.dat.data.ctypes.data_as(c_void_p)
+        c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -494,7 +507,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         :arg arg: The point to locate.
         :arg args: Additional points.
         :kwarg dont_raise: Do not raise an error if a point is not found.
-        :kwarg tolerance: Tolerance to use when checking for points in cell.
+        :kwarg tolerance: Tolerence to use when checking if a point is in a
+            cell. Default is the ``MeshTopology.tolerance`` of the mesh the
+            function is defined on. Changing this from default will cause the
+            spatial index to be rebuilt which can take some time.
         """
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
@@ -512,6 +528,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         dont_raise = kwargs.get('dont_raise', False)
 
         tolerance = kwargs.get('tolerance', None)
+        if tolerance is None:
+            tolerance = self.ufl_domain().tolerance
+        else:
+            self.ufl_domain().tolerance = tolerance
+
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)

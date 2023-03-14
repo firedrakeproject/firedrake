@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from ufl.log import UFLException
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="Don't expect coordinate derivatives to work in complex")
@@ -89,11 +88,11 @@ def test_integral_scaling_edge_case():
     u = Function(V)
 
     J = u * u * dx
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(Constant(2.0) * derivative(J, X))
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(derivative(Constant(2.0) * derivative(J, X), X))
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(Constant(2.0) * derivative(derivative(J, X), X))
 
 
