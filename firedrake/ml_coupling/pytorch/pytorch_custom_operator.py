@@ -3,8 +3,20 @@ from functools import partial
 
 from firedrake.ml_coupling import load_backend
 from firedrake.function import Function
+from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
+
+
+Citations().add("Bouziani2023", """
+@inproceedings{Bouziani2023,
+ title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
+ author = {Bouziani, Nacime and Ham, David A.},
+ booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
+ year = {2023},
+ doi = {10.48550/arXiv.2303.06871}
+}
+""")
 
 
 backend = load_backend("pytorch")
@@ -76,6 +88,8 @@ def torch_operator(F):
     """Operator that converts a pyadjoint.ReducedFunctional into a firedrake.FiredrakeTorchOperator
        whose inputs and outputs are PyTorch tensors.
     """
+    Citations().register("Bouziani2023")
+
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
 
