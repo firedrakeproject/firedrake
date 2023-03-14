@@ -96,12 +96,38 @@ def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
     ui = Function(Vi)
     uf = Function(Vf)
     uc = Function(Vc)
-    uc.dat.data[0::2] = 2.0
+    uc.dat.data[0::2] = 0.0
     uc.dat.data[1::2] = 1.0
+    # import numpy
+    # from firedrake.preconditioners.pmg import get_permutation_to_line_elements
+
+    # cperm, _, _ = get_permutation_to_line_elements(Vc)
+    # cnum = Vc.cell_node_map().values[0]
+    # uc.dat.data[cnum[cperm]] = numpy.arange(1, 1+len(uc.dat.data))
+
+    # fperm, _, _ = get_permutation_to_line_elements(Vf)
+    # fnum = Vf.cell_node_map().values[0]
+
+    # print()
+    # # print("cperm", cperm)
+    # # print("fperm", fperm)
+    # print("inv(cperm)", numpy.argsort(cperm))
+    # print("inv(fperm)", numpy.argsort(fperm))
+
+    # expr = Constant([0]*3)
+    # for row in numpy.eye(3):
+    #     expr.assign(row)
+    #     uf.project(expr, solver_parameters={"mat_type": "matfree"})
+    #     print(numpy.nonzero(numpy.rint(uf.dat.data[fnum]).astype(int))[0])
+
+    # uf.project(uc, solver_parameters={"mat_type": "matfree"})
+    # print(numpy.rint(uf.dat.data[fnum[fperm]]).astype(int))
 
     for v in [ui, uf]:
         P = prolongation_matrix_matfree(v, uc).getPythonContext()
         P._prolong()
+
+    # print(numpy.rint(uf.dat.data[fnum[fperm]]).astype(int))
 
     assert norm(ui + uf - uc, "L2") < 2E-14
 

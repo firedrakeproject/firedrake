@@ -10,6 +10,7 @@ from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from firedrake.petsc import PETSc
 import firedrake
+import finat
 import ufl
 import loopy
 import numpy
@@ -97,7 +98,7 @@ class PMGBase(PCSNESBase):
         ppc = self.configure_pmg(obj, pdm)
         is_snes = isinstance(obj, PETSc.SNES)
 
-        copts = PETSc.Options(ppc.getOptionsPrefix()+ppc.getType()+"_coarse_")
+        copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
 
         # Get the coarse degree from PETSc options
         fcp = ctx._problem.form_compiler_parameters
@@ -311,7 +312,7 @@ class PMGBase(PCSNESBase):
     def coarsen_quadrature(self, metadata, fdeg, cdeg):
         if isinstance(metadata, dict):
             # Coarsen the quadrature degree in a dictionary
-            # such that the ratio of quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1) is preserved
+            # preserving the ratio of quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1)
             qdeg = metadata.get("quadrature_degree", None)
             if qdeg is not None:
                 cmd = dict(metadata)
@@ -529,49 +530,26 @@ def expand_element(ele):
     """
     Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     """
-    if ele.cell().cellname().startswith("quadrilateral"):
-        # Handle immersed quadrilaterals
-        quadrilateral_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
-        return expand_element(ele.reconstruct(cell=quadrilateral_tpc))
-    elif ele.cell() == ufl.hexahedron:
-        hexahedron_tpc = ufl.TensorProductCell(ufl.quadrilateral, ufl.interval)
-        return expand_element(ele.reconstruct(cell=hexahedron_tpc))
-    elif isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        return expand_element(ele._sub_element)
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*[expand_element(e) for e in ele.sub_elements()])
-    elif isinstance(ele, ufl.RestrictedElement):
-        return type(ele)(expand_element(ele._element), restriction_domain=ele._restriction_domain)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
-        return expand_element(ele._element)
-    elif isinstance(ele, ufl.WithMapping):
-        return expand_element(ele.wrapee)
-    elif isinstance(ele, ufl.EnrichedElement):
-        terms = []
-        for e in ele._elements:
-            ee = expand_element(e)
-            if isinstance(ee, ufl.EnrichedElement):
-                terms.extend(ee._elements)
-            else:
-                terms.append(ee)
-        cell, = set([t.cell() for t in terms])
-        return ufl.EnrichedElement(*terms)
-    elif isinstance(ele, ufl.TensorProductElement):
-        factors = [expand_element(e) for e in ele.sub_elements()]
+    if isinstance(ele, finat.FlattenedDimensions):
+        return expand_element(ele.product)
+    elif isinstance(ele, (finat.HDivElement, finat.HCurlElement)):
+        return expand_element(ele.wrappee)
+    elif isinstance(ele, finat.DiscontinuousElement):
+        return expand_element(ele.element)
+    elif isinstance(ele, finat.EnrichedElement):
+        terms = list(map(expand_element, ele.elements))
+        return finat.EnrichedElement(terms)
+    elif isinstance(ele, finat.TensorProductElement):
+        factors = list(map(expand_element, ele.factors))
         terms = [tuple()]
         for e in factors:
             new_terms = []
-            for f in e._elements if isinstance(e, ufl.EnrichedElement) else [e]:
-                f_factors = f.sub_elements() if isinstance(f, ufl.TensorProductElement) else (f,)
+            for f in e.elements if isinstance(e, finat.EnrichedElement) else [e]:
+                f_factors = tuple(f.factors) if isinstance(f, finat.TensorProductElement) else (f,)
                 new_terms.extend([t_factors + f_factors for t_factors in terms])
             terms = new_terms
-
-        if len(terms) == 1:
-            return ufl.TensorProductElement(*terms[0])
-        else:
-            terms = [ufl.TensorProductElement(*k) for k in terms]
-            cell, = set([t.cell() for t in terms])
-            return ufl.EnrichedElement(*terms)
+        terms = list(map(finat.TensorProductElement, terms))
+        return finat.EnrichedElement(terms)
     else:
         return ele
 
@@ -632,19 +610,15 @@ def compare_dual_basis(l1, l2):
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(V):
     from FIAT.reference_element import LINE
-    from tsfc.finatinterface import create_element
     ele = V.ufl_element()
     if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
         raise ValueError("MixedElements are not decomposed into tensor products")
 
-    ele = expand_element(ele)
-    finat_ele = create_element(ele)
+    finat_ele = expand_element(V.finat_element)
     if finat_ele.space_dimension() != V.finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
 
     line_elements = []
-    axes_shifts = []
-
     terms = finat_ele.elements if hasattr(finat_ele, "elements") else [finat_ele]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
@@ -658,40 +632,43 @@ def get_permutation_to_line_elements(V):
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
+    unique_line_elements = []
     shifts = []
 
-    grouped = [False for e in line_elements]
-    nterms = len(line_elements)
-    unique_line_elements = []
-    while not all(grouped):
-        istart = grouped.index(False)
-        expansion = line_elements[istart]
-        unique_line_elements.append(expansion)
-        axes_shifts = tuple()
+    visit = [False for e in line_elements]
+    while False in visit:
+        base = line_elements[visit.index(False)]
+        tdim = len(base)
+        pshape = tuple(e.space_dimension() for e in base)
+        unique_line_elements.append(base)
 
-        tdim = len(expansion)
-        permutations = [expansion[k:] + expansion[:k] for k in range(tdim)]
-        for i in range(istart, nterms):
-            ecur = line_elements[i]
-            if not grouped[i]:
-                for shift, perm in enumerate(permutations):
+        axes_shifts = tuple()
+        for shift in range(tdim):
+            if V.finat_element.formdegree != 2:
+                shift = (tdim - shift) % tdim
+
+            perm = base[shift:] + base[:shift]
+            for i, expansion in enumerate(line_elements):
+                if not visit[i]:
                     is_perm = all([e1.space_dimension() == e2.space_dimension()
-                                   for e1, e2 in zip(perm, ecur)])
-                    for e1, e2 in zip(perm, ecur):
+                                   for e1, e2 in zip(perm, expansion)])
+                    for e1, e2 in zip(perm, expansion):
                         if is_perm:
                             is_perm = compare_element(e1, e2)
 
                     if is_perm:
-                        axes_shifts += ((tdim - shift) % tdim,)
-                        axes = numpy.arange(tdim)
-                        dofs = numpy.arange(*dof_ranges[i:i+2], dtype=PETSc.IntType).reshape(tp_shape[istart])
-                        dofs = numpy.transpose(dofs, axes=numpy.roll(axes, -shift))
-                        dof_perm.extend(dofs.flat)
-                        grouped[i] = True
+                        axes_shifts += ((tdim - shift) % tdim, )
+                        dofs = numpy.arange(*dof_ranges[i:i+2], dtype=PETSc.IntType).reshape(tp_shape[i])
+                        dofs = numpy.transpose(dofs, axes=numpy.roll(numpy.arange(tdim), shift))
+                        assert dofs.shape == pshape
+                        dof_perm.append(dofs.flat)
+                        visit[i] = True
                         break
 
         shifts.append(axes_shifts)
 
+    dof_perm = numpy.concatenate(dof_perm)
+    dof_perm = numpy.argsort(dof_perm)
     return dof_perm, unique_line_elements, shifts
 
 
@@ -1138,16 +1115,16 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     return decl, prolong, restrict
 
 
-@PETSc.Log.EventDecorator("GetPermutedMap")
 def get_permuted_map(V):
     """
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
 
-    perm, _, shifts = get_permutation_to_line_elements(V)
-    if {(0, )} == set(shifts):
+    perm, _, _ = get_permutation_to_line_elements(V)
+    if all(perm[:-1] < perm[1:]):
         return V.cell_node_map()
+
     return PermutedMap(V.cell_node_map(), perm)
 
 
