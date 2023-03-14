@@ -147,6 +147,8 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
 
     if redundant:
+        if MPI.COMM_WORLD.size == 1:
+            pytest.skip("Testing redundant in serial isn't worth the time")
         # check redundant argument broadcasts from rank 0 by only supplying the
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.

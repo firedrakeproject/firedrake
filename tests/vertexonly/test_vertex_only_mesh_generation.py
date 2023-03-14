@@ -180,6 +180,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
     """
     inputcoords, inputcoordslocal = cell_midpoints(parentmesh)
     if redundant:
+        if MPI.COMM_WORLD.size == 1:
+            pytest.skip("Testing redundant or redistribution in serial isn't worth the time")
         if redundant == "redistribute":
             # We set redunant to False (which stops broadcasting from rank 0)
             # and supply the global cell midpoints only on rank 0 to check they
