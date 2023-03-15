@@ -230,7 +230,7 @@ def test_generate_cell_midpoints_parallel(parentmesh, redundant):
 
 
 def test_generate_random(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     verify_vertexonly_mesh(parentmesh, vm, vertexcoords)
 
 
@@ -275,7 +275,7 @@ def test_point_tolerance():
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
     assert m.topology.tolerance == 0.1
-    vm = VertexOnlyMesh(m, coords, tolerance=0.0)
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
     assert m.topology.tolerance == 0.0
@@ -285,7 +285,7 @@ def test_point_tolerance():
     vm = VertexOnlyMesh(m, coords)
     assert vm.cell_set.size == 1
     m.tolerance = 0.0
-    vm = VertexOnlyMesh(m, coords)
+    vm = VertexOnlyMesh(m, coords, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
 
 
@@ -296,13 +296,18 @@ def test_missing_points_behaviour(parentmesh):
     """
     inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
     assert len(inputcoord) == 1
-    # No error by default
-    vm = VertexOnlyMesh(parentmesh, inputcoord)
+    # Can surpress error
+    vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
+    # Error by default
+    with pytest.raises(ValueError):
+        vm = VertexOnlyMesh(parentmesh, inputcoord)
+    # Error or warning if specified
     with pytest.raises(ValueError):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
+        assert vm.cell_set.size == 0
 
 
 def test_outside_boundary_behaviour(parentmesh):
@@ -329,7 +334,7 @@ def test_outside_boundary_behaviour(parentmesh):
 def test_on_boundary_behaviour():
     coords = np.array([[0.4, 0.2, 0.3]])
     mesh = UnitCubeMesh(10, 10, 10)
-    vm = VertexOnlyMesh(mesh, coords, missing_points_behaviour='error')
+    vm = VertexOnlyMesh(mesh, coords)
     total_num_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro_with_halos), op=MPI.SUM)
     assert total_num_cells == 1
 
@@ -356,7 +361,7 @@ def test_partition_behaviour():
                    [0.5, 0.5+1e-15]]
     npts = len(inputcoords)
     # Check that we get all the points with a big enough tolerance
-    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13, missing_points_behaviour='error')
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13)
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
     # Check that we lose all but the last 4 points with a small tolerance
     with pytest.warns(UserWarning):

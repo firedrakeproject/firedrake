@@ -2524,7 +2524,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                    tolerance=None, redundant=True):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined

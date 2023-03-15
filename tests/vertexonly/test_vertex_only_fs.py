@@ -139,7 +139,7 @@ def vectorfunctionspace_tests(vm):
 
 
 def test_functionspaces(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm)
     vectorfunctionspace_tests(vm)
 
