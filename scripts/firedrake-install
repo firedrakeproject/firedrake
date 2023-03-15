@@ -1716,13 +1716,15 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
-    # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
-    run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+# Ensure pip, setuptools, hatchling and wheel are at the latest version.
+run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
+run_pip(["install", "-U", "hatch"])
+run_pip(["install", "-U", "pip"])
+run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:

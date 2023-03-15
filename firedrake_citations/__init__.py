@@ -279,7 +279,7 @@ Citations().add("Kolev2009", """
 """)
 
 Citations().add("Hiptmair1998", """
-@Misc{Kolev2009,
+@Misc{Hiptmair1998,
   author =       {Hiptmair, Ralf},
   title =        {{Multigrid Method for Maxwell's Equations}},
   journal =      {SIAM Journal on Numerical Analysis},

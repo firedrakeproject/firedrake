@@ -2,6 +2,10 @@ import abc
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.functionspace import FunctionSpace
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.preconditioners.hypre_ams import chop
+from firedrake.parameters import parameters
 from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
@@ -9,10 +13,15 @@ import firedrake.dmhooks as dmhooks
 import ufl
 
 
-__all__ = ("HiptmairPC",)
+__all__ = ("TwoLevelPC", "HiptmairPC")
 
 
 class TwoLevelPC(PCBase):
+    """ PC for two-level methods
+
+    should implement:
+    - :meth:`coarsen`
+    """
 
     needs_python_pmat = False
 
@@ -25,7 +34,6 @@ class TwoLevelPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
-        from firedrake import parameters
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -117,7 +125,7 @@ class TwoLevelPC(PCBase):
 
 
 class HiptmairPC(TwoLevelPC):
-    """ A two-level method for H(curl) or H(div) problems with an auxiliary
+    """A two-level method for H(curl) or H(div) problems with an auxiliary
     potential space in H^1 or H(curl), respectively.
 
     Internally this creates a PETSc PCMG object that can be controlled by
@@ -137,7 +145,6 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        from firedrake import FunctionSpace, TestFunction, TrialFunction
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
@@ -192,7 +199,6 @@ class HiptmairPC(TwoLevelPC):
                 coarse_operator += beta(test, shift*trial, coefficients={})
 
         if G_callback is None:
-            from firedrake.preconditioners.hypre_ams import chop
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
