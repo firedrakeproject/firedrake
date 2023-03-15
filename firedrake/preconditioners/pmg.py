@@ -50,6 +50,8 @@ class PMGBase(PCSNESBase):
 
     _prefix = "pmg_"
 
+    _cache_transfer = {}
+
     def coarsen_element(self, ele):
         """
         Coarsen a given element to form the next problem down in the p-hierarchy.
@@ -333,19 +335,22 @@ class PMGBase(PCSNESBase):
                 raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
         return cbcs
 
-    @staticmethod
-    @lru_cache(maxsize=20)
-    def create_transfer(cctx, fctx, mat_type, cbcs, fbcs):
-        cbcs = cctx._problem.bcs if cbcs else []
-        fbcs = fctx._problem.bcs if fbcs else []
+    def create_transfer(self, cctx, fctx, mat_type, cbcs, fbcs):
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
-        if mat_type == "matfree":
-            return prolongation_matrix_matfree(fV, cV, fbcs, cbcs)
-        elif mat_type == "aij":
-            return prolongation_matrix_aij(fV, cV, fbcs, cbcs)
-        else:
-            raise ValueError("Unknown matrix type")
+        cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
+        fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
+        key = (fV, cV, cbcs, fbcs, mat_type)
+        try:
+            return self._cache_transfer[key]
+        except KeyError:
+            if mat_type == "matfree":
+                construct_mat = prolongation_matrix_matfree
+            elif mat_type == "aij":
+                construct_mat = prolongation_matrix_aij
+            else:
+                raise ValueError("Unknown matrix type")
+            return self._cache_transfer.setdefault(key, construct_mat(fV, cV, fbcs, cbcs))
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -592,18 +597,13 @@ def compare_dual(b1, b2):
 
     k1 = numpy.array([p1[k][0][0] for k in p1])
     k2 = numpy.array([p2[k][0][0] for k in p2])
-    if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
-        return False
-    return True
+    return numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16)
 
 
 def compare_dual_basis(l1, l2):
     if len(l1) != len(l2):
         return False
-    for b1, b2 in zip(l1, l2):
-        if not compare_dual(b1, b2):
-            return False
-    return True
+    return all(compare_dual(b1, b2) for b1, b2 in zip(l1, l2))
 
 
 @lru_cache(maxsize=10)
@@ -615,14 +615,26 @@ def get_permutation_to_line_elements(finat_element):
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % finat_element)
 
+    unique_factors = []
     line_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
-        fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
-        if not all([e.get_reference_element().shape == LINE for e in fiat_factors]):
+        fiat_factors = [e.fiat_equivalent for e in reversed(factors)]
+        if any(e.get_reference_element().shape != LINE for e in fiat_factors):
             raise ValueError("Failed to decompose %s into line elements" % fiat_factors)
-        line_elements.append(fiat_factors)
+
+        # use the same FIAT element if it appears multiple times in the expansion
+        for i in range(len(fiat_factors)):
+            n = fiat_factors[i]
+            for f in unique_factors:
+                if compare_element(n, f):
+                    n = f
+                    break
+            if n is fiat_factors[i]:
+                unique_factors.append(n)
+            fiat_factors[i] = n
+        line_elements.append(tuple(fiat_factors))
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
     sizes = list(map(numpy.prod, shapes))
@@ -647,11 +659,10 @@ def get_permutation_to_line_elements(finat_element):
             perm = base[shift:] + base[:shift]
             for i, term in enumerate(line_elements):
                 if not visit[i]:
-                    is_perm = all([e1.space_dimension() == e2.space_dimension()
-                                   for e1, e2 in zip(perm, term)])
-                    for e1, e2 in zip(perm, term):
-                        if is_perm:
-                            is_perm = compare_element(e1, e2)
+                    is_perm = all(e1.space_dimension() == e2.space_dimension()
+                                  for e1, e2 in zip(perm, term))
+                    if is_perm:
+                        is_perm = all(compare_element(e1, e2) for e1, e2 in zip(perm, term))
 
                     if is_perm:
                         axes_shifts += ((tdim - shift) % tdim, )
@@ -660,7 +671,6 @@ def get_permutation_to_line_elements(finat_element):
                         assert dofs.shape == shapes[i]
                         dof_perm.append(dofs.flat)
                         visit[i] = True
-                        break
 
         shifts.append(axes_shifts)
 
@@ -838,7 +848,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     shifts = fshifts
     in_place = False
     if len(felems) == len(celems):
-        in_place = all([(len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts)])
+        in_place = all((len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts))
         psize = Vf.value_size
 
     if not in_place:
@@ -914,7 +924,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         cshapes.append((nscal,) + tuple(cshape))
 
         J = [fiat_reference_prolongator(fe, ce).T for fe, ce in zip(felem, celem)]
-        if any([Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J]):
+        if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
             """)
@@ -1116,7 +1126,7 @@ def get_permuted_map(V):
     every component of H(div) or H(curl) tensor product elements
     """
     indices, _, _ = get_permutation_to_line_elements(V.finat_element)
-    if all(indices[:-1] < indices[1:]):
+    if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
     return PermutedMap(V.cell_node_map(), indices)
 
@@ -1129,24 +1139,21 @@ class StandaloneInterpolationMatrix(object):
     _cache_work = {}
 
     def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
+        self.uf = self.work_function(Vf)
+        self.uc = self.work_function(Vc)
+        self.Vf = self.uf.function_space()
+        self.Vc = self.uc.function_space()
         self.Vf_bcs = Vf_bcs
         self.Vc_bcs = Vc_bcs
-        if isinstance(Vf, firedrake.Function):
-            self.uf = Vf
-            Vf = Vf.function_space()
+
+    def work_function(self, V):
+        if isinstance(V, firedrake.Function):
+            return V
         else:
-            if Vf not in self._cache_work:
-                self._cache_work[Vf] = firedrake.Function(Vf)
-            self.uf = self._cache_work[Vf]
-        if isinstance(Vc, firedrake.Function):
-            self.uc = Vc
-            Vc = Vc.function_space()
-        else:
-            if Vc not in self._cache_work:
-                self._cache_work[Vc] = firedrake.Function(Vc)
-            self.uc = self._cache_work[Vc]
-        self.Vf = Vf
-        self.Vc = Vc
+            try:
+                return self._cache_work[V]
+            except KeyError:
+                return self._cache_work.setdefault(V, firedrake.Function(V))
 
     @cached_property
     def _weight(self):
@@ -1187,8 +1194,8 @@ class StandaloneInterpolationMatrix(object):
                          self.uf.dat(op2.READ, uf_map),
                          self._weight.dat(op2.READ, uf_map)]
         coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-        prolong = partial(op2.par_loop, *prolong_args, *coefficient_args)
-        restrict = partial(op2.par_loop, *restrict_args, *coefficient_args)
+        prolong = op2.ParLoop(*prolong_args, *coefficient_args)
+        restrict = op2.ParLoop(*restrict_args, *coefficient_args)
         return prolong, restrict
 
     def _prolong(self):

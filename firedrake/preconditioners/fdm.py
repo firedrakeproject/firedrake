@@ -53,12 +53,12 @@ class FDMPC(PCBase):
 
     @staticmethod
     def load_set_values(triu=False):
-        cache = FDMPC._c_code_cache
         key = triu
-        if key not in cache:
-            comm = PETSc.COMM_SELF
-            cache[key] = load_assemble_csr(comm, triu=triu)
-        return cache[key]
+        cache = FDMPC._c_code_cache
+        try:
+            return cache[key]
+        except KeyError:
+            return cache.setdefault(key, load_assemble_csr(PETSc.COMM_SELF, triu=triu))
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
@@ -545,8 +545,9 @@ class FDMPC(PCBase):
 
         key = (mixed_form.signature(), mesh)
         block_diagonal = True
-
-        if key not in self._coefficient_cache:
+        try:
+            return self._coefficient_cache[key]
+        except KeyError:
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
                 coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
@@ -562,9 +563,7 @@ class FDMPC(PCBase):
                     ctx = sub.getPythonContext()
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
-
-            self._coefficient_cache[key] = (coefficients, assembly_callables)
-        return self._coefficient_cache[key]
+            return self._coefficient_cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
@@ -581,14 +580,16 @@ class FDMPC(PCBase):
         is_interior, is_facet = is_restricted(V.finat_element)
         key = (degree, tdim, formdegree, V.value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
-        if key not in cache:
+        try:
+            return cache[key]
+        except KeyError:
             full_key = (degree, tdim, formdegree, V.value_size, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
-                cache[key] = result.createSubMatrix(noperm, self.ises[1])
+                result = result.createSubMatrix(noperm, self.ises[1])
                 noperm.destroy()
-                return cache[key]
+                return cache.setdefault(key, result)
 
             elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
             ref_el = elements[0].get_reference_element()
@@ -635,8 +636,7 @@ class FDMPC(PCBase):
                 result = result.createSubMatrix(noperm, self.ises[1])
                 noperm.destroy()
 
-            cache[key] = result
-        return cache[key]
+            return cache.setdefault(key, result)
 
 
 def factor_interior_mat(A00):
@@ -1091,7 +1091,8 @@ class PoissonFDMPC(FDMPC):
         bdof = []  # indices of point evaluation dofs for each direction
         for e in line_elements:
             Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
-            if not (e.formdegree or is_dg):
+            if not is_dg and e.degree() == degree:
+                # do not apply SIPG along continuous directions
                 Dfdm[0] = None
         return Afdm, Dfdm, bdof
 
@@ -1144,7 +1145,7 @@ class PoissonFDMPC(FDMPC):
 
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
-        # the FDM eigenbases for GLL(N) and GLL(N-1) are not orthogonal to each other
+        # the FDM eigenbases for CG(k) and DG(k-1) are not orthogonal to each other
         rindices = None
         use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
         if not use_diag_Bq:
@@ -1500,15 +1501,6 @@ def pull_axis(x, pshape, idir):
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
 
-def set_submat_csr(A_global, A_local, global_indices, imode):
-    """insert values from A_local to A_global on the diagonal block with indices global_indices"""
-    indptr, indices, data = A_local.getValuesCSR()
-    for i, row in enumerate(global_indices.flat):
-        i0 = indptr[i]
-        i1 = indptr[i+1]
-        A_global.setValues(row, global_indices.flat[indices[i0:i1]], data[i0:i1], imode)
-
-
 def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
     """
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
@@ -1555,7 +1547,7 @@ def fdm_setup_ipdg(fdm_element, eta):
         Bhat, and bcs(Ahat) for every combination of either natural or weak
         Dirichlet BCs on each endpoint.
         Dfdm: the tabulation of the normal derivatives of the Dirichlet eigenfunctions.
-        bdof: the indices of PointEvaluation dofs.
+        bdof: the indices of the vertex degrees of freedom.
     """
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
@@ -1563,7 +1555,8 @@ def fdm_setup_ipdg(fdm_element, eta):
         rule = fdm_element.dual.rule
     else:
         rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
-    bdof = [k for k, f in enumerate(fdm_element.dual_basis()) if isinstance(f, FIAT.functional.PointEvaluation)]
+    edof = fdm_element.entity_dofs()
+    bdof = edof[0][0] + edof[0][1]
 
     phi = fdm_element.tabulate(1, rule.get_points())
     Jhat = phi[(0, )]
@@ -1749,21 +1742,3 @@ def glonum(node_map):
             nelz = layers[:, 1]-layers[:, 0]-1
             to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
         return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
-
-
-def spy(A, comm=None):
-    import matplotlib.pyplot as plt
-    import scipy.sparse as sp
-    if comm is None:
-        comm = A.comm
-    nnz = A.getInfo()["nz_used"]
-    if A.getType().endswith("sbaij"):
-        A.setOption(PETSc.Mat.Option.GETROW_UPPERTRIANGULAR, True)
-    csr = tuple(reversed(A.getValuesCSR()))
-    if comm.rank == 0:
-        csr[0].fill(1)
-        scipy_mat = sp.csr_matrix(csr, shape=A.getSize())
-        fig, axes = plt.subplots(nrows=1, ncols=1)
-        axes.spy(scipy_mat, marker=".", markersize=2)
-        plt.title("nnz(A) = %d" % nnz)
-        plt.show()

@@ -5,7 +5,7 @@ from firedrake import *
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def tp_mesh(request):
-    nx = 1
+    nx = 4
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:
