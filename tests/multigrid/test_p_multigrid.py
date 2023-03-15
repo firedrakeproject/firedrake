@@ -87,7 +87,7 @@ def test_prolong_de_rham(tp_mesh):
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
-    degree = 3
+    degree = 5
     cell = tp_mesh.ufl_cell()
     element = FiniteElement(tp_family, cell=cell, degree=degree, variant=variant)
     Vi = FunctionSpace(tp_mesh, RestrictedElement(element, restriction_domain="interior"))

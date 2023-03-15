@@ -857,21 +857,17 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         else:
             raise ValueError("Cannot assign fine to coarse DOFs")
 
-        pshape = [e.space_dimension() for e in pelem]
-        pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
-        pstride = psize * numpy.prod(pshape)
-
         if set(cshifts) == set(fshifts):
             csize = Vc.value_size * Vc.finat_element.space_dimension()
             prolong_code.append(f"""
-            for({IntType_c} i=1; i<{len(fshifts)}; i++)
-                for({IntType_c} j=0; j<{csize}; j++)
-                    {t_in}[i*{csize} + j] = {t_in}[j];
+            for({IntType_c} j=1; j<{len(fshifts)}; j++)
+                for({IntType_c} i=0; i<{csize}; i++)
+                    {t_in}[j*{csize} + i] = {t_in}[i];
             """)
             restrict_code.append(f"""
-            for({IntType_c} i=1; i<{len(fshifts)}; i++)
-                for({IntType_c} j=0; j<{csize}; j++)
-                    {t_in}[j] += {t_in}[i*{csize} + j];
+            for({IntType_c} j=1; j<{len(fshifts)}; j++)
+                for({IntType_c} i=0; i<{csize}; i++)
+                    {t_in}[i] += {t_in}[j*{csize} + i];
             """)
 
         elif pelem == celems[0]:
@@ -879,12 +875,15 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
                 if Vc.value_size*len(shifts[k]) < Vf.value_size:
                     shifts[k] = shifts[k]*(Vf.value_size//Vc.value_size)
 
+            pshape = [e.space_dimension() for e in pelem]
+            pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
+            pstride = psize * numpy.prod(pshape)
+
             perm = sum(shifts, tuple())
             perm_data = ", ".join(map(str, perm))
             operator_decl.append(f"""
                 PetscBLASInt {perm_name}[{len(perm)}] = {{ {perm_data} }};
             """)
-
             prolong_code.append(f"""
             for({IntType_c} j=1; j<{len(perm)}; j++)
                 permute_axis({perm_name}[j], {pargs}, {psize}, {t_in}, {t_in}+j*{pstride});
@@ -1116,12 +1115,10 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-
-    perm, _, _ = get_permutation_to_line_elements(V.finat_element)
-    if all(perm[:-1] < perm[1:]):
+    indices, _, _ = get_permutation_to_line_elements(V.finat_element)
+    if all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
-
-    return PermutedMap(V.cell_node_map(), perm)
+    return PermutedMap(V.cell_node_map(), indices)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -1546,5 +1543,4 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
     M_shll.setUp()
-
     return M_shll
