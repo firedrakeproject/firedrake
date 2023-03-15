@@ -1,0 +1,276 @@
+import abc
+
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from firedrake.functionspace import FunctionSpace
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.preconditioners.hypre_ams import chop
+from firedrake.parameters import parameters
+from firedrake_citations import Citations
+from firedrake.interpolation import Interpolator
+from ufl.algorithms.ad import expand_derivatives
+import firedrake.dmhooks as dmhooks
+import ufl
+
+
+__all__ = ("TwoLevelPC", "HiptmairPC")
+
+
+class TwoLevelPC(PCBase):
+    """ PC for two-level methods
+
+    should implement:
+    - :meth:`coarsen`
+    """
+
+    needs_python_pmat = False
+
+    @abc.abstractmethod
+    def coarsen(self, pc):
+        """Return a tuple with coarse bilinear form, coarse
+           boundary conditions, and coarse-to-fine interpolation matrix
+        """
+        raise NotImplementedError
+
+    def initialize(self, pc):
+        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        A, P = pc.getOperators()
+        appctx = self.get_appctx(pc)
+        fcp = appctx.get("form_compiler_parameters")
+
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + self._prefix
+        opts = PETSc.Options()
+
+        coarse_operator, coarse_space_bcs, interp_petscmat = self.coarsen(pc)
+
+        # Handle the coarse operator
+        coarse_options_prefix = options_prefix + "mg_coarse_"
+        coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
+                                         parameters["default_matrix_type"])
+        self.coarse_op = allocate_matrix(coarse_operator,
+                                         bcs=coarse_space_bcs,
+                                         form_compiler_parameters=fcp,
+                                         mat_type=coarse_mat_type,
+                                         options_prefix=coarse_options_prefix)
+        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
+                                                    form_compiler_parameters=fcp,
+                                                    bcs=coarse_space_bcs).assemble
+        self._assemble_coarse_op()
+        coarse_opmat = self.coarse_op.petscmat
+
+        # We set up a PCMG object that uses the constructed interpolation
+        # matrix to generate the restriction/prolongation operators.
+        # This is a two-level multigrid preconditioner.
+        pcmg = PETSc.PC().create(comm=pc.comm)
+        pcmg.incrementTabLevel(1, parent=pc)
+
+        pcmg.setType(pc.Type.MG)
+        pcmg.setOptionsPrefix(options_prefix)
+        pcmg.setMGLevels(2)
+        pcmg.setMGType(pc.MGType.ADDITIVE)
+        pcmg.setMGCycleType(pc.MGCycleType.V)
+        pcmg.setMGInterpolation(1, interp_petscmat)
+        # FIXME the default for MGRScale is created with the wrong shape when dim(coarse) > dim(fine)
+        # FIXME there is no need for injection in a KSP context, probably this comes from the snes_ctx below
+        # as workaround define injection as the restriction of the solution times a zero vector
+        pcmg.setMGRScale(1, interp_petscmat.createVecRight())
+        pcmg.setOperators(A=A, P=P)
+
+        coarse_solver = pcmg.getMGCoarseSolve()
+        coarse_solver.setOperators(A=coarse_opmat, P=coarse_opmat)
+        # coarse space dm
+        coarse_space = coarse_operator.arguments()[-1].function_space()
+        coarse_dm = coarse_space.dm
+        coarse_solver.setDM(coarse_dm)
+        coarse_solver.setDMActive(False)
+        pcmg.setDM(pc.getDM())
+        pcmg.setFromOptions()
+        self.pc = pcmg
+        self._dm = coarse_dm
+
+        prefix = coarse_solver.getOptionsPrefix()
+        # Create new appctx
+        self._ctx_ref = self.new_snes_ctx(pc,
+                                          coarse_operator,
+                                          coarse_space_bcs,
+                                          coarse_mat_type,
+                                          fcp,
+                                          options_prefix=prefix)
+
+        with dmhooks.add_hooks(coarse_dm, self,
+                               appctx=self._ctx_ref,
+                               save=False):
+            coarse_solver.setFromOptions()
+
+    def update(self, pc):
+        self._assemble_coarse_op()
+        self.pc.setUp()
+
+    def apply(self, pc, X, Y):
+        dm = self._dm
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            self.pc.apply(X, Y)
+
+    def applyTranspose(self, pc, X, Y):
+        dm = self._dm
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+            self.pc.applyTranspose(X, Y)
+
+    def view(self, pc, viewer=None):
+        super(TwoLevelPC, self).view(pc, viewer)
+        if hasattr(self, "pc"):
+            viewer.printfASCII("Two level PC\n")
+            self.pc.view(viewer)
+
+
+class HiptmairPC(TwoLevelPC):
+    """A two-level method for H(curl) or H(div) problems with an auxiliary
+    potential space in H^1 or H(curl), respectively.
+
+    Internally this creates a PETSc PCMG object that can be controlled by
+    options using the extra options prefix ``hiptmair_mg_``.
+
+    This allows for effective multigrid relaxation methods with patch solves
+    centered around vertices for H^1, edges for H(curl), or faces for H(div).
+    For the lowest-order spaces this corresponds to point-Jacobi.
+
+    The H(div) auxiliary vector potential problem in H(curl) is singular for
+    high-order.  This can be overcome by pertubing the problem by a multiple of
+    the mass matrix. The scaling factor can be provided (defaulting to 0) by
+    providing a scalar in the application context, keyed on
+    ``"hiptmair_shift"``.
+    """
+
+    _prefix = "hiptmair_"
+
+    def coarsen(self, pc):
+        Citations().register("Hiptmair1998")
+        appctx = self.get_appctx(pc)
+
+        _, P = pc.getOperators()
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = tuple(ctx.bcs)
+        else:
+            ctx = dmhooks.get_appctx(pc.getDM())
+            a = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
+
+        V = a.arguments()[-1].function_space()
+        mesh = V.mesh()
+        element = V.ufl_element()
+        degree = element.degree()
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        formdegree = V.finat_element.formdegree
+        if formdegree == 1:
+            celement = curl_to_grad(element)
+            dminus = ufl.grad
+            G_callback = appctx.get("get_gradient", None)
+        elif formdegree == 2:
+            celement = div_to_curl(element)
+            dminus = ufl.curl
+            if V.shape:
+                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
+                                                  for k in range(u.ufl_shape[0])])
+            G_callback = appctx.get("get_curl", None)
+        else:
+            raise ValueError("Hiptmair decomposition not available for", element)
+
+        coarse_space = FunctionSpace(mesh, celement)
+        assert coarse_space.finat_element.formdegree + 1 == formdegree
+        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+
+        # Get only the zero-th order term of the form
+        replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
+        beta = ufl.replace(expand_derivatives(a), replace_dict)
+
+        test = TestFunction(coarse_space)
+        trial = TrialFunction(coarse_space)
+        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+
+        if formdegree > 1 and degree > 1:
+            shift = appctx.get("hiptmair_shift", None)
+            if shift is not None:
+                coarse_operator += beta(test, shift*trial, coefficients={})
+
+        if G_callback is None:
+            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+        else:
+            interp_petscmat = G_callback(V, coarse_space, bcs, coarse_space_bcs)
+
+        return coarse_operator, coarse_space_bcs, interp_petscmat
+
+
+def curl_to_grad(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.RestrictedElement):
+        return ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
+    else:
+        cell = ele.cell()
+        family = ele.family()
+        variant = ele.variant()
+        degree = ele.degree()
+        if family.startswith("Sminus"):
+            family = "S"
+        else:
+            family = "CG"
+            if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
+                cells = ele.cell().sub_cells()
+                elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
+                return ufl.TensorProductElement(*elems, cell=cell)
+        return ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
+
+
+def div_to_curl(ele):
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()))
+    elif isinstance(ele, ufl.RestrictedElement):
+        return ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
+    elif isinstance(ele, ufl.EnrichedElement):
+        return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
+    elif isinstance(ele, ufl.TensorProductElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()), cell=ele.cell())
+    elif isinstance(ele, ufl.WithMapping):
+        return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
+    elif isinstance(ele, ufl.BrokenElement):
+        return type(ele)(div_to_curl(ele._element))
+    elif isinstance(ele, ufl.HDivElement):
+        return ufl.HCurlElement(div_to_curl(ele._element))
+    elif isinstance(ele, ufl.HCurlElement):
+        raise ValueError("Expecting an H(div) element")
+    else:
+        degree = ele.degree()
+        family = ele.family()
+        if family in ["Lagrange", "CG", "Q"]:
+            family = "DG" if ele.cell().is_simplex() else "DQ"
+            degree = degree-1
+        elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
+            family = "CG"
+            degree = degree+1
+        else:
+            replace_dict = {
+                "Raviart-Thomas": "N1curl",
+                "Brezzi-Douglas-Marini": "N2curl",
+                "RTCF": "RTCE",
+                "NCF": "NCE",
+                "SminusF": "SminusE",
+                "SminusDiv": "SminusCurl",
+            }
+            family = replace_dict.get(family, None)
+            if family is None:
+                raise ValueError("Unexpected family %s" % family)
+        return ele.reconstruct(degree=degree, family=family)
