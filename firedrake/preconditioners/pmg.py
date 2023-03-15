@@ -608,27 +608,24 @@ def compare_dual_basis(l1, l2):
 
 @lru_cache(maxsize=10)
 @PETSc.Log.EventDecorator("GetLineElements")
-def get_permutation_to_line_elements(V):
+def get_permutation_to_line_elements(finat_element):
     from FIAT.reference_element import LINE
-    ele = V.ufl_element()
-    if isinstance(ele, ufl.MixedElement) and not isinstance(ele, (ufl.TensorElement, ufl.VectorElement)):
-        raise ValueError("MixedElements are not decomposed into tensor products")
 
-    finat_ele = expand_element(V.finat_element)
-    if finat_ele.space_dimension() != V.finat_element.space_dimension():
-        raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
+    expansion = expand_element(finat_element)
+    if expansion.space_dimension() != finat_element.space_dimension():
+        raise ValueError("Failed to decompose %s into tensor products" % finat_element)
 
     line_elements = []
-    terms = finat_ele.elements if hasattr(finat_ele, "elements") else [finat_ele]
+    terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
-        expansion = tuple(e.fiat_equivalent for e in reversed(factors))
-        if not all([e.get_reference_element().shape == LINE for e in expansion]):
-            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
-        line_elements.append(expansion)
+        fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
+        if not all([e.get_reference_element().shape == LINE for e in fiat_factors]):
+            raise ValueError("Failed to decompose %s into line elements" % fiat_factors)
+        line_elements.append(fiat_factors)
 
-    tp_shape = [tuple(e.space_dimension() for e in expansion) for expansion in line_elements]
-    sizes = list(map(numpy.prod, tp_shape))
+    shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
+    sizes = list(map(numpy.prod, shapes))
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
@@ -644,23 +641,23 @@ def get_permutation_to_line_elements(V):
 
         axes_shifts = tuple()
         for shift in range(tdim):
-            if V.finat_element.formdegree != 2:
+            if finat_element.formdegree != 2:
                 shift = (tdim - shift) % tdim
 
             perm = base[shift:] + base[:shift]
-            for i, expansion in enumerate(line_elements):
+            for i, term in enumerate(line_elements):
                 if not visit[i]:
                     is_perm = all([e1.space_dimension() == e2.space_dimension()
-                                   for e1, e2 in zip(perm, expansion)])
-                    for e1, e2 in zip(perm, expansion):
+                                   for e1, e2 in zip(perm, term)])
+                    for e1, e2 in zip(perm, term):
                         if is_perm:
                             is_perm = compare_element(e1, e2)
 
                     if is_perm:
                         axes_shifts += ((tdim - shift) % tdim, )
-                        dofs = numpy.arange(*dof_ranges[i:i+2], dtype=PETSc.IntType).reshape(tp_shape[i])
-                        dofs = numpy.transpose(dofs, axes=numpy.roll(numpy.arange(tdim), shift))
-                        assert dofs.shape == pshape
+                        dofs = numpy.arange(*dof_ranges[i:i+2], dtype=PETSc.IntType).reshape(pshape)
+                        dofs = numpy.transpose(dofs, axes=numpy.roll(numpy.arange(tdim), -shift))
+                        assert dofs.shape == shapes[i]
                         dof_perm.append(dofs.flat)
                         visit[i] = True
                         break
@@ -668,7 +665,6 @@ def get_permutation_to_line_elements(V):
         shifts.append(axes_shifts)
 
     dof_perm = numpy.concatenate(dof_perm)
-    dof_perm = numpy.argsort(dof_perm)
     return dof_perm, unique_line_elements, shifts
 
 
@@ -836,8 +832,8 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, felems, fshifts = get_permutation_to_line_elements(Vf)
-    _, celems, cshifts = get_permutation_to_line_elements(Vc)
+    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
+    _, celems, cshifts = get_permutation_to_line_elements(Vc.finat_element)
 
     shifts = fshifts
     in_place = False
@@ -866,17 +862,17 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         pstride = psize * numpy.prod(pshape)
 
         if set(cshifts) == set(fshifts):
-            psize *= len(cshifts[0])
-            pstride *= len(cshifts[0])
+            csize = Vc.value_size * Vc.finat_element.space_dimension()
             prolong_code.append(f"""
-            for({IntType_c} j=1; j<{len(fshifts)}; j++)
-                permute_axis(0, {pargs}, {psize}, {t_in}, {t_in}+j*{pstride});
+            for({IntType_c} i=1; i<{len(fshifts)}; i++)
+                for({IntType_c} j=0; j<{csize}; j++)
+                    {t_in}[i*{csize} + j] = {t_in}[j];
             """)
             restrict_code.append(f"""
-            for({IntType_c} j=1; j<{len(fshifts)}; j++)
-                ipermute_axis(0, {pargs}, {psize}, {t_in}, {t_in}+j*{pstride});
+            for({IntType_c} i=1; i<{len(fshifts)}; i++)
+                for({IntType_c} j=0; j<{csize}; j++)
+                    {t_in}[j] += {t_in}[i*{csize} + j];
             """)
-            psize = 1
 
         elif pelem == celems[0]:
             for k in range(len(shifts)):
@@ -1069,7 +1065,7 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    _, _, shifts = get_permutation_to_line_elements(V)
+    _, _, shifts = get_permutation_to_line_elements(V.finat_element)
     shift = shifts[0]
     if shift != (0,):
         ndof = numpy.prod(vshape)
@@ -1121,7 +1117,7 @@ def get_permuted_map(V):
     every component of H(div) or H(curl) tensor product elements
     """
 
-    perm, _, _ = get_permutation_to_line_elements(V)
+    perm, _, _ = get_permutation_to_line_elements(V.finat_element)
     if all(perm[:-1] < perm[1:]):
         return V.cell_node_map()
 

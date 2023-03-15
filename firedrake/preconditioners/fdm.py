@@ -1074,7 +1074,7 @@ class PoissonFDMPC(FDMPC):
     def assemble_reference_tensor(self, V):
         from firedrake.preconditioners.pmg import get_permutation_to_line_elements
         try:
-            _, line_elements, shifts = get_permutation_to_line_elements(V)
+            _, line_elements, shifts = get_permutation_to_line_elements(V.finat_element)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
