@@ -506,15 +506,26 @@ class FDMPC(PCBase):
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters):
         """
-        Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
-
+        Obtain coefficients for the auxiliary operator as the diagonal of a
+        weighted mass matrix in broken(V^k) * broken(V^{k+1}).
         See Section 3.2 of Brubeck2022b.
+
+        :arg J: the Jacobian bilinear :class:`ufl.Form`,
+        :form_compiler_parameters: a `dict` with tsfc parameters.
+
+        :return: a 2-tuple with a `dict` with the zero-th order and second
+        order coefficients keyed on ``"beta"`` and ``"alpha"``, and a list of
+        assembly callables.
         """
         from ufl.algorithms.ad import expand_derivatives
         from ufl.algorithms.expand_indices import expand_indices
         from firedrake.formmanipulation import ExtractSubBlock
         from firedrake.assemble import assemble
 
+        # Basic idea: take the original bilinear form and
+        # replace the exterior derivatives with arguments in broken(V^{k+1}).
+        # Then, replace the original arguments with arguments in broken(V^k).
+        # Where the broken spaces have L2-orthogonal FDM basis functions.
         index = len(J.arguments()[-1].function_space())-1
         if index:
             splitter = ExtractSubBlock()
@@ -529,6 +540,7 @@ class FDMPC(PCBase):
         e = unrestrict_element(e)
         sobolev = e.sobolev_space()
 
+        # Replacement rule for the exterior derivative = grad(arg) * eps
         map_grad = None
         if sobolev == ufl.H1:
             map_grad = lambda p: p
@@ -544,6 +556,7 @@ class FDMPC(PCBase):
             else:
                 map_grad = lambda p: p*(eps/2)
 
+        # Construct Z = broken(V^k) * broken(V^{k+1})
         V = args_J[0].function_space()
         formdegree = V.finat_element.formdegree
         degree = e.degree()
@@ -569,14 +582,16 @@ class FDMPC(PCBase):
         elements = list(map(ufl.BrokenElement, elements))
         if V.shape:
             elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-
         Z = firedrake.FunctionSpace(mesh, ufl.MixedElement(elements))
+
+        # Transform the exterior derivative and the original arguments of J to arguments in Z
         args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
         repargs = {t: v[0] for t, v in zip(args_J, args)}
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
+        # Return coefficients and assembly callables, and cache them class
         key = (mixed_form.signature(), mesh)
         block_diagonal = True
         try:
@@ -601,6 +616,15 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
+        """
+        Return the reference tensor used in the diagonal factorization of the
+        sparse cell matrices.  See Section 3.2 of Brubeck2022b.
+
+        :arg V: a :class:`.FunctionSpace`
+
+        :return: a :class:`PETSc.Mat` with the moments of orthogonalized bases
+        against the basis and its exterior derivative.
+        """
         tdim = V.mesh().topological_dimension()
         value_size = V.value_size
         formdegree = V.finat_element.formdegree
@@ -612,12 +636,12 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
-        key = (degree, tdim, formdegree, V.value_size, is_interior, is_facet)
+        key = (degree, tdim, formdegree, value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
         try:
             return cache[key]
         except KeyError:
-            full_key = (degree, tdim, formdegree, V.value_size, False, False)
+            full_key = (degree, tdim, formdegree, value_size, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
