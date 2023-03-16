@@ -147,7 +147,7 @@ linkcheck_ignore = [
     r'https://www\.apl\.washington\.edu/',
     r'https://asmedigitalcollection\.asme\.org/',
 ]
-linkcheck_timeout = 10
+linkcheck_timeout = 30
 
 # -- Options for HTML output ---------------------------------------------
 
