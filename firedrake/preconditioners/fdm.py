@@ -53,6 +53,8 @@ class FDMPC(PCBase):
 
     @staticmethod
     def load_set_values(triu=False):
+        # Compile the C function to insert sparse element matrices and store in
+        # class cache
         key = triu
         cache = FDMPC._c_code_cache
         try:
@@ -104,7 +106,7 @@ class FDMPC(PCBase):
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
         else:
-            # Reconstruct forms with variant element
+            # Reconstruct Jacobian and bcs with variant element
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
             bcs_fdm = []
@@ -238,7 +240,7 @@ class FDMPC(PCBase):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
-        # Create data strctures needed for assembly
+        # Create data structures needed for assembly
         self.cell_to_global = dict()
         self.lgmaps = dict()
         bc_rows = dict()
@@ -380,6 +382,16 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
+        """
+        Assemble the stiffness matrix in the FDM basis using sparse reference
+        tensors and diagonal mass matrices.
+
+        :arg A: the :class:`PETSc.Mat` to assemble
+        :arg Vrow: the :class:`.FunctionSpace` test space
+        :arg Vcol: the :class:`.FunctionSpace` trial space
+        :arg addv: a `PETSc.Mat.InsertMode`
+        :arg triu: are we assembling only the upper triangular part?
+        """
 
         def RtAP(R, A, P, result=None):
             RtAP.buff = A.matMult(P, result=RtAP.buff)
@@ -858,7 +870,12 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
     B00 = petsc_sparse(B00, comm=comm)
     B11 = petsc_sparse(B11, comm=comm)
     if tdim == 1:
-        B_blocks = [B11 if formdegree else B00]
+        if formdegree == 0:
+            B11.destroy()
+            return B00
+        else:
+            B00.destroy()
+            return B11
     elif tdim == 2:
         if formdegree == 0:
             B_blocks = [B00.kron(B00)]
@@ -890,10 +907,8 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
         result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=comm)
         for B in B_blocks:
             B.destroy()
-    if not (B00 is result):
-        B00.destroy()
-    if not (B11 is result):
-        B11.destroy()
+    B00.destroy()
+    B11.destroy()
     return result
 
 
