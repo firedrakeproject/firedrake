@@ -78,8 +78,8 @@ class PMGBase(PCSNESBase):
     def initialize(self, obj):
         # Make a new DM.
         # Hook up a (new) coarsen routine on that DM.
-        # Make a new PC, of type MG.
-        # Assign the DM to that PC.
+        # Make a new PC, of type MG (or SNES of type FAS).
+        # Assign the DM to that PC (or SNES).
 
         odm = obj.getDM()
         ctx = get_appctx(odm)
@@ -262,18 +262,17 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
-        interp_petscmat, _ = cdm.createInterpolation(fdm)
-        inject_petscmat = cdm.createInjection(fdm)
-
         if cu in cJ.coefficients():
-            # injection of the initial state
+            # Only inject state if the coarse state is a dependency of the coarse Jacobian.
+            inject_petscmat = cdm.createInjection(fdm)
+
             def inject_state():
                 with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                     inject_petscmat.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
 
-        # coarsen the nullspace basis
+        # Coarsen the nullspace basis
         def coarsen_nullspace(coarse_V, mat, fine_nullspace):
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
                 if mat.type == 'python':
@@ -302,13 +301,16 @@ class PMGBase(PCSNESBase):
             else:
                 return fine_nullspace
 
-        ises = cV._ises
+        if fctx._nullspace or fctx._near_nullspace or fctx._nullspace_T:
+            interp_petscmat, _ = cdm.createInterpolation(fdm)
+        else:
+            interp_petscmat = None
         cctx._nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace)
-        cctx.set_nullspace(cctx._nullspace, ises, transpose=False, near=False)
+        cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
         cctx._near_nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._near_nullspace)
-        cctx.set_nullspace(cctx._near_nullspace, ises, transpose=False, near=True)
+        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
         cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
-        cctx.set_nullspace(cctx._nullspace_T, ises, transpose=True, near=False)
+        cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
         return cdm
 
     def coarsen_quadrature(self, metadata, fdeg, cdeg):
@@ -336,6 +338,7 @@ class PMGBase(PCSNESBase):
         return cbcs
 
     def create_transfer(self, cctx, fctx, mat_type, cbcs, fbcs):
+        # Create a transfer or retrieve it from the class cache
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
@@ -532,9 +535,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
 
 
 def expand_element(ele):
-    """
-    Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
-    """
+    # Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
     if isinstance(ele, finat.FlattenedDimensions):
         return expand_element(ele.product)
     elif isinstance(ele, (finat.HDivElement, finat.HCurlElement)):
@@ -560,6 +561,7 @@ def expand_element(ele):
 
 
 def evaluate_dual(dual, element, key=None):
+    # Evaluate the action of a set of dual functionals on the basis functions of an element.
     keys = set(tuple(phi.get_point_dict().keys()) for phi in dual)
     pts = list(set(sum(keys, ())))
     if key is None:
@@ -615,7 +617,7 @@ def get_permutation_to_line_elements(finat_element):
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % finat_element)
 
-    unique_factors = []
+    unique_factors = set()
     line_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
@@ -632,7 +634,7 @@ def get_permutation_to_line_elements(finat_element):
                     n = f
                     break
             if n is fiat_factors[i]:
-                unique_factors.append(n)
+                unique_factors.add(n)
             fiat_factors[i] = n
         line_elements.append(tuple(fiat_factors))
 
@@ -680,15 +682,8 @@ def get_permutation_to_line_elements(finat_element):
 
 @lru_cache(maxsize=10)
 def fiat_reference_prolongator(felem, celem, derivative=False):
-    from FIAT.reference_element import flatten_reference_cube
-
-    ref_el = flatten_reference_cube(felem.get_reference_element())
-    tdim = ref_el.get_spatial_dimension()
-    if derivative and tdim > 1:
-        raise NotImplementedError("Derivative prolongator is only available on the interval")
-    ckey = (felem.formdegree,) if derivative else (0,)*tdim
-    fkey = (celem.formdegree,) if derivative else (0,)*tdim
-
+    ckey = (felem.formdegree,) if derivative else None
+    fkey = (celem.formdegree,) if derivative else None
     fdual = felem.dual_basis()
     cdual = celem.dual_basis()
     if fkey == ckey and compare_dual_basis(fdual, cdual):
