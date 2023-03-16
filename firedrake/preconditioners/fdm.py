@@ -13,16 +13,28 @@ import ufl
 import FIAT
 import finat
 
-Citations().add("Brubeck2021", """
-@misc{Brubeck2021,
+Citations().add("Brubeck2022a", """
+@article{Brubeck2022a,
   title={A scalable and robust vertex-star relaxation for high-order {FEM}},
   author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  archiveprefix = {arXiv},
-  eprint = {2107.14758},
-  primaryclass = {math.NA},
-  year={2021}
-}
+  journal = {SIAM J. Sci. Comput.},
+  volume = {44},
+  number = {5},
+  pages = {A2991-A3017},
+  year = {2022},
+  doi = {10.1137/21M1444187}
 """)
+
+Citations().add("Brubeck2022b", """
+@misc{Brubeck2022b,
+  title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
+  author={Brubeck, Pablo D. and Farrell, Patrick E.},
+  archiveprefix = {arXiv},
+  eprint = {2211.14284},
+  primaryclass = {math.NA},
+  year={2022}
+""")
+
 
 __all__ = ("FDMPC", "PoissonFDMPC")
 
@@ -44,8 +56,8 @@ class FDMPC(PCBase):
     """
 
     _prefix = "fdm_"
-
     _variant = "fdm"
+    _citation = "Brubeck2022b"
 
     _reference_tensor_cache = {}
     _coefficient_cache = {}
@@ -71,8 +83,8 @@ class FDMPC(PCBase):
         from firedrake.assemble import allocate_matrix, assemble
         from firedrake.preconditioners.pmg import prolongation_matrix_matfree
         from firedrake.preconditioners.patch import bcdofs
-        Citations().register("Brubeck2021")
 
+        Citations().register(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix()
@@ -396,7 +408,6 @@ class FDMPC(PCBase):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg triu: are we assembling only the upper triangular part?
         """
-
         def RtAP(R, A, P, result=None):
             RtAP.buff = A.matMult(P, result=RtAP.buff)
             return R.transposeMatMult(RtAP.buff, result=result)
@@ -1109,6 +1120,7 @@ class PoissonFDMPC(FDMPC):
     """
 
     _variant = "fdm_ipdg"
+    _citation = "Brubeck2022a"
 
     def assemble_reference_tensor(self, V):
         from firedrake.preconditioners.pmg import get_permutation_to_line_elements
