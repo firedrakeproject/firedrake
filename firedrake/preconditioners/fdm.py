@@ -53,8 +53,12 @@ class FDMPC(PCBase):
 
     @staticmethod
     def load_set_values(triu=False):
-        # Compile the C function to insert sparse element matrices and store in
-        # class cache
+        """
+        Compile C code to insert sparse element matrices and store in class cache
+        :arg triu: are we inserting onto the upper triangular part of the matrix?
+
+        :returns: a python wrapper for the matrix insertion function
+        """
         key = triu
         cache = FDMPC._c_code_cache
         try:
@@ -247,7 +251,7 @@ class FDMPC(PCBase):
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
-            cell_to_local, nel = glonum_fun(Vsub.cell_node_map(), bsize=bsize)
+            cell_to_local, nel = extrude_node_map(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
             self.lgmaps[Vsub] = lgmap
 
@@ -257,7 +261,7 @@ class FDMPC(PCBase):
 
         coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
         coeffs = [coefficients.get(k) for k in ("beta", "alpha")]
-        cmaps = [glonum_fun(ck.cell_node_map())[0] for ck in coeffs]
+        cmaps = [extrude_node_map(ck.cell_node_map())[0] for ck in coeffs]
 
         @PETSc.Log.EventDecorator("FDMGetCoeffs")
         def get_coeffs(e, result=None):
@@ -1005,8 +1009,8 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
 
     rmap = Vf.local_to_global_map(fbcs)
     cmap = Vc.local_to_global_map(cbcs)
-    rlocal, nel = glonum_fun(Vf.cell_node_map(), bsize=Vf.value_size)
-    clocal, nel = glonum_fun(Vc.cell_node_map(), bsize=Vc.value_size)
+    rlocal, nel = extrude_node_map(Vf.cell_node_map(), bsize=Vf.value_size)
+    clocal, nel = extrude_node_map(Vc.cell_node_map(), bsize=Vc.value_size)
 
     def cell_to_global(lgmap, cell_to_local, e, result=None):
         result = cell_to_local(e, result=result)
@@ -1164,8 +1168,8 @@ class PoissonFDMPC(FDMPC):
         tdim = V.mesh().topological_dimension()
         shift = self.axes_shifts * bsize
 
-        index_coef, _ = glonum_fun((Gq or Bq).cell_node_map())
-        index_bc, _ = glonum_fun(bcflags.cell_node_map())
+        index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
+        index_bc, _ = extrude_node_map(bcflags.cell_node_map())
         flag2id = numpy.kron(numpy.eye(tdim, tdim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
@@ -1693,19 +1697,20 @@ def get_interior_facet_maps(V):
 
 
 @lru_cache(maxsize=20)
-def glonum_fun(node_map, bsize=1):
+def extrude_node_map(node_map, bsize=1):
     """
-    Return a the local numbering given an non-extruded local map and the total number of entities.
+    Construct a (possibly vector-valued) cell to node map from an un-extruded scalar map.
 
     :arg node_map: a :class:`pyop2.Map` mapping entities to their local dofs, including ghost entities.
+    :arg bsize: the block size
 
-    :returns: a 2-tuple with the map and the number of entities owned by this process
+    :returns: a 2-tuple with the map as function and the number of cells owned by this process
     """
     nelv = node_map.values.shape[0]
     if node_map.offset is None:
         nel = nelv
 
-        def glonum(e, result=None):
+        def scalar_map(e, result=None):
             if result is None:
                 result = numpy.copy(node_map.values_with_halo[e])
             else:
@@ -1718,14 +1723,14 @@ def glonum_fun(node_map, bsize=1):
             nelz = layers[0, 1]-layers[0, 0]-1
             nel = nelz*nelv
 
-            def _glonum(node_map, nelz, e, result=None):
+            def _scalar_map(node_map, nelz, e, result=None):
                 if result is None:
                     result = numpy.copy(node_map.values_with_halo[e // nelz])
                 else:
                     numpy.copyto(result, node_map.values_with_halo[e // nelz])
                 result += (e % nelz)*node_map.offset
                 return result
-            glonum = partial(_glonum, node_map, nelz)
+            scalar_map = partial(_scalar_map, node_map, nelz)
 
         else:
             nelz = layers[:, 1]-layers[:, 0]-1
@@ -1733,47 +1738,26 @@ def glonum_fun(node_map, bsize=1):
             to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
             to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
 
-            def _glonum(node_map, to_base, to_layer, e, result=None):
+            def _scalar_map(node_map, to_base, to_layer, e, result=None):
                 if result is None:
                     result = numpy.copy(node_map.values_with_halo[to_base[e]])
                 else:
                     numpy.copyto(result, node_map.values_with_halo[to_base[e]])
                 result += to_layer[e]*node_map.offset
                 return result
-            glonum = partial(_glonum, node_map, to_base, to_layer)
+            scalar_map = partial(_scalar_map, node_map, to_base, to_layer)
 
     if bsize == 1:
-        return glonum, nel
+        return scalar_map, nel
 
     ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
 
-    def vector_glonum(bsize, ibase, e, result=None):
+    def vector_map(bsize, ibase, e, result=None):
         index = None
         if result is not None:
             index = result[:, 0]
-        index = glonum(e, result=index)
+        index = scalar_map(e, result=index)
         index *= bsize
         return numpy.add.outer(index, ibase, out=result)
 
-    return partial(vector_glonum, bsize, ibase), nel
-
-
-def glonum(node_map):
-    """
-    Return an array with the node map.
-
-    :arg node_map: a :class:`pyop2.Map` mapping entities to their nodes, including ghost entities.
-
-    :returns: a :class:`numpy.ndarray` whose rows are the nodes for each cell
-    """
-    if (node_map.offset is None) or (node_map.values_with_halo.size == 0):
-        return node_map.values_with_halo
-    else:
-        layers = node_map.iterset.layers_array
-        if layers.shape[0] == 1:
-            nelz = layers[0, 1]-layers[0, 0]-1
-            to_layer = numpy.tile(numpy.arange(nelz, dtype=node_map.offset.dtype), len(node_map.values_with_halo))
-        else:
-            nelz = layers[:, 1]-layers[:, 0]-1
-            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-        return numpy.repeat(node_map.values_with_halo, nelz, axis=0) + numpy.kron(to_layer.reshape((-1, 1)), node_map.offset)
+    return partial(vector_map, bsize, ibase), nel

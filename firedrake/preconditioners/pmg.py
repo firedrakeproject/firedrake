@@ -98,7 +98,7 @@ class PMGBase(PCSNESBase):
         pdm.setOptionsPrefix(options_prefix)
 
         ppc = self.configure_pmg(obj, pdm)
-        is_snes = isinstance(obj, PETSc.SNES)
+        self.is_snes = isinstance(obj, PETSc.SNES)
 
         copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
 
@@ -129,7 +129,7 @@ class PMGBase(PCSNESBase):
         # Now overwrite some routines on the DM
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
-        if is_snes:
+        if self.is_snes:
             pdm.setSNESFunction(_SNESContext.form_function)
             pdm.setSNESJacobian(_SNESContext.form_jacobian)
             pdm.setKSPComputeOperators(_SNESContext.compute_operators)
@@ -201,12 +201,15 @@ class PMGBase(PCSNESBase):
                              for f in a.integrals()])
             return a
 
-        cF = _coarsen_form(fctx.F)
         cJ = _coarsen_form(fctx.J)
         cJp = _coarsen_form(fctx.Jp)
+        # This fixes a subtle bug where you are applying PMGPC on a mixed
+        # problem with geometric multigrid only on one block and an non-Lagrange element
+        # on the other block (gmg breaks for non-Lagrange elements)
+        cF = _coarsen_form(fctx.F) if self.is_snes else ufl.action(cJ, cu)
+
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
-        cF = self.coarsen_residual(cF, cJ, cu)
 
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
@@ -460,9 +463,6 @@ class PMGPC(PCBase, PMGBase):
     def coarsen_bc_value(self, bc, cV):
         return 0
 
-    def coarsen_residual(self, Fc, Jc, uc):
-        return ufl.action(Jc, uc)
-
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
@@ -514,9 +514,6 @@ class PMGSNES(SNESBase, PMGBase):
         coarse = firedrake.Function(cV)
         coarse.interpolate(bc._original_arg)
         return coarse
-
-    def coarsen_residual(self, Fc, Jc, uc):
-        return Fc
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
