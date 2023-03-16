@@ -418,7 +418,9 @@ class FDMPC(PCBase):
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
             update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, rindices, addv)
+            # moments of orthogonalized basis against basis tabulation and derivative tabulation
             rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
+            # element matrix obtained via Equation (3.9) of Brubeck2022b
             assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
             condense_element_mat = self.get_static_condensation.get(Vrow)
         else:
@@ -505,6 +507,8 @@ class FDMPC(PCBase):
     def assemble_coef(self, J, form_compiler_parameters):
         """
         Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
+
+        See Section 3.2 of Brubeck2022b.
         """
         from ufl.algorithms.ad import expand_derivatives
         from ufl.algorithms.expand_indices import expand_indices
