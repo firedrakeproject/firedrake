@@ -148,7 +148,7 @@ linkcheck_ignore = [
     r'https://asmedigitalcollection\.asme\.org/',
     r'https://ieeexplore\.ieee\.org/document/1634311/',
 ]
-linkcheck_timeout = 10
+linkcheck_timeout = 30
 
 # -- Options for HTML output ---------------------------------------------
 
