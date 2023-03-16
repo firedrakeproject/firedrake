@@ -67,6 +67,7 @@ class FDMPC(PCBase):
     def load_set_values(triu=False):
         """
         Compile C code to insert sparse element matrices and store in class cache
+
         :arg triu: are we inserting onto the upper triangular part of the matrix?
 
         :returns: a python wrapper for the matrix insertion function
@@ -210,7 +211,7 @@ class FDMPC(PCBase):
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg form_compiler_parameters: parameters to assemble diagonal factors
-        :pmat_type: the preconditioner `PETSc.Mat.Type`
+        :arg pmat_type: the preconditioner `PETSc.Mat.Type`
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
@@ -511,11 +512,11 @@ class FDMPC(PCBase):
         See Section 3.2 of Brubeck2022b.
 
         :arg J: the Jacobian bilinear :class:`ufl.Form`,
-        :form_compiler_parameters: a `dict` with tsfc parameters.
+        :arg form_compiler_parameters: a `dict` with tsfc parameters.
 
-        :return: a 2-tuple with a `dict` with the zero-th order and second
-        order coefficients keyed on ``"beta"`` and ``"alpha"``, and a list of
-        assembly callables.
+        :returns: a 2-tuple of a `dict` with the zero-th order and second
+                  order coefficients keyed on ``"beta"`` and ``"alpha"``,
+                  and a list of assembly callables.
         """
         from ufl.algorithms.ad import expand_derivatives
         from ufl.algorithms.expand_indices import expand_indices
@@ -622,8 +623,8 @@ class FDMPC(PCBase):
 
         :arg V: a :class:`.FunctionSpace`
 
-        :return: a :class:`PETSc.Mat` with the moments of orthogonalized bases
-        against the basis and its exterior derivative.
+        :returns: a :class:`PETSc.Mat` with the moments of orthogonalized bases
+                  against the basis and its exterior derivative.
         """
         tdim = V.mesh().topological_dimension()
         value_size = V.value_size
@@ -911,16 +912,12 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
     # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
+    if tdim == 1:
+        return petsc_sparse(B11 if formdegree else B00, comm=comm)
+
     B00 = petsc_sparse(B00, comm=comm)
     B11 = petsc_sparse(B11, comm=comm)
-    if tdim == 1:
-        if formdegree == 0:
-            B11.destroy()
-            return B00
-        else:
-            B00.destroy()
-            return B11
-    elif tdim == 2:
+    if tdim == 2:
         if formdegree == 0:
             B_diag = [B00.kron(B00)]
         elif formdegree == 1:
@@ -937,6 +934,8 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
         else:
             B_diag = [kron3(B11, B11, B11)]
 
+    B00.destroy()
+    B11.destroy()
     if len(B_diag) == 1:
         result = B_diag[0]
     else:
@@ -948,8 +947,6 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
         B_zero.destroy()
         for B in B_diag:
             B.destroy()
-    B00.destroy()
-    B11.destroy()
     return result
 
 
@@ -965,15 +962,13 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
         A_zero.assemble()
         return A_zero
 
-    A00 = petsc_sparse(A00, comm=comm)
-    A11 = petsc_sparse(A11, comm=comm)
     A10 = petsc_sparse(A10, comm=comm)
     if tdim == 1:
-        A00.destroy()
-        A11.destroy()
-
         return A10
-    elif tdim == 2:
+
+    A00 = petsc_sparse(A00, comm=comm)
+    A11 = petsc_sparse(A11, comm=comm)
+    if tdim == 2:
         if formdegree == 0:
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
