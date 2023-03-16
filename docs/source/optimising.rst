@@ -235,9 +235,10 @@ across ranks or plot them separately. For example:
 Score-P
 ~~~~~~~
 
-`Score-P <https://www.vi-hps.org/projects/score-p/>`_ is a tool aimed
-at HPC users. We found it to provide some useful insight into MPI
-considerations such as load balancing and communication overhead.
+``Score-P <https://www.vi-hps.org/projects/score-p/>`` [broken link] is
+a tool aimed at HPC users. We found it to provide some useful insight
+into MPI considerations such as load balancing and communication
+overhead.
 
 To use it with Firedrake, users will also need to install Score-P's
 `Python bindings <https://github.com/score-p/scorep_binding_python>`_.
