@@ -112,9 +112,10 @@ Firedrake tutorial at CNRS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The Firedrake team presented a Firedrake tutorial at CNRS in
-Paris. See `this web page
-<https://calcul.math.cnrs.fr/spip.php?article274>`_.  The tutorial
-materials are accessible as part of the :doc:`firedrake documentation
+Paris. See ``this web page
+<https://calcul.math.cnrs.fr/spip.php?article274>`` [broken link].  The
+tutorial materials are accessible as part of the :doc:`firedrake
+documentation
 <documentation>`.
 
 FEniCS '15
