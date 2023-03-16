@@ -877,7 +877,8 @@ def is_restricted(finat_element):
 
 
 def sort_interior_dofs(idofs, A):
-    # Permute `idofs` to have A[idofs, idofs] with contiguous 1x1, 2x2, 3x3, ... blocks
+    # Permute `idofs` to have A[idofs, idofs] with square blocks of
+    # increasing dimension along its diagonal.
     Aii = A.createSubMatrix(idofs, idofs)
     indptr, indices, _ = Aii.getValuesCSR()
     n = idofs.getSize()
@@ -907,7 +908,7 @@ def kron3(A, B, C, scale=None):
 
 def mass_matrix(tdim, formdegree, B00, B11, comm=None):
     # Construct mass matrix on reference cell from 1D mass matrices B00 and B11.
-    # It can be applied with either broken or conforming test and trial spaces.
+    # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
     B00 = petsc_sparse(B00, comm=comm)
@@ -921,34 +922,31 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
             return B11
     elif tdim == 2:
         if formdegree == 0:
-            B_blocks = [B00.kron(B00)]
+            B_diag = [B00.kron(B00)]
         elif formdegree == 1:
-            B_blocks = [B00.kron(B11), B11.kron(B00)]
+            B_diag = [B00.kron(B11), B11.kron(B00)]
         else:
-            B_blocks = [B11.kron(B11)]
+            B_diag = [B11.kron(B11)]
     elif tdim == 3:
         if formdegree == 0:
-            B_blocks = [kron3(B00, B00, B00)]
+            B_diag = [kron3(B00, B00, B00)]
         elif formdegree == 1:
-            B_blocks = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
+            B_diag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
         elif formdegree == 2:
-            B_blocks = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
+            B_diag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
         else:
-            B_blocks = [kron3(B11, B11, B11)]
+            B_diag = [kron3(B11, B11, B11)]
 
-    if len(B_blocks) == 1:
-        result = B_blocks[0]
+    if len(B_diag) == 1:
+        result = B_diag[0]
     else:
-        nrows = sum(Bk.size[0] for Bk in B_blocks)
-        ncols = sum(Bk.size[1] for Bk in B_blocks)
-        csr_block = [Bk.getValuesCSR() for Bk in B_blocks]
-        ishift = numpy.cumsum([0] + [csr[0][-1] for csr in csr_block])
-        jshift = numpy.cumsum([0] + [Bk.size[1] for Bk in B_blocks])
-        indptr = numpy.concatenate([csr[0][bool(shift):]+shift for csr, shift in zip(csr_block, ishift[:-1])])
-        indices = numpy.concatenate([csr[1]+shift for csr, shift in zip(csr_block, jshift[:-1])])
-        data = numpy.concatenate([csr[2] for csr in csr_block])
-        result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=comm)
-        for B in B_blocks:
+        n = len(B_diag)
+        B_zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=comm)
+        B_zero.assemble()
+        B_blocks = [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]
+        result = block_mat(B_blocks)
+        B_zero.destroy()
+        for B in B_diag:
             B.destroy()
     B00.destroy()
     B11.destroy()
@@ -958,7 +956,7 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
 def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     # Construct exterior derivative matrix on reference cell from 1D mass matrices A00 and A11,
     # and exterior derivative moments A10.
-    # It can be applied with either broken or conforming test and trial spaces.
+    # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
     if formdegree == tdim:
