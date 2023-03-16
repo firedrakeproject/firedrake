@@ -47,6 +47,10 @@ def mixed_family(tp_mesh, request):
 
 
 def test_reconstruct_degree(tp_mesh, mixed_family):
+    """ Construct a complicated mixed element and ensure we may recover it by
+        p-refining or p-coarsening an element of the same family with different
+        degree.
+    """
     elist = []
     Vfamily, Qfamily = mixed_family
     for degree in [7, 2, 31]:
@@ -57,11 +61,15 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         Q = FunctionSpace(tp_mesh, Qfamily, degree-2)
         Z = MixedFunctionSpace([V, Q])
         e = Z.ufl_element()
+
         elist.append(e)
         assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
 def test_prolong_de_rham(tp_mesh):
+    """ Interpolate a linear vector function between [H1]^d, HCurl and HDiv spaces
+        where it can be exactly represented
+    """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
     tdim = tp_mesh.topological_dimension()
@@ -85,6 +93,10 @@ def test_prolong_de_rham(tp_mesh):
 
 
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
+    """ Interpolate a low-order function to interior and facet high-order spaces
+        and ensure that the sum of the two high-order functions is equal to the
+        low-order function
+    """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
     degree = 5
@@ -291,7 +303,7 @@ def test_p_multigrid_mixed(mat_type):
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
-    coarse = {"mat_type": "aij",
+    coarse = {"mat_type": "aij",  # This circumvents the need for AssembledPC
               "ksp_type": "richardson",
               "ksp_max_it": 1,
               "ksp_norm_type": "unpreconditioned",

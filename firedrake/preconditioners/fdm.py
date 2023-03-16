@@ -104,7 +104,7 @@ class FDMPC(PCBase):
         if element == e_fdm:
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
         else:
-            # Matrix-free assembly of the transformed Jacobian
+            # Reconstruct forms with variant element
             V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
             bcs_fdm = []
@@ -114,6 +114,7 @@ class FDMPC(PCBase):
                     W = W.sub(index)
                 bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
+            # Construct interpolation from original to variant spaces
             self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
@@ -156,7 +157,7 @@ class FDMPC(PCBase):
                                               fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, appctx, pmat_type)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -183,15 +184,14 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, appctx, pmat_type):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, pmat_type):
         """
-        Assemble the sparse preconditioner with cell-wise constant coefficients.
+        Assemble the sparse preconditioner from diagonal mass matrices.
 
         :arg V: the :class:`.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg form_compiler_parameters: parameters to assemble diagonal factors
-        :arg appctx: the application context
         :pmat_type: the preconditioner `PETSc.Mat.Type`
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
@@ -232,15 +232,15 @@ class FDMPC(PCBase):
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
             self.get_static_condensation[V] = lambda Ae: condense_element_pattern(Ae, self.ises[0], i1, self.submats)
 
-        # dict of cell to global mappings for each function space
-        self.cell_to_global = dict()
-        self.lgmaps = dict()
-
         @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
+            # Be careful not to create new arrays
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
+        # Create data strctures needed for assembly
+        self.cell_to_global = dict()
+        self.lgmaps = dict()
         bc_rows = dict()
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
@@ -253,13 +253,13 @@ class FDMPC(PCBase):
             bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
             bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
 
-        # get coefficients on a given cell
         coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
         coeffs = [coefficients.get(k) for k in ("beta", "alpha")]
         cmaps = [glonum_fun(ck.cell_node_map())[0] for ck in coeffs]
 
         @PETSc.Log.EventDecorator("FDMGetCoeffs")
         def get_coeffs(e, result=None):
+            # Get vector for betas and alphas on a cell
             vals = []
             for k, (coeff, cmap) in enumerate(zip(coeffs, cmaps)):
                 get_coeffs.indices[k] = cmap(e, result=get_coeffs.indices[k])
@@ -277,6 +277,7 @@ class FDMPC(PCBase):
 
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
+        # Loop over all pairs of subspaces
         for Vrow, Vcol in product(Vsort, Vsort):
             if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
@@ -428,6 +429,7 @@ class FDMPC(PCBase):
                     De.setDiagonal(work_vec, addv=insert)
                     return De
 
+            # Core assembly loop
             for e in range(self.nel):
                 rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
@@ -438,6 +440,7 @@ class FDMPC(PCBase):
             work_vec.destroy()
 
         elif self.nel:
+            # Preallocation of the sparsity pattern
             if common_key not in self.work_mats:
                 data = self.get_coeffs(0)
                 data.fill(1.0E0)
@@ -640,8 +643,11 @@ class FDMPC(PCBase):
 
 
 def factor_interior_mat(A00):
-    # Assume that interior DOF list i0 is ordered such that A00 is block diagonal
-    # with blocks of increasing dimension
+    """
+    Used in static condensation. Take in A00 on a cell, return its Cholesky
+    factorisation. Assumes that interior DOF have been reordered to make A00
+    block diagonal with blocks of increasing dimension.
+    """
     indptr, indices, data = A00.getValuesCSR()
     degree = numpy.diff(indptr)
 
@@ -665,6 +671,7 @@ def factor_interior_mat(A00):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_mat(A, i0, i1, submats):
+    # Return the Schur complement associated to indices in i1, condensing i0 out
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
     submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
@@ -679,6 +686,7 @@ def condense_element_mat(A, i0, i1, submats):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_pattern(A, i0, i1, submats):
+    # Add zeroes on the statically condensed pattern so that you can run ICC(0)
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
@@ -716,6 +724,8 @@ def load_c_code(code, name, **kwargs):
 
 
 def load_assemble_csr(comm, triu=False):
+    # Insert one sparse matrix into another sparse matrix.
+    # Done in C for efficiency, since it loops over rows.
     if triu:
         name = "setSubMatCSR_SBAIJ"
         select_cols = "icol < irow ? -1: icol"
@@ -767,11 +777,12 @@ PetscErrorCode {name}(Mat A,
                        restype=ctypes.c_int)
 
 
-def petsc_sparse(A_numpy, rtol=1E-10):
+def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
+    # Convert dense numpy matrix into a sparse PETSc matrix
     Amax = max(A_numpy.min(), A_numpy.max(), key=abs)
     atol = rtol*Amax
     nnz = numpy.count_nonzero(abs(A_numpy) > atol, axis=1).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=PETSc.COMM_SELF)
+    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
     for row, Arow in enumerate(A_numpy):
         cols = numpy.argwhere(abs(Arow) > atol).astype(PETSc.IntType).flat
         A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
@@ -780,29 +791,18 @@ def petsc_sparse(A_numpy, rtol=1E-10):
 
 
 def block_mat(A_blocks):
+    # Return a concrete Mat corresponding to a block matrix given as a list of lists
     if len(A_blocks) == 1:
         if len(A_blocks[0]) == 1:
             return A_blocks[0][0]
 
-    nrows = sum([Arow[0].size[0] for Arow in A_blocks])
-    ncols = sum([Aij.size[1] for Aij in A_blocks[0]])
-    nnz = numpy.concatenate([sum([numpy.diff(Aij.getValuesCSR()[0]) for Aij in Arow]) for Arow in A_blocks])
-    A = PETSc.Mat().createAIJ((nrows, ncols), nnz=(nnz, 0), comm=PETSc.COMM_SELF)
-    imode = PETSc.InsertMode.INSERT
-    insert_block = FDMPC.load_set_values()
-    rsizes = [sum([Ai[0].size[0] for Ai in A_blocks[:k]]) for k in range(len(A_blocks)+1)]
-    csizes = [sum([Aij.size[1] for Aij in A_blocks[0][:k]]) for k in range(len(A_blocks[0])+1)]
-    rows = [numpy.arange(*rsizes[i:i+2], dtype=PETSc.IntType) for i in range(len(A_blocks))]
-    cols = [numpy.arange(*csizes[j:j+2], dtype=PETSc.IntType) for j in range(len(A_blocks[0]))]
-    for Ai, irows in zip(A_blocks, rows):
-        for Aij, jcols in zip(Ai, cols):
-            insert_block(A, Aij, irows, jcols, imode)
-
-    A.assemble()
-    return A
+    nest = PETSc.Mat().createNest(A_blocks, comm=A_blocks[0][0].getComm())
+    # A nest Mat would not allow us to take matrix-matrix products
+    return nest.convert(mat_type=A_blocks[0][0].getType())
 
 
 def is_restricted(finat_element):
+    # Determine if an element is a restriction onto interior or facets
     is_interior = True
     is_facet = True
     tdim = finat_element.cell.get_spatial_dimension()
@@ -822,6 +822,7 @@ def is_restricted(finat_element):
 
 
 def sort_interior_dofs(idofs, A):
+    # Permute `idofs` to have A[idofs, idofs] with contiguous 1x1, 2x2, 3x3, ... blocks
     Aii = A.createSubMatrix(idofs, idofs)
     indptr, indices, _ = Aii.getValuesCSR()
     n = idofs.getSize()
@@ -836,8 +837,8 @@ def sort_interior_dofs(idofs, A):
                 if len(neigh) == degree:
                     visit[neigh] = True
                     perm.extend(neigh)
-
     idofs.setIndices(idofs.getIndices()[perm])
+    Aii.destroy()
 
 
 def kron3(A, B, C, scale=None):
@@ -849,9 +850,13 @@ def kron3(A, B, C, scale=None):
     return result
 
 
-def mass_matrix(tdim, formdegree, B00, B11):
-    B00 = petsc_sparse(B00)
-    B11 = petsc_sparse(B11)
+def mass_matrix(tdim, formdegree, B00, B11, comm=None):
+    # Construct mass matrix on reference cell from 1D mass matrices B00 and B11.
+    # It can be applied with either broken or conforming test and trial spaces.
+    if comm is None:
+        comm = PETSc.COMM_SELF
+    B00 = petsc_sparse(B00, comm=comm)
+    B11 = petsc_sparse(B11, comm=comm)
     if tdim == 1:
         B_blocks = [B11 if formdegree else B00]
     elif tdim == 2:
@@ -871,8 +876,6 @@ def mass_matrix(tdim, formdegree, B00, B11):
         else:
             B_blocks = [kron3(B11, B11, B11)]
 
-    B00.destroy()
-    B11.destroy()
     if len(B_blocks) == 1:
         result = B_blocks[0]
     else:
@@ -884,23 +887,35 @@ def mass_matrix(tdim, formdegree, B00, B11):
         indptr = numpy.concatenate([csr[0][bool(shift):]+shift for csr, shift in zip(csr_block, ishift[:-1])])
         indices = numpy.concatenate([csr[1]+shift for csr, shift in zip(csr_block, jshift[:-1])])
         data = numpy.concatenate([csr[2] for csr in csr_block])
-        result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=PETSc.COMM_SELF)
+        result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=comm)
         for B in B_blocks:
             B.destroy()
+    if not (B00 is result):
+        B00.destroy()
+    if not (B11 is result):
+        B11.destroy()
     return result
 
 
-def diff_matrix(tdim, formdegree, A00, A11, A10):
+def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
+    # Construct exterior derivative matrix on reference cell from 1D mass matrices A00 and A11,
+    # and exterior derivative moments A10.
+    # It can be applied with either broken or conforming test and trial spaces.
+    if comm is None:
+        comm = PETSc.COMM_SELF
     if formdegree == tdim:
         ncols = A10.shape[0]**tdim
-        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=PETSc.COMM_SELF)
+        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=comm)
         A_zero.assemble()
         return A_zero
 
-    A00 = petsc_sparse(A00)
-    A11 = petsc_sparse(A11)
-    A10 = petsc_sparse(A10)
+    A00 = petsc_sparse(A00, comm=comm)
+    A11 = petsc_sparse(A11, comm=comm)
+    A10 = petsc_sparse(A10, comm=comm)
     if tdim == 1:
+        A00.destroy()
+        A11.destroy()
+
         return A10
     elif tdim == 2:
         if formdegree == 0:
@@ -913,7 +928,7 @@ def diff_matrix(tdim, formdegree, A00, A11, A10):
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
             size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
-            A_zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=PETSc.COMM_SELF)
+            A_zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=comm)
             A_zero.assemble()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), A_zero],
                         [kron3(A10, A00, A11, scale=-1), A_zero, kron3(A11, A00, A10)],
@@ -932,6 +947,10 @@ def diff_matrix(tdim, formdegree, A00, A11, A10):
 
 
 def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
+    """
+    Magic. Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
+    Works for any basis. These are the same matrices one needs for HypreAMS and friends.
+    """
     from tsfc.finatinterface import create_element
     from firedrake.preconditioners.pmg import fiat_reference_prolongator
 
@@ -1012,6 +1031,7 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
 
 
 def unrestrict_element(ele):
+    # Get an element that might or might not be restricted and return the parent unrestricted element.
     if isinstance(ele, ufl.VectorElement):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
     elif isinstance(ele, ufl.TensorElement):

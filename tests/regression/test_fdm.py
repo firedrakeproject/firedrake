@@ -16,6 +16,7 @@ coarse = {
     "pc_type": "cholesky",
 }
 
+# FDM without static condensation
 fdmstar = {
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
@@ -38,6 +39,7 @@ fdmstar = {
     }
 }
 
+# FDM with static condensation
 facetstar = {
     "pc_type": "python",
     "pc_python_type": "firedrake.FacetSplitPC",
@@ -48,7 +50,7 @@ facetstar = {
     "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
     "facet_fdm_fieldsplit_0": {
         "ksp_type": "preonly",
-        "pc_type": "icc",
+        "pc_type": "icc",  # this is exact for the sparse approximation used in FDM
     },
     "facet_fdm_fieldsplit_1": {
         "ksp_type": "preonly",
@@ -136,8 +138,8 @@ def test_p_independence_hgrad(mesh, variant):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
         V = FunctionSpace(mesh, element)
         problem = build_riesz_map(V, grad)
-        for sp, max_it in zip(solvers, expected[:len(solvers)]):
-            assert solve_riesz_map(problem, sp) <= max_it
+        for sp, expected_it in zip(solvers, expected):
+            assert solve_riesz_map(problem, sp) <= expected_it
 
 
 @pytest.mark.skipcomplex
@@ -149,8 +151,8 @@ def test_p_independence_hcurl(mesh):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
         problem = build_riesz_map(V, curl)
-        for sp, max_it in zip(solvers, expected[:len(solvers)]):
-            assert solve_riesz_map(problem, sp) <= max_it
+        for sp, expected_it in zip(solvers, expected):
+            assert solve_riesz_map(problem, sp) <= expected_it
 
 
 @pytest.mark.skipcomplex
@@ -162,8 +164,8 @@ def test_p_independence_hdiv(mesh):
         element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
         V = FunctionSpace(mesh, element)
         problem = build_riesz_map(V, div)
-        for sp, max_it in zip(solvers, expected[:len(solvers)]):
-            assert solve_riesz_map(problem, sp) <= max_it
+        for sp, expected_it in zip(solvers, expected):
+            assert solve_riesz_map(problem, sp) <= expected_it
 
 
 @pytest.mark.skipcomplex
