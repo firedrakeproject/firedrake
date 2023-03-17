@@ -3,8 +3,6 @@ from firedrake.vector import Vector
 from firedrake.constant import Constant
 from firedrake.ml_coupling.backend_base import AbstractMLBackend
 
-import firedrake.utils as utils
-
 
 class PytorchBackend(AbstractMLBackend):
 
@@ -25,10 +23,9 @@ class PytorchBackend(AbstractMLBackend):
     def __bool__(self):
         return self._backend is not None
 
-    @utils.cached_property
-    def custom_operator(self):
+    def custom_operator(self, *args, **kwargs):
         from firedrake.ml_coupling.pytorch.pytorch_custom_operator import FiredrakeTorchOperator
-        return FiredrakeTorchOperator().apply
+        return FiredrakeTorchOperator.apply(*args, **kwargs)
 
     def to_ml_backend(self, x, gather=False, batched=True, **kwargs):
         r"""Convert a Firedrake object `x` into a PyTorch tensor.

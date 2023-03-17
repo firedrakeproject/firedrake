@@ -118,7 +118,7 @@ def test_pytorch_loss_backward(V, f_exact):
     model.double()
 
     # Check that gradients are initially set to None
-    assert all([θi.grad is None for θi in model.parameters()])
+    assert all([pi.grad is None for pi in model.parameters()])
 
     # Convert f_exact to torch.Tensor
     f_P = pytorch_backend.to_ml_backend(f_exact)
@@ -148,7 +148,7 @@ def test_pytorch_loss_backward(V, f_exact):
     # Check that gradients were propagated to model parameters
     # This test doesn't check the correctness of these gradients
     # -> This is checked in `test_taylor_torch_operator`
-    assert all([θi.grad is not None for θi in model.parameters()])
+    assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
     u = pytorch_backend.from_ml_backend(u_P, V)
@@ -172,16 +172,16 @@ def test_firedrake_loss_backward(V):
     model.double()
 
     # Check that gradients are initially set to None
-    assert all([θi.grad is None for θi in model.parameters()])
+    assert all([pi.grad is None for pi in model.parameters()])
 
     # Model input
-    λ = Function(V)
+    u = Function(V)
 
     # Convert f to torch.Tensor
-    λ_P = pytorch_backend.to_ml_backend(λ)
+    u_P = pytorch_backend.to_ml_backend(u)
 
     # Forward pass
-    f_P = model(λ_P)
+    f_P = model(u_P)
 
     # Set control
     f = Function(V)
@@ -203,7 +203,7 @@ def test_firedrake_loss_backward(V):
     # Check that gradients were propagated to model parameters
     # This test doesn't check the correctness of these gradients
     # -> This is checked in `test_taylor_torch_operator`
-    assert all([θi.grad is not None for θi in model.parameters()])
+    assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
     f = pytorch_backend.from_ml_backend(f_P, V)
@@ -221,11 +221,11 @@ def test_taylor_torch_operator(firedrake_operator, V):
     from firedrake_adjoint import ReducedFunctional, Control
 
     # Control value
-    ω = Function(V)
+    w = Function(V)
     # Get Firedrake operator and other operator arguments
     fd_op, args = firedrake_operator
     # Set reduced functional
-    Jhat = ReducedFunctional(fd_op(ω, *args), Control(ω))
+    Jhat = ReducedFunctional(fd_op(w, *args), Control(w))
     # Define the torch operator
     G = torch_operator(Jhat)
     # `gradcheck` is likely to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
