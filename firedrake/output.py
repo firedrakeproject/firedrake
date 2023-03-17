@@ -53,6 +53,8 @@ cells = {
     (ufl_wedge, True): VTK_LAGRANGE_WEDGE,
     (ufl_hex, False): VTK_HEXAHEDRON,
     (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), False): VTK_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), True): VTK_LAGRANGE_HEXAHEDRON,
 }
 
 
