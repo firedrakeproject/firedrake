@@ -2125,25 +2125,32 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in (ufl.Cell('triangle', 3),
+        if self.ufl_cell() not in (ufl.Cell('interval', 2),
+                                   ufl.Cell('triangle', 3),
                                    ufl.Cell("quadrilateral", 3),
                                    ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
                                                          geometric_dimension=3)):
-            raise NotImplementedError('Only implemented for triangles and quadrilaterals embedded in 3d')
+            raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self.topology, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
-        if isinstance(expr, ufl.classes.Expr):
-            if expr.ufl_shape != (3,):
-                raise NotImplementedError('Only implemented for 3-vectors')
-        else:
+        if not isinstance(expr, ufl.classes.Expr):
             raise TypeError("UFL expression expected!")
+
+        if expr.ufl_shape != (self.ufl_cell().geometric_dimension(), ):
+            raise ValueError(f"Mismatching shapes: expr.ufl_shape ({expr.ufl_shape}) != (self.ufl_cell().geometric_dimension(), ) (({self.ufl_cell().geometric_dimension}, ))")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)
         f = function.Function(fs)
-        f.interpolate(ufl.dot(expr, ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])))
+
+        if self.topological_dimension() == 1:
+            normal = ufl.as_vector((-ReferenceGrad(x)[1, 0], ReferenceGrad(x)[0, 0]))
+        else:  # self.topological_dimension() == 2
+            normal = ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])
+
+        f.interpolate(ufl.dot(expr, normal))
 
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
