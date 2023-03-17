@@ -2061,9 +2061,34 @@ values from f.)"""
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :returns: tuple either
-            (cell number, reference coordinates, ref_cell_dist_l1) of type
-            (int, numpy array, float), or, when point is not in the domain,
-            (None, None, None).
+            (cell number, reference coordinates) of type (int, numpy array),
+            or, when point is not in the domain, (None, None).
+        """
+        x = np.asarray(x)
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point must have the same geometric dimension as the mesh")
+        x = x.reshape((1, self.geometric_dimension()))
+        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance)
+        if cells[0] == -1:
+            return None, None
+        return cells[0], ref_coords[0]
+
+    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None):
+        """Locate cell containing a given point and the reference
+        coordinates of the point within the cell.
+
+        :arg xs: 1 or more point coordinates of shape (npoints, gdim)
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`tolerance` property. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
+        :returns: tuple either
+            (cell numbers array, reference coordinates array, ref_cell_dists_l1 array)
+            of type
+            (array of ints, array of floats of size (npoints, gdim), array of floats).
+            The cell numbers array contains -1 for points not in the domain:
+            the reference coordinates and distances are meaningless for these
+            points.
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
@@ -2071,20 +2096,22 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        x = np.asarray(x, dtype=utils.ScalarType)
-        x = x.real.copy()
-        if x.size != self.geometric_dimension():
+        xs = np.asarray(xs, dtype=utils.ScalarType)
+        xs = xs.real.copy()
+        if xs.shape[1] != self.geometric_dimension():
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
-        X = np.empty_like(x)
-        ref_cell_dist_l1 = np.empty(1, dtype=utils.ScalarType)
-        cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                                    ref_cell_dist_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
-        if cell == -1:
-            return (None, None, None)
-        else:
-            return cell, X, ref_cell_dist_l1[0]
+        Xs = np.empty_like(xs)
+        npoints = len(xs)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
+        cells = np.empty(npoints, dtype=IntType)
+        assert xs.size == npoints * self.geometric_dimension()
+        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                             xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                                             npoints)
+        return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -2098,16 +2125,24 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x, double *X, double *ref_cell_dist_l1)
+    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
     {
-        /* The type definitions and arguments used here are defined as
-           statics in pointquery_utils.py */
-        struct ReferenceCoords temp_reference_coords, found_reference_coords;
-        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, ref_cell_dist_l1);
-        for(int i=0; i<%(geometric_dimension)d; i++) {
-            X[i] = found_reference_coords.X[i];
+        size_t j = 0;  /* index into x and X */
+        for(size_t i=0; i<npoints; i++) {
+            /* i is the index into cells and ref_cell_dists_l1 */
+
+            /* The type definitions and arguments used here are defined as
+            statics in pointquery_utils.py */
+            struct ReferenceCoords temp_reference_coords, found_reference_coords;
+
+            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+
+            for (int k = 0; k < %(geometric_dimension)d; k++) {
+                X[j] = found_reference_coords.X[k];
+                j++;
+            }
         }
-        return cell;
+        return 0;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -3040,28 +3075,23 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     ).dat.data_ro_with_halos.real
 
     locally_visible = np.full(ncoords_global, False)
-    parent_cell_nums = np.empty(ncoords_global, dtype=int)
-    reference_coords = np.empty(
-        (ncoords_global, parent_mesh.topological_dimension()), dtype=RealType
-    )
     # See below for why np.inf is used here.
-    ref_cell_dists_l1_and_ranks = np.full((ncoords_global, 2), np.inf)
+    ranks = np.full(ncoords_global, np.inf)
 
-    # TODO: Move this loop into C: it's a bottleneck for lots of coords.
-    for i in range(ncoords_global):
-        (
-            parent_cell_num,
-            reference_coord,
-            ref_cell_dist_l1,
-        ) = parent_mesh.locate_cell_and_reference_coordinate(
-            coords_global[i], tolerance
-        )
-        if parent_cell_num is not None:
-            locally_visible[i] = True
-            parent_cell_nums[i] = parent_cell_num
-            reference_coords[i] = reference_coord
-            ref_cell_dists_l1_and_ranks[i, 0] = ref_cell_dist_l1
-            ref_cell_dists_l1_and_ranks[i, 1] = visible_ranks[parent_cell_num]
+    (
+        parent_cell_nums,
+        reference_coords,
+        ref_cell_dists_l1,
+    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    assert len(parent_cell_nums) == ncoords_global
+    assert len(reference_coords) == ncoords_global
+    assert len(ref_cell_dists_l1) == ncoords_global
+
+    locally_visible[:] = parent_cell_nums != -1
+    ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
+    # see below for why np.inf is used here.
+    ref_cell_dists_l1[~locally_visible] = np.inf
+    ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
 
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.

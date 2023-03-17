@@ -119,11 +119,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     # this method of getting owned cells works for all mesh types
     owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
-        cell_num, _, ref_cell_dist_l1 = m.locate_cell_and_reference_coordinate(inputvertexcoords[i])
-        if cell_num is not None and cell_num < owned_cells:
+        cell_num, _, ref_cell_dist_l1 = m.locate_cells_ref_coords_and_dists(inputvertexcoords[i].reshape(1, gdim))
+        if cell_num != -1 and cell_num < owned_cells:
             in_bounds.append(i)
             ref_cell_dists_l1.append(ref_cell_dist_l1)
-    # In parallel locate_cell_and_reference_coordinate might give point
+    # In parallel locate_cells_ref_coords_and_dists might give point
     # duplication: the voting algorithm in VertexOnlyMesh should remove these.
     # We can check that this is the case by seeing if all the missing
     # coordinates have positive distances from the reference cell but this is a
