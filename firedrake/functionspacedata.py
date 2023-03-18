@@ -283,6 +283,8 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
                                                 offset,
                                                 sub_domain)
     else:
+        if mesh.extruded_periodic and sub_domain == "top":
+            raise ValueError("Invalid subdomain 'top': 'top' boundary is identified as 'bottom' boundary in periodic extrusion")
         idx = {"bottom": -2, "top": -1}[sub_domain]
         section, indices, facet_points = V.cell_boundary_masks
         facet = facet_points[idx]
@@ -397,7 +399,7 @@ class FunctionSpaceData(object):
     """
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
-                 "interior_facet_boundary_masks", "offset",
+                 "interior_facet_boundary_masks", "offset", "offset_quotient",
                  "extruded", "mesh", "global_numbering")
 
     @PETSc.Log.EventDecorator()
@@ -436,6 +438,10 @@ class FunctionSpaceData(object):
             self.offset = eutils.calculate_dof_offset(finat_element)
         else:
             self.offset = None
+        if isinstance(mesh, mesh_mod.ExtrudedMeshTopology) and mesh.extruded_periodic:
+            self.offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
+        else:
+            self.offset_quotient = None
 
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
         self.node_set = node_set
@@ -478,7 +484,7 @@ class FunctionSpaceData(object):
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
-    def get_map(self, V, entity_set, map_arity, name, offset):
+    def get_map(self, V, entity_set, map_arity, name, offset, offset_quotient):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -486,18 +492,19 @@ class FunctionSpaceData(object):
         :arg entity_set: The :class:`pyop2.Set` of entities to map from.
         :arg map_arity: The arity of the resulting map.
         :arg name: A name for the resulting map.
-        :arg offset: Map offset (for extruded)."""
+        :arg offset: Map offset (for extruded).
+        :arg offset_quotient: Map offset_quotient (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
-
         val = self.map_cache[entity_set]
         if val is None:
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           entity_node_list,
                           ("%s_"+name) % (V.name),
-                          offset=offset)
+                          offset=offset,
+                          offset_quotient=offset_quotient)
 
             self.map_cache[entity_set] = val
         return val
@@ -505,13 +512,13 @@ class FunctionSpaceData(object):
 
 @PETSc.Log.EventDecorator()
 def get_shared_data(mesh, ufl_element):
-    """Return the :class:`FunctionSpaceData` for the given
+    """Return the ``FunctionSpaceData`` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
     :raises ValueError: if mesh or ufl_element are invalid.
-    :returns: a :class:`FunctionSpaceData` object with the shared
+    :returns: a ``FunctionSpaceData`` object with the shared
         data.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):

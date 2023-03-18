@@ -10,7 +10,7 @@ def annotate_solve(solve):
     recording what solves occur and what forms are involved, so that the adjoint and tangent linear models may be
     constructed automatically by pyadjoint.
 
-    To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+    To disable the annotation, just pass ``annotate=False`` to this routine, and it acts exactly like the
     Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
     for the purposes of the adjoint computation (such as projecting fields to other function spaces
     for the purposes of visualisation).

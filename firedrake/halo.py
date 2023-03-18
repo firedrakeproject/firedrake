@@ -88,7 +88,7 @@ class Halo(op2.Halo):
     :arg section: The data layout.
 
     The halo is implemented using a PETSc SF (star forest) object and
-    is usable as a PyOP2 :class:`pyop2.Halo`."""
+    is usable as a PyOP2 :class:`pyop2.types.halo.Halo` ."""
 
     def __init__(self, dm, section, comm):
         super(Halo, self).__init__()

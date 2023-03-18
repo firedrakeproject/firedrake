@@ -94,7 +94,7 @@ def solve(*args, **kwargs):
 
     The nonlinear solver uses a PETSc SNES object under the hood. To
     pass options to it, use the same options names as you would for
-    pure PETSc code.  See :class:`NonlinearVariationalSolver` for more
+    pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
     details.
 
     .. code-block:: python3

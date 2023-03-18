@@ -15,8 +15,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    if isinstance(m.topology, mesh.ExtrudedMeshTopology):
-        raise NotImplementedError("Extruded meshes are not supported")
     m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
@@ -24,9 +22,10 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = m.cell_set.size
+    num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
-    local_midpoints = f.dat.data_ro
+    # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
@@ -38,19 +37,22 @@ def cell_midpoints(m):
 
 @pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
+                        "periodicrectangle",
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -60,9 +62,17 @@ def parentmesh(request):
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
-        m = UnitSquareMesh(1, 1)
+        m = UnitSquareMesh(10, 10)
         m.coordinates.dat.data[:] -= 0.5
         return m
+
+
+@pytest.fixture(params=["redundant", "nonredundant"])
+def redundant(request):
+    if request.param == "redundant":
+        return True
+    else:
+        return False
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
@@ -100,10 +110,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     vm.init()
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
-    _, owned, _ = m.cell_set.sizes
+    # this method of getting owned cells works for all mesh types
+    owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
         cell_num = m.locate_cell(inputvertexcoords[i])
-        if cell_num is not None and cell_num < owned:
+        if cell_num is not None and cell_num < owned_cells:
             in_bounds.append(i)
     # Correct coordinates (though not guaranteed to be in same order)
     np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
@@ -133,12 +144,26 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
 
 
-def test_generate_cell_midpoints(parentmesh):
+def test_generate_cell_midpoints(parentmesh, redundant):
     """
     Generate cell midpoints for mesh parentmesh and check they lie in
     the correct cells
     """
     inputcoords, inputcoordslocal = cell_midpoints(parentmesh)
+    if redundant:
+        # check redundant argument broadcasts from rank 0 by only supplying the
+        # global cell midpoints only on rank 0. Note that this is the default
+        # behaviour so it needn't be specified explicitly.
+        if MPI.COMM_WORLD.rank == 0:
+            vm = VertexOnlyMesh(parentmesh, inputcoords)
+        else:
+            vm = VertexOnlyMesh(parentmesh, np.empty(inputcoords.shape))
+    else:
+        # When redundant == False we expect the same behaviour by only
+        # supplying the local cell midpoints on each MPI ranks. Note that this
+        # is not the default behaviour so it must be specified explicitly.
+        vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
+
     vm = VertexOnlyMesh(parentmesh, inputcoords)
     # Midpoints located in correct cells of parent mesh
     V = VectorFunctionSpace(parentmesh, "DG", 0)
@@ -157,8 +182,8 @@ def test_generate_cell_midpoints(parentmesh):
 
 
 @pytest.mark.parallel
-def test_generate_cell_midpoints_parallel(parentmesh):
-    test_generate_cell_midpoints(parentmesh)
+def test_generate_cell_midpoints_parallel(parentmesh, redundant):
+    test_generate_cell_midpoints(parentmesh, redundant)
 
 
 def test_generate_random(parentmesh, vertexcoords):
@@ -179,18 +204,112 @@ def test_extrude(parentmesh):
 
 
 def test_point_tolerance():
-    """Test the tolerance parameter to VertexOnlyMesh.
-
-    This test works by checking a point outside the domain. Tolerance does not
-    in fact promise to fix the problem of points outside the domain in the
-    general case. It is instead there to cope with losing points on internal
-    cell boundaries due to roundoff. The latter case is difficult to test in a
-    manner which is robust to roundoff behaviour in different environments."""
+    """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
+    assert m.tolerance == 1.0
+    assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
     vm = VertexOnlyMesh(m, coords, tolerance=0.1)
     assert vm.cell_set.size == 1
-    vm = VertexOnlyMesh(m, coords, tolerance=None)
+    # check that the tolerance is passed through to the parent mesh
+    assert m.tolerance == 0.1
+    assert m.topology.tolerance == 0.1
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0)
     assert vm.cell_set.size == 0
+    assert m.tolerance == 0.0
+    assert m.topology.tolerance == 0.0
+    # See if changing the tolerance on the parent mesh changes the tolerance
+    # on the VertexOnlyMesh
+    m.tolerance = 0.1
+    vm = VertexOnlyMesh(m, coords)
+    assert vm.cell_set.size == 1
+    m.tolerance = 0.0
+    vm = VertexOnlyMesh(m, coords)
+    assert vm.cell_set.size == 0
+
+
+def test_missing_points_behaviour(parentmesh):
+    """
+    Generate points outside of the parentmesh and check we get the expected
+    error behaviour
+    """
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
+    assert len(inputcoord) == 1
+    # No error by default
+    vm = VertexOnlyMesh(parentmesh, inputcoord)
+    assert vm.cell_set.size == 0
+    with pytest.raises(ValueError):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
+
+
+def test_outside_boundary_behaviour(parentmesh):
+    """
+    Generate points just outside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just outside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is too small to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0
+    # Tolerance is large enough to pick up point - note that we need to go up
+    # by 2 orders of magnitude for this to work consistently
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+
+
+@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+def test_partition_behaviour_2d_2procs():
+    test_partition_behaviour()
+
+
+@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
+def test_partition_behaviour_2d_3procs():
+    test_partition_behaviour()
+
+
+def test_partition_behaviour():
+    parentmesh = UnitSquareMesh(1, 1)
+    inputcoords = [[0.0-1e-15, 0.5],
+                   [0.5, 0.0-1e-15],
+                   [0.5, 1.0+1e-15],
+                   [1.0+1e-15, 0.5],
+                   [0.5, 0.5],
+                   [0.5, 0.5],
+                   [0.5+1e-15, 0.5],
+                   [0.5, 0.5+1e-15]]
+    npts = len(inputcoords)
+    # Check that we get all the points with a big enough tolerance
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13, missing_points_behaviour='error')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
+    # Check that we lose all but the last 4 points with a small tolerance
+    with pytest.warns(UserWarning):
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-16, missing_points_behaviour='warn')
+    assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
+
+
+def test_inside_boundary_behaviour(parentmesh):
+    """
+    Generate points just inside the boundary of the parentmesh and
+    check we get the expected behaviour. This is similar to the tolerance
+    test but covers more meshes.
+    """
+    # This is just inside the boundary of the utility meshes in all supported
+    # cases
+    edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
+    assert len(inputcoord) == 1
+    # Tolerance is large enough to pick up point
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
+    assert vm.cell_set.size == 1
+    # Tolerance might be too small to pick up point, but it's not deterministic
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    assert vm.cell_set.size == 0 or vm.cell_set.size == 1

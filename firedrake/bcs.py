@@ -5,7 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, UFLException, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
@@ -218,7 +218,7 @@ class BCBase(object):
             if len(field) == 1:
                 W = V
             else:
-                W = V.split()[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
+                W = V.subfunctions[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
             if cmpt is not None:
                 W = W.sub(cmpt)
             return W
@@ -251,7 +251,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
         ``V``, or a UFL expression that can be interpolated into
-        ``V``, for example, a :class:`.Constant`, an iterable of
+        ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
         of ``V``.
@@ -347,11 +347,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 g = as_ufl(g)
                 self._function_arg = g
-            except UFLException:
+            except ValueError:
                 try:
                     # Recurse to handle this through interpolation.
                     self.function_arg = as_ufl(as_tensor(g))
-                except UFLException:
+                except ValueError:
                     raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
@@ -389,12 +389,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function`. If ``u`` is absent, then the boundary
+            :class:`.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
 
-        If ``r`` is a :class:`.Matrix`, it will be assembled with a 1
+        If ``r`` is a :class:`.Matrix` , it will be assembled with a 1
         on diagonals where the boundary condition applies and 0 in the
         corresponding rows and columns.
 
@@ -443,8 +443,8 @@ class EquationBC(object):
 
     :param eq: the linear/nonlinear form equation
     :param u: the :class:`.Function` to solve for
-    :arg sub_domain: see :class:`.DirichletBC`.
-    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+    :arg sub_domain: see :class:`.DirichletBC` .
+    :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
     :param J: the Jacobian for this boundary equation (optional)
     :param Jp: a form used for preconditioning the linear system,
@@ -517,7 +517,7 @@ class EquationBC(object):
         yield from self._F.dirichlet_bcs()
 
     def extract_form(self, form_type):
-        r"""Return :class:`.EquationBCSplit` associated with the given 'form_type'.
+        r"""Return ``EquationBCSplit`` associated with the given 'form_type'.
 
         :arg form_type: Form to extract; 'F', 'J', or 'Jp'.
         """
@@ -540,8 +540,8 @@ class EquationBCSplit(BCBase):
 
     :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.
     :param u: the :class:`.Function` to solve for
-    :arg sub_domain: see :class:`.DirichletBC`.
-    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+    :arg sub_domain: see :class:`.DirichletBC` .
+    :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
     :arg V: the :class:`.FunctionSpace` on which
         the equation boundary condition is applied (optional)
@@ -628,9 +628,9 @@ class EquationBCSplit(BCBase):
 def homogenize(bc):
     r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
-    then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
+    then return a list of the homogeneous versions of those :class:`.DirichletBC` s.
 
-    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`\(s).
+    :arg bc: a :class:`.DirichletBC` , or iterable object comprising :class:`.DirichletBC` (s).
     """
     if isinstance(bc, (tuple, list)):
         lst = []
