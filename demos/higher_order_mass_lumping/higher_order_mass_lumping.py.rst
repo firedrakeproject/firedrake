@@ -36,7 +36,7 @@ The weak formulation is finding :math:`u \in V` such that:
 
     <\partial_t(\rho \partial_t u), v> + a(u,v) = (f,w)
 
-where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptic operator given by:
+where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow \mathbb{R}` is the elliptic operator given by:
 
 .. math::
 

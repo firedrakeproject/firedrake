@@ -88,7 +88,7 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
         f.project(sin(x[0]*pi*2)*sin(x[1]*pi*2))
         return sqrt(assemble(dot(sol[2] - f, sol[2] - f) * dx))
     elif meshtype in ['spherical-quad', 'spherical-tri']:
-        _, u = sol.split()
+        _, u = sol.subfunctions
         f.project(x[0]*x[1]*x[2]/13.0)
         return errornorm(f, u, degree_rise=0)
 

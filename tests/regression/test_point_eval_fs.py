@@ -111,7 +111,7 @@ def test_triangle_mixed(mesh_triangle):
     V2 = FunctionSpace(mesh_triangle, "RT", 2)
     V = V1 * V2
     f = Function(V)
-    f1, f2 = f.split()
+    f1, f2 = f.subfunctions
     x = SpatialCoordinate(mesh_triangle)
     f1.interpolate(x[0] + 1.2*x[1])
     f2.project(as_vector((x[1], 0.8 + x[0])))

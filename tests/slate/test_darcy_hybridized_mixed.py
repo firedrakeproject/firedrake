@@ -43,7 +43,7 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
                      'hybridization': {'ksp_type': 'preonly',
                                        'pc_type': 'lu'}}
     solve(a == L, w, bcs=bcs, solver_parameters=hybrid_params)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     w2 = Function(W)
     sc_params = {'mat_type': 'aij',
@@ -51,7 +51,7 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
                  'pc_type': 'lu',
                  'pc_factor_mat_solver_type': 'mumps'}
     solve(a == L, w2, bcs=bcs, solver_parameters=sc_params)
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)

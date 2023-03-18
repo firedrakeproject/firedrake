@@ -2,7 +2,7 @@ from functools import wraps
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data
@@ -69,18 +69,18 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
-    def _ad_annotate_split(split):
-        @wraps(split)
+    def _ad_annotate_subfunctions(subfunctions):
+        @wraps(subfunctions)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             with stop_annotating():
-                output = split(self, *args, **kwargs)
+                output = subfunctions(self, *args, **kwargs)
 
             if annotate:
                 output = tuple(firedrake.Function(output[i].function_space(),
                                                   output[i],
-                                                  block_class=FunctionSplitBlock,
+                                                  block_class=SubfunctionBlock,
                                                   _ad_floating_active=True,
                                                   _ad_args=[self, i],
                                                   _ad_output_args=[i],

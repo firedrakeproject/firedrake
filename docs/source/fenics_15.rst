@@ -21,9 +21,9 @@ a high productivity computational environment for finite element problems.
 Programme
 ---------
 
-`The schedule is now online <http://easychair.org/smart-program/FEniCS'15/index.html>`_.
+`The schedule is now online <https://easychair.org/smart-program/FEniCS'15/index.html>`_.
 
-* **Keynote lecture:** `Dr Jennifer Ryan <https://www.uea.ac.uk/mathematics/people/profile/jennifer-ryan>`_, University of East Anglia.
+* **Keynote lecture:** Dr Jennifer Ryan, University of East Anglia.
 * **Public lecture:** `Prof. Anders Logg <http://www.math.chalmers.se/~logg/>`_, Chalmers University.
 * **Featured talks:**
    * `Dr Jack Hale <http://wwwfr.uni.lu/recherche/fstc/research_unit_in_engineering_sciences_rues/members/jack_hale>`_ University of Luxembourg.
@@ -42,9 +42,8 @@ Videos of the talks are available `on the Firedrake youtube channel
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-The workshop dinner will be a terrace barbeque at `Doggett's Coat and
-Badge
-<http://www.nicholsonspubs.co.uk/doggettscoatandbadgesouthbanklondon/>`_
+The workshop dinner will be a terrace barbeque at ``Doggett's Coat and
+Badge``
 featuring views across the Thames to St Paul's Cathedral and a fine
 selection of English real ales and other delights. For information on
 getting to Doggett's, see :ref:`the directions <to-doggetts>`.
@@ -78,14 +77,14 @@ Accommodation
 For those looking for affordable accommodation right on campus, `Imperial College's
 halls of residence <http://www.imperial.ac.uk/visit/summer-accommodation/>`_
 are available to summer visitors starting on 29 June. Alternatively,
-you can make use of `Imperial's rates at nearby hotels <http://www.imperial.ac.uk/visitors-accommodation/local-hotels/>`_.
+you can make use of `Imperial's rates at nearby hotels <http://www.imperial.ac.uk/visitors-accommodation/>`_.
 
 
 Scientific committee
 --------------------
 
 * `David Ham <http://www.imperial.ac.uk/people/david.ham>`_ (Imperial College London)
-* `Martin Alnæs  <http://www.simula.no/people/martinal>`_ (Simula)
+* Martin Alnæs (Simula)
 * Jan Blechta (Charles University)
 
 Local organising committee
@@ -101,7 +100,7 @@ Sponsors
 FEniCS '15 is supported by:
 
 
- |Imperial College London|  |EPSRC|  |NERC| 
+ |Imperial College London|  |EPSRC|  |NERC|
 
 
 .. |NERC| image:: /images/nerc.*

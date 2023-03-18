@@ -219,7 +219,7 @@ class SCPC(SCBase):
         from firedrake.assemble import OneFormAssembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
-        fields = x.split()
+        fields = x.subfunctions
         systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
@@ -260,7 +260,7 @@ class SCPC(SCBase):
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.split()[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.subfunctions[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
@@ -279,9 +279,9 @@ class SCPC(SCBase):
 
             with self.condensed_rhs.dat.vec_ro as rhs:
                 if self.condensed_ksp.getInitialGuessNonzero():
-                    acc = self.solution.split()[self.c_field].dat.vec
+                    acc = self.solution.subfunctions[self.c_field].dat.vec
                 else:
-                    acc = self.solution.split()[self.c_field].dat.vec_wo
+                    acc = self.solution.subfunctions[self.c_field].dat.vec_wo
                 with acc as sol:
                     self.condensed_ksp.solve(rhs, sol)
 

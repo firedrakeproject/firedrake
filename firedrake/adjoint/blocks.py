@@ -275,7 +275,7 @@ class MeshInputBlock(Block):
         return maybe_disk_checkpoint(mesh.coordinates)
 
 
-class FunctionSplitBlock(Block, Backend):
+class SubfunctionBlock(Block, Backend):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
@@ -321,7 +321,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].split()[self.idx].vector()
+            return adj_inputs[0].subfunctions[self.idx].vector()
         else:
             return adj_inputs[0]
 
@@ -702,16 +702,19 @@ class SupermeshProjectBlock(Block, Backend):
     Projecting a source from :math:`V_A` to :math:`V_B` amounts to solving the
     linear system
 
- .. math::
+    .. math::
         M_B * v_B = M_{AB} * v_A,
 
-    where :math:`M_B` is the mass matrix on :math:`V_B`, :math:`M_{AB}` is the
-    mixed mass matrix for :math:`V_A` and :math:`V_B` and :math:`v_A` and
-    :math:`v_B` are vector representations of the source and target
-    :class:`.Function`s.
+    where
+      * :math:`M_B` is the mass matrix on :math:`V_B`,
+      * :math:`M_{AB}` is the mixed mass matrix for :math:`V_A`
+        and :math:`V_B`,
+      * :math:`v_A` and :math:`v_B` are vector representations of
+        the source and target :class:`.Function` s.
 
     This can be broken into two steps:
       Step 1. form RHS, multiplying the source with the mixed mass matrix;
+
       Step 2. solve linear system.
     """
     def __init__(self, source, target_space, target, bcs=[], **kwargs):

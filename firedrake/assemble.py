@@ -40,7 +40,7 @@ def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-        a :class:`~slate.TensorBase` expression.
+        a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
     :kwarg diagonal: If assembling a matrix is it diagonal?
@@ -920,6 +920,7 @@ class _GlobalKernelBuilder:
                              "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
         iteration_region = iteration_regions.get(self._integral_type, None)
         extruded = self._mesh.extruded
+        extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
 
         return op2.GlobalKernel(self._kinfo.kernel,
@@ -927,6 +928,7 @@ class _GlobalKernelBuilder:
                                 iteration_region=iteration_region,
                                 pass_layer_arg=self._kinfo.pass_layer_arg,
                                 extruded=extruded,
+                                extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
                                 subset=self._needs_subset)
 
@@ -988,8 +990,16 @@ class _GlobalKernelBuilder:
                 offset += offset
         else:
             offset = None
+        if self._mesh.extruded_periodic:
+            offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
+            if offset_quotient is not None:
+                offset_quotient = tuple(offset_quotient)
+                if self._integral_type in {"interior_facet", "interior_facet_vert"}:
+                    offset_quotient += offset_quotient
+        else:
+            offset_quotient = None
 
-        map_arg = op2.MapKernelArg(arity, offset)
+        map_arg = op2.MapKernelArg(arity, offset, offset_quotient)
         self._map_arg_cache[key] = map_arg
         return map_arg
 
@@ -1339,7 +1349,7 @@ class _FormHandler:
         """Yield the form coefficients referenced in ``kinfo``."""
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
-                yield form.coefficients()[idx].split()[subidx]
+                yield form.coefficients()[idx].subfunctions[subidx]
 
     @staticmethod
     def index_function_spaces(form, indices):

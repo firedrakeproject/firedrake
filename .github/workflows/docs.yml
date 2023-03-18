@@ -22,12 +22,18 @@ jobs:
     # part of the jobs
     steps:
       - uses: actions/checkout@v2
+      - name: System dependencies
+        run: |
+          apt-get update --fix-missing
+          apt-get -y dist-upgrade
+          apt-get -y install inkscape texlive-full
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pip install -e .
           python -m pip install sphinx
           python -m pip install sphinxcontrib-bibtex
+          python -m pip install sphinxcontrib-svg2pdfconverter
           python -m pip install bibtexparser
           python -m pip install numpydoc
           python -m pip install git+https://github.com/sphinx-contrib/youtube.git
@@ -42,4 +48,7 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           cd docs
+          make linkcheck
           make html
+          make latex
+          make latexpdf

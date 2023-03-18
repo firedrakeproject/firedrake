@@ -35,7 +35,7 @@ def test_mfs(mesh2D):
     W = V3 * V1 * V2
 
     u = Function(W)
-    u0, u1, u2 = u.split()
+    u0, u1, u2 = u.subfunctions
     u0.interpolate(Constant(1))
     u1.project(Constant((-1.0, -1.0)))
     u2.interpolate(Constant(1))

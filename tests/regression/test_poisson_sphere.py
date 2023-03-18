@@ -35,7 +35,7 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
                                                              'pc_fieldsplit_schur_fact_type': 'FULL',
                                                              'fieldsplit_0_ksp_max_it': 100})
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
 
     L2_error_u = errornorm(u_exact, u, degree_rise=1)
 

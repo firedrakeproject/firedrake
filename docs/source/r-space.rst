@@ -67,8 +67,8 @@ Setting and retrieving the value of a function in `R`
 -----------------------------------------------------
 
 Functions in the space `R` are equivalent to a single floating point value. The
-value can be set using the :meth:`assign` method of Firedrake functions, and
-the value can be accessed simply by casting it to :func:`float`:
+value can be set using the :meth:`.Assigner.assign` method of Firedrake functions, and
+the value can be accessed simply by casting it to :class:`float`:
 
 .. code-block:: python3
 

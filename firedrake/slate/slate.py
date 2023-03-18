@@ -230,7 +230,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -413,7 +413,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
 class AssembledVector(TensorBase):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a :class:`firedrake.Function`.
+    vector of data contained in a :class:`~.Function`.
 
     :arg function: A firedrake function.
     """
@@ -496,7 +496,7 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`firedrake.Function` s
+    vector of data contained in a set of :class:`~.Function` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.
@@ -570,7 +570,7 @@ class BlockAssembledVector(AssembledVector):
 
 
 class Block(TensorBase):
-    """This class represents a tensor corresponding
+    r"""This class represents a tensor corresponding
     to particular block of a mixed tensor. Depending on
     the indices provided, the subblocks can span multiple
     test/trial spaces.
@@ -600,21 +600,21 @@ class Block(TensorBase):
 
     .. math::
 
-      \\begin{bmatrix}
+      \begin{bmatrix}
             A & B & C \\
             D & E & F \\
             G & H & J
-      \\end{bmatrix}
+      \end{bmatrix}
 
     Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
     corresponding to the upper 2x2 block:
 
     .. math::
 
-       \\begin{bmatrix}
+       \begin{bmatrix}
             A & B \\
             D & E
-       \\end{bmatrix}
+       \end{bmatrix}
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
@@ -662,7 +662,7 @@ class Block(TensorBase):
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
             V = arg.function_space()
-            V_is = V.split()
+            V_is = V.subfunctions
             idx = as_tuple(self._blocks[i])
             if len(idx) == 1:
                 fidx, = idx
@@ -696,7 +696,7 @@ class Block(TensorBase):
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
-            return tuple(tensor._function.split()[i] for i in chain(*self._indices))
+            return tuple(tensor._function.subfunctions[i] for i in chain(*self._indices))
 
     @cached_property
     def assembled(self):
@@ -931,7 +931,7 @@ class TensorOp(TensorBase):
     """An abstract Slate class representing general operations on
     existing Slate tensors.
 
-    :arg operands: an iterable of operands that are :class:`TensorBase`
+    :arg operands: an iterable of operands that are :class:`~.firedrake.slate.TensorBase`
         objects.
     """
 
@@ -987,7 +987,7 @@ class UnaryOp(TensorOp):
     """An abstract Slate class for representing unary operations on a
     Tensor object.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `UnaryOp` object is an acceptable
@@ -1132,12 +1132,12 @@ class BinaryOp(TensorOp):
     """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `BinaryOp` object is an acceptable
         input, or a `UnaryOp` object.
-    :arg B: a :class:`TensorBase` object.
+    :arg B: a :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def _output_string(self, prec=None):
@@ -1166,8 +1166,8 @@ class Add(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):
@@ -1207,8 +1207,8 @@ class Mul(BinaryOp):
     equal or lower rank via performing a contraction on arguments. This
     includes Matrix-Matrix and Matrix-Vector multiplication.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):
