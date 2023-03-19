@@ -207,6 +207,19 @@ def test_cell_orientation():
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
 
+def test_cell_orientation_curve():
+    m = CircleManifoldMesh(3)
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
+
+    V = VectorFunctionSpace(m, 'DG', 0)
+    f = interpolate(CellNormal(m), V)
+
+    assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
+                                    [-1, 0],
+                                    [1 / 2, -sqrt(3) / 2]])
+
+
 def test_cellvolume():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG', 0)
