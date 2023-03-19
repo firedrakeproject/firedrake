@@ -42,7 +42,7 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -62,7 +62,7 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    ones = one.split()
+    ones = one.subfunctions
 
     # NOTE: interpolation of UFL expressions into mixed
     # function spaces is not yet implemented
@@ -116,7 +116,7 @@ def test_assemble_action(M, f):
     res2 = assemble(action(assembledM, f))
     assert isinstance(res2, Cofunction)
     assert isinstance(res, Cofunction)
-    for f, f2 in zip(res.split(), res2.split()):
+    for f, f2 in zip(res.subfunctions, res2.subfunctions):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
@@ -133,7 +133,7 @@ def test_vector_formsum(a):
     assert isinstance(formsum, ufl.form.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
-    for f, f2 in zip(preassemble.split(), res2.split()):
+    for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
 
@@ -163,12 +163,12 @@ def test_cofunction_assign(a, M, f):
 
     # Assign Cofunction to Cofunction
     c1.assign(c2)
-    for a, b in zip(c1.split(), c2.split()):
+    for a, b in zip(c1.subfunctions, c2.subfunctions):
         assert np.allclose(a.dat.data, b.dat.data)
 
     # Assign BaseForm to Cofunction
     c1.assign(action(M, f))
-    for a, b in zip(c1.split(), c2.split()):
+    for a, b in zip(c1.subfunctions, c2.subfunctions):
         assert np.allclose(a.dat.data, 0.5 * b.dat.data)
 
 
@@ -206,7 +206,7 @@ def test_cofunction_riesz_representation(a):
             Mr = Function(V, val=r.vector())
 
         # Check residual
-        for a, b in zip(Mr.split(), c.split()):
+        for a, b in zip(Mr.subfunctions, c.subfunctions):
             assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
 
 
