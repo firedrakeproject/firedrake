@@ -92,7 +92,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def _split(self):
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    @FunctionMixin._ad_annotate_split
+    @FunctionMixin._ad_annotate_subfunctions
     def split(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
