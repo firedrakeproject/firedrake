@@ -23,12 +23,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
             f = \\sum_i f_i \phi_i(x)
 
-    The :class:`Function` class provides storage for the coefficients
+    The :class:`Cofunction` class provides storage for the coefficients
     :math:`f_i` and associates them with a :class:`.FunctionSpace` object
     which provides the basis functions :math:`\\phi_i(x)`.
 
     Note that the coefficients are always scalars: if the
-    :class:`Function` is vector-valued then this is specified in
+    :class:`Cofunction` is vector-valued then this is specified in
     the :class:`.FunctionSpace`.
     """
 
@@ -36,14 +36,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
-            Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.  In this
+            or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
+            Alternatively, another :class:`Cofunction` may be passed here and its function space
+            will be used to build this :class:`Cofunction`.  In this
             case, the function values are copied.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
+            If val is an existing :class:`Cofunction`, then the data will be shared.
+        :param name: user-defined name for this :class:`Cofunction` (optional).
+        :param dtype: optional data type for this :class:`Cofunction`
                (defaults to ``ScalarType``).
         """
 
@@ -89,14 +89,17 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                           dtype=self.dat.dtype)
 
     @utils.cached_property
-    def _split(self):
+    @FunctionMixin._ad_annotate_subfunctions
+    def subfunctions(self):
+        r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
+        of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
     @FunctionMixin._ad_annotate_subfunctions
     def split(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return self._split
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -107,23 +110,23 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                          for i in range(self.function_space().value_size))
 
     def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+        r"""Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
 
         :arg i: the index to extract
 
-        See also :meth:`split`.
+        See also :attr:`subfunctions`.
 
-        If the :class:`Function` is defined on a
+        If the :class:`Cofunction` is defined on a
         :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
         if len(self.function_space()) == 1:
             return self._components[i]
-        return self._split[i]
+        return self.subfunctions[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
-            on which this :class:`Function` is defined.
+            on which this :class:`Cofunction` is defined.
         """
         return self._function_space
 
@@ -136,14 +139,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         Similar functionality is available for the augmented assignment
         operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-        both Functions on the same :class:`.FunctionSpace` then::
+        both Cofunctions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
         will add twice `g` to `f`.
 
         If present, subset must be an :class:`pyop2.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
+        :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
         expr = ufl.as_ufl(expr)
@@ -242,7 +245,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
-        :class:`Function`"""
+        :class:`Cofunction`"""
         return vector.Vector(self)
 
     @property
@@ -258,18 +261,18 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.uid
 
     def name(self):
-        r"""Return the name of this :class:`Function`"""
+        r"""Return the name of this :class:`Cofunction`"""
         return self._name
 
     def label(self):
-        r"""Return the label (a description) of this :class:`Function`"""
+        r"""Return the label (a description) of this :class:`Cofunction`"""
         return self._label
 
     def rename(self, name=None, label=None):
-        r"""Set the name and or label of this :class:`Function`
+        r"""Set the name and or label of this :class:`Cofunction`
 
-        :arg name: The new name of the `Function` (if not `None`)
-        :arg label: The new label for the `Function` (if not `None`)
+        :arg name: The new name of the `Cofunction` (if not `None`)
+        :arg label: The new label for the `Cofunction` (if not `None`)
         """
         if name is not None:
             self._name = name

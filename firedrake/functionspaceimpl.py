@@ -102,7 +102,7 @@ class WithGeometryBase(object):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(WithGeometry.create(subspace, self.mesh())
+        return tuple(type(self).create(subspace, self.mesh())
                      for subspace in self.topological.subfunctions)
 
     mesh = ufl.FunctionSpace.ufl_domain
