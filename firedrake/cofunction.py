@@ -173,7 +173,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         raise ValueError('Cannot assign %s' % expr)
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
-        """Return the Riesz representation of this :class:`Cofunction` with
+        r"""Return the Riesz representation of this :class:`Cofunction` with
            respect to the given Riesz map.
 
         :arg riesz_map: The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
