@@ -12,7 +12,7 @@ import numpy
 
 import ufl
 
-from pyop2 import op2
+from pyop2 import op2, mpi
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -30,7 +30,7 @@ class WithGeometryBase(object):
     explicitly except in a small number of cases.
 
     When instantiating a :class:`WithGeometry`, users should call
-    :func:`create` rather than :func:`__init__`.
+    :meth:`WithGeometry.create` rather than ``__init__``.
 
     :arg mesh: The mesh with geometric information to use.
     :arg element: The UFL element.
@@ -47,6 +47,12 @@ class WithGeometryBase(object):
         super().__init__(mesh, element)
         self.component = component
         self.cargo = cargo
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(mesh.comm)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -94,9 +100,10 @@ class WithGeometryBase(object):
         self.cargo.topological = val
 
     @utils.cached_property
-    def _split(self):
+    def subfunctions(self):
+        r"""Split into a tuple of constituent spaces."""
         return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.split())
+                     for subspace in self.topological.subfunctions)
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -114,8 +121,9 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def split(self):
-        r"""Split into a tuple of constituent spaces."""
-        return self._split
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -123,7 +131,7 @@ class WithGeometryBase(object):
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
-            return self._split
+            return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -263,10 +271,10 @@ class WithGeometryBase(object):
         return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __iter__(self):
-        return iter(self._split)
+        return iter(self.subfunctions)
 
     def __getitem__(self, i):
-        return self._split[i]
+        return self.subfunctions[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -396,13 +404,16 @@ class FunctionSpace(object):
         self.name = name
         r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
-        r"""A :class:`pyop2.Set` representing the function space nodes."""
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
                                     name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.DataSet` representing the function space
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
 
-        self.comm = self.node_set.comm
+        # User comm
+        self.comm = mesh.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(self.node_set.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -411,8 +422,13 @@ class FunctionSpace(object):
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -505,9 +521,15 @@ class FunctionSpace(object):
                                                    self.ufl_element(),
                                                    self.name)
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
         return (self, )
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -535,60 +557,66 @@ class FunctionSpace(object):
     @utils.cached_property
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
-        this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
-        is equal to the :attr:`dof_count`, otherwise the :attr:`dof_count` is
+        this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
+        is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
         return self.node_set.total_size
 
     @utils.cached_property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
-        function space on this process. Cf. :attr:`node_count`."""
+        function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
         return self.node_count*self.value_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
 
-        See also :attr:`dof_count` and :attr:`node_count`."""
+        See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.dof_dset.layout_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.Dat` defined on the
+        r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
 
     def cell_node_map(self):
-        r"""Return the :class:`pyop2.Map` from cels to
+        r"""Return the :class:`pyop2.types.map.Map` from cels to
         function space nodes."""
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().cell_set,
                              self.finat_element.space_dimension(),
                              "cell_node",
-                             self.offset)
+                             self.offset,
+                             self.offset_quotient)
 
     def interior_facet_node_map(self):
-        r"""Return the :class:`pyop2.Map` from interior facets to
+        r"""Return the :class:`pyop2.types.map.Map` from interior facets to
         function space nodes."""
         sdata = self._shared_data
         offset = self.cell_node_map().offset
         if offset is not None:
             offset = numpy.append(offset, offset)
+        offset_quotient = self.cell_node_map().offset_quotient
+        if offset_quotient is not None:
+            offset_quotient = numpy.append(offset_quotient, offset_quotient)
         return sdata.get_map(self,
                              self.mesh().interior_facets.set,
                              2*self.finat_element.space_dimension(),
                              "interior_facet_node",
-                             offset)
+                             offset,
+                             offset_quotient)
 
     def exterior_facet_node_map(self):
-        r"""Return the :class:`pyop2.Map` from exterior facets to
+        r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
         function space nodes."""
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().exterior_facets.set,
                              self.finat_element.space_dimension(),
                              "exterior_facet_node",
-                             self.offset)
+                             self.offset,
+                             self.offset_quotient)
 
     def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
@@ -714,10 +742,16 @@ class MixedFunctionSpace(object):
     def __hash__(self):
         return hash(tuple(self))
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
@@ -773,12 +807,12 @@ class MixedFunctionSpace(object):
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
 
-        See also :attr:`dof_count` and :attr:`node_count`."""
+        See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
     @utils.cached_property
     def node_set(self):
-        r"""A :class:`pyop2.MixedSet` containing the nodes of this
+        r"""A :class:`pyop2.types.set.MixedSet` containing the nodes of this
         :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.node_set`\s of the underlying
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
@@ -788,7 +822,7 @@ class MixedFunctionSpace(object):
 
     @utils.cached_property
     def dof_dset(self):
-        r"""A :class:`pyop2.MixedDataSet` containing the degrees of freedom of
+        r"""A :class:`pyop2.types.dataset.MixedDataSet` containing the degrees of freedom of
         this :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -796,7 +830,7 @@ class MixedFunctionSpace(object):
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def cell_node_map(self):
-        r"""A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
+        r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
         underlying mesh to the :attr:`node_set` of this
         :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
@@ -805,12 +839,12 @@ class MixedFunctionSpace(object):
         return op2.MixedMap(s.cell_node_map() for s in self._spaces)
 
     def interior_facet_node_map(self):
-        r"""Return the :class:`pyop2.MixedMap` from interior facets to
+        r"""Return the :class:`pyop2.types.map.MixedMap` from interior facets to
         function space nodes."""
         return op2.MixedMap(s.interior_facet_node_map() for s in self)
 
     def exterior_facet_node_map(self):
-        r"""Return the :class:`pyop2.Map` from exterior facets to
+        r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
@@ -821,7 +855,7 @@ class MixedFunctionSpace(object):
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.MixedDat` defined on the
+        r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
@@ -891,10 +925,10 @@ class ProxyFunctionSpace(FunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.Dat` objects"""
+    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
 
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.Dat`.
+        r"""Create a :class:`pyop2.types.dat.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
@@ -999,7 +1033,7 @@ class RealFunctionSpace(FunctionSpace):
         return dm
 
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.Global` representing the
+        r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self.comm)
 

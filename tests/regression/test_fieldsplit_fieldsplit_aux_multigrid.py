@@ -94,11 +94,11 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
                            "snes_monitor": None}
     nsp_guess = MixedVectorSpaceBasis(G, [G.sub(0), VectorSpaceBasis(constant=True)])
     solve(F_guess == 0, g, bcs=Gbcs, nullspace=nsp_guess, solver_parameters=solver_params_guess)
-    (u_guess, p_guess) = g.split()
-    z.split()[0].interpolate(Constant(gamma))
-    z.split()[1].assign(u_guess)
-    z.split()[2].assign(p_guess)
-    z.split()[3].interpolate(Constant(10))
+    (u_guess, p_guess) = g.subfunctions
+    z.subfunctions[0].interpolate(Constant(gamma))
+    z.subfunctions[1].assign(u_guess)
+    z.subfunctions[2].assign(p_guess)
+    z.subfunctions[3].interpolate(Constant(10))
 
     solver_params = {
         "snes_monitor": None,

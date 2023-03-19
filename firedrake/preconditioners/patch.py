@@ -205,7 +205,7 @@ def matrix_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -295,7 +295,7 @@ def residual_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
@@ -516,7 +516,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
             coeffs.append(c)
         else:
-            coeffs.extend([c.split()[ind] for ind in indices])
+            coeffs.extend([c.subfunctions[ind] for ind in indices])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
     data_args = []
@@ -615,10 +615,12 @@ class PlaneSmoother(object):
 
         gdim = data.shape[1]
         bary = numpy.zeros(gdim)
+        ndof = 0
         for p_ in closure_of_p:
             (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
-            bary += data[offset:offset+dof].reshape(gdim)
-        bary /= len(closure_of_p)
+            bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
+            ndof += dof
+        bary /= ndof
         return bary
 
     def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):

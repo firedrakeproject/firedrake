@@ -70,5 +70,5 @@ Finally, we set the preconditioner type for the assembled operator::
 
                                                 "assembled_pc_type": "ilu"})
 
-This demo is available as a runnable python file `here
-<poisson.py>`__.
+This demo is available as a runnable python file :demo:`here
+<poisson.py>`.

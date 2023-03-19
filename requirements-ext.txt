@@ -7,7 +7,7 @@ packaging
 pkgconfig
 progress
 pylint
-pytest==6.2.5
+pytest
 pytest-xdist
 requests
 scipy
