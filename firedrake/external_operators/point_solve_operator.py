@@ -6,7 +6,6 @@ from hashlib import md5
 import types
 
 from ufl.core.expr import Expr
-from ufl.log import error
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.function import Function
@@ -64,14 +63,14 @@ class PointsolveOperator(AbstractExternalOperator):
 
         # Check
         if not isinstance(operator_data['point_solve'], types.FunctionType):
-            error("Expecting a FunctionType pointwise expression")
+            raise TypeError("Expecting a FunctionType pointwise expression")
 
         if operator_data['point_solve'].__code__.co_argcount != len(operands) + 1:
-            error("Expecting %s operands" % (operator_data['point_solve'].__code__.co_argcount-1))
+            raise ValueError("Expecting %s operands" % (operator_data['point_solve'].__code__.co_argcount-1))
         if operator_data['solver_name'] not in ('newton', 'secant', 'halley'):
-            error("Expecting of the following method : (%s, %s, %s) " % ('newton', 'secant', 'halley'))
+            raise ValueError("Expecting of the following method : (%s, %s, %s) " % ('newton', 'secant', 'halley'))
         if not isinstance(operator_data['solver_params'], dict):
-            error("Expecting a dict with the solver arguments instead of %s" % operator_data['solver_params'])
+            raise TypeError("Expecting a dict with the solver arguments instead of %s" % operator_data['solver_params'])
 
         self.disp = disp
 

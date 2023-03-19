@@ -2,7 +2,6 @@ from functools import partial, wraps
 import numpy as np
 
 from ufl.referencevalue import ReferenceValue
-from ufl.log import error
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.function import Function
@@ -360,7 +359,7 @@ def neuralnet(model, function_space, inputs_format=0):
         operator_data = {'framework': 'TensorFlow', 'model': model, 'inputs_format': inputs_format}
         return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
     else:
-        error("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
+        raise ValueError("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
 
 
 def ml_get_params(model, framework, inputs_format):
