@@ -265,7 +265,7 @@ class FunctionMixin(FloatingType):
     @no_annotations
     def _ad_convert_type(self, value, options=None):
         # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
-        self._ad_convert_riesz(value, options=options)
+        return self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
