@@ -46,6 +46,7 @@ jobs:
           firedrake-preprocess-bibtex --validate source/_static/references.bib
       - name: Build docs
         run: |
+          git config --global --add safe.directory /home/firedrake/firedrake/src/ufl
           cd /home/firedrake/firedrake/src/ufl
           git checkout interp_dual
           cd /home/firedrake/firedrake/src/firedrake
