@@ -31,16 +31,16 @@ Example:
 BitGenerator
 ------------
 
-A :class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
-A :class:`.BitGenerator` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
-If ``comm.Get_rank() > 1``, :class:`.PCG64`, :class:`.PCG64DXSM`, or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
+A ``.BitGenerator`` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
+A ``.BitGenerator`` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
+If ``comm.Get_rank() > 1``, ``.PCG64``, ``.PCG64DXSM``, or ``.Philox`` should be used, as these bit generators are known to be parallel-safe.
 
 PCG64
 ~~~~~
 
-:class:`.PCG64` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
+``.PCG64`` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
 If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
+To make ``.PCG64`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
 .. code-block:: python3
@@ -52,7 +52,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset the ``state`` after construction as:
+    ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -64,9 +64,9 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 PCG64DXSM
 ~~~~~~~~~
 
-:class:`.PCG64DXSM` wraps `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__.
+``.PCG64DXSM`` wraps `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__.
 If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64DXSM` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
+To make ``.PCG64DXSM`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
 
 .. code-block:: python3
@@ -78,7 +78,7 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for :class:`.PCG64DXSM` constructor. However, one can reset the ``state`` after construction as:
+    ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -90,8 +90,8 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 Philox
 ~~~~~~
 
-:class:`.Philox` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
-If the ``key`` keyword is not provided by the user, :class:`.Philox` computes a default key as:
+``.Philox`` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
+If the ``key`` keyword is not provided by the user, ``.Philox`` computes a default key as:
 
 .. code-block:: python3
 

@@ -40,7 +40,7 @@ def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-        a :class:`~slate.TensorBase` expression.
+        a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
     :kwarg diagonal: If assembling a matrix is it diagonal?
@@ -1193,13 +1193,14 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
     subdomain_key = []
     for val in form.subdomain_data().values():
         for k, v in val.items():
-            if v is not None:
-                extruded = v._extruded
-                constant_layers = extruded and v.constant_layers
-                subset = isinstance(v, op2.Subset)
-                subdomain_key.append((k, extruded, constant_layers, subset))
-            else:
-                subdomain_key.append((k,))
+            for i, vi in enumerate(v):
+                if vi is not None:
+                    extruded = vi._extruded
+                    constant_layers = extruded and vi.constant_layers
+                    subset = isinstance(vi, op2.Subset)
+                    subdomain_key.append((k, i, extruded, constant_layers, subset))
+                else:
+                    subdomain_key.append((k, i))
 
     return ((sig,)
             + tuple(subdomain_key)
@@ -1254,6 +1255,7 @@ class _GlobalKernelBuilder:
                              "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
         iteration_region = iteration_regions.get(self._integral_type, None)
         extruded = self._mesh.extruded
+        extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
 
         return op2.GlobalKernel(self._kinfo.kernel,
@@ -1261,6 +1263,7 @@ class _GlobalKernelBuilder:
                                 iteration_region=iteration_region,
                                 pass_layer_arg=self._kinfo.pass_layer_arg,
                                 extruded=extruded,
+                                extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
                                 subset=self._needs_subset)
 
@@ -1275,7 +1278,7 @@ class _GlobalKernelBuilder:
     @cached_property
     def _needs_subset(self):
         subdomain_data = self._form.subdomain_data()[self._mesh]
-        if subdomain_data.get(self._integral_type, None) is not None:
+        if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
         if self._kinfo.subdomain_id == "everywhere":
@@ -1322,8 +1325,16 @@ class _GlobalKernelBuilder:
                 offset += offset
         else:
             offset = None
+        if self._mesh.extruded_periodic:
+            offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
+            if offset_quotient is not None:
+                offset_quotient = tuple(offset_quotient)
+                if self._integral_type in {"interior_facet", "interior_facet_vert"}:
+                    offset_quotient += offset_quotient
+        else:
+            offset_quotient = None
 
-        map_arg = op2.MapKernelArg(arity, offset)
+        map_arg = op2.MapKernelArg(arity, offset, offset_quotient)
         self._map_arg_cache[key] = map_arg
         return map_arg
 
@@ -1535,9 +1546,14 @@ class ParloopBuilder:
         try:
             subdomain_data = self._form.subdomain_data()[self._mesh][self._integral_type]
         except KeyError:
-            subdomain_data = None
+            subdomain_data = [None]
 
-        if subdomain_data is not None:
+        subdomain_data = [sd for sd in subdomain_data if sd is not None]
+        if subdomain_data:
+            try:
+                subdomain_data, = subdomain_data
+            except ValueError:
+                raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
@@ -1668,7 +1684,7 @@ class _FormHandler:
         """Yield the form coefficients referenced in ``kinfo``."""
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
-                yield form.coefficients()[idx].split()[subidx]
+                yield form.coefficients()[idx].subfunctions[subidx]
 
     @staticmethod
     def index_function_spaces(form, indices):

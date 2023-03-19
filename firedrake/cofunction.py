@@ -1,7 +1,7 @@
 import numpy as np
 import ufl
 from ufl.form import BaseForm
-from pyop2 import op2
+from pyop2 import op2, mpi
 import firedrake.assemble
 from firedrake.logging import warning
 from firedrake import utils, vector
@@ -50,7 +50,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         ufl.Cofunction.__init__(self,
                                 function_space.ufl_function_space())
 
+        # User comm
         self.comm = function_space.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(function_space.comm)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
@@ -60,10 +63,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Allow constructing using a vector.
             val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self.comm
+            assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
@@ -161,6 +168,34 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self.assign(assembled_expr)
 
         raise ValueError('Cannot assign %s' % expr)
+
+    def riesz_representation(self, riesz_map='L2', **solver_options):
+        """Return the Riesz representation of this :class:`Cofunction` with
+           respect to the given Riesz map.
+
+        :arg riesz_map: The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        :kwarg solver_options: Solver options to pass to the linear solver.
+            - solver_parameters: optional solver parameters.
+            - nullspace: an optional :class:`.VectorSpaceBasis` (or
+                :class:`.MixedVectorSpaceBasis`) spanning the null space of
+                the operator.
+            - transpose_nullspace: as for the nullspace, but used to
+                make the right hand side consistent.
+            - near_nullspace: as for the nullspace, but used to add
+                the near nullspace.
+            - options_prefix: an optional prefix used to distinguish
+                PETSc options.  If not provided a unique prefix will be
+                created.  Use this option if you want to pass options
+                to the solver from the command line in addition to
+                through the ``solver_parameters`` dict.
+
+        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
+            the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
+            with u and v trial and test functions, respectively.
+        """
+        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
+                                                     "riesz_representation": riesz_map,
+                                                     "solver_options": solver_options})
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe

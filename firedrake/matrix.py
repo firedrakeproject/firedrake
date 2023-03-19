@@ -2,6 +2,7 @@ import itertools
 import ufl
 
 from pyop2 import op2
+from pyop2.mpi import internal_comm, decref
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from types import SimpleNamespace
@@ -38,6 +39,7 @@ class MatrixBase(ufl.Matrix):
         self._arguments = arguments
         self.bcs = bcs
         self.comm = test.function_space().comm
+        self._comm = internal_comm(self.comm)
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
@@ -51,6 +53,10 @@ class MatrixBase(ufl.Matrix):
             return self.a.arguments()
         else:
             return self._arguments
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @property
     def has_bcs(self):
@@ -99,8 +105,8 @@ class Matrix(MatrixBase):
 
     :arg mat_type: matrix type of assembled matrix.
 
-    A :class:`pyop2.Mat` will be built from the remaining
-    arguments, for valid values, see :class:`pyop2.Mat`.
+    A ``pyop2.types.mat.Mat`` will be built from the remaining
+    arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
 
     .. note::
 
@@ -157,7 +163,7 @@ class ImplicitMatrix(MatrixBase):
                                     col_bcs=self.bcs,
                                     fc_params=kwargs["fc_params"],
                                     appctx=appctx)
-        self.petscmat = PETSc.Mat().create(comm=self.comm)
+        self.petscmat = PETSc.Mat().create(comm=self._comm)
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)

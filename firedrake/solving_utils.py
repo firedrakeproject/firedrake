@@ -327,7 +327,7 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.split()
+            us = problem.u.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub

@@ -19,13 +19,14 @@ def annotate_assemble(assemble):
             output = assemble(*args, **kwargs)
 
         from firedrake.function import Function
+        from firedrake.cofunction import Cofunction
         form = args[0]
-        if isinstance(output, (numbers.Complex, Function)):
-            # Assembling a 0-form or a BaseFormOperator (e.g. Interp)
+        if isinstance(output, (numbers.Complex, Function, Cofunction)):
+            # Assembling a 0-form or 1-form (e.g. Form or BaseFormOperator)
             if not annotate:
                 return output
 
-            if not isinstance(output, (float, Function)):
+            if not isinstance(output, (float, Function, Cofunction)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
             output = create_overloaded_object(output)
             block = AssembleBlock(form, ad_block_tag=ad_block_tag)

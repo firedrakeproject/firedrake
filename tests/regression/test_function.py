@@ -148,3 +148,51 @@ def test_copy(V):
     assert np.allclose(f.dat.data_ro, 3.0)
 
     assert h.name() == "foo"
+
+
+def test_scalar_function_zero(V):
+    f = Function(V)
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    g = f.zero()
+    assert f is g
+    assert np.allclose(f.dat.data_ro, 0.0)
+
+
+def test_scalar_function_zero_with_subset(V):
+    f = Function(V)
+    # create an arbitrary subset consisting of the first three nodes
+    subset = op2.Subset(V.node_set, [0, 1, 2])
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    f.zero(subset=subset)
+    assert np.allclose(f.dat.data_ro[:3], 0.0)
+    assert np.allclose(f.dat.data_ro[3:], 1.0)
+
+
+def test_tensor_function_zero(W):
+    f = Function(W)
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    g = f.zero()
+    assert f is g
+    assert np.allclose(f.dat.data_ro, 0.0)
+
+
+def test_tensor_function_zero_with_subset(W):
+    f = Function(W)
+    # create an arbitrary subset consisting of the first three nodes
+    subset = op2.Subset(W.node_set, [0, 1, 2])
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    f.zero(subset=subset)
+    assert np.allclose(f.dat.data_ro[:3], 0.0)
+    assert np.allclose(f.dat.data_ro[3:], 1.0)

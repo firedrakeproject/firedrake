@@ -2,7 +2,7 @@ from functools import wraps
 import ufl
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, FunctionSplitBlock, FunctionMergeBlock, SupermeshProjectBlock
+from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data
@@ -69,18 +69,18 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
-    def _ad_annotate_split(split):
-        @wraps(split)
+    def _ad_annotate_subfunctions(subfunctions):
+        @wraps(subfunctions)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
             with stop_annotating():
-                output = split(self, *args, **kwargs)
+                output = subfunctions(self, *args, **kwargs)
 
             if annotate:
                 output = tuple(firedrake.Function(output[i].function_space(),
                                                   output[i],
-                                                  block_class=FunctionSplitBlock,
+                                                  block_class=SubfunctionBlock,
                                                   _ad_floating_active=True,
                                                   _ad_args=[self, i],
                                                   _ad_output_args=[i],
@@ -227,32 +227,32 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
+    def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, TrialFunction, TestFunction, assemble
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
+        solver_options = options.get("solver_options", {})
+        V = options.get("function_space", self.function_space())
 
         if riesz_representation == "l2":
-            value = value if not hasattr(value, 'vector') else value.vector()
-            return Function(self.function_space(), val=value)
+            return Function(V, val=value.vector())
 
         elif riesz_representation == "L2":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
+            ret = Function(V)
+            u = TrialFunction(V)
+            v = TestFunction(V)
             M = assemble(firedrake.inner(u, v)*firedrake.dx)
-            firedrake.solve(M, ret, value)
+            firedrake.solve(M, ret, value, **solver_options)
             return ret
 
         elif riesz_representation == "H1":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
+            ret = Function(V)
+            u = TrialFunction(V)
+            v = TestFunction(V)
             M = assemble(firedrake.inner(u, v)*firedrake.dx
                          + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx)
-            firedrake.solve(M, ret, value)
+            firedrake.solve(M, ret, value, **solver_options)
             return ret
 
         elif callable(riesz_representation):
@@ -261,6 +261,11 @@ class FunctionMixin(FloatingType):
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
+
+    @no_annotations
+    def _ad_convert_type(self, value, options=None):
+        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
+        self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
