@@ -936,10 +936,10 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
 
     B00.destroy()
     B11.destroy()
-    if len(B_diag) == 1:
+    n = len(B_diag)
+    if n == 1:
         result = B_diag[0]
     else:
-        n = len(B_diag)
         B_zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=comm)
         B_zero.assemble()
         B_blocks = [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]

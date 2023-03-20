@@ -608,6 +608,19 @@ def compare_dual_basis(l1, l2):
 @lru_cache(maxsize=10)
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(finat_element):
+    """
+    Find DOF permuation to factor out the EnrichedElement expansion into common
+    TensorProductElements. This routine exposes structure to e.g vectorize
+    prolongation of NCE or NCF accross vector components, by permuting all
+    components into a common TensorProductElement.
+
+    This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
+
+    :returns: a 3-tuple of the DOF permuation, the unique terms in expansion as
+              a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
+              permuatations of the axes to form the element given by their shifts
+              in list of `int` tuples
+    """
     from FIAT.reference_element import LINE
 
     expansion = expand_element(finat_element)
@@ -714,7 +727,7 @@ x is (nx*ny*nz)-by-nel,
 y is (mx*my*mz)-by-nel.
 
 Important notes:
-The input data in x is destroyed in the process.
+This routine is in-place: the input data in x and y are destroyed in the process.
 Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
 */
 
@@ -766,6 +779,10 @@ static inline void kronmxv(PetscBLASInt tflag,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
     PetscScalar *x, PetscScalar *y, PetscScalar *xwork, PetscScalar *ywork){
+    /*
+    Same as kronmxv_inplace, but the work buffers allow the input data in x to
+    be kept untouched.
+    */
 
     PetscScalar *ptr[2] = {xwork, ywork};
 
@@ -784,6 +801,10 @@ static inline void kronmxv(PetscBLASInt tflag,
 static inline void permute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
+    /*
+    Apply a cyclic permuation to a n0 x n1 x n2 x n3 array x, exponsing axis as
+    the fast direction.  Write the result on y.
+    */
 
     PetscBLASInt p = 0;
     PetscBLASInt s0, s1, s2, s3;
@@ -805,6 +826,9 @@ static inline void permute_axis(PetscBLASInt axis,
 static inline void ipermute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
+    /*
+    Apply the transpose of permute_axis, reading from y and adding to x.
+    */
 
     PetscBLASInt p = 0;
     PetscBLASInt s0, s1, s2, s3;
@@ -827,15 +851,15 @@ static inline void ipermute_axis(PetscBLASInt axis,
 
 
 @PETSc.Log.EventDecorator("MakeKronCode")
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
+def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     """
     Return interpolation and restriction kernels between enriched tensor product elements
     """
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
     _, celems, cshifts = get_permutation_to_line_elements(Vc.finat_element)
+    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
 
     shifts = fshifts
     in_place = False
@@ -902,7 +926,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     fshapes = []
     cshapes = []
     has_code = False
-    for felem, celem, shift in zip(felems, celems, shifts):
+    for celem, felem, shift in zip(celems, felems, shifts):
         if len(felem) != len(celem):
             raise ValueError("Fine and coarse elements do not have the same number of factors")
         if len(felem) > 3:
@@ -915,7 +939,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [fiat_reference_prolongator(ce, fe).T for fe, ce in zip(felem, celem)]
+        J = [fiat_reference_prolongator(ce, fe).T for ce, fe in zip(celem, felem)]
         if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
@@ -1022,7 +1046,7 @@ def cache_generate_code(kernel, comm):
     return code
 
 
-def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
+def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if fmapping == cmapping:
         return None
     A = get_piola_tensor(cmapping, Q.mesh(), inverse=False)
@@ -1166,6 +1190,9 @@ class StandaloneInterpolationMatrix(object):
     @cached_property
     def _kernels(self):
         try:
+            # We generate custom prolongation and restriction kernels mainly because:
+            # 1. Code generation for the transpose of prolongation is not readily available
+            # 2. Dual evaluation of EnrichedElement is not yet implemented in FInAT
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
@@ -1174,6 +1201,8 @@ class StandaloneInterpolationMatrix(object):
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
         except ValueError:
+            # The elements do not have the expected tensor product structure
+            # Fall back to aij kernels
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
@@ -1250,7 +1279,7 @@ class StandaloneInterpolationMatrix(object):
 
         if fmapping == cmapping:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2")
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vc, Vf, "t0", "t1", "J0", "t2")
         else:
             decl = [""]*4
             prolong = [""]*5
@@ -1261,18 +1290,18 @@ class StandaloneInterpolationMatrix(object):
                 if qelem.mapping() != "identity":
                     qelem = qelem.reconstruct(mapping="identity")
                 Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.mesh(), qelem)
-                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
+                mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
-                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
+                mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space
-            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Vc, "t0", "t1", "J0", "t2")
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vc, Qf, "t0", "t1", "J0", "t2")
 
             if mapping_output is not None:
                 # permute to FInAT ordering, and apply the mapping
@@ -1281,7 +1310,7 @@ class StandaloneInterpolationMatrix(object):
                 if not in_place_mapping:
                     # permute to Kronecker-friendly ordering and interpolate to fine space
                     decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1", "t2")
+                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Qf, Vf, "t0", "t1", "J1", "t2")
                     shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
