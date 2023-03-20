@@ -324,7 +324,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True)
+                                                       is_linear=True,
+                                                       cache_jacobian=cache_jacobian)
         self._constant_jacobian = constant_jacobian
 
 

@@ -174,7 +174,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             bc.apply(dJdu)
 
         adj_sol = self.compat.create_function(self.function_space)
-        self.compat.linalg_solve(dFdu, adj_sol.vector(), dJdu, *self.adj_args, cache_jacobian=False, **self.adj_kwargs)
+        self.compat.linalg_solve(dFdu, adj_sol.vector(), dJdu, *self.adj_args,
+                                 cache_jacobian=False, **self.adj_kwargs)
 
         adj_sol_bdy = None
         if compute_bdy:
