@@ -346,7 +346,7 @@ class PMGBase(PCSNESBase):
         fV = fctx.J.arguments()[0].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
         fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-        key = (fV, cV, cbcs, fbcs, mat_type)
+        key = (cV, fV, cbcs, fbcs, mat_type)
         try:
             return self._cache_transfer[key]
         except KeyError:
@@ -356,7 +356,7 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
-            return self._cache_transfer.setdefault(key, construct_mat(fV, cV, fbcs, cbcs))
+            return self._cache_transfer.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -678,7 +678,7 @@ def get_permutation_to_line_elements(finat_element):
 
 
 @lru_cache(maxsize=10)
-def fiat_reference_prolongator(felem, celem, derivative=False):
+def fiat_reference_prolongator(celem, felem, derivative=False):
     ckey = (felem.formdegree,) if derivative else None
     fkey = (celem.formdegree,) if derivative else None
     fdual = felem.dual_basis()
@@ -915,7 +915,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [fiat_reference_prolongator(fe, ce).T for fe, ce in zip(felem, celem)]
+        J = [fiat_reference_prolongator(ce, fe).T for fe, ce in zip(felem, celem)]
         if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
@@ -1130,13 +1130,13 @@ class StandaloneInterpolationMatrix(object):
 
     _cache_work = {}
 
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
-        self.uf = self.work_function(Vf)
+    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
         self.uc = self.work_function(Vc)
-        self.Vf = self.uf.function_space()
+        self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()
-        self.Vf_bcs = Vf_bcs
+        self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
+        self.Vf_bcs = Vf_bcs
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1453,10 +1453,10 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     @cached_property
     def _standalones(self):
         standalones = []
-        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.subfunctions, self.uc.subfunctions)):
-            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+        for i, (uc_sub, uf_sub) in enumerate(zip(self.uc.subfunctions, self.uf.subfunctions)):
             Vc_sub_bcs = [bc for bc in self.Vc_bcs if bc.function_space().index == i]
-            standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)
+            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+            standalone = StandaloneInterpolationMatrix(uc_sub, uf_sub, Vc_sub_bcs, Vf_sub_bcs)
             standalones.append(standalone)
         return standalones
 
@@ -1477,11 +1477,11 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
             return None
 
 
-def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
-    if isinstance(Pk, firedrake.Function):
-        Pk = Pk.function_space()
+def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
     if isinstance(P1, firedrake.Function):
         P1 = P1.function_space()
+    if isinstance(Pk, firedrake.Function):
+        Pk = Pk.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -1532,12 +1532,12 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
     return mat.handle
 
 
-def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
+def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     fele = Vf.ufl_element()
     if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
-        ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+        ctx = MixedInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
     else:
-        ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+        ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)

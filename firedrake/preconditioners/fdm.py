@@ -133,7 +133,7 @@ class FDMPC(PCBase):
                 bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
             # Construct interpolation from original to variant spaces
-            self.fdm_interp = prolongation_matrix_matfree(V, V_fdm, [], bcs_fdm)
+            self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
@@ -162,7 +162,7 @@ class FDMPC(PCBase):
                         x.destroy()
                     return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
 
-                inject = prolongation_matrix_matfree(V_fdm, V, [], [])
+                inject = prolongation_matrix_matfree(V, V_fdm, [], [])
                 Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
                 Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
                 Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
@@ -980,16 +980,16 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     return result
 
 
-def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
+def diff_prolongator(Vc, Vf, cbcs=[], fbcs=[]):
     """
-    Magic. Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
-    Works for any basis. These are the same matrices one needs for HypreAMS and friends.
+    Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
+    Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
     """
     from tsfc.finatinterface import create_element
     from firedrake.preconditioners.pmg import fiat_reference_prolongator
 
-    ef = Vf.finat_element
     ec = Vc.finat_element
+    ef = Vf.finat_element
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
@@ -1000,7 +1000,7 @@ def diff_prolongator(Vf, Vc, fbcs=[], cbcs=[]):
     degree = e0.degree()
     A11 = numpy.eye(degree, dtype=PETSc.RealType)
     A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
-    A10 = fiat_reference_prolongator(e1, e0, derivative=True)
+    A10 = fiat_reference_prolongator(e0, e1, derivative=True)
 
     tdim = Vc.mesh().topological_dimension()
     Dhat = diff_matrix(tdim, ec.formdegree, A00, A11, A10)
@@ -1720,7 +1720,7 @@ def extrude_node_map(node_map, bsize=1):
     :arg node_map: a :class:`pyop2.Map` mapping entities to their local dofs, including ghost entities.
     :arg bsize: the block size
 
-    :returns: a 2-tuple with the map as function and the number of cells owned by this process
+    :returns: a 2-tuple with the cell to node map and the number of cells owned by this process
     """
     nelv = node_map.values.shape[0]
     if node_map.offset is None:
