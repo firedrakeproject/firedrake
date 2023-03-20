@@ -52,7 +52,7 @@ class HypreAMS(PCBase):
         if G_callback is None:
             self.G = chop(Interpolator(grad(TestFunction(P1)), V).callable().handle)
         else:
-            self.G = G_callback(V, P1)
+            self.G = G_callback(P1, V)
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
         self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)

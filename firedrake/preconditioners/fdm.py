@@ -66,7 +66,7 @@ class FDMPC(PCBase):
     @staticmethod
     def load_set_values(triu=False):
         """
-        Compile C code to insert sparse element matrices and store in class cache
+        Compile C code to insert sparse element matrices and keep it in class cache
 
         :arg triu: are we inserting onto the upper triangular part of the matrix?
 
@@ -133,7 +133,7 @@ class FDMPC(PCBase):
                     W = W.sub(index)
                 bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
-            # Construct interpolation from original to variant spaces
+            # Construct interpolation from variant space to original space
             self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
@@ -432,7 +432,7 @@ class FDMPC(PCBase):
             assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
             condense_element_mat = None
 
-        do_sort = True
+        do_sort = Vrow.finat_element.formdegree > 0 or Vcol.finat_element.formdegree > 0
         if condense_element_mat is None:
             condense_element_mat = lambda x: x
             do_sort = False

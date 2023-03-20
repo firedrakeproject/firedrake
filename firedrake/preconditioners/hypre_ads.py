@@ -32,12 +32,12 @@ class HypreADS(PCBase):
         if G_callback is None:
             self.G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
         else:
-            self.G = G_callback(NC1, P1)
+            self.G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
             self.C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
         else:
-            self.C = C_callback(V, NC1)
+            self.C = C_callback(NC1, V)
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
         self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)
