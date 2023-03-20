@@ -176,7 +176,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             bc.apply(dJdu)
 
         adj_sol = self.compat.create_function(self.function_space)
-        Ax = self.compat.replace(self.adj_F_action, {self.adj_x: adj_sol}) if self.adj_F_action is not None else None
+        Ax = self.backend.replace(self.adj_F_action, {self.adj_x: adj_sol}) if self.adj_F_action is not None else None
         self.compat.linalg_solve(dFdu, adj_sol.vector(), dJdu, *self.adj_args,
                                  Ax=Ax, cache_jacobian=False, **self.adj_kwargs)
 

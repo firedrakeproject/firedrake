@@ -20,10 +20,10 @@ class NonlinearVariationalProblemMixin:
             self._ad_J = self.J
             cache_jacobian = kwargs.pop("cache_jacobian", True)
 
+            _ad_adj_F = None
+            _ad_adj_x = None
+            _ad_adj_F_action = None
             if cache_jacobian:
-                _ad_adj_F = None
-                _ad_adj_x = None
-                _ad_adj_F_action = None
                 try:
                     print("Caching Jacobian")
                     # Some forms (e.g. SLATE tensors) are not currently
@@ -33,7 +33,7 @@ class NonlinearVariationalProblemMixin:
                                       TrialFunction(self.u.function_space()))
                     _ad_adj_F = adjoint(dFdu)
                     _ad_adj_x = Function(self.F.arguments()[0].function_space())
-                    _ad_adj_F_action = action(self._ad_adj_F, self._ad_adj_x)
+                    _ad_adj_F_action = action(_ad_adj_F, _ad_adj_x)
                 except TypeError:
                     pass
             self._ad_adj_F = _ad_adj_F
@@ -80,9 +80,8 @@ class NonlinearVariationalSolverMixin:
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
 
-                sb_kwargs["_ad_adj_F_action"] = self._ad_adj_F_action
-                sb_kwargs["_ad_adj_x"] = self._ad_adj_x
-                sb_kwargs["_ad_adj_F_action"] = self._ad_adj_F_action
+                sb_kwargs["adj_F_action"] = problem._ad_adj_F_action
+                sb_kwargs["adj_x"] = problem._ad_adj_x
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
