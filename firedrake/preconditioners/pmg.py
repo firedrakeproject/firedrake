@@ -559,8 +559,8 @@ def expand_element(ele):
 
 def evaluate_dual(dual, element, key=None):
     # Evaluate the action of a set of dual functionals on the basis functions of an element.
-    keys = set(tuple(phi.get_point_dict().keys()) for phi in dual)
-    pts = list(set(sum(keys, ())))
+    keys = list(dict.fromkeys(tuple(phi.get_point_dict().keys()) for phi in dual))
+    pts = list(dict.fromkeys(sum(keys, ())))
     if key is None:
         key = (0, ) * len(pts[0])
     tab = element.tabulate(sum(key), pts)[key]

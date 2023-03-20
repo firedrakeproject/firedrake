@@ -67,6 +67,7 @@ class FDMPC(PCBase):
     def load_set_values(triu=False):
         """
         Compile C code to insert sparse element matrices and store in class cache
+
         :arg triu: are we inserting onto the upper triangular part of the matrix?
 
         :returns: a python wrapper for the matrix insertion function
@@ -210,7 +211,7 @@ class FDMPC(PCBase):
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg form_compiler_parameters: parameters to assemble diagonal factors
-        :pmat_type: the preconditioner `PETSc.Mat.Type`
+        :arg pmat_type: the preconditioner `PETSc.Mat.Type`
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
@@ -506,15 +507,26 @@ class FDMPC(PCBase):
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters):
         """
-        Obtain coefficients as the diagonal of a weighted mass matrix in V^k x V^{k+1}
-
+        Obtain coefficients for the auxiliary operator as the diagonal of a
+        weighted mass matrix in broken(V^k) * broken(V^{k+1}).
         See Section 3.2 of Brubeck2022b.
+
+        :arg J: the Jacobian bilinear :class:`ufl.Form`,
+        :arg form_compiler_parameters: a `dict` with tsfc parameters.
+
+        :returns: a 2-tuple of a `dict` with the zero-th order and second
+                  order coefficients keyed on ``"beta"`` and ``"alpha"``,
+                  and a list of assembly callables.
         """
         from ufl.algorithms.ad import expand_derivatives
         from ufl.algorithms.expand_indices import expand_indices
         from firedrake.formmanipulation import ExtractSubBlock
         from firedrake.assemble import assemble
 
+        # Basic idea: take the original bilinear form and
+        # replace the exterior derivatives with arguments in broken(V^{k+1}).
+        # Then, replace the original arguments with arguments in broken(V^k).
+        # Where the broken spaces have L2-orthogonal FDM basis functions.
         index = len(J.arguments()[-1].function_space())-1
         if index:
             splitter = ExtractSubBlock()
@@ -529,6 +541,7 @@ class FDMPC(PCBase):
         e = unrestrict_element(e)
         sobolev = e.sobolev_space()
 
+        # Replacement rule for the exterior derivative = grad(arg) * eps
         map_grad = None
         if sobolev == ufl.H1:
             map_grad = lambda p: p
@@ -544,6 +557,7 @@ class FDMPC(PCBase):
             else:
                 map_grad = lambda p: p*(eps/2)
 
+        # Construct Z = broken(V^k) * broken(V^{k+1})
         V = args_J[0].function_space()
         formdegree = V.finat_element.formdegree
         degree = e.degree()
@@ -569,14 +583,16 @@ class FDMPC(PCBase):
         elements = list(map(ufl.BrokenElement, elements))
         if V.shape:
             elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-
         Z = firedrake.FunctionSpace(mesh, ufl.MixedElement(elements))
+
+        # Transform the exterior derivative and the original arguments of J to arguments in Z
         args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
         repargs = {t: v[0] for t, v in zip(args_J, args)}
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
+        # Return coefficients and assembly callables, and cache them class
         key = (mixed_form.signature(), mesh)
         block_diagonal = True
         try:
@@ -601,6 +617,15 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
+        """
+        Return the reference tensor used in the diagonal factorization of the
+        sparse cell matrices.  See Section 3.2 of Brubeck2022b.
+
+        :arg V: a :class:`.FunctionSpace`
+
+        :returns: a :class:`PETSc.Mat` with the moments of orthogonalized bases
+                  against the basis and its exterior derivative.
+        """
         tdim = V.mesh().topological_dimension()
         value_size = V.value_size
         formdegree = V.finat_element.formdegree
@@ -612,12 +637,12 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
-        key = (degree, tdim, formdegree, V.value_size, is_interior, is_facet)
+        key = (degree, tdim, formdegree, value_size, is_interior, is_facet)
         cache = self._reference_tensor_cache
         try:
             return cache[key]
         except KeyError:
-            full_key = (degree, tdim, formdegree, V.value_size, False, False)
+            full_key = (degree, tdim, formdegree, value_size, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
@@ -853,7 +878,8 @@ def is_restricted(finat_element):
 
 
 def sort_interior_dofs(idofs, A):
-    # Permute `idofs` to have A[idofs, idofs] with contiguous 1x1, 2x2, 3x3, ... blocks
+    # Permute `idofs` to have A[idofs, idofs] with square blocks of
+    # increasing dimension along its diagonal.
     Aii = A.createSubMatrix(idofs, idofs)
     indptr, indices, _ = Aii.getValuesCSR()
     n = idofs.getSize()
@@ -883,58 +909,51 @@ def kron3(A, B, C, scale=None):
 
 def mass_matrix(tdim, formdegree, B00, B11, comm=None):
     # Construct mass matrix on reference cell from 1D mass matrices B00 and B11.
-    # It can be applied with either broken or conforming test and trial spaces.
+    # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
+    if tdim == 1:
+        return petsc_sparse(B11 if formdegree else B00, comm=comm)
+
     B00 = petsc_sparse(B00, comm=comm)
     B11 = petsc_sparse(B11, comm=comm)
-    if tdim == 1:
+    if tdim == 2:
         if formdegree == 0:
-            B11.destroy()
-            return B00
-        else:
-            B00.destroy()
-            return B11
-    elif tdim == 2:
-        if formdegree == 0:
-            B_blocks = [B00.kron(B00)]
+            B_diag = [B00.kron(B00)]
         elif formdegree == 1:
-            B_blocks = [B00.kron(B11), B11.kron(B00)]
+            B_diag = [B00.kron(B11), B11.kron(B00)]
         else:
-            B_blocks = [B11.kron(B11)]
+            B_diag = [B11.kron(B11)]
     elif tdim == 3:
         if formdegree == 0:
-            B_blocks = [kron3(B00, B00, B00)]
+            B_diag = [kron3(B00, B00, B00)]
         elif formdegree == 1:
-            B_blocks = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
+            B_diag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
         elif formdegree == 2:
-            B_blocks = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
+            B_diag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
         else:
-            B_blocks = [kron3(B11, B11, B11)]
+            B_diag = [kron3(B11, B11, B11)]
 
-    if len(B_blocks) == 1:
-        result = B_blocks[0]
-    else:
-        nrows = sum(Bk.size[0] for Bk in B_blocks)
-        ncols = sum(Bk.size[1] for Bk in B_blocks)
-        csr_block = [Bk.getValuesCSR() for Bk in B_blocks]
-        ishift = numpy.cumsum([0] + [csr[0][-1] for csr in csr_block])
-        jshift = numpy.cumsum([0] + [Bk.size[1] for Bk in B_blocks])
-        indptr = numpy.concatenate([csr[0][bool(shift):]+shift for csr, shift in zip(csr_block, ishift[:-1])])
-        indices = numpy.concatenate([csr[1]+shift for csr, shift in zip(csr_block, jshift[:-1])])
-        data = numpy.concatenate([csr[2] for csr in csr_block])
-        result = PETSc.Mat().createAIJ((nrows, ncols), csr=(indptr, indices, data), comm=comm)
-        for B in B_blocks:
-            B.destroy()
     B00.destroy()
     B11.destroy()
+    if len(B_diag) == 1:
+        result = B_diag[0]
+    else:
+        n = len(B_diag)
+        B_zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=comm)
+        B_zero.assemble()
+        B_blocks = [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]
+        result = block_mat(B_blocks)
+        B_zero.destroy()
+        for B in B_diag:
+            B.destroy()
     return result
 
 
 def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     # Construct exterior derivative matrix on reference cell from 1D mass matrices A00 and A11,
     # and exterior derivative moments A10.
-    # It can be applied with either broken or conforming test and trial spaces.
+    # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
     if formdegree == tdim:
@@ -943,15 +962,13 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
         A_zero.assemble()
         return A_zero
 
-    A00 = petsc_sparse(A00, comm=comm)
-    A11 = petsc_sparse(A11, comm=comm)
     A10 = petsc_sparse(A10, comm=comm)
     if tdim == 1:
-        A00.destroy()
-        A11.destroy()
-
         return A10
-    elif tdim == 2:
+
+    A00 = petsc_sparse(A00, comm=comm)
+    A11 = petsc_sparse(A11, comm=comm)
+    if tdim == 2:
         if formdegree == 0:
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
