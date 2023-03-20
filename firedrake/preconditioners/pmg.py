@@ -609,16 +609,16 @@ def compare_dual_basis(l1, l2):
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(finat_element):
     """
-    Find DOF permuation to factor out the EnrichedElement expansion into common
+    Find DOF permutation to factor out the EnrichedElement expansion into common
     TensorProductElements. This routine exposes structure to e.g vectorize
     prolongation of NCE or NCF accross vector components, by permuting all
     components into a common TensorProductElement.
 
     This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
 
-    :returns: a 3-tuple of the DOF permuation, the unique terms in expansion as
+    :returns: a 3-tuple of the DOF permutation, the unique terms in expansion as
               a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
-              permuatations of the axes to form the element given by their shifts
+              permutations of the axes to form the element given by their shifts
               in list of `int` tuples
     """
     from FIAT.reference_element import LINE
@@ -802,7 +802,7 @@ static inline void permute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
     /*
-    Apply a cyclic permuation to a n0 x n1 x n2 x n3 array x, exponsing axis as
+    Apply a cyclic permutation to a n0 x n1 x n2 x n3 array x, exponsing axis as
     the fast direction.  Write the result on y.
     */
 
