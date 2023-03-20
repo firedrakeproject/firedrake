@@ -18,15 +18,21 @@ class NonlinearVariationalProblemMixin:
             self._ad_u = self.u
             self._ad_bcs = self.bcs
             self._ad_J = self.J
-            try:
-                # Some forms (e.g. SLATE tensors) are not currently
-                # differentiable.
-                dFdu = derivative(self.F,
-                                  self.u,
-                                  TrialFunction(self.u.function_space()))
-                self._ad_adj_F = adjoint(dFdu)
-            except TypeError:
+            cache_jacobian = kwargs.pop("cache_jacobian", True)
+
+            if cache_jacobian:
+                try:
+                    # Some forms (e.g. SLATE tensors) are not currently
+                    # differentiable.
+                    dFdu = derivative(self.F,
+                                      self.u,
+                                      TrialFunction(self.u.function_space()))
+                    self._ad_adj_F = adjoint(dFdu)
+                except TypeError:
+                    self._ad_adj_F = None
+            else:
                 self._ad_adj_F = None
+
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper

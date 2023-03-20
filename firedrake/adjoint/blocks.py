@@ -159,6 +159,31 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
+    def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
+        dJdu_copy = dJdu.copy()
+        kwargs = self.assemble_kwargs.copy()
+        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        bcs = self._homogenize_bcs()
+        kwargs["bcs"] = bcs
+        import time
+        cpu_t = time.time()
+        dFdu = self.compat.assemble_adjoint_value(dFdu_adj_form, **kwargs)
+        print("Pyadjoint: Assemble adjoint equation: ", time.time() - cpu_t, "s")
+
+        for bc in bcs:
+            bc.apply(dJdu)
+
+        adj_sol = self.compat.create_function(self.function_space)
+        self.compat.linalg_solve(dFdu, adj_sol.vector(), dJdu, *self.adj_args, cache_jacobian=False, **self.adj_kwargs)
+
+        adj_sol_bdy = None
+        if compute_bdy:
+            adj_sol_bdy = self.compat.function_from_vector(self.function_space,
+                                                           dJdu_copy - self.compat.assemble_adjoint_value(
+                                                               self.backend.action(dFdu_adj_form, adj_sol)))
+
+        return adj_sol, adj_sol_bdy
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
 

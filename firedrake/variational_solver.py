@@ -47,7 +47,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False):
+                 is_linear=False,
+                 cache_jacobian=True):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -292,7 +293,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False):
+                 constant_jacobian=False,
+                 cache_jacobian=True):
         r"""
         :param a: the bilinear form
         :param L: the linear form
