@@ -291,7 +291,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, a, L, u, bcs=None, aP=None,
+    def __init__(self, a, L, u, bcs=None,
+                 aP=None, Ax=None,
                  form_compiler_parameters=None,
                  constant_jacobian=False,
                  cache_jacobian=True):
@@ -313,14 +314,13 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)) and L == 0:
-            F = ufl_expr.action(J, u)
-        else:
+        F = ufl_expr.action(J, u) if Ax is None else Ax
+        if isinstance(L, (ufl.Form, slate.slate.TensorBase)) or L != 0:
             if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1:
                 raise ValueError("Provided RHS is not a linear form")
-            F = ufl_expr.action(J, u) - L
+            F -= L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,

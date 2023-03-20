@@ -215,6 +215,7 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
+    Ax = kwargs.pop("Ax", None)
     cache_jacobian = kwargs.pop("cache_jacobian", True)
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
@@ -230,7 +231,7 @@ def _la_solve(A, x, b, **kwargs):
     if isinstance(x, firedrake.Vector):
         x = x.function
     # linear MG doesn't need RHS, supply zero.
-    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=A.bcs, cache_jacobian=cache_jacobian)
+    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=A.bcs, Ax=Ax, cache_jacobian=cache_jacobian)
     mat_type = A.mat_type
     appctx = solver_parameters.get("appctx", {})
     ctx = solving_utils._SNESContext(lvp,

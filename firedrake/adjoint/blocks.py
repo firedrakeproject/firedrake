@@ -119,6 +119,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
+        self.adj_F_action = kwargs.pop("adj_F_action", None)
+        self.adj_x = kwargs.pop("adj_x", None)
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
@@ -174,8 +176,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             bc.apply(dJdu)
 
         adj_sol = self.compat.create_function(self.function_space)
+        Ax = self.compat.replace(self.adj_F_action, {self.adj_x: adj_sol}) if self.adj_F_action is not None else None
         self.compat.linalg_solve(dFdu, adj_sol.vector(), dJdu, *self.adj_args,
-                                 cache_jacobian=False, **self.adj_kwargs)
+                                 Ax=Ax, cache_jacobian=False, **self.adj_kwargs)
 
         adj_sol_bdy = None
         if compute_bdy:

@@ -12,7 +12,7 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
-            from firedrake import derivative, adjoint, TrialFunction
+            from firedrake import derivative, adjoint, action, TrialFunction, Function
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u
@@ -21,17 +21,24 @@ class NonlinearVariationalProblemMixin:
             cache_jacobian = kwargs.pop("cache_jacobian", True)
 
             if cache_jacobian:
+                _ad_adj_F = None
+                _ad_adj_x = None
+                _ad_adj_F_action = None
                 try:
+                    print("Caching Jacobian")
                     # Some forms (e.g. SLATE tensors) are not currently
                     # differentiable.
                     dFdu = derivative(self.F,
                                       self.u,
                                       TrialFunction(self.u.function_space()))
-                    self._ad_adj_F = adjoint(dFdu)
+                    _ad_adj_F = adjoint(dFdu)
+                    _ad_adj_x = Function(self.F.arguments()[0].function_space())
+                    _ad_adj_F_action = action(self._ad_adj_F, self._ad_adj_x)
                 except TypeError:
-                    self._ad_adj_F = None
-            else:
-                self._ad_adj_F = None
+                    pass
+            self._ad_adj_F = _ad_adj_F
+            self._ad_adj_x = _ad_adj_x
+            self._ad_adj_F_action = _ad_adj_F_action
 
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
@@ -73,6 +80,9 @@ class NonlinearVariationalSolverMixin:
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
 
+                sb_kwargs["_ad_adj_F_action"] = self._ad_adj_F_action
+                sb_kwargs["_ad_adj_x"] = self._ad_adj_x
+                sb_kwargs["_ad_adj_F_action"] = self._ad_adj_F_action
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
