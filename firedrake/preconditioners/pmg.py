@@ -98,7 +98,7 @@ class PMGBase(PCSNESBase):
         pdm.setOptionsPrefix(options_prefix)
 
         ppc = self.configure_pmg(obj, pdm)
-        is_snes = isinstance(obj, PETSc.SNES)
+        self.is_snes = isinstance(obj, PETSc.SNES)
 
         copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
 
@@ -129,7 +129,7 @@ class PMGBase(PCSNESBase):
         # Now overwrite some routines on the DM
         pdm.setRefine(None)
         pdm.setCoarsen(self.coarsen)
-        if is_snes:
+        if self.is_snes:
             pdm.setSNESFunction(_SNESContext.form_function)
             pdm.setSNESJacobian(_SNESContext.form_jacobian)
             pdm.setKSPComputeOperators(_SNESContext.compute_operators)
@@ -201,12 +201,15 @@ class PMGBase(PCSNESBase):
                              for f in a.integrals()])
             return a
 
-        cF = _coarsen_form(fctx.F)
         cJ = _coarsen_form(fctx.J)
         cJp = _coarsen_form(fctx.Jp)
+        # This fixes a subtle bug where you are applying PMGPC on a mixed
+        # problem with geometric multigrid only on one block and an non-Lagrange element
+        # on the other block (gmg breaks for non-Lagrange elements)
+        cF = _coarsen_form(fctx.F) if self.is_snes else ufl.action(cJ, cu)
+
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         cbcs = self.coarsen_bcs(fproblem.bcs, cV)
-        cF = self.coarsen_residual(cF, cJ, cu)
 
         # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
         cappctx = dict(fctx.appctx)
@@ -343,7 +346,7 @@ class PMGBase(PCSNESBase):
         fV = fctx.J.arguments()[0].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
         fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-        key = (fV, cV, cbcs, fbcs, mat_type)
+        key = (cV, fV, cbcs, fbcs, mat_type)
         try:
             return self._cache_transfer[key]
         except KeyError:
@@ -353,7 +356,7 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
-            return self._cache_transfer.setdefault(key, construct_mat(fV, cV, fbcs, cbcs))
+            return self._cache_transfer.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -460,9 +463,6 @@ class PMGPC(PCBase, PMGBase):
     def coarsen_bc_value(self, bc, cV):
         return 0
 
-    def coarsen_residual(self, Fc, Jc, uc):
-        return ufl.action(Jc, uc)
-
 
 class PMGSNES(SNESBase, PMGBase):
     _prefix = "pfas_"
@@ -515,9 +515,6 @@ class PMGSNES(SNESBase, PMGBase):
         coarse.interpolate(bc._original_arg)
         return coarse
 
-    def coarsen_residual(self, Fc, Jc, uc):
-        return Fc
-
 
 def prolongation_transfer_kernel_action(Vf, expr):
     from tsfc import compile_expression_dual_evaluation
@@ -562,8 +559,8 @@ def expand_element(ele):
 
 def evaluate_dual(dual, element, key=None):
     # Evaluate the action of a set of dual functionals on the basis functions of an element.
-    keys = set(tuple(phi.get_point_dict().keys()) for phi in dual)
-    pts = list(set(sum(keys, ())))
+    keys = list(dict.fromkeys(tuple(phi.get_point_dict().keys()) for phi in dual))
+    pts = list(dict.fromkeys(sum(keys, ())))
     if key is None:
         key = (0, ) * len(pts[0])
     tab = element.tabulate(sum(key), pts)[key]
@@ -611,6 +608,19 @@ def compare_dual_basis(l1, l2):
 @lru_cache(maxsize=10)
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(finat_element):
+    """
+    Find DOF permuation to factor out the EnrichedElement expansion into common
+    TensorProductElements. This routine exposes structure to e.g vectorize
+    prolongation of NCE or NCF accross vector components, by permuting all
+    components into a common TensorProductElement.
+
+    This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
+
+    :returns: a 3-tuple of the DOF permuation, the unique terms in expansion as
+              a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
+              permuatations of the axes to form the element given by their shifts
+              in list of `int` tuples
+    """
     from FIAT.reference_element import LINE
 
     expansion = expand_element(finat_element)
@@ -681,7 +691,7 @@ def get_permutation_to_line_elements(finat_element):
 
 
 @lru_cache(maxsize=10)
-def fiat_reference_prolongator(felem, celem, derivative=False):
+def fiat_reference_prolongator(celem, felem, derivative=False):
     ckey = (felem.formdegree,) if derivative else None
     fkey = (celem.formdegree,) if derivative else None
     fdual = felem.dual_basis()
@@ -717,7 +727,7 @@ x is (nx*ny*nz)-by-nel,
 y is (mx*my*mz)-by-nel.
 
 Important notes:
-The input data in x is destroyed in the process.
+This routine is in-place: the input data in x and y are destroyed in the process.
 Need to allocate nel*max(mx, nx)*max(my, ny)*max(mz, nz) memory for both x and y.
 */
 
@@ -769,6 +779,10 @@ static inline void kronmxv(PetscBLASInt tflag,
     PetscBLASInt nx, PetscBLASInt ny, PetscBLASInt nz, PetscBLASInt nel,
     PetscScalar *A1, PetscScalar *A2, PetscScalar *A3,
     PetscScalar *x, PetscScalar *y, PetscScalar *xwork, PetscScalar *ywork){
+    /*
+    Same as kronmxv_inplace, but the work buffers allow the input data in x to
+    be kept untouched.
+    */
 
     PetscScalar *ptr[2] = {xwork, ywork};
 
@@ -787,6 +801,10 @@ static inline void kronmxv(PetscBLASInt tflag,
 static inline void permute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
+    /*
+    Apply a cyclic permuation to a n0 x n1 x n2 x n3 array x, exponsing axis as
+    the fast direction.  Write the result on y.
+    */
 
     PetscBLASInt p = 0;
     PetscBLASInt s0, s1, s2, s3;
@@ -808,6 +826,9 @@ static inline void permute_axis(PetscBLASInt axis,
 static inline void ipermute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
+    /*
+    Apply the transpose of permute_axis, reading from y and adding to x.
+    */
 
     PetscBLASInt p = 0;
     PetscBLASInt s0, s1, s2, s3;
@@ -830,15 +851,15 @@ static inline void ipermute_axis(PetscBLASInt axis,
 
 
 @PETSc.Log.EventDecorator("MakeKronCode")
-def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
+def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     """
     Return interpolation and restriction kernels between enriched tensor product elements
     """
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
     _, celems, cshifts = get_permutation_to_line_elements(Vc.finat_element)
+    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
 
     shifts = fshifts
     in_place = False
@@ -905,7 +926,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
     fshapes = []
     cshapes = []
     has_code = False
-    for felem, celem, shift in zip(felems, celems, shifts):
+    for celem, felem, shift in zip(celems, felems, shifts):
         if len(felem) != len(celem):
             raise ValueError("Fine and coarse elements do not have the same number of factors")
         if len(felem) > 3:
@@ -918,7 +939,7 @@ def make_kron_code(Vf, Vc, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [fiat_reference_prolongator(fe, ce).T for fe, ce in zip(felem, celem)]
+        J = [fiat_reference_prolongator(ce, fe).T for ce, fe in zip(celem, felem)]
         if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
@@ -1025,7 +1046,7 @@ def cache_generate_code(kernel, comm):
     return code
 
 
-def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
+def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if fmapping == cmapping:
         return None
     A = get_piola_tensor(cmapping, Q.mesh(), inverse=False)
@@ -1133,13 +1154,13 @@ class StandaloneInterpolationMatrix(object):
 
     _cache_work = {}
 
-    def __init__(self, Vf, Vc, Vf_bcs, Vc_bcs):
-        self.uf = self.work_function(Vf)
+    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
         self.uc = self.work_function(Vc)
-        self.Vf = self.uf.function_space()
+        self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()
-        self.Vf_bcs = Vf_bcs
+        self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
+        self.Vf_bcs = Vf_bcs
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1169,6 +1190,9 @@ class StandaloneInterpolationMatrix(object):
     @cached_property
     def _kernels(self):
         try:
+            # We generate custom prolongation and restriction kernels mainly because:
+            # 1. Code generation for the transpose of prolongation is not readily available
+            # 2. Dual evaluation of EnrichedElement is not yet implemented in FInAT
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
@@ -1177,6 +1201,8 @@ class StandaloneInterpolationMatrix(object):
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
         except ValueError:
+            # The elements do not have the expected tensor product structure
+            # Fall back to aij kernels
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
@@ -1253,7 +1279,7 @@ class StandaloneInterpolationMatrix(object):
 
         if fmapping == cmapping:
             # interpolate on each direction via Kroncker product
-            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vf, Vc, "t0", "t1", "J0", "t2")
+            operator_decl, prolong_code, restrict_code, shapes = make_kron_code(Vc, Vf, "t0", "t1", "J0", "t2")
         else:
             decl = [""]*4
             prolong = [""]*5
@@ -1264,18 +1290,18 @@ class StandaloneInterpolationMatrix(object):
                 if qelem.mapping() != "identity":
                     qelem = qelem.reconstruct(mapping="identity")
                 Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.mesh(), qelem)
-                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
+                mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
                 if felem.value_shape():
                     qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
-                mapping_output = make_mapping_code(Qf, fmapping, cmapping, "t0", "t1")
+                mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
             qshape = (Qf.value_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space
-            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Qf, Vc, "t0", "t1", "J0", "t2")
+            decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vc, Qf, "t0", "t1", "J0", "t2")
 
             if mapping_output is not None:
                 # permute to FInAT ordering, and apply the mapping
@@ -1284,7 +1310,7 @@ class StandaloneInterpolationMatrix(object):
                 if not in_place_mapping:
                     # permute to Kronecker-friendly ordering and interpolate to fine space
                     decl[2], prolong[3], restrict[3] = make_permutation_code(Vf, qshape, shapes[0], "t1", "t0", "perm1")
-                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Vf, Qf, "t0", "t1", "J1", "t2")
+                    decl[3], prolong[4], restrict[4], _shapes = make_kron_code(Qf, Vf, "t0", "t1", "J1", "t2")
                     shapes.extend(_shapes)
 
             operator_decl = "".join(decl)
@@ -1456,10 +1482,10 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     @cached_property
     def _standalones(self):
         standalones = []
-        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.subfunctions, self.uc.subfunctions)):
-            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+        for i, (uc_sub, uf_sub) in enumerate(zip(self.uc.subfunctions, self.uf.subfunctions)):
             Vc_sub_bcs = [bc for bc in self.Vc_bcs if bc.function_space().index == i]
-            standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)
+            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+            standalone = StandaloneInterpolationMatrix(uc_sub, uf_sub, Vc_sub_bcs, Vf_sub_bcs)
             standalones.append(standalone)
         return standalones
 
@@ -1480,11 +1506,11 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
             return None
 
 
-def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
-    if isinstance(Pk, firedrake.Function):
-        Pk = Pk.function_space()
+def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
     if isinstance(P1, firedrake.Function):
         P1 = P1.function_space()
+    if isinstance(Pk, firedrake.Function):
+        Pk = Pk.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
                       (Pk.cell_node_map(),
@@ -1535,12 +1561,12 @@ def prolongation_matrix_aij(Pk, P1, Pk_bcs=[], P1_bcs=[]):
     return mat.handle
 
 
-def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
+def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     fele = Vf.ufl_element()
     if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
-        ctx = MixedInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+        ctx = MixedInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
     else:
-        ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
+        ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
