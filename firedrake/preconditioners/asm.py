@@ -322,9 +322,12 @@ def order_points(mesh_dm, points, ordering_type, prefix):
     ja = numpy.concatenate(subgraph).astype(PETSc.IntType)
     A = PETSc.Mat().createAIJ((len(points), )*2, csr=(ia, ja, numpy.ones(ja.shape, PETSc.RealType)), comm=PETSc.COMM_SELF)
     A.setOptionsPrefix(prefix)
-    rperm, _ = A.getOrdering(ordering_type)
+    rperm, cperm = A.getOrdering(ordering_type)
+    indices = points[rperm.getIndices()]
     A.destroy()
-    return points[rperm.getIndices()]
+    rperm.destroy()
+    cperm.destroy()
+    return indices
 
 
 def get_basemesh_nodes(W):

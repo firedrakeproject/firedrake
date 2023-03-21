@@ -45,6 +45,7 @@ facetstar = {
     "pc_python_type": "firedrake.FacetSplitPC",
     "facet_pc_type": "python",
     "facet_pc_python_type": "firedrake.FDMPC",
+    "facet_fdm_static_condensation": True,
     "facet_fdm_pc_use_amat": False,
     "facet_fdm_pc_type": "fieldsplit",
     "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
