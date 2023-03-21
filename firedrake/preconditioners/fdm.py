@@ -66,7 +66,7 @@ class FDMPC(PCBase):
     @staticmethod
     def load_set_values(triu=False):
         """
-        Compile C code to insert sparse element matrices and keep it in class cache
+        Compile C code to insert sparse element matrices and store in class cache
 
         :arg triu: are we inserting onto the upper triangular part of the matrix?
 
@@ -133,7 +133,7 @@ class FDMPC(PCBase):
                     W = W.sub(index)
                 bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
-            # Construct interpolation from variant space to original space
+            # Construct interpolation from original to variant spaces
             self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
@@ -432,7 +432,7 @@ class FDMPC(PCBase):
             assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
             condense_element_mat = None
 
-        do_sort = Vrow.finat_element.formdegree > 0 or Vcol.finat_element.formdegree > 0
+        do_sort = True
         if condense_element_mat is None:
             condense_element_mat = lambda x: x
             do_sort = False
@@ -997,7 +997,7 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     return result
 
 
-def diff_prolongator(Vc, Vf, cbcs=[], fbcs=[]):
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     """
     Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
     Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.

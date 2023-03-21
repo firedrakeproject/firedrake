@@ -557,20 +557,19 @@ def expand_element(ele):
         return ele
 
 
-def evaluate_dual(dual, element, key=None):
-    # Evaluate the action of a set of dual functionals on the basis functions of an element.
-    keys = list(dict.fromkeys(tuple(phi.get_point_dict().keys()) for phi in dual))
-    pts = list(dict.fromkeys(sum(keys, ())))
-    if key is None:
-        key = (0, ) * len(pts[0])
-    tab = element.tabulate(sum(key), pts)[key]
-    result = numpy.empty((len(dual), element.space_dimension()), dtype=tab.dtype)
-    zero = [(0.0, ())]
-    for k, phi in enumerate(dual):
-        wts = phi.get_point_dict()
-        wts = numpy.array([wts.get(pt, zero)[0][0] for pt in pts])
-        result[k] = tab.dot(wts).T
-    return result
+def evaluate_dual(source, target, alpha=None):
+    # Evaluate the action of a set of dual functionals of the target element
+    # on the (derivatives of the) basis functions of the source element.
+    primal = source.get_nodal_basis()
+    dual = target.get_dual_set()
+    A = dual.to_riesz(primal)
+    B = numpy.transpose(primal.get_coeffs())
+    if alpha is not None:
+        dmats = primal.get_dmats()
+        for i in range(len(alpha)):
+            for j in range(alpha[i]):
+                B = numpy.dot(dmats[i], B)
+    return numpy.dot(A, B)
 
 
 def compare_element(e1, e2):
@@ -578,7 +577,7 @@ def compare_element(e1, e2):
         return True
     if e1.space_dimension() != e2.space_dimension():
         return False
-    B = evaluate_dual(e1.dual_basis(), e2)
+    B = evaluate_dual(e1, e2)
     numpy.fill_diagonal(B, numpy.diagonal(B)-1.0)
     return numpy.allclose(B, 0.0, rtol=1E-14, atol=1E-14)
 
@@ -603,6 +602,17 @@ def compare_dual_basis(l1, l2):
     if len(l1) != len(l2):
         return False
     return all(compare_dual(b1, b2) for b1, b2 in zip(l1, l2))
+
+
+@lru_cache(maxsize=10)
+def fiat_reference_prolongator(celem, felem, derivative=False):
+    ckey = (felem.formdegree,) if derivative else None
+    fkey = (celem.formdegree,) if derivative else None
+    fdual = felem.dual_basis()
+    cdual = celem.dual_basis()
+    if fkey == ckey and (celem is felem or compare_dual_basis(cdual, fdual)):
+        return numpy.array([])
+    return evaluate_dual(celem, felem, alpha=ckey)
 
 
 @lru_cache(maxsize=10)
@@ -688,17 +698,6 @@ def get_permutation_to_line_elements(finat_element):
 
     dof_perm = numpy.concatenate(dof_perm)
     return dof_perm, unique_line_elements, shifts
-
-
-@lru_cache(maxsize=10)
-def fiat_reference_prolongator(celem, felem, derivative=False):
-    ckey = (felem.formdegree,) if derivative else None
-    fkey = (celem.formdegree,) if derivative else None
-    fdual = felem.dual_basis()
-    cdual = celem.dual_basis()
-    if fkey == ckey and compare_dual_basis(fdual, cdual):
-        return numpy.array([])
-    return evaluate_dual(fdual, celem, ckey)
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
