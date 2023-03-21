@@ -997,7 +997,7 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     return result
 
 
-def diff_prolongator(Vc, Vf, cbcs=[], fbcs=[]):
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     """
     Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
     Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
