@@ -93,6 +93,7 @@ class FDMPC(PCBase):
         options = PETSc.Options(options_prefix)
 
         use_amat = options.getBool("pc_use_amat", True)
+        use_static_condensation = options.getBool("static_condensation", False)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
 
         appctx = self.get_appctx(pc)
@@ -176,7 +177,7 @@ class FDMPC(PCBase):
                                               fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type)
+        Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type, use_static_condensation)
         self._assemble_P()
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
@@ -203,7 +204,7 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, pmat_type):
+    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, pmat_type, use_static_condensation):
         """
         Assemble the sparse preconditioner from diagonal mass matrices.
 
@@ -212,6 +213,7 @@ class FDMPC(PCBase):
         :arg bcs: an iterable of boundary conditions on V
         :arg form_compiler_parameters: parameters to assemble diagonal factors
         :arg pmat_type: the preconditioner `PETSc.Mat.Type`
+        :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
@@ -241,7 +243,7 @@ class FDMPC(PCBase):
 
         self.reference_tensor_on_diag = dict()
         self.get_static_condensation = dict()
-        if Vfacet:
+        if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
             self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1], self.submats)
@@ -618,7 +620,7 @@ class FDMPC(PCBase):
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
         """
-        Return the reference tensor used in the diagonal factorization of the
+        Return the reference tensor used in the diagonal factorisation of the
         sparse cell matrices.  See Section 3.2 of Brubeck2022b.
 
         :arg V: a :class:`.FunctionSpace`
@@ -713,14 +715,14 @@ def factor_interior_mat(A00):
     zlice = slice(0, nblocks)
     numpy.sqrt(data[zlice], out=data[zlice])
     numpy.reciprocal(data[zlice], out=data[zlice])
-    PETSc.Log.logFlops(2*nblocks)
+    flops = nblocks * 2
     for k in range(2, degree[-1]+1):
         nblocks = numpy.count_nonzero(degree == k)
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
-        flops = ((k+1)**3 + 5*(k+1)-12)//3 + k**3
-        PETSc.Log.logFlops(flops*nblocks)
+        flops += nblocks * (((k+1)**3 + 5*(k+1)-12)//3 + k**3)
 
+    PETSc.Log.logFlops(flops)
     A00.setValuesCSR(indptr, indices, data)
     A00.assemble()
 
@@ -1607,7 +1609,7 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
 @lru_cache(maxsize=10)
 def fdm_setup_ipdg(fdm_element, eta):
     """
-    Setup for the fast diagonalization method for the IP-DG formulation.
+    Setup for the fast diagonalisation method for the IP-DG formulation.
     Compute sparsified interval stiffness and mass matrices
     and tabulate the normal derivative of the shape functions.
 
