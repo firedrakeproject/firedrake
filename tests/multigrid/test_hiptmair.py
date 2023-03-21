@@ -67,7 +67,7 @@ def run_riesz_map(V, mat_type):
     else:
         from firedrake.preconditioners.fdm import tabulate_exterior_derivative
         appctx = {"get_gradient": tabulate_exterior_derivative,
-                  "get_curl": tabulate_exterior_derivative,}
+                  "get_curl": tabulate_exterior_derivative}
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx=appctx)
     solver.solve()
