@@ -53,15 +53,19 @@ class FDMPC(PCBase):
     where alpha and beta are possibly tensor-valued.  The sparse matrix is
     obtained by approximating (v, alpha * u) and (v, beta * u) as diagonal mass
     matrices.
+
+    The PETSc options inspected by this class are:
+    - 'fdm_mat_type': can be either 'aij' or 'sbaij'
+    - 'fdm_static_condensation': are we assembling the Schur complement on facets?
+
+    Static condensation is currently only implemented for the symmetric case,
+    use it at your own risk.
     """
 
     _prefix = "fdm_"
     _variant = "fdm"
     _citation = "Brubeck2022b"
-
-    _reference_tensor_cache = {}
-    _coefficient_cache = {}
-    _c_code_cache = {}
+    _cache = {}
 
     @staticmethod
     def load_set_values(triu=False):
@@ -73,7 +77,7 @@ class FDMPC(PCBase):
         :returns: a python wrapper for the matrix insertion function
         """
         key = triu
-        cache = FDMPC._c_code_cache
+        cache = FDMPC._cache.setdefault("load_set_values", {})
         try:
             return cache[key]
         except KeyError:
@@ -112,9 +116,13 @@ class FDMPC(PCBase):
             bcs = tuple(ctx._problem.bcs)
             mat_type = ctx.mat_type
 
-        if isinstance(J, firedrake.slate.Add):
-            J = J.children[0].form
-        assert type(J) == ufl.Form
+        # For static condensation with SLATE, we might extract the form on the
+        # interface-interface block like this:
+        #
+        # if isinstance(J, firedrake.slate.TensorBase) and use_static_condensation:
+        #     J = J.children[0].form
+        if not isinstance(J, ufl.Form):
+            raise ValueError("Expecting a ufl.Form, not a %r" % type(J))
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[-1].function_space()
@@ -134,12 +142,15 @@ class FDMPC(PCBase):
                     W = W.sub(index)
                 bcs_fdm.append(bc.reconstruct(V=W, g=0))
 
-            # Construct interpolation from original to variant spaces
+            # Create a new _SNESContext in the variant space
+            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
+                                              fcp=fcp, options_prefix=options_prefix)
+
+            # Construct interpolation from variant to original spaces
             self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
-                omat = Amat
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=mat_type, options_prefix=options_prefix)
                 self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
@@ -147,34 +158,10 @@ class FDMPC(PCBase):
                 self._assemble_A()
                 Amat = self.A.petscmat
 
-                def interp_nullspace(I, nsp):
-                    if not nsp.handle:
-                        return nsp
-                    vectors = []
-                    for x in nsp.getVecs():
-                        y = I.createVecLeft()
-                        I.mult(x, y)
-                        vectors.append(y)
-                    if nsp.hasConstant():
-                        y = I.createVecLeft()
-                        x = I.createVecRight()
-                        x.set(1.0E0)
-                        I.mult(x, y)
-                        vectors.append(y)
-                        x.destroy()
-                    return PETSc.NullSpace().create(constant=False, vectors=vectors, comm=nsp.getComm())
-
-                inject = prolongation_matrix_matfree(V, V_fdm, [], [])
-                Amat.setNullSpace(interp_nullspace(inject, omat.getNullSpace()))
-                Amat.setTransposeNullSpace(interp_nullspace(inject, omat.getTransposeNullSpace()))
-                Amat.setNearNullSpace(interp_nullspace(inject, omat.getNearNullSpace()))
-
             if len(bcs) > 0:
                 self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
             else:
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-            self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
-                                              fcp=fcp, options_prefix=options_prefix)
 
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self._assemble_P = self.assemble_fdm_op(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type, use_static_condensation)
@@ -596,9 +583,10 @@ class FDMPC(PCBase):
 
         # Return coefficients and assembly callables, and cache them class
         key = (mixed_form.signature(), mesh)
+        cache = self._cache.setdefault("coefficients", {})
         block_diagonal = True
         try:
-            return self._coefficient_cache[key]
+            return cache[key]
         except KeyError:
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
@@ -615,7 +603,7 @@ class FDMPC(PCBase):
                     ctx = sub.getPythonContext()
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
-            return self._coefficient_cache.setdefault(key, (coefficients, assembly_callables))
+            return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V):
@@ -640,7 +628,7 @@ class FDMPC(PCBase):
             degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
         key = (degree, tdim, formdegree, value_size, is_interior, is_facet)
-        cache = self._reference_tensor_cache
+        cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
         except KeyError:
