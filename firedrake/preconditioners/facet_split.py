@@ -196,14 +196,14 @@ def split_dofs(elem):
     entity_dofs = elem.entity_dofs()
     ndim = elem.cell.get_spatial_dimension()
     edofs = [[], []]
-    for key in sorted(entity_dofs):
+    for key in sorted(entity_dofs.keys()):
         vals = entity_dofs[key]
         edim = key
         try:
             edim = sum(edim)
         except TypeError:
             pass
-        for k in sorted(vals):
+        for k in sorted(vals.keys()):
             edofs[edim < ndim].extend(sorted(vals[k]))
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
