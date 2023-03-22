@@ -373,6 +373,8 @@ class FDMPC(PCBase):
 
     def destroy(self, pc):
         objs = []
+        if hasattr(self, "A"):
+            objs.append(self.A)
         if hasattr(self, "pc"):
             objs.append(self.pc.getOperators()[-1])
             objs.append(self.pc)
@@ -666,12 +668,9 @@ class FDMPC(PCBase):
             A10 = numpy.linalg.solve(A11, A10)
             A11 = numpy.eye(A11.shape[0])
 
-            Ihat = mass_matrix(tdim, formdegree, A00, A11)
-            Dhat = diff_matrix(tdim, formdegree, A00, A11, A10)
-            result = block_mat([[Ihat], [Dhat]])
-            Ihat.destroy()
-            Dhat.destroy()
-
+            B_blocks = mass_blocks(tdim, formdegree, A00, A11)
+            A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
+            result = block_mat(B_blocks + A_blocks, destroy=True)
             if value_size != 1:
                 eye = petsc_sparse(numpy.eye(value_size))
                 temp = result
@@ -720,13 +719,14 @@ def condense_element_mat(A, i0, i1, submats):
     # Return the Schur complement associated to indices in i1, condensing i0 out
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
+    structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
     submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
     A00, A01, A10, A11 = submats[:4]
     factor_interior_mat(A00)
     submats[4] = A00.matMult(A01, result=submats[4])
     submats[5] = A10.matTransposeMult(A00, result=submats[5])
     submats[6] = submats[5].matMult(submats[4], result=submats[6])
-    submats[6].aypx(-1.0, A11)
+    submats[6].aypx(-1.0, A11, structure=structure)
     return submats[6]
 
 
@@ -735,12 +735,13 @@ def condense_element_pattern(A, i0, i1, submats):
     # Add zeroes on the statically condensed pattern so that you can run ICC(0)
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
+    structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
     submats[5] = A00.matMult(A01, result=submats[5])
     submats[6] = submats[4].matMult(submats[5], result=submats[6])
-    submats[6].aypx(0.0, A)
+    submats[6].aypx(0.0, A, structure=structure)
     return submats[6]
 
 
@@ -823,30 +824,6 @@ PetscErrorCode {name}(Mat A,
                        restype=ctypes.c_int)
 
 
-def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
-    # Convert dense numpy matrix into a sparse PETSc matrix
-    Amax = max(A_numpy.min(), A_numpy.max(), key=abs)
-    atol = rtol*Amax
-    nnz = numpy.count_nonzero(abs(A_numpy) > atol, axis=1).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
-    for row, Arow in enumerate(A_numpy):
-        cols = numpy.argwhere(abs(Arow) > atol).astype(PETSc.IntType).flat
-        A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
-    A.assemble()
-    return A
-
-
-def block_mat(A_blocks):
-    # Return a concrete Mat corresponding to a block matrix given as a list of lists
-    if len(A_blocks) == 1:
-        if len(A_blocks[0]) == 1:
-            return A_blocks[0][0]
-
-    nest = PETSc.Mat().createNest(A_blocks, comm=A_blocks[0][0].getComm())
-    # A nest Mat would not allow us to take matrix-matrix products
-    return nest.convert(mat_type=A_blocks[0][0].getType())
-
-
 def is_restricted(finat_element):
     # Determine if an element is a restriction onto interior or facets
     is_interior = True
@@ -888,6 +865,19 @@ def sort_interior_dofs(idofs, A):
     Aii.destroy()
 
 
+def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
+    # Convert dense numpy matrix into a sparse PETSc matrix
+    Amax = max(A_numpy.min(), A_numpy.max(), key=abs)
+    atol = rtol*Amax
+    nnz = numpy.count_nonzero(abs(A_numpy) > atol, axis=1).astype(PETSc.IntType)
+    A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
+    for row, Arow in enumerate(A_numpy):
+        cols = numpy.argwhere(abs(Arow) > atol).astype(PETSc.IntType).flat
+        A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
+    A.assemble()
+    return A
+
+
 def kron3(A, B, C, scale=None):
     temp = B.kron(C)
     if scale is not None:
@@ -897,13 +887,30 @@ def kron3(A, B, C, scale=None):
     return result
 
 
-def mass_matrix(tdim, formdegree, B00, B11, comm=None):
-    # Construct mass matrix on reference cell from 1D mass matrices B00 and B11.
+def block_mat(A_blocks, destroy=False):
+    # Return a concrete Mat corresponding to a block matrix given as a list of lists
+    # Optionally, destroys the input Mats if a new Mat is created
+    if len(A_blocks) == 1:
+        if len(A_blocks[0]) == 1:
+            return A_blocks[0][0]
+
+    result = PETSc.Mat().createNest(A_blocks, comm=A_blocks[0][0].getComm())
+    # A nest Mat would not allow us to take matrix-matrix products
+    result = result.convert(mat_type=A_blocks[0][0].getType())
+    if destroy:
+        for row in A_blocks:
+            for mat in row:
+                mat.destroy()
+    return result
+
+
+def mass_blocks(tdim, formdegree, B00, B11, comm=None):
+    # Construct mass block matrix on reference cell from 1D mass matrices B00 and B11.
     # The 1D matrices may come with different test and trial spaces.
     if comm is None:
         comm = PETSc.COMM_SELF
     if tdim == 1:
-        return petsc_sparse(B11 if formdegree else B00, comm=comm)
+        return [[petsc_sparse(B11 if formdegree else B00, comm=comm)]]
 
     B00 = petsc_sparse(B00, comm=comm)
     B11 = petsc_sparse(B11, comm=comm)
@@ -928,20 +935,15 @@ def mass_matrix(tdim, formdegree, B00, B11, comm=None):
     B11.destroy()
     n = len(B_diag)
     if n == 1:
-        result = B_diag[0]
+        return [B_diag]
     else:
         B_zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=comm)
         B_zero.assemble()
-        B_blocks = [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]
-        result = block_mat(B_blocks)
-        B_zero.destroy()
-        for B in B_diag:
-            B.destroy()
-    return result
+        return [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]
 
 
-def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
-    # Construct exterior derivative matrix on reference cell from 1D mass matrices A00 and A11,
+def diff_blocks(tdim, formdegree, A00, A11, A10, comm=None):
+    # Construct exterior derivative block matrix on reference cell from 1D mass matrices A00 and A11,
     # and exterior derivative moments A10.
     # The 1D matrices may come with different test and trial spaces.
     if comm is None:
@@ -950,11 +952,11 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
         ncols = A10.shape[0]**tdim
         A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=comm)
         A_zero.assemble()
-        return A_zero
+        return [[A_zero]]
 
     A10 = petsc_sparse(A10, comm=comm)
     if tdim == 1:
-        return A10
+        return [[A10]]
 
     A00 = petsc_sparse(A00, comm=comm)
     A11 = petsc_sparse(A11, comm=comm)
@@ -980,11 +982,7 @@ def diff_matrix(tdim, formdegree, A00, A11, A10, comm=None):
     A00.destroy()
     A11.destroy()
     A10.destroy()
-    result = block_mat(A_blocks)
-    for A_row in A_blocks:
-        for A in A_row:
-            A.destroy()
-    return result
+    return A_blocks
 
 
 def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
@@ -1010,7 +1008,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     A10 = fiat_reference_prolongator(e0, e1, derivative=True)
 
     tdim = Vc.mesh().topological_dimension()
-    Dhat = diff_matrix(tdim, ec.formdegree, A00, A11, A10)
+    Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy=True)
 
     scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
     fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
