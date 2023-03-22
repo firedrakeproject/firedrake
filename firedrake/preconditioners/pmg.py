@@ -49,8 +49,7 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-
-    _cache_transfer = {}
+    _cache = {}
 
     def coarsen_element(self, ele):
         """
@@ -340,15 +339,16 @@ class PMGBase(PCSNESBase):
                 raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
         return cbcs
 
-    def create_transfer(self, cctx, fctx, mat_type, cbcs, fbcs):
+    def create_transfer(self, mat_type, cctx, fctx, cbcs, fbcs):
         # Create a transfer or retrieve it from the class cache
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
         fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-        key = (cV, fV, cbcs, fbcs, mat_type)
+        key = (mat_type, cV, fV, cbcs, fbcs)
+        cache = self._cache.setdefault("transfer", {})
         try:
-            return self._cache_transfer[key]
+            return cache[key]
         except KeyError:
             if mat_type == "matfree":
                 construct_mat = prolongation_matrix_matfree
@@ -356,19 +356,19 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
-            return self._cache_transfer.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
+            return cache.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        interpolate = self.create_transfer(get_appctx(dmc), get_appctx(dmf), mat_type, True, False)
+        interpolate = self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False)
         rscale = interpolate.createVecRight()  # only used as a workaround in the creation of coarse vecs
         return interpolate, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(get_appctx(dmf), get_appctx(dmc), mat_type, False, False)
+        return self.create_transfer(mat_type, get_appctx(dmf), get_appctx(dmc), False, False)
 
     @staticmethod
     def max_degree(ele):
