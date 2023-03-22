@@ -1,10 +1,21 @@
 from functools import partial, lru_cache
 from itertools import product
-from pyop2.sparsity import get_preallocation
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.patch import bcdofs
+from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
+                                           fiat_reference_prolongator,
+                                           get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake_citations import Citations
+from pyop2.compilation import load
+from pyop2.utils import get_petsc_dir
+from pyop2.sparsity import get_preallocation
+from tsfc.finatinterface import create_element
+from ufl.algorithms.ad import expand_derivatives
+from ufl.algorithms.expand_indices import expand_indices
+
 import firedrake.dmhooks as dmhooks
 import firedrake
 import ctypes
@@ -85,10 +96,6 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, assemble
-        from firedrake.preconditioners.pmg import prolongation_matrix_matfree
-        from firedrake.preconditioners.patch import bcdofs
-
         Citations().register(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
@@ -151,10 +158,12 @@ class FDMPC(PCBase):
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
+                from firedrake.assemble import allocate_matrix, TwoFormAssembler
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=mat_type, options_prefix=options_prefix)
-                self._assemble_A = partial(assemble, J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                           form_compiler_parameters=fcp, mat_type=mat_type)
+                self._assemble_A = TwoFormAssembler(J_fdm, tensor=self.A, bcs=bcs_fdm,
+                                                    form_compiler_parameters=fcp,
+                                                    mat_type=mat_type).assemble
                 self._assemble_A()
                 Amat = self.A.petscmat
 
@@ -509,11 +518,6 @@ class FDMPC(PCBase):
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
                   and a list of assembly callables.
         """
-        from ufl.algorithms.ad import expand_derivatives
-        from ufl.algorithms.expand_indices import expand_indices
-        from firedrake.formmanipulation import ExtractSubBlock
-        from firedrake.assemble import assemble
-
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
         # Then, replace the original arguments with arguments in broken(V^k).
@@ -593,11 +597,11 @@ class FDMPC(PCBase):
             if not block_diagonal or not V.shape:
                 tensor = firedrake.Function(Z)
                 coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
+                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
                                               form_compiler_parameters=form_compiler_parameters)]
             else:
-                M = assemble(mixed_form, mat_type="matfree",
-                             form_compiler_parameters=form_compiler_parameters)
+                M = firedrake.assemble(mixed_form, mat_type="matfree",
+                                       form_compiler_parameters=form_compiler_parameters)
                 coefficients = dict()
                 assembly_callables = []
                 for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
@@ -747,8 +751,6 @@ def condense_element_pattern(A, i0, i1, submats):
 
 @PETSc.Log.EventDecorator("LoadCode")
 def load_c_code(code, name, **kwargs):
-    from pyop2.compilation import load
-    from pyop2.utils import get_petsc_dir
     cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
@@ -990,9 +992,6 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
     Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
     """
-    from tsfc.finatinterface import create_element
-    from firedrake.preconditioners.pmg import fiat_reference_prolongator
-
     ec = Vc.finat_element
     ef = Vf.finat_element
     if ef.formdegree - ec.formdegree != 1:
@@ -1132,7 +1131,6 @@ class PoissonFDMPC(FDMPC):
     _citation = "Brubeck2022a"
 
     def assemble_reference_tensor(self, V):
-        from firedrake.preconditioners.pmg import get_permutation_to_line_elements
         try:
             _, line_elements, shifts = get_permutation_to_line_elements(V.finat_element)
         except ValueError:
@@ -1381,9 +1379,6 @@ class PoissonFDMPC(FDMPC):
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters, discard_mixed=True, cell_average=True):
-        from ufl import inner, diff
-        from ufl.algorithms.ad import expand_derivatives
-
         coefficients = {}
         assembly_callables = []
 
@@ -1421,8 +1416,8 @@ class PoissonFDMPC(FDMPC):
         else:
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
 
-        alpha = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_grad),
-                                             ref_grad[0]), ref_grad[1]) for i in integrals_J]))
+        alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
+                                                 ref_grad[0]), ref_grad[1]) for i in integrals_J]))
 
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
@@ -1433,8 +1428,8 @@ class PoissonFDMPC(FDMPC):
         else:
             replace_val = {t: s for t, s in zip(args_J, ref_val)}
 
-        beta = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_val),
-                                            ref_val[0]), ref_val[1]) for i in integrals_J]))
+        beta = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
+                                                ref_val[0]), ref_val[1]) for i in integrals_J]))
         if Piola:
             beta = ufl.replace(beta, {dummy_Piola: Piola})
 
@@ -1457,7 +1452,7 @@ class PoissonFDMPC(FDMPC):
             q = firedrake.TestFunction(Q)
             Gq = firedrake.Function(Q)
             coefficients["alpha"] = Gq
-            assembly_callables.append(partial(firedrake.assemble, inner(G, q)*dx, Gq))
+            assembly_callables.append(partial(firedrake.assemble, ufl.inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
@@ -1472,7 +1467,7 @@ class PoissonFDMPC(FDMPC):
             q = firedrake.TestFunction(Q)
             Bq = firedrake.Function(Q)
             coefficients["beta"] = Bq
-            assembly_callables.append(partial(firedrake.assemble, inner(beta, q)*dx, Bq))
+            assembly_callables.append(partial(firedrake.assemble, ufl.inner(beta, q)*dx, Bq))
 
         if Piola:
             # make DGT functions with the second order coefficient
@@ -1483,8 +1478,8 @@ class PoissonFDMPC(FDMPC):
             area = ufl.FacetArea(mesh)
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
-            alpha = expand_derivatives(sum([diff(diff(ufl.replace(i.integrand(), replace_grad),
-                                                 ref_grad[0]), ref_grad[1]) for i in integrals_J]))
+            alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
+                                                     ref_grad[0]), ref_grad[1]) for i in integrals_J]))
             vol = abs(ufl.JacobianDeterminant(mesh))
             G = vol * alpha
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
@@ -1493,14 +1488,14 @@ class PoissonFDMPC(FDMPC):
             q = firedrake.TestFunction(Q)
             Gq_facet = firedrake.Function(Q)
             coefficients["Gq_facet"] = Gq_facet
-            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), G('+')) + inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
+            assembly_callables.append(partial(firedrake.assemble, ((ufl.inner(q('+'), G('+')) + ufl.inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
 
             PT = Piola.T
             Q = firedrake.TensorFunctionSpace(mesh, ele, shape=PT.ufl_shape)
             q = firedrake.TestFunction(Q)
             PT_facet = firedrake.Function(Q)
             coefficients["PT_facet"] = PT_facet
-            assembly_callables.append(partial(firedrake.assemble, ((inner(q('+'), PT('+')) + inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
+            assembly_callables.append(partial(firedrake.assemble, ((ufl.inner(q('+'), PT('+')) + ufl.inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
 
         # make DGT functions with BC flags
         rvs = V.ufl_element().reference_value_shape()

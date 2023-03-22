@@ -1,14 +1,19 @@
 from functools import partial, lru_cache
 from itertools import chain
-from pyop2 import op2, PermutedMap
+from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
 from firedrake.solving_utils import _SNESContext
+from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
-from firedrake.petsc import PETSc
+from pyop2 import op2, PermutedMap
+from tsfc import compile_expression_dual_evaluation
+from tsfc.finatinterface import create_element
+from FIAT.reference_element import LINE
+
 import firedrake
 import finat
 import ufl
@@ -162,8 +167,6 @@ class PMGBase(PCSNESBase):
     def coarsen(self, fdm, comm):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
-        from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
-
         fctx = get_appctx(fdm)
         parent = get_parent(fdm)
         assert parent is not None
@@ -517,8 +520,6 @@ class PMGSNES(SNESBase, PMGBase):
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
-    from tsfc import compile_expression_dual_evaluation
-    from tsfc.finatinterface import create_element
     to_element = create_element(Vf.ufl_element())
     kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
@@ -631,8 +632,6 @@ def get_permutation_to_line_elements(finat_element):
               permutations of the axes to form the element given by their shifts
               in list of `int` tuples
     """
-    from FIAT.reference_element import LINE
-
     expansion = expand_element(finat_element)
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % finat_element)
