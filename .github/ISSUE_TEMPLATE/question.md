@@ -1,5 +1,5 @@
 ---
-name: "\U0002753 Question"
+name: "\U00002753 Question"
 description: Ask a question
 title: ''
 labels: [question]
