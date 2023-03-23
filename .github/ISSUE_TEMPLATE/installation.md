@@ -1,5 +1,5 @@
 ---
-name: "\U0002699 Installation"
+name: "\U00002699 Installation"
 description: Create a report for a bug you have found
 title: 'BUG: '
 labels: [installation]
