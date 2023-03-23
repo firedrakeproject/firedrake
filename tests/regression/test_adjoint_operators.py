@@ -169,12 +169,12 @@ def test_interpolate_tlm_wit_constant():
     x = SpatialCoordinate(mesh)
     f = interpolate(x[0], V1)
     g = interpolate(sin(x[0]), V1)
-    c = Constant(5.0)
+    c = Constant(5.0, domain=mesh)
     u = Function(V2)
     u.interpolate(c * f ** 2)
 
     # test tlm w.r.t constant only:
-    c.block_variable.tlm_value = Constant(1.0)
+    c.block_variable.tlm_value = Constant(1.0, domain=mesh)
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
     h = Constant(1.0)
